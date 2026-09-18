@@ -912,7 +912,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   </tr>
                   <tr>
                     <td colSpan={2} className="p-3 text-right text-slate-400 uppercase">
-                      Equivalen IDR (Kurs 15,800):
+                      Equivalen IDR (Kurs {new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(activeJob.exchangeRateUSDToIDR || 15800)}):
                     </td>
                     <td className="p-3 text-right font-mono text-slate-300">
                       {jobCurrency === 'USD' ? formatIDR(invoiceAmount * (activeJob.exchangeRateUSDToIDR || 15800)) : formatIDR(invoiceAmount)}
