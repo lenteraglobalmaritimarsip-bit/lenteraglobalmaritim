@@ -195,7 +195,13 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="maritim-user-name">{currentUser.name}</div>
               <div className="maritim-user-role">{roleMeta[currentRole].desc}</div>
             </div>
-            <span className="maritim-role-pill">{roleMeta[currentRole].label}</span>
+            <button
+              onClick={() => setShowRoleDropdown(v => !v)}
+              style={{border:0,background:'transparent',color:'#fff',display:'flex',alignItems:'center',gap:4,padding:3,cursor:'pointer'}}
+              title="Buka menu pengguna"
+            >
+              <span className="maritim-role-pill">{roleMeta[currentRole].label}</span>
+            </button>
           </div>
 
           {showRoleDropdown && (
