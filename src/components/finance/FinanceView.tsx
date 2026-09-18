@@ -173,7 +173,10 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     .reduce((sum, receipt) => sum + (receipt.amount || 0), 0), 0);
   const totalPrincipalBilled_IDR = approvedFDAJobs.reduce((sum, job) => sum + getJobPrincipalBilled(job), 0);
   const totalInvoiceReceived_IDR = approvedFDAJobs.reduce((sum, job) => sum + getJobInvoicePayment(job), 0);
-  const totalAdvancePayment_IDR = approvedFDAJobs.reduce((sum, job) => sum + getJobAdvancePayment(job), 0);
+  const totalAdvancePayment_IDR = approvedFDAJobs.reduce(
+    (sum, job) => sum + (isClosedJob(job) ? 0 : getJobAdvancePayment(job)),
+    0
+  );
   const totalReceived_IDR = totalAdvancePayment_IDR + totalInvoiceReceived_IDR;
   const totalOutstanding_IDR = Math.max(0, totalPrincipalBilled_IDR - totalReceived_IDR);
   const pendingJobCount = approvedFDAJobs.filter((job) => !isClosedJob(job) && Math.max(0, getJobPrincipalBilled(job) - getJobPrincipalReceived(job)) > 0).length;
