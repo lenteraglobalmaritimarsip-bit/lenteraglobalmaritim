@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Bell, ChevronDown, Database, Layers, Search, ShieldCheck,
+  Bell, Database, Layers, Search, ShieldCheck,
   Briefcase, FileCheck2, DollarSign, UserCircle2
 } from 'lucide-react';
 import { UserRole, JobCall, ActiveTab } from '../../types';
@@ -9,7 +9,6 @@ import { LogOut } from 'lucide-react';
 
 interface HeaderProps {
   currentRole: UserRole;
-  onRoleChange: (role: UserRole) => void;
   onProfile: () => void;
   onChangePassword: (oldPassword: string, newPassword: string) => void;
   selectedJobId: string;
@@ -31,7 +30,7 @@ type HeaderNotification = {
 };
 
 export const Header: React.FC<HeaderProps> = ({
-  currentRole, onRoleChange, onProfile, onChangePassword, selectedJobId, onJobSelect,
+  currentRole, onProfile, onChangePassword, selectedJobId, onJobSelect,
   onOpenDbModal, jobCalls, currentUser, onLogout, onNavigate
 }) => {
   const [showRoleDropdown, setShowRoleDropdown] = useState(false);
@@ -196,14 +195,7 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="maritim-user-name">{currentUser.name}</div>
               <div className="maritim-user-role">{roleMeta[currentRole].desc}</div>
             </div>
-            <button
-              onClick={() => setShowRoleDropdown(v => !v)}
-              style={{border:0,background:'transparent',color:'#fff',display:'flex',alignItems:'center',gap:4,padding:3}}
-              title="Switch role"
-            >
-              <span className="maritim-role-pill">{roleMeta[currentRole].label}</span>
-              <ChevronDown size={12}/>
-            </button>
+            <span className="maritim-role-pill">{roleMeta[currentRole].label}</span>
           </div>
 
           {showRoleDropdown && (
@@ -211,25 +203,6 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="maritim-user-menu-head">
                 <div className="maritim-user-menu-avatar">{initials(currentUser.name)}</div>
                 <div><b>{currentUser.name}</b><small>{currentUser.email}</small></div>
-              </div>
-
-              <div className="maritim-user-menu-divider"/>
-              <div className="px-3 py-2 text-[10px] font-extrabold uppercase tracking-[0.14em] text-slate-400">Pindah Role</div>
-              <div className="px-2 pb-2 space-y-1">
-                {(Object.keys(roleMeta) as UserRole[]).map((role) => (
-                  <button
-                    key={role}
-                    className={`w-full flex items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-xs ${currentRole === role ? 'bg-cyan-500/15 text-cyan-200 border border-cyan-500/30' : 'text-slate-200 hover:bg-slate-800/80'}`}
-                    onClick={() => { setShowRoleDropdown(false); onRoleChange(role); }}
-                    type="button"
-                  >
-                    <span className="flex items-center gap-2">
-                      {React.createElement(roleMeta[role].icon, { size: 14 })}
-                      {roleMeta[role].label}
-                    </span>
-                    {currentRole === role && <span className="text-[9px] font-bold uppercase tracking-wide text-emerald-300">Aktif</span>}
-                  </button>
-                ))}
               </div>
 
               <button className="maritim-user-menu-item" onClick={() => {setShowRoleDropdown(false); onProfile();}}><UserCircle2 size={16}/><span><b>Profil</b><small>Lihat profil pengguna aktif</small></span></button>

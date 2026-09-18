@@ -256,7 +256,6 @@ export default function App() {
       {/* Top Main Navigation Header */}
       <Header
         currentRole={currentRole}
-        onRoleChange={handleRoleChange}
         selectedJobId={selectedJobId}
         onJobSelect={setSelectedJobId}
         onOpenDbModal={() => setShowDbModal(true)}
