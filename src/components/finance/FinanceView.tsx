@@ -413,7 +413,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       .replace(/"/g, '&quot;');
     const rows = invoiceGroups.map((group) => `
       <tr class="category"><td colspan="3">${escapeHtml(invoiceCategoryLabel(group.category))}</td></tr>
-      ${group.items.map((item) => `<tr><td>${escapeHtml(item.name)}<small>Vendor: ${escapeHtml(item.basis)}</small></td><td>${escapeHtml(item.currency)}</td><td class="amount">${escapeHtml(formatCurrencyNumber(convertCurrency(item.totalSellRate, item.currency, jobCurrency, getJobExchangeRate(activeJob)), jobCurrency))}</td></tr>`).join('')}
+      ${group.items.map((item) => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.currency)}</td><td class="amount">${escapeHtml(formatCurrencyNumber(convertCurrency(item.totalSellRate, item.currency, jobCurrency, getJobExchangeRate(activeJob)), jobCurrency))}</td></tr>`).join('')}
     `).join('');
     const win = window.open('', '_blank', 'width=1100,height=800');
     if (!win) return;
@@ -865,7 +865,6 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                         <tr key={it.id} className="hover:bg-slate-800/40">
                           <td className="p-3 font-semibold text-white">
                             {it.name}
-                            <span className="block text-[11px] text-slate-400 font-normal">Vendor: {it.basis}</span>
                           </td>
                           <td className="p-3 text-right font-mono text-slate-400">{it.currency}</td>
                           <td className="p-3 text-right font-mono font-bold text-cyan-300">
