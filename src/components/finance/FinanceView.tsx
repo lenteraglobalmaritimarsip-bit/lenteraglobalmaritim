@@ -178,6 +178,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     0
   );
   const totalReceived_IDR = totalAdvancePayment_IDR + totalInvoiceReceived_IDR;
+  const totalIncomingBill_IDR = totalPrincipalBilled_IDR;
   const totalOutstanding_IDR = Math.max(0, totalPrincipalBilled_IDR - totalReceived_IDR);
   const pendingJobCount = approvedFDAJobs.filter((job) => !isClosedJob(job) && Math.max(0, getJobPrincipalBilled(job) - getJobPrincipalReceived(job)) > 0).length;
   const netOperatingProfit_USD = totalAR_USD - totalAP_USD;
@@ -644,7 +645,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                 TOTAL TAGIHAN MASUK
               </span>
               <span className="text-xl font-black text-slate-200 font-mono mt-1 block">
-                {formatIDR(totalReceived_IDR)}
+                {formatIDR(totalIncomingBill_IDR)}
               </span>
               <span className="text-[11px] text-slate-400">
                 Total Diterima (Received)
