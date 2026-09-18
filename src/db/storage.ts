@@ -36,6 +36,10 @@ export interface DatabaseState {
 }
 
 const STORAGE_KEY = 'maritimport_database_v2';
+const REMOVED_JOB_CALL_IDS = new Set(['VC-2026-0098', 'VC-2026-0099', 'VC-2026-0095']);
+
+const withoutRemovedJobCalls = (jobCalls: JobCall[]): JobCall[] =>
+  jobCalls.filter((job) => !REMOVED_JOB_CALL_IDS.has(job.jobId));
 
 export const normalizeBranchCode = (branch?: string): string => {
   const raw = (branch || 'Head Office').trim();
@@ -142,7 +146,7 @@ class DatabaseService {
       zones: INITIAL_ZONES,
       fixTariffs: INITIAL_FIX_TARIFFS,
       expensesItems: INITIAL_EXPENSES_ITEMS,
-      jobCalls: INITIAL_JOB_CALLS,
+      jobCalls: withoutRemovedJobCalls(INITIAL_JOB_CALLS),
       currentRole: 'ADMIN',
       selectedJobId: INITIAL_JOB_CALLS[0]?.jobId || '',
       auditLogs: [],
@@ -165,7 +169,7 @@ class DatabaseService {
         zones: Array.isArray(parsed.zones) ? parsed.zones : INITIAL_ZONES,
         fixTariffs: Array.isArray(parsed.fixTariffs) ? parsed.fixTariffs : INITIAL_FIX_TARIFFS,
         expensesItems: Array.isArray(parsed.expensesItems) ? parsed.expensesItems : INITIAL_EXPENSES_ITEMS,
-        jobCalls: Array.isArray(parsed.jobCalls) ? parsed.jobCalls : [],
+        jobCalls: Array.isArray(parsed.jobCalls) ? withoutRemovedJobCalls(parsed.jobCalls) : [],
         auditLogs: Array.isArray(parsed.auditLogs) ? parsed.auditLogs : [],
       };
     } catch {
@@ -249,7 +253,7 @@ class DatabaseService {
       zones: INITIAL_ZONES,
       fixTariffs: INITIAL_FIX_TARIFFS,
       expensesItems: INITIAL_EXPENSES_ITEMS,
-      jobCalls: INITIAL_JOB_CALLS,
+      jobCalls: withoutRemovedJobCalls(INITIAL_JOB_CALLS),
       currentRole: this.state.currentRole,
       selectedJobId: INITIAL_JOB_CALLS[0]?.jobId || '',
       auditLogs: [],
