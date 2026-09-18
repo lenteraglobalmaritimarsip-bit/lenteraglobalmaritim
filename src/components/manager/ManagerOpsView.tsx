@@ -94,8 +94,9 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
       maximumFractionDigits: currency === 'IDR' ? 0 : 2,
     }).format(val);
   const totalRevenuePipelineIDR = jobCalls.reduce((sum, job) => {
-    const amount = job.quotation?.pda?.totalSellRate || job.quotation?.epda?.totalSellRate || 0;
-    const currency = job.quotation?.pda?.currency || job.quotation?.epda?.currency || job.currency || 'IDR';
+    if (job.managerApproval?.status !== 'APPROVED' || job.quotation?.epda?.status !== 'APPROVED') return sum;
+    const amount = job.quotation?.epda?.totalSellRate || 0;
+    const currency = job.quotation?.epda?.currency || job.currency || 'IDR';
     const rate = job.exchangeRateUSDToIDR || 15800;
     return sum + (currency === 'USD' ? amount * rate : amount);
   }, 0);
