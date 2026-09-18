@@ -656,6 +656,29 @@ class DatabaseService {
     return { ok: true };
   }
 
+  public returnJobToFDA(jobId: string, reason: string, actorName: string): boolean {
+    const job = this.getJob(jobId);
+    if (!job || job.closing?.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED') return false;
+
+    this.audit('RETURN_TO_FDA', 'VESSEL_CALL', `Returned ${jobId} to FDA for correction: ${reason}`, jobId);
+    this.updateJob(jobId, {
+      currentStage: 'FDA',
+      status: 'IN_PROGRESS',
+      fda: {
+        ...job.fda,
+        fdaApproved: false,
+        approvedBy: undefined,
+        approvedAt: undefined,
+        notes: `Dikembalikan oleh ${actorName}: ${reason}`,
+      },
+      principalInvoice: {
+        ...job.principalInvoice,
+        status: 'DRAFT',
+      },
+    });
+    return true;
+  }
+
   public closeJobWhenPrincipalCollected(jobId: string, closerName: string): boolean {
     const job = this.getJob(jobId);
     if (!job || !job.fda.fdaApproved || job.closing.isClosed) return false;

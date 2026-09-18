@@ -253,6 +253,15 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     setTimeout(() => setMsg(null), 3500);
   };
 
+  const handleReturnToFDA = () => {
+    const reason = window.prompt('Masukkan alasan pengembalian ke FDA:');
+    if (!reason?.trim()) return;
+    const returned = db.returnJobToFDA(activeJob.jobId, reason.trim(), 'Finance');
+    setMsg(returned ? `Job ${activeJob.jobId} dikembalikan ke FDA untuk revisi.` : 'Job tidak dapat dikembalikan karena sudah closed.');
+    setSubTab('JOB_INVOICE_OPEN');
+    setTimeout(() => setMsg(null), 4000);
+  };
+
   const handleAddPrincipalReceipt = (event: React.FormEvent) => {
     event.preventDefault();
     const amount = Number(receiptAmount);
@@ -831,6 +840,14 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   >
                     <CheckCircle2 className="w-4 h-4" />
                     <span>Konfirmasi Terima Pembayaran (AR)</span>
+                  </button>
+                )}
+                {!isClosedJob(activeJob) && (
+                  <button
+                    onClick={handleReturnToFDA}
+                    className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/30 text-xs font-bold shadow transition"
+                  >
+                    Kembalikan ke FDA
                   </button>
                 )}
               </div>
