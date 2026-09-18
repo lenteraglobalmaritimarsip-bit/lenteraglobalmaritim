@@ -128,6 +128,21 @@ export const FDAView: React.FC<FDAViewProps> = ({
     }).format(normalized);
   };
 
+  const formatTariffInput = (value: number) => value > 0
+    ? new Intl.NumberFormat(viewCurrency === 'IDR' ? 'id-ID' : 'en-US', {
+      style: 'currency',
+      currency: viewCurrency,
+      maximumFractionDigits: viewCurrency === 'IDR' ? 0 : 2,
+    }).format(value)
+    : '';
+
+  const parseTariffInput = (value: string) => {
+    const normalized = viewCurrency === 'IDR'
+      ? value.replace(/[^0-9]/g, '')
+      : value.replace(/,/g, '').replace(/[^0-9.]/g, '');
+    return Number(normalized) || 0;
+  };
+
   const fdaEpdaDisplayNo = formatEPDAQuoteNoForDisplay(
     activeJob.quotation?.epda?.quoteNo,
     activeJob.jobId,
@@ -1106,7 +1121,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
               </div>
               <div><label className="mb-1 block text-slate-400">Category Cost</label><select value={newActual.category} onChange={(e) => setNewActual({ ...newActual, category: e.target.value })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 text-white"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="AGENCY_FEE">AGENCY FEE</option><option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option><option value="VAT_11">VAT 11%</option><option value="PPH_INCOME_TAX">PPH / INCOME TAX</option></select></div>
               <div><label className="mb-1 block text-slate-400">QTY</label><input type="number" min="1" value={actualQuantity} onChange={(e) => setActualQuantity(Math.max(1, Number(e.target.value) || 1))} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 text-white" /></div>
-              <div><label className="mb-1 block text-slate-400">Tarif</label><input type="text" inputMode="decimal" value={newActual.amountBuy || ''} onChange={(e) => setNewActual({ ...newActual, amountBuy: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 text-white" /></div>
+              <div><label className="mb-1 block text-slate-400">Tarif ({viewCurrency})</label><input type="text" inputMode="decimal" value={formatTariffInput(newActual.amountBuy)} onChange={(e) => setNewActual({ ...newActual, amountBuy: parseTariffInput(e.target.value) })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 text-white" /></div>
               <div><label className="mb-1 block text-slate-400">Amount (QTY x Tarif)</label><input readOnly value={formatAccountingNumber(actualAmount, viewCurrency)} className="w-full cursor-not-allowed rounded-lg border border-slate-800 bg-slate-950 p-2 text-slate-300" /></div>
               <div><label className="mb-1 block text-slate-400">Remark</label><input value={newActual.notes} onChange={(e) => setNewActual({ ...newActual, notes: e.target.value })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 text-white" /></div>
             </div>
@@ -1239,7 +1254,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
             <form onSubmit={(e) => { e.preventDefault(); e.stopPropagation(); handleAddActualCost(); }} className="space-y-3 text-xs">
               <div><label className="text-slate-400 block mb-1">Description:</label><input type="text" required value={newActual.description} onChange={e=>setNewActual({...newActual,description:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"/></div>
               <div><label className="text-slate-400 block mb-1">Category:</label><select value={newActual.category} onChange={e=>setNewActual({...newActual,category:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="AGENCY_FEE">AGENCY FEE</option><option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option><option value="VAT_11">VAT 11%</option><option value="PPH_INCOME_TAX">PPH / INCOME TAX</option></select></div>
-              <div><label className="text-slate-400 block mb-1">Amount Aktual ({viewCurrency}):</label><input type="number" min="0" required value={newActual.amountBuy} onChange={e=>setNewActual({...newActual,amountBuy:Number(e.target.value),amountSellBilled:Number(e.target.value)})} className="w-full bg-slate-950 border border-cyan-700 rounded-lg p-2.5 text-white font-mono text-lg"/></div>
+              <div><label className="text-slate-400 block mb-1">Tarif ({viewCurrency}):</label><input type="text" inputMode="decimal" required value={formatTariffInput(newActual.amountBuy)} onChange={e=>setNewActual({...newActual,amountBuy:parseTariffInput(e.target.value),amountSellBilled:parseTariffInput(e.target.value)})} className="w-full bg-slate-950 border border-cyan-700 rounded-lg p-2.5 text-white font-mono text-lg"/></div>
               <div><label className="text-slate-400 block mb-1">Remark (opsional):</label><input value={newActual.notes} onChange={e=>setNewActual({...newActual,notes:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"/></div>
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800"><button type="button" onClick={()=>{setShowAddActualModal(false);setEditingActualId(null)}} className="px-3.5 py-1.5 rounded-lg bg-slate-800 text-slate-300">Batal</button><button type="submit" className="px-4 py-1.5 rounded-lg bg-cyan-600 text-white font-bold">Simpan Amount</button></div>
             </form>

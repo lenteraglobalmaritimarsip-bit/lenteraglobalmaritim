@@ -49,6 +49,8 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   const formatEntryAmount = (value: number | '') => {
     if (value === '') return '';
     return new Intl.NumberFormat(viewCurrency === 'IDR' ? 'id-ID' : 'en-US', {
+      style: 'currency',
+      currency: viewCurrency,
       maximumFractionDigits: viewCurrency === 'IDR' ? 0 : 2,
     }).format(value);
   };
@@ -349,7 +351,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
             <input type="number" min="1" step="1" value={newItem.quantity} onChange={e => setNewItem({ ...newItem, quantity: Math.max(1, Number(e.target.value) || 1) })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"/>
           </div>
           <div>
-            <label className="text-slate-400 block mb-1">Tarif</label>
+            <label className="text-slate-400 block mb-1">Tarif ({viewCurrency})</label>
             <input type="text" inputMode="decimal" value={formatEntryAmount(newItem.unitBuyRate)} onChange={e => setNewItem({ ...newItem, unitBuyRate: parseEntryAmount(e.target.value) as number })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"/>
           </div>
           <div>
