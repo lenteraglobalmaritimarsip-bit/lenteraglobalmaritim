@@ -479,7 +479,7 @@ class DatabaseService {
     const existingJob = this.getJob(jobId);
     if (
       existingJob &&
-      (this.actor.role === 'SALES' || this.actor.role === 'FDA') &&
+      this.actor.role === 'SALES' &&
       normalizeBranchCode(existingJob.inquiry?.createdByBranch || existingJob.inquiry?.createdByBranchCode) !== normalizeBranchCode(this.actor.branch)
     ) {
       return;
@@ -503,7 +503,7 @@ class DatabaseService {
     const generatedJobId = `VC-${year}-${String(nextSeq).padStart(4, '0')}`;
     const documentSequence = this.state.jobCalls.length + 1;
     const documentNumberJobId = `VC-${year}-${String(documentSequence).padStart(4, '0')}`;
-    const actorBranch = (this.actor.role === 'SALES' || this.actor.role === 'FDA')
+    const actorBranch = this.actor.role === 'SALES'
       ? (this.actor.branch || 'Head Office')
       : (jobData.inquiry?.createdByBranch || getCurrentBranchName());
     const actorBranchCode = normalizeBranchCode(actorBranch);

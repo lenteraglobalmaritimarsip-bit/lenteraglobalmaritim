@@ -215,7 +215,7 @@ export default function App() {
     setActiveTab(getDefaultTabForRole(newRole));
   };
 
-  const branchVisibleJobCalls = currentUser && (currentUser.role === 'SALES' || currentUser.role === 'FDA')
+  const branchVisibleJobCalls = currentUser && currentUser.role === 'SALES'
     ? data.jobCalls.filter((job) => normalizeBranchCode(job.inquiry?.createdByBranch || job.inquiry?.createdByBranchCode) === normalizeBranchCode(currentUser.branch))
     : data.jobCalls;
 
