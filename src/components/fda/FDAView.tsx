@@ -389,7 +389,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     const salesViewHtml = onePageHtml
       .replace('<th style="width:7%">NO.</th><th>DESCRIPTION</th><th style="width:20%">AMOUNT IDR</th><th style="width:20%">REMARKS</th>', '<th style="width:5%">NO.</th><th>DESCRIPTION</th><th style="width:8%">CURRENCY</th><th style="width:17%">AMOUNT</th><th style="width:28%">REMARKS</th>')
       .replace('<tr class="grand"><td colspan="2" style="text-align:right">GRAND TOTAL</td><td style="text-align:right">', '<tr class="grand"><td colspan="3" style="text-align:right">GRAND TOTAL</td><td style="text-align:right">');
-    w.document.write(salesViewHtml.replace(/<div class="meta">[\s\S]*?(?=<table(?:\s|>))/i, inquiryMeta).replaceAll('>No.</span>', '>No EPDA</span>'));
+    w.document.write(salesViewHtml.replace(/<div class="sign">[\s\S]*?<\/div>/, '').replace(/<div class="meta">[\s\S]*?(?=<table(?:\s|>))/i, inquiryMeta).replaceAll('>No.</span>', '>No EPDA</span>'));
     w.document.close();
   };
 
