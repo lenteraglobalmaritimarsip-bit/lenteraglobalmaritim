@@ -154,7 +154,7 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="maritim-header">
       <div className="maritim-header-inner">
         <div className="maritim-brand">
-          <div className="maritim-logo"><img src="/lgm-logo.png" alt="LGM" /></div>
+          <div className="maritim-logo"><img src="./lgm-logo.png" alt="LGM" /></div>
           <div>
             <div className="maritim-brand-name">LGM Keagenan</div>
             <div className="maritim-brand-sub">SHIPPING AGENCY WORKSPACE</div>

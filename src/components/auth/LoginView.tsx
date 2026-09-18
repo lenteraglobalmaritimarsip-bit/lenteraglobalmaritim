@@ -44,7 +44,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
       <header className="lgm-login-topbar">
         <div className="lgm-login-brand">
           <span className="lgm-login-logo">
-            <img src="/lgm-logo.png" alt="PT Lentera Global Maritim" />
+            <img src="./lgm-logo.png" alt="PT Lentera Global Maritim" />
           </span>
           <span className="lgm-login-brand-text">
             <b>SYSTEM MANAGEMENT AGENCY SHIPPING</b>
