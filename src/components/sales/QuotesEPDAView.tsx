@@ -338,6 +338,10 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
               <option value="CREW_EXPENSES">CREW EXPENSES</option>
               <option value="AGENCY_FEE">AGENCY FEE</option>
               <option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option>
+              <option value="COST_EPDA">COST EPDA</option>
+              <option value="COST_FDA">COST FDA</option>
+              <option value="VAT_11">VAT 11%</option>
+              <option value="PPH_INCOME_TAX">PPH / INCOME TAX</option>
             </select>
           </div>
           <div>
