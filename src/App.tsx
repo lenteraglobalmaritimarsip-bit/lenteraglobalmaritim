@@ -15,7 +15,6 @@ import { JobsEntryView } from './components/sales/JobsEntryView';
 import { ManagerOpsView } from './components/manager/ManagerOpsView';
 import { FDAView } from './components/fda/FDAView';
 import { FinanceView } from './components/finance/FinanceView';
-import { Database, RotateCcw, X, Check, Copy } from 'lucide-react';
 import { AuthAccount, DEMO_ACCOUNTS, getStoredAccounts, saveStoredAccount } from './auth';
 import { LoginView } from './components/auth/LoginView';
 
@@ -106,8 +105,6 @@ export default function App() {
   const [selectedJobId, setSelectedJobId] = useState<string>(
     data.jobCalls[0]?.jobId || ''
   );
-  const [showDbModal, setShowDbModal] = useState(false);
-  const [copiedDb, setCopiedDb] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [loginToast, setLoginToast] = useState<string | null>(null);
   const [saveToast, setSaveToast] = useState<string | null>(null);
@@ -224,19 +221,6 @@ export default function App() {
     branchVisibleJobCalls[0] ||
     ({} as JobCall);
 
-  const handleCopyDbJson = () => {
-    navigator.clipboard.writeText(JSON.stringify(data, null, 2));
-    setCopiedDb(true);
-    setTimeout(() => setCopiedDb(false), 2500);
-  };
-
-  const handleResetDb = () => {
-    if (window.confirm('Hapus seluruh Job/Vessel Call dan mulai kembali dari nomor 0001?')) {
-      db.resetToInitial();
-      setShowDbModal(false);
-    }
-  };
-
   if (!currentUser) return <LoginView onLogin={handleLogin} />;
 
   return (
@@ -258,7 +242,6 @@ export default function App() {
         currentRole={currentRole}
         selectedJobId={selectedJobId}
         onJobSelect={setSelectedJobId}
-        onOpenDbModal={() => setShowDbModal(true)}
         jobCalls={branchVisibleJobCalls}
         currentUser={currentUser}
         onLogout={handleLogout}
@@ -521,78 +504,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Database Inspector Modal */}
-      {showDbModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl">
-            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Database className="w-5 h-5 text-cyan-400" />
-                <h3 className="font-bold text-white text-base">
-                  Database Inspector · Server Sync + Audit Trail
-                </h3>
-              </div>
-              <button
-                onClick={() => setShowDbModal(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-4 flex-1 overflow-y-auto font-mono text-xs">
-              <div className="flex items-center justify-between mb-3 text-slate-400">
-                <span>Total Vessel Calls: {data.jobCalls.length}</span>
-                <span>Customers: {data.customers.length}</span>
-                <span>Vessels: {data.vessels.length}</span>
-                <span>Ports: {data.ports.length}</span>
-                <span>Audit Logs: {data.auditLogs.length}</span>
-              </div>
-              <div className="mb-3 rounded-xl border border-slate-200 bg-white p-3">
-                <div className="mb-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Recent Activity</div>
-                <div className="space-y-1.5">
-                  {data.auditLogs.slice(0, 6).map(log => (
-                    <div key={log.id} className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-2.5 py-2">
-                      <div className="min-w-0"><b className="text-[10px] text-slate-700">{log.action} · {log.entity}</b><div className="truncate text-[10px] text-slate-500">{log.description}</div></div>
-                      <span className="shrink-0 text-[9px] text-slate-400">{new Date(log.timestamp).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}</span>
-                    </div>
-                  ))}
-                  {!data.auditLogs.length && <div className="text-[10px] text-slate-400">Belum ada aktivitas tercatat.</div>}
-                </div>
-              </div>
-              <pre className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-slate-300 overflow-x-auto max-h-96 text-[11px]">
-                {JSON.stringify(data, null, 2)}
-              </pre>
-            </div>
-
-            <div className="p-4 border-t border-slate-800 flex items-center justify-between bg-slate-950/50 rounded-b-2xl">
-              <button
-                onClick={handleResetDb}
-                className="px-3 py-1.5 rounded-lg bg-red-950 border border-red-800 text-red-300 hover:bg-red-900/80 text-xs font-semibold flex items-center gap-1.5"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Reset Database ke Default</span>
-              </button>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleCopyDbJson}
-                  className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 text-xs font-semibold flex items-center gap-1.5"
-                >
-                  {copiedDb ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedDb ? 'Tersalin ke Clipboard!' : 'Copy Raw JSON'}</span>
-                </button>
-                <button
-                  onClick={() => setShowDbModal(false)}
-                  className="px-4 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold"
-                >
-                  Tutup
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

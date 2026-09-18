@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Bell, Database, Layers, Search, ShieldCheck,
+  Bell, Layers, Search, ShieldCheck,
   Briefcase, FileCheck2, DollarSign, UserCircle2
 } from 'lucide-react';
 import { UserRole, JobCall, ActiveTab } from '../../types';
@@ -13,7 +13,6 @@ interface HeaderProps {
   onChangePassword: (oldPassword: string, newPassword: string) => void;
   selectedJobId: string;
   onJobSelect: (jobId: string) => void;
-  onOpenDbModal: () => void;
   jobCalls: JobCall[];
   currentUser: AuthAccount;
   onLogout: () => void;
@@ -31,7 +30,7 @@ type HeaderNotification = {
 
 export const Header: React.FC<HeaderProps> = ({
   currentRole, onProfile, onChangePassword, selectedJobId, onJobSelect,
-  onOpenDbModal, jobCalls, currentUser, onLogout, onNavigate
+  jobCalls, currentUser, onLogout, onNavigate
 }) => {
   const [showRoleDropdown, setShowRoleDropdown] = useState(false);
   const [showPasswordForm, setShowPasswordForm] = useState(false);
@@ -168,7 +167,6 @@ export const Header: React.FC<HeaderProps> = ({
             <Bell size={17}/>
             {unreadCount > 0 && <span className="maritim-notification-badge">{unreadCount > 9 ? '9+' : unreadCount}</span>}
           </button>
-          {currentRole === 'ADMIN' && <button className="maritim-icon-btn" title="Database" onClick={onOpenDbModal}><Database size={16}/></button>}
 
           {showNotifications && (
             <div className="maritim-notification-menu">
