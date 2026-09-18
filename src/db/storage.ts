@@ -156,7 +156,7 @@ export const buildBranchAwareInvoiceNumber = (jobId: string, branch?: string, re
 class DatabaseService {
   private state: DatabaseState;
   private listeners: Array<(state: DatabaseState) => void> = [];
-  private actor: { id?: string; name: string; role: UserRole } = { name: 'System', role: 'ADMIN' };
+  private actor: { id?: string; name: string; role: UserRole; branch?: string } = { name: 'System', role: 'ADMIN' };
 
   constructor() {
     this.state = this.loadFromStorage();
@@ -218,7 +218,7 @@ class DatabaseService {
     this.state.auditLogs = [entry, ...this.state.auditLogs].slice(0, 500);
   }
 
-  public setActor(actor: { id?: string; name: string; role: UserRole }): void {
+  public setActor(actor: { id?: string; name: string; role: UserRole; branch?: string }): void {
     this.actor = actor;
   }
 
@@ -476,6 +476,14 @@ class DatabaseService {
   }
 
   public updateJob(jobId: string, updates: Partial<JobCall>): void {
+    const existingJob = this.getJob(jobId);
+    if (
+      existingJob &&
+      (this.actor.role === 'SALES' || this.actor.role === 'FDA') &&
+      normalizeBranchCode(existingJob.inquiry?.createdByBranch || existingJob.inquiry?.createdByBranchCode) !== normalizeBranchCode(this.actor.branch)
+    ) {
+      return;
+    }
     this.state.jobCalls = this.state.jobCalls.map((j) =>
       j.jobId === jobId
         ? {
@@ -495,6 +503,10 @@ class DatabaseService {
     const generatedJobId = `VC-${year}-${String(nextSeq).padStart(4, '0')}`;
     const documentSequence = this.state.jobCalls.length + 1;
     const documentNumberJobId = `VC-${year}-${String(documentSequence).padStart(4, '0')}`;
+    const actorBranch = (this.actor.role === 'SALES' || this.actor.role === 'FDA')
+      ? (this.actor.branch || 'Head Office')
+      : (jobData.inquiry?.createdByBranch || getCurrentBranchName());
+    const actorBranchCode = normalizeBranchCode(actorBranch);
 
     const newJob: JobCall = {
       jobId: jobData.jobId || generatedJobId,
@@ -523,8 +535,8 @@ class DatabaseService {
         specialRequirements: jobData.inquiry?.specialRequirements || 'Standard agency services requested',
         status: jobData.inquiry?.status || 'RECEIVED',
         createdBy: jobData.inquiry?.createdBy || 'Sarah Wijaya (SALES)',
-        createdByBranch: jobData.inquiry?.createdByBranch || getCurrentBranchName(),
-        createdByBranchCode: jobData.inquiry?.createdByBranchCode || getCurrentBranchCode(),
+        createdByBranch: actorBranch,
+        createdByBranchCode: actorBranchCode,
       },
 
       quotation: jobData.quotation || {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db } from './db/storage';
+import { db, normalizeBranchCode } from './db/storage';
 import { DatabaseState, UserRole, ActiveTab, JobCall } from './types';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
@@ -164,7 +164,7 @@ export default function App() {
         localStorage.removeItem('lgm_active_user');
       }
     } catch {}
-    db.setActor({ id: freshAccount.id, name: freshAccount.name, role: freshAccount.role });
+    db.setActor({ id: freshAccount.id, name: freshAccount.name, role: freshAccount.role, branch: freshAccount.branch });
     db.setRole(freshAccount.role);
     setLoginToast(`Selamat datang, ${freshAccount.name.split(' ')[0]}!`);
     setTimeout(() => setLoginToast(null), 2600);
@@ -195,7 +195,7 @@ export default function App() {
 
   // Subscribe to reactive database changes
   useEffect(() => {
-    if (currentUser) db.setActor({ id: currentUser.id, name: currentUser.name, role: currentUser.role });
+    if (currentUser) db.setActor({ id: currentUser.id, name: currentUser.name, role: currentUser.role, branch: currentUser.branch });
     const unsubscribe = db.subscribe((newState) => {
       setData({ ...newState });
     });
@@ -210,14 +210,18 @@ export default function App() {
       const refreshed = syncCurrentUserFromMaster(matchingFromStorage);
       setCurrentUser(refreshed);
       try { localStorage.setItem('lgm_active_user', JSON.stringify(refreshed)); } catch {}
-      db.setActor({ id: refreshed.id, name: refreshed.name, role: refreshed.role });
+      db.setActor({ id: refreshed.id, name: refreshed.name, role: refreshed.role, branch: refreshed.branch });
     }
     setActiveTab(getDefaultTabForRole(newRole));
   };
 
+  const branchVisibleJobCalls = currentUser && (currentUser.role === 'SALES' || currentUser.role === 'FDA')
+    ? data.jobCalls.filter((job) => normalizeBranchCode(job.inquiry?.createdByBranch || job.inquiry?.createdByBranchCode) === normalizeBranchCode(currentUser.branch))
+    : data.jobCalls;
+
   const currentJob: JobCall =
-    data.jobCalls.find((j) => j.jobId === selectedJobId) ||
-    data.jobCalls[0] ||
+    branchVisibleJobCalls.find((j) => j.jobId === selectedJobId) ||
+    branchVisibleJobCalls[0] ||
     ({} as JobCall);
 
   const handleCopyDbJson = () => {
@@ -256,7 +260,7 @@ export default function App() {
         selectedJobId={selectedJobId}
         onJobSelect={setSelectedJobId}
         onOpenDbModal={() => setShowDbModal(true)}
-        jobCalls={data.jobCalls}
+        jobCalls={branchVisibleJobCalls}
         currentUser={currentUser}
         onLogout={handleLogout}
         onProfile={handleProfile}
@@ -318,7 +322,7 @@ export default function App() {
             {/* 2. SALES / OPERATOR VIEWS */}
             {currentRole === 'SALES' && activeTab === 'DASHBOARD' && (
               <SalesDashboardView
-                jobCalls={data.jobCalls}
+                jobCalls={branchVisibleJobCalls}
                 onNavigate={setActiveTab}
                 onSelectJob={setSelectedJobId}
               />
@@ -326,7 +330,7 @@ export default function App() {
 
             {currentRole === 'SALES' && activeTab === 'INQUIRIES' && (
               <InquiriesView
-                jobCalls={data.jobCalls}
+                jobCalls={branchVisibleJobCalls}
                 vessels={data.vessels}
                 ports={data.ports}
                 customers={data.customers}
@@ -339,7 +343,7 @@ export default function App() {
 
             {currentRole === 'SALES' && activeTab === 'QUOTES_EPDA' && (
               <QuotesListView
-                jobCalls={data.jobCalls}
+                jobCalls={branchVisibleJobCalls}
                 vessels={data.vessels}
                 onSelectJob={setSelectedJobId}
                 onOpenEPDA={() => setActiveTab('QUOTES_EPDA_DETAIL')}
@@ -351,7 +355,7 @@ export default function App() {
                 job={currentJob}
                 vessels={data.vessels}
                 onSelectJob={setSelectedJobId}
-                allJobs={data.jobCalls}
+                allJobs={branchVisibleJobCalls}
                 users={data.users}
                 onDataSaved={notifySaved}
               />
@@ -368,7 +372,7 @@ export default function App() {
 
             {currentRole === 'SALES' && activeTab === 'JOBS_ENTRY' && (
               <JobsEntryView
-                jobCalls={data.jobCalls}
+                jobCalls={branchVisibleJobCalls}
                 onSelectJob={setSelectedJobId}
                 onNavigate={setActiveTab}
               />
@@ -376,7 +380,7 @@ export default function App() {
 
             {currentRole === 'FDA' && activeTab === 'FDA_INQUIRIES' && (
               <InquiriesView
-                jobCalls={data.jobCalls}
+                jobCalls={branchVisibleJobCalls}
                 vessels={data.vessels}
                 ports={data.ports}
                 customers={data.customers}
@@ -389,7 +393,7 @@ export default function App() {
 
             {currentRole === 'FDA' && activeTab === 'FDA_QUOTES_EPDA' && (
               <QuotesListView
-                jobCalls={data.jobCalls}
+                jobCalls={branchVisibleJobCalls}
                 vessels={data.vessels}
                 onSelectJob={setSelectedJobId}
                 onOpenEPDA={() => setActiveTab('ACTUAL_COST')}
@@ -422,7 +426,7 @@ export default function App() {
                       ? 'QUOTES_VIEW'
                       : 'APPROVAL'
                   }
-                  jobCalls={data.jobCalls}
+                  jobCalls={branchVisibleJobCalls}
                   users={data.users}
                   onSelectJob={setSelectedJobId}
                   onNavigate={setActiveTab}
@@ -478,7 +482,7 @@ export default function App() {
                     ? 'AR'
                     : 'REPORTS'
                 }
-                jobCalls={data.jobCalls}
+                  jobCalls={data.jobCalls}
                 activeJob={currentJob}
                 onSelectJob={setSelectedJobId}
                 onNavigate={setActiveTab}
@@ -488,7 +492,7 @@ export default function App() {
             {/* 6. ACTIVE VESSEL CALLS */}
             {activeTab === 'ACTIVE_VESSEL_CALLS' && (
               <ActiveVesselCallsView
-                jobCalls={data.jobCalls}
+                jobCalls={branchVisibleJobCalls}
                 vessels={data.vessels}
                 onSelectJob={setSelectedJobId}
                 onOpenJob={(jobId) => { setSelectedJobId(jobId); }}
