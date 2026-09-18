@@ -726,7 +726,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
-                  {jobCalls.map((j) => {
+                  {approvedFDAJobs.map((j, index) => {
                     const exchangeRate = getJobExchangeRate(j);
                     const rowCurrency = getJobCurrency(j);
                     const arTotal = getJobPrincipalBilled(j);
@@ -743,7 +743,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
                     return (
                       <tr key={j.jobId} className="hover:bg-slate-800/40">
-                        <td className="p-3 text-slate-400">{jobCalls.indexOf(j) + 1}</td>
+                        <td className="p-3 text-slate-400">{index + 1}</td>
                         <td className="p-3 font-mono font-bold text-cyan-400">{j.jobId}</td>
                         <td className="p-3 font-mono text-slate-300">{j.fda?.fdaNo || '-'}</td>
                         <td className="p-3">
