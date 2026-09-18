@@ -113,9 +113,21 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
   const apItems = activeJob?.ap || [];
   const arItems = activeJob?.ar || [];
-  const invoiceItems = activeJob?.quotation?.pda?.items?.length
-    ? activeJob.quotation.pda.items
-    : activeJob?.quotation?.epda?.items || [];
+  const invoiceItems = (activeJob?.actualCosts || []).map((item) => ({
+    id: item.id,
+    name: item.description,
+    category: item.category,
+    basis: item.vendorName || 'FDA Actual Cost',
+    totalSellRate: item.amount || 0,
+    currency: item.currency || jobCurrency,
+  }));
+  const invoiceGroups = invoiceItems.reduce((groups, item) => {
+    const existing = groups.find((group) => group.category === item.category);
+    if (existing) existing.items.push(item);
+    else groups.push({ category: item.category, items: [item] });
+    return groups;
+  }, [] as Array<{ category: string; items: typeof invoiceItems[number][] }>);
+  const invoiceCategoryLabel = (category: string) => category.replaceAll('_', ' ');
 
   const jobAPTotal = apItems.reduce((s, i) => s + (i.amount || 0), 0);
   const jobAPPaid = apItems.filter((i) => i.status === 'PAID').reduce((s, i) => s + (i.amount || 0), 0);
@@ -828,19 +840,24 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
-                  {invoiceItems.map((it) => (
-                    <tr key={it.id} className="hover:bg-slate-800/40">
-                      <td className="p-3 font-semibold text-white">
-                        {it.name}
-                        <span className="block text-[11px] text-slate-400 font-normal">
-                          Kategori: {it.category} ({it.basis})
-                        </span>
-                      </td>
-                      <td className="p-3 text-right font-mono text-slate-400">{jobCurrency}</td>
-                      <td className="p-3 text-right font-mono font-bold text-cyan-300">
-                        {formatCurrencyNumber(convertCurrency(it.totalSellRate, it.currency, jobCurrency, getJobExchangeRate(activeJob)), jobCurrency)}
-                      </td>
-                    </tr>
+                  {invoiceGroups.map((group) => (
+                    <React.Fragment key={group.category}>
+                      <tr className="bg-slate-800 text-slate-200 font-bold uppercase tracking-wider">
+                        <td colSpan={3} className="p-2.5">{invoiceCategoryLabel(group.category)}</td>
+                      </tr>
+                      {group.items.map((it) => (
+                        <tr key={it.id} className="hover:bg-slate-800/40">
+                          <td className="p-3 font-semibold text-white">
+                            {it.name}
+                            <span className="block text-[11px] text-slate-400 font-normal">Vendor: {it.basis}</span>
+                          </td>
+                          <td className="p-3 text-right font-mono text-slate-400">{it.currency}</td>
+                          <td className="p-3 text-right font-mono font-bold text-cyan-300">
+                            {formatCurrencyNumber(convertCurrency(it.totalSellRate, it.currency, jobCurrency, getJobExchangeRate(activeJob)), jobCurrency)}
+                          </td>
+                        </tr>
+                      ))}
+                    </React.Fragment>
                   ))}
                 </tbody>
                 <tfoot className="bg-slate-950 font-bold border-t border-slate-700 text-xs">
