@@ -842,7 +842,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                 <tbody className="divide-y divide-slate-800">
                   {invoiceGroups.map((group) => (
                     <React.Fragment key={group.category}>
-                      <tr className="bg-slate-800 text-slate-200 font-bold uppercase tracking-wider">
+                      <tr className="font-bold uppercase tracking-wider" style={{ backgroundColor: '#e8eef6', color: '#52637a' }}>
                         <td colSpan={3} className="p-2.5">{invoiceCategoryLabel(group.category)}</td>
                       </tr>
                       {group.items.map((it) => (
