@@ -93,6 +93,12 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
       currency,
       maximumFractionDigits: currency === 'IDR' ? 0 : 2,
     }).format(val);
+  const totalRevenuePipelineIDR = jobCalls.reduce((sum, job) => {
+    const amount = job.quotation?.pda?.totalSellRate || job.quotation?.epda?.totalSellRate || 0;
+    const currency = job.quotation?.pda?.currency || job.quotation?.epda?.currency || job.currency || 'IDR';
+    const rate = job.exchangeRateUSDToIDR || 15800;
+    return sum + (currency === 'USD' ? amount * rate : amount);
+  }, 0);
 
   const formatEPDACategory = (category: string) => {
     const labels: Record<string, string> = {
@@ -188,7 +194,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                 </div>
                 <div className="flex items-center justify-between rounded-xl bg-slate-950 border border-slate-800 p-3">
                   <span className="text-slate-400">Total revenue pipeline</span>
-                  <span className="font-mono font-bold text-emerald-300">{formatUSD(jobCalls.reduce((sum, job) => sum + (job.quotation?.pda?.totalSellRate || job.quotation?.epda?.totalSellRate || 0), 0))}</span>
+                  <span className="font-mono font-bold text-emerald-300">{formatEPDAAmount(totalRevenuePipelineIDR, 'IDR')}</span>
                 </div>
               </div>
             </div>
