@@ -1,0 +1,470 @@
+@import "tailwindcss";
+
+/* =========================================================
+   MARITIMPORT - LIGHT ENTERPRISE UI
+   Visual direction: clean blue header + navy navigation,
+   soft workspace background, compact Gen-Z enterprise cards.
+   ========================================================= */
+
+:root{
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #172033;
+  background: #eef4fb;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+*{ box-sizing:border-box; }
+html,body,#root{ min-height:100%; width:100%; margin:0; border:0; outline:0; }
+body{
+  min-width:320px;
+  background:#eef4fb;
+  color:#172033;
+}
+button,input,select,textarea{ font:inherit; }
+button{ cursor:pointer; }
+
+.maritim-app{
+  min-height:100vh;
+  background:
+    radial-gradient(circle at 80% -10%, rgba(37,99,235,.09), transparent 32%),
+    #eef4fb;
+}
+.maritim-header{
+  height:64px;
+  background:linear-gradient(90deg,#123d93 0%,#1747ad 58%,#1d58d0 100%);
+  color:#fff;
+  border:0;
+  box-shadow:0 3px 14px rgba(15,50,110,.18);
+  position:sticky;
+  top:0;
+  z-index:40;
+}
+.maritim-header-inner{
+  height:100%;
+  padding:0 20px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:18px;
+}
+.maritim-brand{display:flex;align-items:center;gap:11px;min-width:220px}
+.maritim-logo{
+  width:34px;height:34px;border-radius:8px;
+  background:#fff;
+  display:grid;place-items:center;
+  color:#1e56bf;
+  font-weight:950;font-size:15px;
+  box-shadow:0 2px 8px rgba(0,0,0,.15);
+}
+.maritim-brand-name{font-size:17px;font-weight:850;letter-spacing:-.25px}
+.maritim-brand-sub{font-size:10px;opacity:.7;margin-top:1px}
+.maritim-header-center{display:flex;align-items:center;gap:10px;flex:1;justify-content:center}
+.maritim-job-picker{
+  min-width:270px;max-width:410px;
+  padding:7px 11px;border-radius:9px;
+  border:1px solid rgba(255,255,255,.18);
+  background:rgba(0,20,70,.18);
+  color:#fff;
+}
+.maritim-job-picker:hover{background:rgba(0,20,70,.28)}
+.maritim-job-picker small{display:block;font-size:9px;opacity:.65;letter-spacing:.08em}
+.maritim-job-picker strong{font-size:12px}
+.maritim-header-actions{display:flex;align-items:center;gap:8px}
+.maritim-icon-btn{
+  width:34px;height:34px;border:0;border-radius:9px;
+  display:grid;place-items:center;color:#dbeafe;background:rgba(255,255,255,.08);
+}
+.maritim-icon-btn:hover{background:rgba(255,255,255,.16)}
+.maritim-user{
+  display:flex;align-items:center;gap:8px;padding:4px 6px 4px 8px;
+  border-left:1px solid rgba(255,255,255,.16);
+}
+.maritim-user-avatar{width:30px;height:30px;border-radius:50%;background:#dbeafe;color:#1747ad;display:grid;place-items:center;font-weight:800;font-size:11px}
+.maritim-user-name{font-size:12px;font-weight:800;line-height:1.1}
+.maritim-user-role{font-size:9px;opacity:.72;margin-top:2px}
+.admin-add-modal label{color:#475569}
+.admin-add-modal input,.admin-add-modal select,.admin-add-modal textarea{background:#fff!important;color:#1e293b!important;border-color:#fff!important}
+.fixed.z-50 .admin-add-modal input,.fixed.z-50 .admin-add-modal select,.fixed.z-50 .admin-add-modal textarea{background:#fff!important;color:#1e293b!important;border-color:#fff!important}
+.admin-add-modal input::placeholder,.admin-add-modal textarea::placeholder{color:#9aa8b8!important}
+.admin-add-modal select option{background:#fff;color:#1e293b}
+.inquiry-entry-modal label{color:#52637a!important}
+.inquiry-entry-modal input,.inquiry-entry-modal select,.inquiry-entry-modal textarea{background:#f5f7fa!important;color:#26364d!important;border-color:#d1dae5!important;box-shadow:inset 0 1px 2px rgba(49,72,101,.04)}
+.inquiry-entry-modal input::placeholder,.inquiry-entry-modal textarea::placeholder{color:#52637a!important;opacity:1}
+.inquiry-entry-modal select option{background:#f5f7fa;color:#26364d}
+.inquiry-entry-modal .border-slate-800{border-color:#dbe3ec!important}
+.inquiry-entry-modal .text-slate-800{color:#52637a!important}
+.sales-filter-control{min-width:170px;background:#f5f7fa;border:1px solid #d1dae5;border-radius:8px;padding:7px 10px;color:#52637a;font-size:11px;font-weight:700;outline:none}
+.sales-filter-control:focus{border-color:#4a7bc2;box-shadow:0 0 0 3px rgba(74,123,194,.12)}
+.maritim-role-pill{font-size:9px;font-weight:800;background:#2f80ed;padding:4px 7px;border-radius:999px;margin-left:2px}
+
+.maritim-layout{display:flex;min-height:calc(100vh - 64px)}
+.maritim-sidebar{
+  width:250px;flex:0 0 250px;
+  background:linear-gradient(180deg,#101a31 0%,#0c1426 100%);
+  color:#dbe4f5;
+  display:flex;flex-direction:column;
+  min-height:calc(100vh - 64px);
+  box-shadow:2px 0 12px rgba(16,30,60,.08);
+}
+.maritim-sidebar-top{padding:20px 16px 15px;border-bottom:1px solid rgba(255,255,255,.07)}
+.maritim-workspace-label{font-size:9px;font-weight:900;letter-spacing:.15em;color:#55b9ff;text-transform:uppercase}
+.maritim-workspace-title{font-size:15px;font-weight:850;color:#fff;margin-top:5px}
+.maritim-workspace-desc{font-size:10px;line-height:1.45;color:#8492ab;margin-top:3px}
+.maritim-nav{padding:12px 10px;overflow:auto;flex:1}
+.maritim-nav-section{font-size:9px;color:#66748e;font-weight:850;letter-spacing:.12em;text-transform:uppercase;padding:10px 10px 7px}
+.maritim-nav-item{
+  width:100%;display:flex;align-items:center;gap:11px;
+  border:0;background:transparent;color:#aab7cb;
+  text-align:left;padding:10px 12px;border-radius:9px;
+  font-size:12px;font-weight:650;transition:.16s;
+  margin-bottom:3px;
+}
+.maritim-nav-item svg{width:16px;height:16px;opacity:.9}
+.maritim-nav-item:hover{background:rgba(255,255,255,.055);color:#fff}
+.maritim-nav-item.active{
+  background:linear-gradient(90deg,#1b438d,#193b78);
+  color:#fff;box-shadow:inset 3px 0 0 #4ba6ff;
+}
+.maritim-nav-item.active svg{color:#6ebeff}
+.maritim-nav-parent{display:flex;justify-content:space-between;align-items:center}
+.maritim-subnav{margin:0 0 6px 29px;padding-left:8px;border-left:1px solid rgba(255,255,255,.08)}
+.maritim-subnav button{width:100%;border:0;background:transparent;color:#8997ae;text-align:left;padding:7px 9px;border-radius:7px;font-size:11px}
+.maritim-subnav button:hover,.maritim-subnav button.active{background:rgba(62,132,231,.12);color:#76bcff}
+.maritim-sidebar-bottom{padding:12px;border-top:1px solid rgba(255,255,255,.07)}
+.maritim-job-card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);padding:11px;border-radius:10px}
+.maritim-job-card-label{font-size:8px;color:#5bb8ff;font-weight:900;letter-spacing:.12em}
+.maritim-job-card-id{font-family:ui-monospace,monospace;font-size:11px;color:#fff;font-weight:800;margin-top:4px}
+.maritim-job-card-stage{font-size:9px;color:#7d8ba3;margin-top:2px}
+
+.maritim-main{flex:1;min-width:0;overflow:auto;padding:22px;background:#eef4fb}
+.maritim-content{max-width:1260px;margin:0 auto}
+.maritim-page-card{
+  background:rgba(255,255,255,.92);
+  border:1px solid #dce5f0;
+  border-radius:16px;
+  box-shadow:0 8px 24px rgba(30,63,110,.06);
+}
+.maritim-section-title{font-size:14px;font-weight:850;color:#172033}
+.maritim-muted{color:#71809a}
+.maritim-kicker{font-size:9px;font-weight:900;letter-spacing:.14em;color:#128b86;text-transform:uppercase}
+
+@media(max-width:900px){
+  .maritim-header-center{display:none}
+  .maritim-sidebar{width:220px;flex-basis:220px}
+}
+@media(max-width:680px){
+  .maritim-sidebar{width:64px;flex-basis:64px}
+  .maritim-sidebar-top{padding:14px 8px;text-align:center}
+  .maritim-workspace-title,.maritim-workspace-desc,.maritim-workspace-label,.maritim-nav-section,
+  .maritim-nav-item span,.maritim-subnav,.maritim-sidebar-bottom{display:none}
+  .maritim-nav-item{justify-content:center;padding:11px 8px}
+  .maritim-main{padding:12px}
+  .maritim-brand-sub,.maritim-user-name,.maritim-user-role{display:none}
+}
+
+/* Compatibility skin for existing dark utility-heavy views. */
+.maritim-main .bg-slate-950{background:#f4f7fb !important}
+.maritim-main .bg-slate-900{background:#fff !important}
+.maritim-main .bg-slate-800{background:#f6f8fc !important}
+.maritim-main .bg-slate-800\/90{background:#f6f8fc !important}
+.maritim-main .border-slate-800,.maritim-main .border-slate-700{border-color:#dce5f0 !important}
+.maritim-main .text-white{color:#172033 !important}
+.maritim-main .text-slate-100,.maritim-main .text-slate-200{color:#334155 !important}
+.maritim-main .text-slate-300{color:#52627a !important}
+.maritim-main .text-slate-400{color:#71809a !important}
+.maritim-main .text-slate-500{color:#8b98aa !important}
+.maritim-main .hover\:bg-slate-800:hover{background:#eef4fb !important}
+.maritim-main .hover\:bg-slate-700:hover{background:#e7edf6 !important}
+
+/* =========================================================
+   LGM UI SYSTEM — shared visual language for every module
+   Inquiries / EPDA / PDA / Vessel Call / Manager / FDA / Finance
+   ========================================================= */
+.maritim-main{
+  background:
+    radial-gradient(circle at 92% 0%, rgba(37,99,235,.055), transparent 30%),
+    #eef4fb;
+}
+.maritim-main > .maritim-content > *{animation:lgmPageIn .18s ease-out both}
+@keyframes lgmPageIn{from{opacity:.72;transform:translateY(3px)}to{opacity:1;transform:none}}
+
+/* Convert legacy dark panels into the same white enterprise cards. */
+.maritim-main [class*="bg-slate-900"],
+.maritim-main [class*="bg-slate-800"]{
+  background:#fff !important;
+  border-color:#dbe5f0 !important;
+  box-shadow:0 5px 18px rgba(27,58,100,.055);
+}
+.maritim-main [class*="bg-slate-950"]{
+  background:#f7f9fc !important;
+  border-color:#e0e7ef !important;
+}
+.maritim-main [class*="border-slate-800"],
+.maritim-main [class*="border-slate-700"]{border-color:#dbe5f0 !important}
+.maritim-main [class*="divide-slate-800"] > * + *{border-color:#e3e9f1 !important}
+.maritim-main [class*="hover:bg-slate-800"]:hover,
+.maritim-main [class*="hover:bg-slate-700"]:hover{background:#f4f7fb !important}
+
+/* Typography */
+.maritim-main .text-white{color:#172033 !important}
+.maritim-main .text-slate-100,
+.maritim-main .text-slate-200{color:#334155 !important}
+.maritim-main .text-slate-300{color:#52627a !important}
+.maritim-main .text-slate-400{color:#71809a !important}
+.maritim-main .text-slate-500{color:#8b98aa !important}
+.maritim-main .font-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace}
+
+/* Headings and module banners */
+.maritim-main h1{letter-spacing:-.025em}
+.maritim-main h2,.maritim-main h3{letter-spacing:-.01em}
+.epda-form-root table.border-separate,.fda-form-root table.border-separate{line-height:1}
+.epda-form-root table.border-separate th,.epda-form-root table.border-separate td,.fda-form-root table.border-separate th,.fda-form-root table.border-separate td{line-height:1;margin:0;padding-top:6px;padding-bottom:6px}
+.epda-form-root table.border-separate p,.fda-form-root table.border-separate p{margin:0}
+.maritim-main .text-2xl{font-size:25px;line-height:1.18}
+.maritim-main .text-xl{font-size:20px}
+.maritim-main .text-lg{font-size:17px}
+
+/* Primary action buttons — blue like the reference UI. */
+.maritim-main button[class*="bg-cyan-600"],
+.maritim-main button[class*="bg-indigo-600"],
+.maritim-main button[class*="bg-blue-600"]{
+  background:#1769e8 !important;color:#fff !important;border-color:#1769e8 !important;
+  box-shadow:0 4px 12px rgba(23,105,232,.18) !important;
+}
+.maritim-main button[class*="bg-cyan-600"]:hover,
+.maritim-main button[class*="bg-indigo-600"]:hover,
+.maritim-main button[class*="bg-blue-600"]:hover{background:#125bd0 !important}
+.maritim-main button[class*="bg-emerald-600"]{
+  background:#168b5b !important;color:#fff !important;border-color:#168b5b !important;
+  box-shadow:0 4px 12px rgba(22,139,91,.16) !important;
+}
+.maritim-main button[class*="bg-amber-600"]{
+  background:#f0a000 !important;color:#172033 !important;border-color:#f0a000 !important;
+}
+.maritim-main button[class*="bg-rose-600"]{background:#e5485d !important;color:#fff !important}
+.maritim-main button[class*="bg-purple-600"]{background:#7654d8 !important;color:#fff !important}
+
+/* Preserve white text on colored controls despite global text normalization. */
+.maritim-main button[class*="bg-cyan-600"],
+.maritim-main button[class*="bg-indigo-600"],
+.maritim-main button[class*="bg-blue-600"],
+.maritim-main button[class*="bg-emerald-600"],
+.maritim-main button[class*="bg-rose-600"],
+.maritim-main button[class*="bg-purple-600"]{color:#fff !important}
+
+/* Soft action pills */
+.maritim-main button[class*="bg-cyan-500/20"],
+.maritim-main button[class*="bg-cyan-600/20"],
+.maritim-main button[class*="bg-indigo-600/20"]{
+  background:#eaf3ff !important;color:#1769e8 !important;border-color:#cfe1fb !important;
+}
+.maritim-main button[class*="bg-emerald-500/20"],
+.maritim-main button[class*="bg-emerald-600/20"]{
+  background:#eaf8f1 !important;color:#148257 !important;border-color:#ccebdc !important;
+}
+
+/* Inputs/selects */
+.maritim-main input,
+.maritim-main select,
+.maritim-main textarea{
+  background:#fff !important;color:#263449 !important;border:1px solid #d4dfeb !important;
+  border-radius:9px !important;box-shadow:0 1px 2px rgba(24,46,76,.025);
+}
+.maritim-main input::placeholder,
+.maritim-main textarea::placeholder{color:#9aa8b9 !important}
+.maritim-main input:focus,
+.maritim-main select:focus,
+.maritim-main textarea:focus{border-color:#78aef5 !important;box-shadow:0 0 0 3px rgba(37,99,235,.08) !important}
+
+/* Tables: crisp LGM-style header + zebra hover */
+.maritim-main table{border-collapse:separate;border-spacing:0;width:100%}
+.maritim-main thead{background:#f7f9fc !important}
+.maritim-main thead th{
+  color:#63748c !important;font-size:10px !important;font-weight:800 !important;
+  letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid #dce5ef !important;
+}
+.maritim-main tbody tr{transition:background .14s ease}
+.maritim-main tbody tr:hover{background:#f8fbff !important}
+.maritim-main tbody td{border-color:#e4eaf1 !important}
+
+/* Status badges */
+.maritim-main [class*="bg-emerald-500/20"]{background:#eaf8f1 !important;color:#168457 !important;border-color:#c9eadb !important}
+.maritim-main [class*="bg-cyan-500/20"]{background:#eaf5ff !important;color:#1769e8 !important;border-color:#cfe2fb !important}
+.maritim-main [class*="bg-indigo-500/20"]{background:#efedff !important;color:#6651c7 !important;border-color:#dcd7fb !important}
+.maritim-main [class*="bg-amber-500/20"]{background:#fff5dc !important;color:#a56b00 !important;border-color:#f5dfac !important}
+.maritim-main [class*="bg-rose-500/20"]{background:#fff0f2 !important;color:#c83c51 !important;border-color:#f4cdd4 !important}
+.maritim-main [class*="bg-purple-500/20"]{background:#f3efff !important;color:#7451c7 !important;border-color:#ddd2fa !important}
+.maritim-main [class*="bg-slate-800"][class*="text-amber-400"]{background:#fff5dc !important;color:#a56b00 !important;border-color:#f1dfb2 !important}
+
+/* Card rhythm */
+.maritim-main .rounded-2xl{border-radius:15px !important}
+.maritim-main .rounded-xl{border-radius:11px !important}
+.maritim-main .shadow-xl{box-shadow:0 7px 22px rgba(27,58,100,.065) !important}
+.maritim-main .shadow-lg{box-shadow:0 5px 17px rgba(27,58,100,.055) !important}
+
+/* Accent icon chips */
+.maritim-main [class*="bg-cyan-950"],
+.maritim-main [class*="bg-emerald-950"],
+.maritim-main [class*="bg-indigo-950"]{
+  background:#edf5ff !important;border-color:#d6e5f8 !important;
+}
+.maritim-main .text-cyan-300,.maritim-main .text-cyan-400{color:#1475d4 !important}
+.maritim-main .text-emerald-300,.maritim-main .text-emerald-400{color:#138357 !important}
+.maritim-main .text-indigo-300,.maritim-main .text-indigo-400{color:#5d54c5 !important}
+.maritim-main .text-amber-300,.maritim-main .text-amber-400{color:#a56c00 !important}
+.maritim-main .text-rose-300,.maritim-main .text-rose-400{color:#c83c51 !important}
+
+/* Modal surfaces */
+.maritim-main ~ *{}
+.fixed.z-50 [class*="bg-slate-900"]{background:#fff !important;border-color:#dbe5f0 !important;color:#172033}
+.fixed.z-50 [class*="bg-slate-950"]{background:rgba(15,23,42,.45) !important}
+.fixed.z-50 .text-white{color:#172033 !important}
+
+/* Make long modules feel like one consistent workspace rather than dark legacy screens. */
+.maritim-main .overflow-x-auto{border-radius:11px}
+.maritim-main label{color:#63748c}
+.quotes-list-table{scrollbar-gutter:stable}
+.quotes-list-table::-webkit-scrollbar{height:10px}
+.quotes-list-table::-webkit-scrollbar-track{background:#e8edf4}
+.quotes-list-table::-webkit-scrollbar-thumb{background:#93a4b8;border:2px solid #e8edf4;border-radius:6px}
+.quotes-list-table::-webkit-scrollbar-thumb:hover{background:#63748c}
+
+/* Mobile */
+@media(max-width:900px){
+  .maritim-main{padding:16px}
+  .maritim-main .text-2xl{font-size:22px}
+}
+@media(max-width:680px){
+  .maritim-main{padding:12px}
+  .maritim-main .grid{gap:12px}
+}
+
+/* =========================================================
+   LGM AUTH / LOGIN EXPERIENCE
+   ========================================================= */
+.lgm-login-shell{min-height:100vh;min-height:100svh;width:100%;position:relative;overflow:hidden;border:0;outline:0;background:#0b4f91;color:#fff;font-family:Inter,ui-sans-serif,system-ui,sans-serif}
+.lgm-login-backdrop{position:absolute;inset:-2%;width:104%;height:104%;background-image:url('/assets/maritime-login-bg.png');background-size:cover;background-position:center center;filter:blur(1.25px);transform:scale(1.018);z-index:0}
+.lgm-login-overlay{position:absolute;inset:0;background:linear-gradient(90deg,rgba(4,72,139,.20),rgba(7,88,166,.08) 45%,rgba(2,41,88,.18));z-index:1;pointer-events:none}
+.lgm-login-topbar{position:relative;z-index:5;height:74px;padding:0 54px;display:flex;align-items:center;justify-content:space-between;border:0;background:rgba(248,252,255,.94);backdrop-filter:blur(14px);color:#082d59}
+.lgm-login-brand{display:flex;align-items:center;gap:18px}.lgm-login-logo{width:76px;height:52px;display:grid;place-items:center;background:transparent}.lgm-login-logo img{width:72px;height:58px;object-fit:contain;display:block}.lgm-login-brand-text{padding-left:18px;border-left:1px solid #9db1c8}.lgm-login-brand b{display:block;font-size:18px;letter-spacing:.055em;line-height:1.15}.lgm-login-brand small{display:block;font-size:11px;letter-spacing:.16em;font-weight:800;margin-top:5px;color:#173c67}.lgm-secure-badge{font-size:11px;font-weight:900;letter-spacing:.08em;padding:8px 12px;border:0;background:transparent;color:#08a878}.lgm-live-dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#0dbd82;box-shadow:0 0 0 4px rgba(13,189,130,.12);margin-right:8px}
+.lgm-login-body{position:relative;z-index:4;max-width:1420px;margin:0 auto;min-height:calc(100vh - 74px);display:grid;grid-template-columns:minmax(0,1fr) 600px;gap:70px;align-items:center;padding:52px 46px 58px}.lgm-login-copy{padding:0 0 8px 24px;text-shadow:0 2px 14px rgba(0,37,75,.28)}.lgm-login-copy h1{font-size:52px;line-height:1.02;letter-spacing:-2px;margin:0 0 22px;font-weight:900}.lgm-login-copy h1 em{font-style:normal;color:#73d1ff}.lgm-login-copy>p{max-width:650px;color:#fff;font-size:16px;line-height:1.65;margin:0;font-weight:500}.lgm-login-date{margin-top:420px;display:flex;align-items:center;gap:13px;text-shadow:0 2px 10px rgba(0,0,0,.32)}.lgm-calendar-icon{width:34px;height:34px;border:2px solid rgba(255,255,255,.95);border-radius:6px;display:grid;place-items:center;font-size:17px}.lgm-login-date small{display:block;font-size:10px;letter-spacing:.28em;font-weight:800;opacity:.85}.lgm-login-date strong{display:block;font-size:14px;margin-top:4px}
+.lgm-login-card{background:rgba(248,252,255,.88);color:#17304f;border:1px solid rgba(255,255,255,.72);border-radius:16px;padding:34px 38px 25px;box-shadow:0 28px 70px rgba(0,30,70,.24);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}.lgm-card-brand{display:flex;align-items:center;gap:16px;color:#082d59}.lgm-card-logo{width:78px;height:64px;display:grid;place-items:center}.lgm-card-logo img{width:72px;height:62px;object-fit:contain}.lgm-card-brand>span:last-child{padding-left:16px;border-left:1px solid #bfd0e1}.lgm-card-brand b{display:block;font-size:18px;line-height:1.2;letter-spacing:.015em}.lgm-card-brand small{display:block;font-size:10px;font-weight:800;letter-spacing:.08em;margin-top:5px}.lgm-card-divider{height:1px;background:#dce6f0;margin:24px 0 25px}.lgm-login-card-head{margin-bottom:26px}.lgm-login-card h2{font-size:31px;letter-spacing:-.8px;margin:0 0 7px;font-weight:900;color:#092f60}.lgm-login-card-head p{font-size:13px;color:#66809e;margin:0}
+.lgm-field{position:relative;display:flex;align-items:center;height:57px;border:1px solid #cad9e8;border-radius:10px;background:rgba(255,255,255,.70);margin-bottom:14px;overflow:hidden}.lgm-field:focus-within{border-color:#3997e8;box-shadow:0 0 0 3px rgba(45,143,225,.10);background:#fff}.lgm-field-icon{width:58px;display:grid;place-items:center;color:#6485aa;flex:0 0 58px}.lgm-field>input,.lgm-password input{width:100%;height:100%;border:0;outline:0;background:transparent;color:#17304f;font-size:15px;padding:0 14px 0 0}.lgm-field input::placeholder{color:#7891ad}.lgm-password{position:relative;width:100%;height:100%;display:flex;align-items:center}.lgm-password input{padding-right:48px}.lgm-password button{position:absolute;right:9px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:#6b89a9;padding:8px;cursor:pointer}
+.lgm-login-options{display:flex;align-items:center;justify-content:space-between;margin:3px 0 21px}.lgm-remember{display:flex;align-items:center;gap:8px;font-size:12px;color:#55718f;font-weight:700}.lgm-remember input{width:20px;height:20px;accent-color:#178ee4}.lgm-forgot{border:0;background:transparent;color:#0877d7;font-size:12px;font-weight:800;cursor:pointer}.lgm-login-error{background:#fff1f2;border:1px solid #fecdd3;color:#be123c;border-radius:9px;padding:9px 11px;font-size:10px;font-weight:700;margin:0 0 12px}.lgm-login-submit{width:100%;display:flex;justify-content:center;align-items:center;gap:10px;border:0;border-radius:9px;background:linear-gradient(100deg,#18a5ef,#176bdc);color:#fff;padding:15px;font-size:14px;font-weight:900;box-shadow:0 10px 22px rgba(18,119,224,.22);transition:.16s;cursor:pointer}.lgm-login-submit:hover{transform:translateY(-1px);box-shadow:0 14px 28px rgba(18,119,224,.28)}.lgm-login-submit:disabled{opacity:.7;transform:none}
+.lgm-demo-box{margin-top:21px;background:rgba(226,242,255,.82);border:1px solid rgba(171,210,239,.48);border-radius:10px;padding:17px 17px 15px}.lgm-demo-title{display:flex;align-items:center;gap:9px;color:#0877d7;margin-bottom:12px}.lgm-demo-title b{font-size:12px;letter-spacing:.03em}.lgm-account-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 18px}.lgm-account{display:flex;align-items:center;gap:8px;text-align:left;border:0;background:transparent;border-radius:7px;padding:7px 4px;min-width:0;cursor:pointer}.lgm-account:hover,.lgm-account.selected{background:rgba(255,255,255,.55)}.lgm-account-icon{width:27px;height:27px;flex:0 0 27px;display:grid;place-items:center;border-radius:7px;background:#fff;color:#177fd5}.lgm-account b,.lgm-account code{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.lgm-account b{font-size:10px;color:#123c69}.lgm-account code{font-size:9px;color:#4e769d;margin-top:3px}.lgm-login-footer{text-align:center;color:#4f79a0;font-size:10px;letter-spacing:.01em;border-top:1px solid #dce6f0;margin-top:25px;padding-top:20px}
+@media(max-width:1050px){.lgm-login-body{grid-template-columns:1fr 500px;gap:35px;padding:38px 28px}.lgm-login-copy{padding-left:0}.lgm-login-copy h1{font-size:42px}.lgm-login-date{margin-top:260px}.lgm-login-card{padding:28px}.lgm-card-brand b{font-size:15px}}
+@media(max-width:850px){.lgm-login-topbar{padding:0 22px}.lgm-login-brand-text{padding-left:12px}.lgm-login-brand b{font-size:13px}.lgm-login-brand small{font-size:8px}.lgm-login-body{grid-template-columns:1fr;max-width:650px;padding:36px 20px}.lgm-login-copy{padding:0}.lgm-login-copy h1{font-size:38px}.lgm-login-date{margin-top:45px}.lgm-login-card{width:100%}}
+@media(max-width:560px){.lgm-login-topbar{height:66px}.lgm-login-logo{width:52px}.lgm-login-logo img{width:50px;height:46px}.lgm-login-brand{gap:8px}.lgm-login-brand-text{display:none}.lgm-secure-badge{font-size:9px}.lgm-login-body{padding:26px 14px}.lgm-login-copy h1{font-size:32px}.lgm-login-copy>p{font-size:13px}.lgm-login-date{margin-top:35px}.lgm-login-card{padding:22px 18px;border-radius:14px}.lgm-card-brand b{font-size:14px}.lgm-login-card h2{font-size:26px}.lgm-account-grid{grid-template-columns:1fr}.lgm-login-options{margin-bottom:16px}}
+
+/* Active Vessel Calls */
+.vessel-calls-page{display:flex;flex-direction:column;gap:18px}
+.vessel-calls-hero{background:linear-gradient(135deg,#fff 0%,#f4f7fc 100%);border:1px solid #dbe4ef;border-radius:20px;padding:26px;display:flex;align-items:center;justify-content:space-between;gap:24px;box-shadow:0 10px 30px rgba(23,50,90,.06)}
+.vessel-calls-hero .eyebrow{display:flex;align-items:center;gap:7px;color:#315f9e;font-size:11px;font-weight:900;letter-spacing:.12em}.vessel-calls-hero h1{margin:8px 0 4px;font-size:27px;color:#202b3d}.vessel-calls-hero p{margin:0;color:#718097;font-size:13px}
+.vessel-export-actions{display:flex;gap:10px;flex-wrap:wrap}.vessel-export-actions button{border:0;border-radius:10px;padding:12px 15px;background:#315db2;color:#fff;font-weight:800;font-size:12px;display:flex;align-items:center;gap:7px;cursor:pointer;box-shadow:0 7px 18px rgba(49,93,178,.18)}.vessel-export-actions .excel{background:#16835c}
+.vessel-filter-card{display:flex;gap:12px;align-items:center;background:#fff;border:1px solid #dbe4ef;border-radius:16px;padding:13px;box-shadow:0 8px 22px rgba(23,50,90,.04)}.filter-field{display:flex;align-items:center;gap:9px;border:1px solid #d9e2ee;border-radius:10px;padding:0 12px;height:43px;color:#718097;background:#fafcff}.filter-field select,.filter-field input{border:0;outline:0;background:transparent;color:#42526a;font:inherit}.filter-field.search{flex:1}.filter-field.search input{width:100%}.result-count{margin-left:auto;color:#64748b;font-size:12px;font-weight:800;white-space:nowrap}
+.vessel-table-card{overflow:auto;background:#fff;border:1px solid #dbe4ef;border-radius:16px;box-shadow:0 10px 26px rgba(23,50,90,.05)}.vessel-table-card table{width:100%;border-collapse:collapse;min-width:900px}.vessel-table-card th{background:#f6f8fc;color:#66758a;text-align:left;padding:14px;font-size:10px;letter-spacing:.09em}.vessel-table-card td{padding:14px;border-top:1px solid #edf1f6;color:#5d6b7f;font-size:12px}.vessel-table-card td small{display:block;color:#9aa6b5;font-size:10px;margin-top:3px}.job-number{padding:0;border:0;background:transparent;color:#6f46c5;font-weight:900;cursor:pointer}.status{display:inline-block;border-radius:999px;padding:6px 9px;font-size:10px;font-weight:900}.status-in_progress{background:#e7f1ff;color:#2563a8}.status-approved{background:#e8f7ef;color:#277151}.status-completed,.status-closed{background:#eef2f7;color:#607087}.status-inquiry,.status-quoted{background:#fff4dc;color:#9a6510}.open-job{border:1px solid #cbd9eb;background:#f8fbff;color:#2864b8;border-radius:8px;padding:7px 9px;font-weight:800;font-size:10px;display:inline-flex;align-items:center;gap:3px;cursor:pointer}.empty{text-align:center;padding:35px!important;color:#94a3b8!important}
+@media(max-width:900px){.vessel-calls-hero{align-items:flex-start;flex-direction:column}.vessel-filter-card{flex-wrap:wrap}.filter-field.search{min-width:100%;order:3}.result-count{margin-left:0}}
+
+/* Vessel Call status summary */
+.vessel-back-btn{border:0;background:transparent;color:#2563c7;font-weight:800;font-size:11px;padding:0 0 12px;display:flex;align-items:center;gap:6px;cursor:pointer}
+.vessel-detail-identity{min-width:205px;background:#f7f9fc;border:1px solid #dce5ef;border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:4px}
+.vessel-detail-identity span{font-size:9px;letter-spacing:1.2px;font-weight:900;color:#71809a}
+.vessel-detail-identity strong{font-size:18px;color:#172033}
+.vessel-detail-identity small{font-size:10px;color:#7b899d}
+.vessel-status-conclusion{background:#fff;border:1px solid #dbe4ef;border-radius:16px;box-shadow:0 8px 28px rgba(34,67,110,.06);padding:20px;margin-top:18px}
+.vessel-conclusion-head{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;border-bottom:1px solid #e8edf4;padding-bottom:18px}
+.vessel-conclusion-head h2{margin:6px 0 4px;font-size:18px;color:#172033}
+.vessel-conclusion-head p{margin:0;color:#7a899f;font-size:11px}
+.status-conclusion-badge{display:flex;align-items:center;gap:7px;padding:9px 13px;border-radius:10px;font-size:10px;font-weight:900;white-space:nowrap}
+.status-conclusion-badge.done{background:#e8f8f0;color:#13805a}.status-conclusion-badge.waiting{background:#fff5df;color:#9a6500}.status-conclusion-badge.danger{background:#ffeaea;color:#c73535}.status-conclusion-badge.open{background:#eef4ff;color:#2864bd}
+.vessel-status-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:11px;margin-top:18px}
+.vessel-status-card{min-height:82px;border:1px solid #e3e9f1;border-radius:12px;background:#fbfcfe;padding:13px;display:flex;align-items:flex-start;gap:10px}
+.vessel-status-card.done{background:#f4fbf8;border-color:#d7eee4}.vessel-status-card.waiting{background:#fffaf0;border-color:#f2e2bc}.vessel-status-card.danger{background:#fff6f6;border-color:#f1d3d3}.vessel-status-card.open{background:#f7faff;border-color:#dbe8fa}
+.vessel-status-icon{margin-top:2px}.vessel-status-card.done .vessel-status-icon{color:#16845d}.vessel-status-card.waiting .vessel-status-icon{color:#ad7500}.vessel-status-card.danger .vessel-status-icon{color:#cf3e3e}.vessel-status-card.open .vessel-status-icon{color:#3974c9}
+.vessel-status-card small{display:block;font-size:9px;font-weight:800;color:#73829a;margin-bottom:5px}.vessel-status-card strong{display:block;font-size:12px;color:#172033}
+@media(max-width:1100px){.vessel-status-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.vessel-conclusion-head{flex-direction:column}}
+@media(max-width:700px){.vessel-status-grid{grid-template-columns:1fr 1fr}.vessel-detail-identity{display:none}}
+
+
+/* Active user profile menu */
+.maritim-header-actions{position:relative}
+.maritim-user-menu{position:absolute;right:0;top:54px;width:300px;background:#fff;color:#172033;border:1px solid #dbe4ef;border-radius:14px;padding:9px;box-shadow:0 20px 55px rgba(20,45,90,.22);z-index:70}
+.maritim-user-menu-head{display:flex;align-items:center;gap:10px;padding:10px;border-bottom:1px solid #edf1f6;margin-bottom:5px}
+.maritim-user-menu-avatar{width:38px;height:38px;border-radius:50%;background:#e8f1ff;color:#1458b8;display:grid;place-items:center;font-weight:900;font-size:12px}
+.maritim-user-menu-head b,.maritim-user-menu-head small{display:block}.maritim-user-menu-head b{font-size:12px}.maritim-user-menu-head small{font-size:10px;color:#7a879a;margin-top:2px}
+.maritim-user-menu-item{width:100%;display:flex;align-items:center;gap:10px;text-align:left;border:0;border-radius:9px;padding:10px;background:transparent;color:#1458b8}.maritim-user-menu-item:hover{background:#f1f6fd}.maritim-user-menu-item span{color:#172033}.maritim-user-menu-item b,.maritim-user-menu-item small{display:block}.maritim-user-menu-item b{font-size:11px}.maritim-user-menu-item small{font-size:9px;color:#8793a7;margin-top:2px}
+.maritim-user-menu-divider{height:1px;background:#edf1f6;margin:5px 3px}.maritim-user-menu-logout{width:100%;display:flex;align-items:center;gap:9px;border:0;background:transparent;color:#dc2626;padding:10px;border-radius:9px;font-size:11px;font-weight:800}.maritim-user-menu-logout:hover{background:#fff1f2}
+.maritim-modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.48);backdrop-filter:blur(4px);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px}.maritim-small-modal{width:min(430px,100%);background:#fff;border:1px solid #dbe4ef;border-radius:16px;box-shadow:0 24px 70px rgba(15,23,42,.3);overflow:hidden}.maritim-modal-head{display:flex;justify-content:space-between;align-items:center;padding:17px 19px;border-bottom:1px solid #edf1f6}.maritim-modal-head b,.maritim-modal-head small{display:block}.maritim-modal-head b{font-size:15px;color:#172033}.maritim-modal-head small{font-size:10px;color:#7a879a;margin-top:3px}.maritim-modal-head button{border:0;background:#f5f7fa;border-radius:8px;width:30px;height:30px;font-size:20px;color:#71809a}.maritim-modal-body{padding:18px}.maritim-modal-body label{display:block;font-size:11px;color:#6d7d96;margin-bottom:12px}.maritim-modal-body input{display:block;width:100%;margin-top:5px;border:1px solid #dbe4ef;border-radius:9px;padding:10px;font-size:12px;outline:none}.maritim-modal-body input:focus{border-color:#2b6dcc;box-shadow:0 0 0 3px rgba(43,109,204,.08)}.maritim-form-error{background:#fff1f2;color:#be123c;border:1px solid #fecdd3;border-radius:8px;padding:8px;font-size:10px}.maritim-modal-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid #edf1f6}.maritim-modal-actions button{border:1px solid #dbe4ef;background:#fff;border-radius:9px;padding:9px 13px;font-size:11px}.maritim-modal-actions .primary{background:#315fd8;color:#fff;border-color:#315fd8;font-weight:800}
+
+/* V9 dashboard refinements */
+.maritim-nav-group-title{display:flex;align-items:center;gap:11px;color:#9fb0ca;font-size:11px;font-weight:900;padding:12px 16px 8px;letter-spacing:.03em;text-transform:none}
+.maritim-nav-group-title svg{width:18px;height:18px;stroke-width:1.8}
+.maritim-subnav-static{display:flex;flex-direction:column}
+.maritim-job-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.maritim-job-card-today{font-size:8px;font-weight:900;color:#77c8ff;background:rgba(71,168,255,.1);border:1px solid rgba(71,168,255,.18);padding:3px 6px;border-radius:999px}
+.maritim-job-card-date{font-size:9px;color:#b8c5d8;margin-top:6px}
+.vessel-download-wrap{position:relative}
+.vessel-export-actions .download-main,.vessel-export-actions .print{border:0;border-radius:10px;padding:12px 15px;color:#fff;font-weight:800;font-size:12px;display:flex;align-items:center;gap:7px;cursor:pointer;box-shadow:0 7px 18px rgba(49,93,178,.18)}
+.vessel-export-actions .download-main{background:#315db2}.vessel-export-actions .print{background:#172f55}
+.vessel-download-menu{position:absolute;right:0;top:calc(100% + 7px);min-width:185px;background:#fff;border:1px solid #dbe4ef;border-radius:11px;padding:5px;box-shadow:0 18px 40px rgba(20,45,90,.18);z-index:20}
+.vessel-download-menu button{width:100%;border:0;background:transparent;color:#26364d;border-radius:8px;padding:10px 11px;display:flex;align-items:center;gap:9px;font-size:11px;font-weight:800;cursor:pointer;text-align:left}
+.vessel-download-menu button:hover{background:#f2f6fb;color:#245eae}
+.vessel-inquiry-card{background:#fff;border:1px solid #dbe4ef;border-radius:16px;box-shadow:0 8px 28px rgba(34,67,110,.06);padding:20px;margin-top:18px}
+.vessel-inquiry-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;border-bottom:1px solid #e8edf4;padding-bottom:15px}
+.vessel-inquiry-head h2{margin:6px 0 4px;font-size:18px;color:#172033}.vessel-inquiry-head p{margin:0;color:#7a899f;font-size:11px}
+.inquiry-status{padding:8px 11px;border-radius:999px;font-size:9px;font-weight:900;letter-spacing:.04em}.inquiry-status.received{background:#fff5df;color:#9a6500}.inquiry-status.evaluated{background:#eef4ff;color:#2864bd}.inquiry-status.converted{background:#e8f8f0;color:#13805a}
+.vessel-inquiry-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:#e8edf4;border:1px solid #e8edf4;border-radius:12px;overflow:hidden;margin-top:15px}
+.vessel-inquiry-grid>div{background:#fbfcfe;padding:13px}.vessel-inquiry-grid .wide{grid-column:span 2}.vessel-inquiry-grid small{display:block;font-size:8px;color:#7a899f;font-weight:900;letter-spacing:.07em;margin-bottom:5px}.vessel-inquiry-grid strong{display:block;font-size:11px;line-height:1.5;color:#243249;font-weight:700}
+@media(max-width:900px){.vessel-inquiry-grid{grid-template-columns:1fr 1fr}.vessel-inquiry-grid .wide{grid-column:span 2}}
+@media(max-width:600px){.vessel-inquiry-grid{grid-template-columns:1fr}.vessel-inquiry-grid .wide{grid-column:span 1}.vessel-export-actions{width:100%}.vessel-download-wrap{flex:1}.vessel-export-actions .download-main,.vessel-export-actions .print{width:100%;justify-content:center}}
+
+.maritim-logo img{width:29px;height:29px;object-fit:contain;display:block}
+.maritim-today-card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);padding:11px;border-radius:10px}
+.maritim-today-label{font-size:8px;color:#5bb8ff;font-weight:900;letter-spacing:.12em}
+.maritim-today-date{font-size:10px;color:#fff;font-weight:700;margin-top:4px;line-height:1.35}
+
+.master-edit-input{margin-top:4px;width:100%;border:1px solid #dbe3ef;border-radius:9px;padding:9px 10px;color:#172033;background:#fff;outline:none}
+.master-edit-input:focus{border-color:#7c3aed;box-shadow:0 0 0 3px rgba(124,58,237,.08)}
+.master-data-submit{background:linear-gradient(135deg,#315fd8,#5b4bd8);color:#fff!important;box-shadow:0 8px 16px rgba(49,95,216,.18);transition:background .15s ease,box-shadow .15s ease}
+.master-data-submit:hover{background:linear-gradient(135deg,#2854c5,#4d3fc4);box-shadow:0 10px 20px rgba(49,95,216,.24)}
+.admin-add-modal label{color:#52637a;font-weight:600}
+.admin-add-modal label span{color:#52637a;font-weight:700}
+.admin-add-modal input,.admin-add-modal select,.admin-add-modal textarea{margin-top:4px;width:100%;border:1px solid #fff;border-radius:9px;padding:9px 10px;color:#172033;background:#fff;outline:none}
+.admin-add-modal input::placeholder,.admin-add-modal textarea::placeholder{color:#9aa8b9}
+.admin-add-modal input:focus,.admin-add-modal select:focus,.admin-add-modal textarea:focus{border-color:#7c3aed;box-shadow:0 0 0 3px rgba(124,58,237,.08)}
+.admin-add-modal .master-data-cancel{background:#f8fafc;color:#52637a;border:1px solid #dbe3ef}
+.admin-add-modal .master-data-cancel:hover{background:#eef3f8;color:#334155}
+.admin-customer-modal>div:first-child{padding-bottom:7px;margin-bottom:9px}
+.admin-customer-modal{transform:translateY(18px)}
+.admin-customer-modal .master-edit-input{padding:7px 9px}
+.admin-customer-modal textarea.master-edit-input{min-height:52px}
+.admin-customer-modal h3{font-size:17px;line-height:1.15}
+.admin-customer-modal p{line-height:1.2}
+.admin-customer-form> :not([hidden])~ :not([hidden]){margin-top:.55rem}
+.admin-customer-form .grid{gap:.5rem}
+.admin-customer-form .master-edit-input{padding:7px 9px}
+.admin-customer-form textarea.master-edit-input{min-height:52px}
+.admin-customer-form .border-t{padding-top:9px}
+
+/* Header notification center */
+.maritim-notification-btn{position:relative}
+.maritim-notification-btn.has-alert{background:rgba(255,255,255,.16)}
+.maritim-notification-badge{position:absolute;right:-4px;top:-5px;min-width:17px;height:17px;padding:0 4px;border-radius:999px;background:#ef4444;color:#fff;border:2px solid #2158b8;display:grid;place-items:center;font-size:8px;font-weight:900;line-height:1}
+.maritim-notification-menu{position:absolute;right:245px;top:54px;width:390px;max-height:470px;overflow:hidden;background:#fff;color:#172033;border:1px solid #dbe4ef;border-radius:14px;box-shadow:0 20px 55px rgba(20,45,90,.24);z-index:75}
+.maritim-notification-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 14px;border-bottom:1px solid #edf1f6}.maritim-notification-head b,.maritim-notification-head small{display:block}.maritim-notification-head b{font-size:12px}.maritim-notification-head small{font-size:9px;color:#8290a4;margin-top:2px}.maritim-notification-head button{border:0;background:transparent;color:#2563eb;font-size:9px;font-weight:800;white-space:nowrap}
+.maritim-notification-list{max-height:405px;overflow:auto;padding:6px}
+.maritim-notification-item{width:100%;display:flex;align-items:flex-start;gap:9px;border:0;background:#fff;text-align:left;padding:10px;border-radius:10px;color:#172033;transition:.15s}.maritim-notification-item:hover{background:#f5f8fc}.maritim-notification-item.unread{background:#f0f6ff}.maritim-notification-dot{width:8px;height:8px;border-radius:50%;margin-top:4px;flex:0 0 auto;background:#3b82f6}.maritim-notification-dot.approval{background:#f59e0b}.maritim-notification-dot.warning{background:#ef4444}.maritim-notification-dot.info{background:#3b82f6}.maritim-notification-copy{min-width:0;flex:1}.maritim-notification-copy b,.maritim-notification-copy small{display:block}.maritim-notification-copy b{font-size:10.5px;font-weight:850}.maritim-notification-copy small{font-size:9.5px;color:#69778c;line-height:1.4;margin-top:3px}.maritim-notification-new{font-size:7px;font-weight:900;color:#2563eb;background:#dbeafe;padding:3px 5px;border-radius:999px;flex:0 0 auto}.maritim-notification-empty{padding:24px 18px;text-align:center;color:#8190a5;font-size:10px;line-height:1.5}
+@media(max-width:900px){.maritim-notification-menu{right:120px;width:min(390px,calc(100vw - 24px))}}
+@media(max-width:680px){.maritim-notification-menu{position:fixed;right:12px;top:68px;left:12px;width:auto}}
+
+.maritim-modal-actions button{background:#f8fafc;color:#52637a;min-width:58px;font-weight:700}
+.maritim-modal-actions button:hover{background:#eef3f8}
+.maritim-modal-actions .primary{background:#315fd8;color:#fff;font-weight:800}
+.maritim-modal-actions .primary:hover{background:#2854c5}
+
+/* Result table headers use a consistent centered alignment. */
+.epda-form-root table thead th,
+.fda-form-root table thead th {
+  text-align: center !important;
+}
