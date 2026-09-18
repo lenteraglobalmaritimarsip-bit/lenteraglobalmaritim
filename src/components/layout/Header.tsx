@@ -83,11 +83,10 @@ export const Header: React.FC<HeaderProps> = ({
 
     jobCalls.forEach((job) => {
       const epdaSubmitted = job.quotation?.epda?.status === 'SUBMITTED';
-      const pdaSubmitted = job.quotation?.pda?.status === 'SUBMITTED';
       const approval = job.managerApproval?.status;
 
-      if (currentRole === 'MANAGER_OPS' && approval !== 'APPROVED' && epdaSubmitted && pdaSubmitted) {
-        push({ id:`approval-${job.jobId}`, title:'Approval menunggu tindakan', message:`${job.jobId} · ${job.vesselName} siap diperiksa dan disetujui.`, jobId:job.jobId, tab:'APPROVAL', kind:'APPROVAL' });
+      if (currentRole === 'MANAGER_OPS' && approval !== 'APPROVED' && epdaSubmitted) {
+        push({ id:`approval-${job.jobId}`, title:'Approval menunggu tindakan', message:`${job.jobId} · ${job.vesselName} siap diperiksa dan disetujui setelah EPDA disubmit.`, jobId:job.jobId, tab:'APPROVAL', kind:'APPROVAL' });
       }
 
       if (currentRole === 'SALES' && approval === 'REJECTED') {
@@ -96,7 +95,19 @@ export const Header: React.FC<HeaderProps> = ({
 
       if (currentRole === 'FDA' && approval === 'APPROVED' && !job.fda?.fdaApproved) {
         const pendingActual = (job.actualCosts || []).filter(x => x.status !== 'APPROVED_BY_FDA').length;
-        push({ id:`fda-${job.jobId}-${pendingActual}`, title: pendingActual ? 'FDA perlu verifikasi biaya' : 'Job siap diproses FDA', message: pendingActual ? `${job.jobId} memiliki ${pendingActual} actual cost yang belum diverifikasi.` : `${job.jobId} · ${job.vesselName} sudah Approved dan siap masuk FDA.`, jobId:job.jobId, tab: pendingActual ? 'ACTUAL_COST' : 'FDA_JOB_ID', kind: pendingActual ? 'WARNING' : 'INFO' });
+        const hasActualCost = (job.actualCosts || []).length > 0;
+        push({
+          id:`fda-${job.jobId}-${pendingActual}`,
+          title: !hasActualCost ? 'Actual Cost perlu diinput' : pendingActual ? 'FDA perlu verifikasi biaya' : 'FDA siap difinalisasi',
+          message: !hasActualCost
+            ? `${job.jobId} · ${job.vesselName} sudah Approved. Lengkapi Actual Cost terlebih dahulu.`
+            : pendingActual
+              ? `${job.jobId} memiliki ${pendingActual} actual cost yang belum diverifikasi.`
+              : `${job.jobId} · ${job.vesselName} memiliki biaya yang sudah diverifikasi dan siap difinalisasi FDA.`,
+          jobId:job.jobId,
+          tab: !hasActualCost || pendingActual ? 'ACTUAL_COST' : 'FDA_JOB_ID',
+          kind: !hasActualCost || pendingActual ? 'WARNING' : 'INFO'
+        });
       }
 
       if (currentRole === 'FINANCE' && job.fda?.fdaApproved) {
@@ -107,6 +118,13 @@ export const Header: React.FC<HeaderProps> = ({
         const unreceived = (job.ar || []).filter(x => x.status !== 'RECEIVED').length;
         if (unpaid || unreceived) {
           push({ id:`finance-${job.jobId}-${unpaid}-${unreceived}`, title:'Finance outstanding', message:`${job.jobId}: ${unpaid} AP belum lunas, ${unreceived} AR belum diterima.`, jobId:job.jobId, tab: unpaid ? 'AP' : 'AR', kind:'INFO' });
+        }
+        const readyForClosing = job.principalInvoice?.status === 'SETTLED'
+          && !!job.ap?.length && job.ap.every(item => item.status === 'PAID')
+          && !!job.ar?.length && job.ar.every(item => item.status === 'RECEIVED')
+          && !job.closing?.isClosed;
+        if (readyForClosing) {
+          push({ id:`closing-${job.jobId}`, title:'Job siap ditutup', message:`${job.jobId} · ${job.vesselName} sudah memenuhi syarat closing.`, jobId:job.jobId, tab:'CLOSING', kind:'INFO' });
         }
       }
     });
