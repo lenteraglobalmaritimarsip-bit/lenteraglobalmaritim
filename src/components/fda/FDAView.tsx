@@ -130,8 +130,6 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   const formatTariffInput = (value: number) => value > 0
     ? new Intl.NumberFormat(viewCurrency === 'IDR' ? 'id-ID' : 'en-US', {
-      style: 'currency',
-      currency: viewCurrency,
       maximumFractionDigits: viewCurrency === 'IDR' ? 0 : 2,
     }).format(value)
     : '';

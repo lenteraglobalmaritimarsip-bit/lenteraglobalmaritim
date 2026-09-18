@@ -49,8 +49,6 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   const formatEntryAmount = (value: number | '') => {
     if (value === '') return '';
     return new Intl.NumberFormat(viewCurrency === 'IDR' ? 'id-ID' : 'en-US', {
-      style: 'currency',
-      currency: viewCurrency,
       maximumFractionDigits: viewCurrency === 'IDR' ? 0 : 2,
     }).format(value);
   };
