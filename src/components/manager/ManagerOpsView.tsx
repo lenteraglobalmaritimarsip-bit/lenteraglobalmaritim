@@ -69,6 +69,14 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
     }, 0);
     return sum + Math.max(0, billedIDR - receivedIDR);
   }, 0);
+  const totalReceivedIDR = approvedFDAJobs.reduce((sum, job) => {
+    const rate = job.exchangeRateUSDToIDR || 15800;
+    return sum + (job.principalReceipts || []).reduce((receiptSum, receipt) => {
+      if (receipt.paymentType === 'ADVANCE_PAYMENT' && isClosedJob(job)) return receiptSum;
+      const receiptCurrency = receipt.currency || job.currency || 'IDR';
+      return receiptSum + (receiptCurrency === 'USD' ? receipt.amount * rate : receipt.amount);
+    }, 0);
+  }, 0);
   const summaryCards = [
     { label: 'System Users', value: String(users.length), detail: 'Akun aktif dalam portal', tone: 'cyan' },
     { label: 'Sales Pipeline', value: `${jobCalls.filter((j) => j.quotation.epda.status === 'APPROVED' || j.quotation.pda.status === 'APPROVED').length} Jobs`, detail: 'Quote yang siap diproses', tone: 'amber' },
