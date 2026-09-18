@@ -50,21 +50,25 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
 
   const approvedOrClosedJobs = jobCalls.filter((j) => j.managerApproval.status === 'APPROVED' || j.currentStage === 'CLOSED');
   const approvedFDAJobs = jobCalls.filter((j) => j.fda?.fdaApproved);
+  const isClosedJob = (job: JobCall) => job.closing?.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED';
   const totalPrincipalBilledIDR = approvedFDAJobs.reduce((sum, job) => {
-    const billedUSD = job.fda?.finalBilledToPrincipal || job.principalInvoice?.totalAmountUSD || 0;
+    const billed = job.fda?.finalBilledToPrincipal || job.principalInvoice?.totalAmountUSD || 0;
+    const currency = job.fda?.currency || job.currency || 'IDR';
     const rate = job.exchangeRateUSDToIDR || 15800;
-    return sum + billedUSD * rate;
+    return sum + (currency === 'USD' ? billed * rate : billed);
   }, 0);
-  const totalReceivedIDR = approvedFDAJobs.reduce((sum, job) => {
-    const receipts = job.principalReceipts || [];
-    const converted = receipts.reduce((inner, receipt) => {
-      const rate = job.exchangeRateUSDToIDR || 15800;
-      const amount = receipt.currency === 'USD' ? receipt.amount * rate : receipt.amount;
-      return inner + (receipt.amount || 0) * (receipt.currency === 'USD' ? rate : 1);
+  const totalOutstandingIDR = approvedFDAJobs.reduce((sum, job) => {
+    if (isClosedJob(job)) return sum;
+    const billed = job.fda?.finalBilledToPrincipal || job.principalInvoice?.totalAmountUSD || 0;
+    const billedCurrency = job.fda?.currency || job.currency || 'IDR';
+    const rate = job.exchangeRateUSDToIDR || 15800;
+    const billedIDR = billedCurrency === 'USD' ? billed * rate : billed;
+    const receivedIDR = (job.principalReceipts || []).reduce((receiptSum, receipt) => {
+      const receiptCurrency = receipt.currency || job.currency || 'IDR';
+      return receiptSum + (receiptCurrency === 'USD' ? receipt.amount * rate : receipt.amount);
     }, 0);
-    return sum + converted;
+    return sum + Math.max(0, billedIDR - receivedIDR);
   }, 0);
-  const totalOutstandingIDR = Math.max(0, totalPrincipalBilledIDR - totalReceivedIDR);
   const summaryCards = [
     { label: 'System Users', value: String(users.length), detail: 'Akun aktif dalam portal', tone: 'cyan' },
     { label: 'Sales Pipeline', value: `${jobCalls.filter((j) => j.quotation.epda.status === 'APPROVED' || j.quotation.pda.status === 'APPROVED').length} Jobs`, detail: 'Quote yang siap diproses', tone: 'amber' },
