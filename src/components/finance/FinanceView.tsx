@@ -467,7 +467,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       )}
 
       {financeGateMessage && subTab !== 'DASHBOARD' && (
-        <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-200 text-xs flex items-center gap-2">
+        <div className="p-4 bg-slate-800 border border-slate-600 rounded-xl text-slate-200 text-xs flex items-center gap-2">
           <AlertCircle className="w-4 h-4" />
           <span>{financeGateMessage}</span>
         </div>
