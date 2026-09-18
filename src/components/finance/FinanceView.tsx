@@ -405,6 +405,22 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     window.setTimeout(() => URL.revokeObjectURL(imageUrl), 60000);
   };
 
+  const printPrincipalInvoice = () => {
+    const escapeHtml = (value: unknown) => String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+    const rows = invoiceGroups.map((group) => `
+      <tr class="category"><td colspan="3">${escapeHtml(invoiceCategoryLabel(group.category))}</td></tr>
+      ${group.items.map((item) => `<tr><td>${escapeHtml(item.name)}<small>Vendor: ${escapeHtml(item.basis)}</small></td><td>${escapeHtml(item.currency)}</td><td class="amount">${escapeHtml(formatCurrencyNumber(convertCurrency(item.totalSellRate, item.currency, jobCurrency, getJobExchangeRate(activeJob)), jobCurrency))}</td></tr>`).join('')}
+    `).join('');
+    const win = window.open('', '_blank', 'width=1100,height=800');
+    if (!win) return;
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Official Principal Invoice ${escapeHtml(activeJob.jobId)}</title><style>@page{size:A4;margin:16mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#243249;margin:0;font-size:11px}h1{font-size:20px;margin:0 0 4px;color:#17304f}h2{font-size:14px;margin:22px 0 8px;color:#17304f;border-bottom:2px solid #dbe4ef;padding-bottom:6px}.head{display:flex;justify-content:space-between;border-bottom:2px solid #315db2;padding-bottom:14px}.muted{color:#66758a}.meta{text-align:right}table{width:100%;border-collapse:collapse;margin-top:18px}th{background:#f3f6fa;color:#66758a;text-align:left;padding:9px;border-bottom:1px solid #cfd9e5;text-transform:uppercase;font-size:9px}td{padding:9px;border-bottom:1px solid #e5ebf2}td small{display:block;color:#7b899d;margin-top:4px}.category td{background:#e8eef6;color:#52637a;font-weight:700;text-transform:uppercase;letter-spacing:.06em}.amount{text-align:right;font-weight:700}.right{text-align:right}.total{font-weight:700;border-top:2px solid #cfd9e5}.footer{margin-top:32px;text-align:center;color:#66758a;font-size:10px}@media print{button{display:none}}</style></head><body><div class="head"><div><h1>OFFICIAL PRINCIPAL INVOICE</h1><div class="muted">PT. Lentera Global Maritim</div><div class="muted">Billed To: ${escapeHtml(activeJob.customerName)}</div><div class="muted">Port Call: ${escapeHtml(activeJob.portName)} · ${escapeHtml(activeJob.vesselName)}</div></div><div class="meta"><b>${escapeHtml(activeJob.principalInvoice?.invoiceNo || `INV-${activeJob.jobId}`)}</b><div class="muted">Tanggal Terbit: ${escapeHtml(formatDateDisplay(activeJob.principalInvoice?.invoiceDate || ''))}</div><div class="muted">Jatuh Tempo: ${escapeHtml(formatDateDisplay(activeJob.principalInvoice?.dueDate || ''))}</div></div></div><table><thead><tr><th>Deskripsi Tagihan Port Disbursement</th><th>Mata Uang</th><th class="right">Total Tagihan</th></tr></thead><tbody>${rows}</tbody><tfoot><tr class="total"><td colspan="2" class="right">Total Nilai Invoice Principal:</td><td class="amount">${escapeHtml(formatCurrencyNumber(invoiceAmount, jobCurrency))}</td></tr></tfoot></table><div class="footer">Official Principal Invoice · ${escapeHtml(activeJob.jobId)}</div><script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}</script></body></html>`);
+    win.document.close();
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Banner */}
@@ -879,6 +895,11 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   </tr>
                 </tfoot>
               </table>
+            </div>
+            <div className="mt-5 flex justify-end">
+              <button type="button" onClick={printPrincipalInvoice} className="px-4 py-2.5 rounded-xl bg-white text-slate-900 text-xs font-bold flex items-center gap-2 hover:bg-slate-100">
+                <FileSpreadsheet className="w-4 h-4" /> Cetak / PDF
+              </button>
             </div>
           </div>
         </div>
