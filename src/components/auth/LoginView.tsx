@@ -59,10 +59,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
 
       <main className="lgm-login-body">
         <section className="lgm-login-copy">
-          <h1>Integrated Maritime.<br /><em>Controlled Agency Workflow.</em></h1>
+          <h1>Integrated Maritime.<br /><em>Controlled Vessel Workflow.</em></h1>
           <p>
-            Kelola Inquiry → EPDA/PDA → Approval → Operations → Actual Cost →
-            FDA → AP/AR → Principal Invoice → Closing dalam satu workspace.
+            Being a quality , Profesional and trusted company that as the first 
+            Choice by qualified customers
           </p>
 
           <div className="lgm-login-date">
