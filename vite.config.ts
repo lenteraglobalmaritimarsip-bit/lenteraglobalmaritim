@@ -3,8 +3,11 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
 
+const repoBase = '/lenteraglobalmaritim/';
+
 export default defineConfig(() => {
   return {
+    base: repoBase,
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
