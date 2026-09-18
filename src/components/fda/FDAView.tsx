@@ -113,6 +113,12 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const formatUSD = (val: number) =>
     new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(val);
 
+  const formatInquiryDate = (value?: string) => {
+    if (!value) return '-';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('id-ID').format(date);
+  };
+
   const formatAccountingNumber = (value: number, currency: 'USD' | 'IDR') => {
     const normalized = currency === 'USD' ? Number(value || 0) : Math.round(Number(value || 0));
     return new Intl.NumberFormat('en-US', {
@@ -128,6 +134,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     getCurrentBranchName(),
     new Date(activeJob.quotation?.epda?.date || activeJob.inquiry?.date || activeJob.createdAt)
   );
+  const vesselMaster = vessels.find((vessel) => vessel.id === activeJob.vesselId);
   const monthSet = new Set<string>();
 
   jobCalls.forEach((job) => {
@@ -519,7 +526,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       return;
     }
     const totalActualBuyLogged = totalActualBuy > 0 ? totalActualBuy : activeJob.quotation?.pda?.totalBuyRate || 0;
-    const totalActualBilled = totalQuotedPDA;
+    const totalActualBilled = totalActualBuy > 0 ? totalActualBuy : totalQuotedPDA;
     const variance = totalActualBilled - totalActualBuyLogged;
     const exchangeRate = activeJob.exchangeRateUSDToIDR || 15800;
     const totalBilledUSD = viewCurrency === 'USD' ? totalActualBilled : totalActualBilled / exchangeRate;
@@ -950,19 +957,29 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 text-xs">
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Inquiry No</div><div className="mt-1 font-bold text-cyan-300 font-mono">{activeJob.inquiry?.inquiryNo || '-'}</div></div>
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">User Create EPDA</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.createdBy || '-'}</div></div>
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Branch</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.createdByBranch || '-'}</div></div>
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Tanggal Inquiry</div><div className="mt-1 font-bold text-white">{formatInquiryDate(activeJob.inquiry?.date)}</div></div>
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Status Inquiry</div><div className="mt-1 font-bold text-emerald-300">{activeJob.inquiry?.status || 'CONVERTED'}</div></div>
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Dibuat Oleh</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.createdBy || '-'}</div></div>
 
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Branch</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.createdByBranch || '-'}</div></div>
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Vessel</div><div className="mt-1 font-bold text-white">{activeJob.vesselName || '-'}</div></div>
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">IMO</div><div className="mt-1 font-bold text-white font-mono">{vesselMaster?.imoNumber || '-'}</div></div>
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Call Sign / Flag</div><div className="mt-1 font-bold text-white font-mono">{vesselMaster?.callSign || '-'} / {vesselMaster?.flag || '-'}</div></div>
+
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Principal</div><div className="mt-1 font-bold text-white">{activeJob.customerName || '-'}</div></div>
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Port</div><div className="mt-1 font-bold text-white">{activeJob.portName || '-'}</div></div>
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">ETA / ETD</div><div className="mt-1 font-bold text-white font-mono">{activeJob.eta || '-'} / {activeJob.etd || '-'}</div></div>
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">ETA</div><div className="mt-1 font-bold text-white font-mono">{formatInquiryDate(activeJob.eta)}</div></div>
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">ETD</div><div className="mt-1 font-bold text-white font-mono">{formatInquiryDate(activeJob.etd)}</div></div>
 
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Keterangan ETA</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.etaRemarks || '-'}</div></div>
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Keterangan ETD</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.etdRemarks || '-'}</div></div>
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Quantity</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.quantity || 0} {activeJob.inquiry?.quantityUnit || 'TON'}</div></div>
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Purpose</div><div className="mt-1 font-bold text-white">{activeJob.purposeOfCall || '-'}</div></div>
+
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Estimated Days</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.estimatedDays || 0} hari</div></div>
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Cargo Details</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.cargoDetails || '-'}</div></div>
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Vessel Type</div><div className="mt-1 font-bold text-white">{vesselMaster?.vesselType || '-'}</div></div>
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Gross / Net / DWT</div><div className="mt-1 font-bold text-white font-mono">{vesselMaster?.grt?.toLocaleString() || '-'} / {vesselMaster?.nrt?.toLocaleString() || '-'} / {vesselMaster?.dwt?.toLocaleString() || '-'}</div></div>
 
               <div className="md:col-span-2 xl:col-span-4 bg-slate-950 border border-slate-800 rounded-xl p-3">
                 <div className="text-slate-400 uppercase tracking-wider">Special Requirements</div>

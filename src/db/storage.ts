@@ -41,6 +41,31 @@ const REMOVED_JOB_CALL_IDS = new Set(['VC-2026-0098', 'VC-2026-0099', 'VC-2026-0
 const withoutRemovedJobCalls = (jobCalls: JobCall[]): JobCall[] =>
   jobCalls.filter((job) => !REMOVED_JOB_CALL_IDS.has(job.jobId));
 
+const syncActualFDAInvoice = (job: JobCall): JobCall => {
+  const actualTotal = (job.actualCosts || []).reduce((sum, item) => sum + (item.amount || 0), 0);
+  if (!actualTotal || !job.fda?.fdaApproved) return job;
+
+  const currency = job.fda.currency || job.actualCosts?.[0]?.currency || job.currency;
+  const exchangeRate = job.exchangeRateUSDToIDR || 15800;
+  const totalBilledUSD = currency === 'USD' ? actualTotal : actualTotal / exchangeRate;
+  const totalBilledIDR = currency === 'IDR' ? actualTotal : actualTotal * exchangeRate;
+
+  return {
+    ...job,
+    fda: { ...job.fda, currency, finalBilledToPrincipal: actualTotal },
+    principalInvoice: {
+      ...job.principalInvoice,
+      totalAmountUSD: totalBilledUSD,
+      totalAmountIDR: totalBilledIDR,
+      balanceDueUSD: Math.max(0, totalBilledUSD - (job.principalInvoice?.totalAmountUSD || 0) + (job.principalInvoice?.balanceDueUSD || 0)),
+      balanceDueIDR: Math.max(0, totalBilledIDR - (job.principalInvoice?.totalAmountIDR || 0) + (job.principalInvoice?.balanceDueIDR || 0)),
+    },
+    ar: job.ar?.length
+      ? job.ar.map((item, index) => index === 0 ? { ...item, requestedAmount: actualTotal, currency } : item)
+      : job.ar,
+  };
+};
+
 export const normalizeBranchCode = (branch?: string): string => {
   const raw = (branch || 'Head Office').trim();
   if (!raw) return 'HO';
@@ -159,7 +184,7 @@ class DatabaseService {
       if (!raw) return this.getDefaultState();
 
       const parsed = JSON.parse(raw) as DatabaseState;
-      return {
+      const state: DatabaseState = {
         ...this.getDefaultState(),
         ...parsed,
         users: Array.isArray(parsed.users) ? parsed.users : INITIAL_USERS,
@@ -169,9 +194,13 @@ class DatabaseService {
         zones: Array.isArray(parsed.zones) ? parsed.zones : INITIAL_ZONES,
         fixTariffs: Array.isArray(parsed.fixTariffs) ? parsed.fixTariffs : INITIAL_FIX_TARIFFS,
         expensesItems: Array.isArray(parsed.expensesItems) ? parsed.expensesItems : INITIAL_EXPENSES_ITEMS,
-        jobCalls: Array.isArray(parsed.jobCalls) ? withoutRemovedJobCalls(parsed.jobCalls) : [],
+        jobCalls: Array.isArray(parsed.jobCalls)
+          ? withoutRemovedJobCalls(parsed.jobCalls).map(syncActualFDAInvoice)
+          : [],
         auditLogs: Array.isArray(parsed.auditLogs) ? parsed.auditLogs : [],
       };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      return state;
     } catch {
       return this.getDefaultState();
     }
