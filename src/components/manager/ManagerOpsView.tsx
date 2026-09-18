@@ -103,12 +103,14 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
 
   const formatEPDACategory = (category: string) => {
     const labels: Record<string, string> = {
-      PORT_EXPENSES: 'PORT AUTHORITIES CHARGES',
-      CLEARANCE: 'CUSTOMS & DOCUMENTATION CLEARANCE',
-      GENERAL_EXPENSES: 'SHIP HUSBANDRY & SERVICES',
-      CREW_CHANGE: 'CREW CHANGES',
-      CREW_EXPENSES: 'AGENCY FEE',
-      AGENCY_FEE: 'TAX & CONTINGENCY',
+      PORT_EXPENSES: 'PORT EXPENSES',
+      CLEARANCE: 'CLEARANCE IN/OUT',
+      GENERAL_EXPENSES: 'GENERAL EXPENSES',
+      CREW_EXPENSES: 'CREW EXPENSES',
+      AGENCY_FEE: 'AGENCY FEE',
+      TAX_CONTINGENCY: 'TAX & CONTINGENCY',
+      VAT_11: 'VAT 11%',
+      PPH_INCOME_TAX: 'PPH / INCOME TAX',
     };
     return labels[category] || category.replace(/_/g, ' ');
   };

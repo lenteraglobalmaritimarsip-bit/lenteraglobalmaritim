@@ -178,6 +178,8 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       CREW_EXPENSES: 'CREW EXPENSES',
       AGENCY_FEE: 'AGENCY FEE',
       TAX_CONTINGENCY: 'TAX & CONTINGENCY',
+      VAT_11: 'VAT 11%',
+      PPH_INCOME_TAX: 'PPH / INCOME TAX',
     };
     return map[category] || category.replaceAll('_', ' ');
   };

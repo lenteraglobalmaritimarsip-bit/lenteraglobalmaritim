@@ -99,7 +99,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   // Form states for adding actual cost
   const [newActual, setNewActual] = useState({
     description: '',
-    category: 'PORT_DUES',
+    category: 'PORT_EXPENSES',
     vendorName: '',
     vendorInvoiceNo: '',
     amountBuy: 0,
@@ -226,7 +226,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     const calculatedAmount = quantity * tariff;
 
     const normalizedDescription = newActual.description || {
-      PORT_DUES: 'Port Dues',
+      PORT_EXPENSES: 'Port Expenses',
       OWNER_MATTER: 'Owner Matter',
       AGENCY_FEE: 'Agency Fee',
     }[newActual.category] || 'Biaya FDA';
@@ -260,7 +260,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
     setShowAddActualModal(false);
     setEditingActualId(null);
-    setNewActual({ description: '', category: 'PORT_DUES', vendorName: '', vendorInvoiceNo: '', amountBuy: 0, amountSellBilled: 0, notes: '', attachmentName: '' });
+    setNewActual({ description: '', category: 'PORT_EXPENSES', vendorName: '', vendorInvoiceNo: '', amountBuy: 0, amountSellBilled: 0, notes: '', attachmentName: '' });
     setActualQuantity(1);
     setTimeout(() => setMsg(null), 3000);
   };
