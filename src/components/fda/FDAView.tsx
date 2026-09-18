@@ -137,7 +137,14 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const parseTariffInput = (value: string) => {
     const normalized = viewCurrency === 'IDR'
       ? value.replace(/[^0-9]/g, '')
-      : value.replace(/,/g, '').replace(/[^0-9.]/g, '');
+      : (() => {
+        const cleaned = value.replace(/[^0-9,.-]/g, '');
+        const commaIndex = cleaned.lastIndexOf(',');
+        const dotIndex = cleaned.lastIndexOf('.');
+        return commaIndex > dotIndex
+          ? cleaned.replace(/\./g, '').replace(',', '.')
+          : cleaned.replace(/,/g, '');
+      })();
     return Number(normalized) || 0;
   };
 

@@ -57,7 +57,14 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     if (!value.trim()) return '';
     const normalized = viewCurrency === 'IDR'
       ? value.replace(/[^0-9]/g, '')
-      : value.replace(/,/g, '').replace(/[^0-9.]/g, '');
+      : (() => {
+        const cleaned = value.replace(/[^0-9,.-]/g, '');
+        const commaIndex = cleaned.lastIndexOf(',');
+        const dotIndex = cleaned.lastIndexOf('.');
+        return commaIndex > dotIndex
+          ? cleaned.replace(/\./g, '').replace(',', '.')
+          : cleaned.replace(/,/g, '');
+      })();
     if (!normalized) return '';
     const parsed = Number(normalized);
     return Number.isFinite(parsed) ? parsed : '';
