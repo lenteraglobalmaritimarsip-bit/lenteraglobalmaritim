@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { supabase } from '../../supabaseClient';
 import {
   Users,
   Building2,
