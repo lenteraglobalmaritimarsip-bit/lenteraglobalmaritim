@@ -68,11 +68,18 @@ export const QuotesPDAView: React.FC<QuotesPDAViewProps> = ({
   };
 
   const openPDAPreview = (print = false) => {
-    const previewWindow = window.open('', '_blank', 'width=1100,height=800');
+    const previewBlobUrl = URL.createObjectURL(new Blob([buildPDAHtml()], { type: 'text/html;charset=utf-8' }));
+    const previewWindow = window.open(previewBlobUrl, '_blank', 'noopener,noreferrer,width=1100,height=800');
     if (!previewWindow) return;
-    previewWindow.document.write(buildPDAHtml());
-    previewWindow.document.close();
-    if (print) previewWindow.onload = () => { previewWindow.focus(); previewWindow.print(); };
+    if (print) {
+      setTimeout(() => {
+        previewWindow.focus();
+        previewWindow.print();
+        setTimeout(() => URL.revokeObjectURL(previewBlobUrl), 15000);
+      }, 250);
+      return;
+    }
+    setTimeout(() => URL.revokeObjectURL(previewBlobUrl), 15000);
   };
 
   const handleSavePDA = () => {

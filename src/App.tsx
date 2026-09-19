@@ -213,7 +213,15 @@ export default function App() {
   };
 
   const branchVisibleJobCalls = currentUser && currentUser.role === 'SALES'
-    ? data.jobCalls.filter((job) => normalizeBranchCode(job.inquiry?.createdByBranch || job.inquiry?.createdByBranchCode) === normalizeBranchCode(currentUser.branch))
+    ? data.jobCalls.filter((job) => {
+        const jobBranch = job.inquiry?.createdByBranch
+          || job.inquiry?.createdByBranchCode
+          || job.inquiry?.createdBy
+          || currentUser.branch
+          || 'Head Office';
+
+        return normalizeBranchCode(jobBranch) === normalizeBranchCode(currentUser.branch || 'Head Office');
+      })
     : data.jobCalls;
 
   const currentJob: JobCall =
@@ -464,7 +472,8 @@ export default function App() {
                     ? 'AR'
                     : 'REPORTS'
                 }
-                  jobCalls={data.jobCalls}
+                jobCalls={data.jobCalls}
+                vessels={data.vessels}
                 activeJob={currentJob}
                 onSelectJob={setSelectedJobId}
                 onNavigate={setActiveTab}

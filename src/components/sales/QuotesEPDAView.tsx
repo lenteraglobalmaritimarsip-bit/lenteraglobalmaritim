@@ -37,8 +37,8 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   });
 
   const formatAmount = (value: number) => viewCurrency === 'IDR'
-    ? new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(value)
-    : new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+    ? new Intl.NumberFormat('id-ID', { maximumFractionDigits: 4 }).format(value)
+    : new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(value);
 
   const formatDate = (value: string) => {
     const datePart = value?.split('T')[0] || '';
@@ -49,7 +49,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   const formatEntryAmount = (value: number | '') => {
     if (value === '') return '';
     return new Intl.NumberFormat(viewCurrency === 'IDR' ? 'id-ID' : 'en-US', {
-      maximumFractionDigits: viewCurrency === 'IDR' ? 0 : 2,
+      maximumFractionDigits: 4,
     }).format(value);
   };
 
@@ -198,18 +198,22 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     return groups;
   }, []);
   const escapeHtml = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  const printFooter = '<div class="bank"><div>Please kindly remit to our Bank Account</div><div>Bank Account Detail of PT. Lentera Global Maritim asf:</div><br><b>BANK NEGARA INDONESIA (Persero) Tbk</b><br>Address: BNI Bidakara<br>Jl. Gatot Subroto Kav 71-73, RT.12/RW.5, Tebet Timur,<br>Kec. Tebet, Kota Jakarta Selatan, Daerah Khusus Ibukota Jakarta 12820<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number : 2824-1212-69</b><br><b>Swift Code Bank : BNIIDNAXXX</b></div><div class="signature">Sincerely,<br>PT. Lentera Global Maritim<br><br><br>Finance</div><div>Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan</div><div>Kota Adm Jakarta Selatan, DKI Jakarta - 12810</div><div class="contact" style="color:#dc2626;text-decoration:underline">email : <a style="color:#dc2626" href="mailto:maritim@lentera-global.com">maritim@lentera-global.com</a> / web : <span style="color:#dc2626">www.lentera-global.com</span></div>';
+  const getBankFooterByCurrency = (currency: Currency) => currency === 'USD'
+    ? '<div class="bank"><div>Please kindly remit to our Bank Account</div><div>Bank Account Detail of PT. Lentera Global Maritim asf:</div><br><b>BANK MANDIRI (Persero) Tbk</b><br>Address:<br>BANK MANDIRI TEBET SUPOMO<br>Jl. Prof. Dr.Supomo SH No 43, Tebet, RT.04/RW.03<br>Tebet barat , Kec. Tebet, Kota Jakarta Selatan,<br>Daerah Khusus Ibukota Jakarta 12810<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number (USD) : 120-00-5575599-0</b><br><b>Swift Code Bank : BMRIIDJAXXX</b></div><div class="signature">Sincerely,<br>PT. Lentera Global Maritim<br><br><br>Finance</div>'
+    : '<div class="bank"><div>Please kindly remit to our Bank Account</div><div>Bank Account Detail of PT. Lentera Global Maritim asf:</div><br><b>BANK NEGARA INDONESIA (Persero) Tbk</b><br>Address:<br>BNI BIDAKARA<br>Jl. Gatot Subroto Kab 71-73, RT.12/RW.5, Tebet Timur,<br>Kec. Tebet, Kota Jakarta Selatan, Daerah Khusus Ibukota Jakarta 12820<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number : 2824-1212-09</b><br><b>Swift Code Bank : BNINIDJAXXX</b></div><div class="signature">Sincerely,<br>PT. Lentera Global Maritim<br><br><br>Finance</div>';
+  const officeFooter = '<div class="office-footer" style="position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center;font-size:9px;line-height:1.45;font-weight:600;color:#111;z-index:3;">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span style="color:#dc2626;text-decoration:underline">email : maritim@lentera-global.com / web : www.lentera-global.com</span></div>';
+  const printFooter = getBankFooterByCurrency(viewCurrency);
   const enhanceExportHeader = (html: string) => html
     .replaceAll('.brand-row{text-align:center;margin-bottom:10px}', '.brand-row{text-align:center;margin-bottom:12px}')
     .replaceAll('.brand-wrap{display:inline-flex;align-items:center;gap:14px;text-align:left}', '.brand-wrap{display:inline-flex;align-items:center;gap:18px;text-align:left;min-height:78px}')
     .replaceAll('.logo{width:76px;height:58px;object-fit:contain}', '.logo{width:96px;height:72px;object-fit:contain}')
     .replaceAll('.brand{font-weight:700;font-size:21px;line-height:1.15}', '.brand{font-weight:700;font-size:23px;line-height:1.15}')
     .replaceAll('.tag{color:#666;font-size:13px;margin-top:5px}', '.tag{color:#555;font-size:15px;font-weight:600;margin-top:7px}')
-    .replaceAll('.footer{position:fixed;bottom:0;width:100%;text-align:center;font-size:8px;color:#666}', '.footer{margin-top:8px;text-align:center;font-size:10px;line-height:1.45;color:#111;font-weight:600}.bank{display:inline-block;width:42%;margin-top:24px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.footer .contact{color:#e11d48;text-decoration:underline}')
-    .replaceAll('.footer{left:0;right:0;text-align:center!important;font-size:12px;line-height:1.45;font-weight:600;color:#111}.footer .contact{color:#e11d48;text-decoration:underline}', '.bank{display:inline-block;width:42%;margin-top:24px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.footer{left:0;right:0;text-align:center!important;font-size:10px;line-height:1.45;font-weight:600;color:#111}.footer .contact{color:#e11d48;text-decoration:underline}')
-    .replaceAll('th,td{border:1px solid #777;padding:6px 7px}th{background:#e8ecf2;text-align:left}', 'table{border:2px solid #6b7280}th,td{border:0;padding:6px 7px}th{background:#e8ecf2;text-align:center;border-bottom:2px solid #9ca3af}.item-row td{border:0}.subtotal td{border-top:1px solid #d1d5db}.footer{left:0;right:0;text-align:center!important;font-size:12px;line-height:1.45;font-weight:600;color:#111}.footer .contact{color:#e11d48;text-decoration:underline}')
+    .replaceAll('.footer{position:fixed;bottom:0;width:100%;text-align:center;font-size:8px;color:#666}', '.office-footer{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center;font-size:9px;line-height:1.45;color:#111;font-weight:600;z-index:3}.bank{display:inline-block;width:42%;margin-top:24px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.office-footer .contact{color:#e11d48;text-decoration:underline}')
+    .replaceAll('.footer{left:0;right:0;text-align:center!important;font-size:12px;line-height:1.45;font-weight:600;color:#111}.footer .contact{color:#e11d48;text-decoration:underline}', '.bank{display:inline-block;width:42%;margin-top:24px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.office-footer{left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center!important;font-size:9px;line-height:1.45;font-weight:600;color:#111;z-index:3}.office-footer .contact{color:#e11d48;text-decoration:underline}')
+    .replaceAll('th,td{border:1px solid #777;padding:6px 7px}th{background:#e8ecf2;text-align:left}', 'table{border:2px solid #6b7280}th,td{border:0;padding:6px 7px}th{background:#e8ecf2;text-align:center;border-bottom:2px solid #9ca3af}.item-row td{border:0}.subtotal td{border-top:1px solid #d1d5db}.office-footer{left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center!important;font-size:9px;line-height:1.45;font-weight:600;color:#111;z-index:3}.office-footer .contact{color:#e11d48;text-decoration:underline}')
     .replaceAll(job.inquiry.date, formatDate(job.inquiry.date))
-    .replaceAll(`PT Lentera Global Maritim • Shipping Agency • ${epdaNo}`, printFooter);
+    .replace(/<\/body>/i, `${printFooter}${officeFooter}</body>`);
 
   const formatExportTable = (html: string) => html
     .replace(/<thead><tr>[\s\S]*?<\/tr><\/thead>/g, '<thead><tr><th>NO.</th><th>DESCRIPTION</th><th>CURRENCY</th><th>AMOUNT</th><th>REMARKS</th></tr></thead>')

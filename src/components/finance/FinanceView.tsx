@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Coins,
   CreditCard,
@@ -17,13 +17,14 @@ import {
   Search as SearchIcon,
   Trash2,
 } from 'lucide-react';
-import { JobCall, ActiveTab, Currency } from '../../types';
+import { JobCall, ActiveTab, Currency, Vessel } from '../../types';
 import { formatDateDisplay } from '../../utils/date';
 import { db } from '../../db/storage';
 
 interface FinanceViewProps {
   initialTab?: 'DASHBOARD' | 'JOB_INVOICE_OPEN' | 'INVOICES' | 'AP' | 'AR' | 'REPORTS';
   jobCalls: JobCall[];
+  vessels?: Vessel[];
   activeJob: JobCall;
   onSelectJob: (jobId: string) => void;
   onNavigate: (tab: ActiveTab) => void;
@@ -32,6 +33,7 @@ interface FinanceViewProps {
 export const FinanceView: React.FC<FinanceViewProps> = ({
   initialTab = 'DASHBOARD',
   jobCalls,
+  vessels = [],
   activeJob,
   onSelectJob,
   onNavigate,
@@ -49,6 +51,10 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     setSubTab(initialTab);
   }, [initialTab]);
   const [msg, setMsg] = useState<string | null>(null);
+  const [invoicePreviewHtml, setInvoicePreviewHtml] = useState<string | null>(null);
+  const invoicePreviewRef = useRef<HTMLIFrameElement | null>(null);
+
+  const vesselMaster = vessels.find((vessel) => vessel.id === activeJob.vesselId);
 
   const formatUSD = (val: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
@@ -78,9 +84,13 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   }).format(amount);
   const getJobExchangeRate = (job: JobCall) => job.exchangeRateUSDToIDR || 15800;
   const approvedFDAJobs = jobCalls.filter((job) => job.fda?.fdaApproved);
-  const hasUSDApprovedJobs = approvedFDAJobs.some((job) => (job.fda?.currency || job.currency || 'IDR') === 'USD');
   const normalizeToIDR = (amount: number, currency: Currency, exchangeRate: number) =>
-    currency === 'USD' && hasUSDApprovedJobs ? amount * exchangeRate : amount;
+    currency === 'USD' ? amount * exchangeRate : amount;
+  const invoiceIssueDate = activeJob.principalInvoice?.invoiceDate || new Date().toISOString().slice(0, 10);
+  const invoiceDueDate = activeJob.principalInvoice?.dueDate || new Date(new Date(invoiceIssueDate).getTime() + 30 * 86400000).toISOString().slice(0, 10);
+  const invoiceBankInfo = jobCurrency === 'USD'
+    ? 'BANK MANDIRI TEBET SUPOMO | Account Holder : PT.Lentera Global Maritim | Account Number (USD) : 120-00-5575599-0 | Swift Code Bank : BMRIIDJAXXX'
+    : 'BANK NEGARA INDONESIA (Persero) Tbk | Account Holder : PT.Lentera Global Maritim | Account Number : 2824-1212-09 | Swift Code Bank : BNINIDJAXXX';
 
   const getJobPrincipalBilled = (job: JobCall) => {
     const currency = (job.fda?.currency || job.currency || 'IDR') as Currency;
@@ -90,6 +100,19 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       || job.quotation?.epda?.totalSellRate
       || 0;
     return normalizeToIDR(billed, currency, getJobExchangeRate(job));
+  };
+
+  const getJobPrincipalBilledRaw = (job: JobCall) => {
+    const currency = (job.fda?.currency || job.currency || 'IDR') as Currency;
+    const billed = job.fda?.finalBilledToPrincipal
+      || job.principalInvoice?.totalAmountUSD
+      || job.quotation?.pda?.totalSellRate
+      || job.quotation?.epda?.totalSellRate
+      || 0;
+    return {
+      amount: billed,
+      currency,
+    };
   };
 
   const getJobPrincipalReceived = (job: JobCall) => (job.principalReceipts || []).reduce((sum, receipt) => {
@@ -429,17 +452,127 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
+
     const rows = invoiceGroups.map((group) => `
       <tr class="category"><td colspan="3">${escapeHtml(invoiceCategoryLabel(group.category))}</td></tr>
       ${group.items.map((item) => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.currency)}</td><td class="amount">${escapeHtml(formatCurrencyNumber(convertCurrency(item.totalSellRate, item.currency, jobCurrency, getJobExchangeRate(activeJob)), jobCurrency))}</td></tr>`).join('')}
     `).join('');
-    const win = window.open('', '_blank', 'width=1100,height=800');
-    if (!win) return;
-    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Official Principal Invoice ${escapeHtml(activeJob.jobId)}</title><style>@page{size:A4;margin:16mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#243249;margin:0;font-size:11px}h1{font-size:20px;margin:0 0 4px;color:#17304f}h2{font-size:14px;margin:22px 0 8px;color:#17304f;border-bottom:2px solid #dbe4ef;padding-bottom:6px}.head{display:flex;justify-content:space-between;border-bottom:2px solid #315db2;padding-bottom:14px}.muted{color:#66758a}.meta{text-align:right}table{width:100%;border-collapse:collapse;margin-top:18px}th{background:#f3f6fa;color:#66758a;text-align:left;padding:9px;border-bottom:1px solid #cfd9e5;text-transform:uppercase;font-size:9px}td{padding:9px;border-bottom:1px solid #e5ebf2}td small{display:block;color:#7b899d;margin-top:4px}.category td{background:#e8eef6;color:#52637a;font-weight:700;text-transform:uppercase;letter-spacing:.06em}.amount{text-align:right;font-weight:700}.right{text-align:right}.total{font-weight:700;border-top:2px solid #cfd9e5}.footer{margin-top:32px;text-align:center;color:#66758a;font-size:10px}@media print{button{display:none}}</style></head><body><div class="head"><div><h1>OFFICIAL PRINCIPAL INVOICE</h1><div class="muted">PT. Lentera Global Maritim</div><div class="muted">Billed To: ${escapeHtml(activeJob.customerName)}</div><div class="muted">Port Call: ${escapeHtml(activeJob.portName)} · ${escapeHtml(activeJob.vesselName)}</div></div><div class="meta"><b>${escapeHtml(activeJob.principalInvoice?.invoiceNo || `INV-${activeJob.jobId}`)}</b><div class="muted">Tanggal Terbit: ${escapeHtml(formatDateDisplay(activeJob.principalInvoice?.invoiceDate || ''))}</div><div class="muted">Jatuh Tempo: ${escapeHtml(formatDateDisplay(activeJob.principalInvoice?.dueDate || ''))}</div></div></div><table><thead><tr><th>Deskripsi Tagihan Port Disbursement</th><th>Mata Uang</th><th class="right">Total Tagihan</th></tr></thead><tbody>${rows}</tbody><tfoot><tr class="total"><td colspan="2" class="right">Total Nilai Invoice Principal:</td><td class="amount">${escapeHtml(formatCurrencyNumber(invoiceAmount, jobCurrency))}</td></tr></tfoot></table><div class="footer">Official Principal Invoice · ${escapeHtml(activeJob.jobId)}</div><script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}</script></body></html>`);
-    win.document.close();
-  };
 
-  return (
+    const totalInvoiceRow = `<tr class="total"><td colspan="2" class="right">TOTAL NILAI INVOICE</td><td class="amount">${escapeHtml(formatCurrencyNumber(invoiceAmount, jobCurrency))}</td></tr>`;
+    const equivalentRow = jobCurrency === 'USD'
+      ? `<tr class="total"><td colspan="2" class="right">Equivalen IDR (Kurs ${escapeHtml(new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(activeJob.exchangeRateUSDToIDR || 15800))}):</td><td class="amount">${escapeHtml(formatIDR(invoiceAmount * (activeJob.exchangeRateUSDToIDR || 15800)))}</td></tr>`
+      : '';
+
+    const printBankInfo = jobCurrency === 'USD'
+      ? 'BANK MANDIRI TEBET SUPOMO | Account Holder : PT.Lentera Global Maritim | Account Number (USD) : 120-00-5575599-0 | Swift Code Bank : BMRIIDJAXXX'
+      : 'BANK NEGARA INDONESIA (Persero) Tbk | Account Holder : PT.Lentera Global Maritim | Account Number : 2824-1212-09 | Swift Code Bank : BNINIDJAXXX';
+
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Official Principal Invoice ${escapeHtml(activeJob.jobId)}</title>
+      <style>
+        @page { size: A4; margin: 12mm 12mm 16mm; }
+        html, body { margin: 0; padding: 0; background: #fff; font-family: Arial, Helvetica, sans-serif; color: #1f2a37; font-size: 11px; line-height: 1.35; }
+        .page { box-sizing: border-box; width: 100%; min-height: 100vh; }
+        .brand-row { display: flex; align-items: center; gap: 16px; margin: 0 0 16px; padding-top: 4px; }
+        .brand-wrap { display: flex; align-items: center; gap: 14px; }
+        .logo { width: 68px; height: 52px; object-fit: contain; display: block; }
+        .brand { font-weight: 700; font-size: 21px; color: #1f5ea8; letter-spacing: -0.03em; }
+        .tag { font-size: 12px; color: #4b5d7a; margin-top: 3px; }
+        .title-wrap { margin: 18px 0 10px; }
+        .title-wrap h1 { margin: 0; font-size: 20px; line-height: 1.2; color: #1b2a45; text-transform: uppercase; letter-spacing: 0.02em; font-weight: 800; }
+        .subtitle { margin-top: 4px; color: #58657a; font-size: 11px; }
+        .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 18px 0 8px; }
+        .meta-box { border: 1px solid #dfe7f0; background: #f6f8fb; padding: 10px 12px; border-radius: 4px; min-height: 92px; }
+        .meta-label { display: block; font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #2c4d73; margin-bottom: 8px; }
+        .meta-value { font-size: 11px; color: #22314d; line-height: 1.5; }
+        .meta-value strong { font-weight: 700; color: #1a2950; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; table-layout: fixed; }
+        thead th { background: #dfeaf3; color: #1a2950; font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 8px; border-bottom: 1px solid #d3deea; text-align: left; }
+        thead th.amount, tbody td.amount { text-align: right; white-space: nowrap; }
+        tbody td { padding: 7px 8px; border-bottom: 1px solid #e6edf7; color: #1f2a37; vertical-align: top; }
+        tbody tr.category td { background: #eff4fa; color: #20314d; font-size: 10px; font-weight: 700; text-transform: uppercase; padding-top: 8px; padding-bottom: 8px; border-top: 1px solid #dae2ec; border-bottom: 1px solid #dae2ec; }
+        tbody tr.total td { font-weight: 700; background: #f0f6ff; color: #13233f; }
+        tbody tr.total td.right { text-align: right; }
+        .signature-wrap { margin-top: 28px; display: flex; justify-content: flex-end; }
+        .signature-block { width: 260px; text-align: center; padding-top: 10px; color: #1d2c41; font-size: 11px; }
+        .closing { margin-bottom: 18px; }
+        .company { font-weight: 700; color: #1d2c41; margin-top: 18px; margin-bottom: 6px; }
+        .role { font-size: 11px; color: #475569; }
+        .office-footer { position: fixed; left: 0; right: 0; bottom: 0; text-align: center; padding-top: 8px; border-top: 1px solid #ced9e8; font-size: 9px; line-height: 1.5; color: #2c2f36; background: #fff; }
+        .company-link { color: #d23d6f; text-decoration: none; }
+        .spacer { height: 80px; }
+      </style>
+    </head>
+    <body>
+      <div class="page">
+        <div class="brand-row">
+          <div class="brand-wrap">
+            <img class="logo" src="./lgm-logo.png" alt="LGM">
+            <div>
+              <div class="brand">PT Lentera Global Maritim</div>
+              <div class="tag">Seamless Agent, Global Reach</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="title-wrap">
+          <h1>OFFICIAL PRINCIPAL INVOICE</h1>
+          <div class="subtitle">Tagihan resmi port disbursement account diterbitkan untuk Principal kapal</div>
+        </div>
+
+        <div class="meta-grid">
+          <div class="meta-box">
+            <span class="meta-label">Billed To Principal:</span>
+            <div class="meta-value"><strong>${escapeHtml(activeJob.customerName)}</strong></div>
+            <div class="meta-value">Port: ${escapeHtml(activeJob.portName)}</div>
+            <div class="meta-value">Vessel / IMO: ${escapeHtml(activeJob.vesselName)} / ${escapeHtml(vesselMaster?.imoNumber || '-')}</div>
+            <div class="meta-value">ETA / ETD: ${escapeHtml(formatDateDisplay(activeJob.eta))} / ${escapeHtml(formatDateDisplay(activeJob.etd))}</div>
+            <div class="meta-value">Flag: ${escapeHtml(vesselMaster?.flag || '-')}</div>
+          </div>
+
+          <div class="meta-box">
+            <span class="meta-label">Bank Details:</span>
+            <div class="meta-value"><strong>Invoice No.</strong>: ${escapeHtml(activeJob.principalInvoice?.invoiceNo || `INV-${activeJob.jobId}`)}</div>
+            <div class="meta-value"><strong>Issue Date</strong>: ${escapeHtml(formatDateDisplay(invoiceIssueDate))}</div>
+            <div class="meta-value"><strong>Due Date</strong>: ${escapeHtml(formatDateDisplay(invoiceDueDate))}</div>
+            <div class="meta-value"><strong>Bank</strong>: ${escapeHtml(printBankInfo)}</div>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width:58%">Description</th>
+              <th style="width:20%">Currency</th>
+              <th class="amount" style="width:22%">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+            ${totalInvoiceRow}
+            ${equivalentRow}
+          </tbody>
+        </table>
+
+        <div class="signature-wrap">
+          <div class="signature-block">
+            <div class="closing">Sincerely,</div>
+            <div class="company">PT. LENTERA GLOBAL MARITIM</div>
+            <div class="role">Finance</div>
+          </div>
+        </div>
+
+        <div class="spacer"></div>
+      </div>
+
+      <div class="office-footer">
+        Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>
+        Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br>
+        <span class="company-link">email : maritim@lentera-global.com / web : www.lentera-global.com</span>
+      </div>
+    </body></html>`;
+
+    setInvoicePreviewHtml(html);
+  };  return (
     <div className="space-y-6">
       {/* Top Banner */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -474,6 +607,44 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       )}
 
       {/* DASHBOARD TAB */}
+      {invoicePreviewHtml && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) setInvoicePreviewHtml(null); }}
+        >
+          <div className="flex h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-700 px-4 py-3 gap-3">
+              <div className="min-w-0">
+                <div className="text-xs font-bold uppercase tracking-wider text-cyan-300">Preview Invoice</div>
+                <div className="truncate text-sm text-white">Official Principal Invoice</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => invoicePreviewRef.current?.contentWindow?.print()}
+                  className="rounded-lg bg-white px-3 py-1.5 text-sm font-bold text-slate-900 hover:bg-slate-100"
+                >
+                  Print / Save PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInvoicePreviewHtml(null)}
+                  className="rounded-lg px-3 py-1.5 text-sm font-bold text-slate-300 hover:bg-slate-800 hover:text-white"
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+            <iframe
+              ref={invoicePreviewRef}
+              srcDoc={invoicePreviewHtml}
+              title="Principal Invoice Preview"
+              className="min-h-0 flex-1 bg-white"
+            />
+          </div>
+        </div>
+      )}
+
       {subTab === 'JOB_INVOICE_OPEN' && (
         <div className="space-y-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
@@ -729,14 +900,25 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   {approvedFDAJobs.map((j, index) => {
                     const exchangeRate = getJobExchangeRate(j);
                     const rowCurrency = getJobCurrency(j);
-                    const arTotal = getJobPrincipalBilled(j);
-                    const totalReceived = getJobPrincipalReceived(j);
-                    const advancePayment = getJobAdvancePayment(j);
-                    const outstanding = Math.max(0, arTotal - totalReceived);
-                    const totalTagihanIDR = arTotal;
-                    const tagihanMasukIDR = totalReceived;
-                    const advancePaymentIDR = advancePayment;
-                    const outstandingIDR = outstanding;
+                    const rawBill = getJobPrincipalBilledRaw(j);
+                    const billedAmount = rawBill.amount;
+                    const receivedAmount = (j.principalReceipts || []).reduce((sum, receipt) => {
+                      const receiptCurrency = (receipt.currency || j.currency || 'IDR') as Currency;
+                      const signed = receiptCurrency === rowCurrency
+                        ? (receipt.amount || 0)
+                        : convertCurrency(receipt.amount || 0, receiptCurrency, rowCurrency, exchangeRate);
+                      return sum + signed;
+                    }, 0);
+                    const advancePaymentAmount = (j.principalReceipts || [])
+                      .filter((receipt) => receipt.paymentType === 'ADVANCE_PAYMENT')
+                      .reduce((sum, receipt) => {
+                        const receiptCurrency = (receipt.currency || j.currency || 'IDR') as Currency;
+                        const signed = receiptCurrency === rowCurrency
+                          ? (receipt.amount || 0)
+                          : convertCurrency(receipt.amount || 0, receiptCurrency, rowCurrency, exchangeRate);
+                        return sum + signed;
+                      }, 0);
+                    const outstandingAmount = Math.max(0, billedAmount - receivedAmount);
                     const apTotal = j.ap?.reduce((sum, item) => sum + (item.amount || 0), 0) || 0;
                     const apPaid = j.ap?.filter((item) => item.status === 'PAID').reduce((sum, item) => sum + (item.amount || 0), 0) || 0;
                     const apStatus = apTotal === 0 || apPaid >= apTotal ? 'PAID' : apPaid > 0 ? 'PARTIALLY_PAID' : 'OPEN';
@@ -751,16 +933,16 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                           <span className="text-[11px] text-slate-400">{j.customerName}</span>
                         </td>
                         <td className="p-3 text-right font-mono font-bold text-cyan-300">
-                          {formatIDR(totalTagihanIDR)}
+                          {formatCurrency(billedAmount, rowCurrency)}
                         </td>
                         <td className="p-3 text-right font-mono text-emerald-300">
-                          {formatIDR(tagihanMasukIDR)}
+                          {formatCurrency(receivedAmount, rowCurrency)}
                         </td>
                         <td className="p-3 text-right font-mono text-amber-300">
-                          {formatIDR(advancePaymentIDR)}
+                          {formatCurrency(advancePaymentAmount, rowCurrency)}
                         </td>
                         <td className="p-3 text-right font-mono font-bold text-rose-300">
-                          {formatIDR(outstandingIDR)}
+                          {formatCurrency(outstandingAmount, rowCurrency)}
                         </td>
                         <td className="p-3">
                           <span
@@ -859,15 +1041,18 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                 <span className="text-[10px] text-slate-500 uppercase font-bold">Billed To Principal:</span>
                 <p className="font-bold text-white text-sm">{activeJob.customerName}</p>
                 <p className="text-slate-400">Attention: Disbursements Dept.</p>
-                <p className="text-slate-400">Port Call: {activeJob.portName} (ETA: {formatDateDisplay(activeJob.eta)})</p>
+                <p className="text-slate-400">Port: {activeJob.portName}</p>
+                <p className="text-slate-400">Vessel / IMO: {activeJob.vesselName} / {vesselMaster?.imoNumber || '-'}</p>
+                <p className="text-slate-400">ETA / ETD: {formatDateDisplay(activeJob.eta)} / {formatDateDisplay(activeJob.etd)}</p>
+                <p className="text-slate-400">Flag: {vesselMaster?.flag || '-'}</p>
               </div>
 
               <div className="space-y-1 sm:text-right">
                 <span className="text-[10px] text-slate-500 uppercase font-bold">Invoice Details:</span>
                 <p className="font-mono font-bold text-cyan-400 text-sm">{activeJob.principalInvoice?.invoiceNo || `INV-${activeJob.jobId}`}</p>
-                <p className="text-slate-400 font-mono">Tanggal Terbit: {formatDateDisplay(activeJob.principalInvoice?.invoiceDate || '2026-09-03')}</p>
-                <p className="text-slate-400 font-mono">Jatuh Tempo: {formatDateDisplay(activeJob.principalInvoice?.dueDate || '2026-09-17')}</p>
-                <p className="text-slate-400">Bank: Bank Mandiri Cab. Jakarta (USD/IDR A/C)</p>
+                <p className="text-slate-400 font-mono">Tanggal Terbit: {formatDateDisplay(invoiceIssueDate)}</p>
+                <p className="text-slate-400 font-mono">Jatuh Tempo: {formatDateDisplay(invoiceDueDate)}</p>
+                <p className="text-slate-400">Bank: {invoiceBankInfo}</p>
               </div>
             </div>
 
@@ -910,14 +1095,16 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                       {formatCurrencyNumber(invoiceAmount, jobCurrency)}
                     </td>
                   </tr>
-                  <tr>
-                    <td colSpan={2} className="p-3 text-right text-slate-400 uppercase">
-                      Equivalen IDR (Kurs {new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(activeJob.exchangeRateUSDToIDR || 15800)}):
-                    </td>
-                    <td className="p-3 text-right font-mono text-slate-300">
-                      {jobCurrency === 'USD' ? formatIDR(invoiceAmount * (activeJob.exchangeRateUSDToIDR || 15800)) : formatIDR(invoiceAmount)}
-                    </td>
-                  </tr>
+                  {jobCurrency === 'USD' && (
+                    <tr>
+                      <td colSpan={2} className="p-3 text-right text-slate-400 uppercase">
+                        Equivalen IDR (Kurs {new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(activeJob.exchangeRateUSDToIDR || 15800)}):
+                      </td>
+                      <td className="p-3 text-right font-mono text-slate-300">
+                        {formatIDR(invoiceAmount * (activeJob.exchangeRateUSDToIDR || 15800))}
+                      </td>
+                    </tr>
+                  )}
                 </tfoot>
               </table>
             </div>
@@ -1325,3 +1512,4 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     </div>
   );
 };
+

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   FileCheck2,
   Coins,
@@ -63,6 +63,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const [editingActualId, setEditingActualId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [showPdfPreview, setShowPdfPreview] = useState(false);
+  const [previewDocument, setPreviewDocument] = useState<string | null>(null);
+  const iframePreviewRef = useRef<HTMLIFrameElement | null>(null);
   const [pdfUploadMeta, setPdfUploadMeta] = useState<{ fileName: string; dataUrl: string } | null>(
     activeJob.fda?.pdfDataUrl && activeJob.fda?.pdfFileName
       ? { fileName: activeJob.fda.pdfFileName, dataUrl: activeJob.fda.pdfDataUrl }
@@ -78,10 +80,30 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const [viewCurrency, setViewCurrency] = useState<'USD' | 'IDR'>(
     activeJob.fda?.currency || activeJob.actualCosts?.[0]?.currency || activeJob.quotation?.epda?.currency || activeJob.currency || 'USD'
   );
+  const [exchangeRateInput, setExchangeRateInput] = useState<number>(activeJob.exchangeRateUSDToIDR || 15800);
   const [jobMonthFilter, setJobMonthFilter] = useState<string>('');
   const [jobSearch, setJobSearch] = useState('');
   const [actualQuantity, setActualQuantity] = useState(1);
   const [actualList, setActualList] = useState<ActualCostItem[]>(activeJob.actualCosts || []);
+
+  useEffect(() => {
+    const latestActualCosts = activeJob.actualCosts || [];
+    setActualList((previous) => {
+      const hasLocalEntries = previous.length > 0 && previous.some((item) => item.jobId === activeJob.jobId);
+      const dbIsTemporarilyEmpty = latestActualCosts.length === 0 && hasLocalEntries;
+
+      if (dbIsTemporarilyEmpty) {
+        return previous;
+      }
+
+      const hasSameSnapshot = previous.length === latestActualCosts.length
+        && previous.every((item, index) => {
+          const next = latestActualCosts[index];
+          return !!next && item.id === next.id && item.amount === next.amount && item.description === next.description && item.currency === next.currency;
+        });
+      return hasSameSnapshot ? previous : latestActualCosts;
+    });
+  }, [activeJob.jobId, activeJob.actualCosts]);
 
   const handleViewCurrencyChange = (currency: 'USD' | 'IDR') => {
     setViewCurrency(currency);
@@ -89,12 +111,14 @@ export const FDAView: React.FC<FDAViewProps> = ({
   };
 
   useEffect(() => {
-    setActualList(activeJob.actualCosts || []);
-  }, [activeJob.jobId, activeJob.actualCosts]);
-
-  useEffect(() => {
     setViewCurrency(activeJob.fda?.currency || activeJob.actualCosts?.[0]?.currency || activeJob.quotation?.epda?.currency || activeJob.currency || 'USD');
   }, [activeJob.jobId, activeJob.fda?.currency, activeJob.actualCosts, activeJob.quotation?.epda?.currency, activeJob.currency]);
+
+  useEffect(() => {
+    setExchangeRateInput(activeJob.exchangeRateUSDToIDR || 15800);
+  }, [activeJob.jobId, activeJob.exchangeRateUSDToIDR]);
+
+  const effectiveExchangeRate = Number(exchangeRateInput || activeJob.exchangeRateUSDToIDR || 15800);
 
   // Form states for adding actual cost
   const [newActual, setNewActual] = useState({
@@ -120,17 +144,18 @@ export const FDAView: React.FC<FDAViewProps> = ({
   };
 
   const formatAccountingNumber = (value: number, currency: 'USD' | 'IDR') => {
-    const normalized = currency === 'USD' ? Number(value || 0) : Math.round(Number(value || 0));
+    const normalized = Number(value || 0);
+    const fractionDigits = currency === 'USD' ? 4 : 0;
     return new Intl.NumberFormat('en-US', {
       minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
+      maximumFractionDigits: fractionDigits,
       useGrouping: true,
     }).format(normalized);
   };
 
   const formatTariffInput = (value: number) => value > 0
     ? new Intl.NumberFormat(viewCurrency === 'IDR' ? 'id-ID' : 'en-US', {
-      maximumFractionDigits: viewCurrency === 'IDR' ? 0 : 2,
+      maximumFractionDigits: viewCurrency === 'IDR' ? 4 : 4,
     }).format(value)
     : '';
 
@@ -224,10 +249,23 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const totalFinish = jobCalls.filter(
     (job) => job.currentStage === 'CLOSED' || job.fda?.fdaApproved || job.status === 'CLOSED'
   ).length;
-  const totalCost = jobCalls.reduce(
-    (sum, job) => sum + (job.actualCosts?.reduce((acc, item) => acc + (item.amount || 0), 0) || 0),
-    0
-  );
+  const normalizeGrandTotalToIDR = (job: JobCall) => {
+    const currency = (job.fda?.currency || job.actualCosts?.[0]?.currency || job.currency || 'IDR') as 'USD' | 'IDR';
+    const exchangeRate = Number(job.exchangeRateUSDToIDR || 15800);
+    const grandTotal = job.fda?.finalBilledToPrincipal
+      ?? job.principalInvoice?.totalAmountUSD
+      ?? job.principalInvoice?.totalAmountIDR
+      ?? (job.actualCosts?.reduce((acc, item) => acc + (item.amount || 0), 0) || 0);
+
+    return currency === 'USD' ? grandTotal * exchangeRate : grandTotal;
+  };
+  const handleExchangeRateChange = (nextValue: string) => {
+    const numericValue = Number(nextValue);
+    const safeRate = Number.isFinite(numericValue) && numericValue > 0 ? numericValue : 0;
+    setExchangeRateInput(safeRate || 15800);
+    db.updateJob(activeJob.jobId, { exchangeRateUSDToIDR: safeRate || 15800 });
+  };
+  const totalCost = jobCalls.reduce((sum, job) => sum + normalizeGrandTotalToIDR(job), 0);
   const approvedJobs = jobCalls.filter((job) => job.managerApproval?.status === 'APPROVED');
   const actualQuantityValue = Number(actualQuantity) || 1;
   const actualTariff = Number(newActual.amountBuy) || 0;
@@ -401,16 +439,13 @@ export const FDAView: React.FC<FDAViewProps> = ({
   };
 
   const previewEPDA = () => {
-    const w = window.open('', '_blank', 'width=900,height=1100');
-    if (!w) return;
     const vessel = vessels.find((item) => item.id === activeJob.vesselId);
     const inquiryMeta = `<div class="meta"><div class="meta-col"><div class="meta-row"><span class="label">No EPDA</span><span class="colon">:</span><span>${fdaEpdaDisplayNo}</span></div><div class="meta-row"><span class="label">Date Inquiry</span><span class="colon">:</span><span>${new Date(activeJob.inquiry?.date || activeJob.createdAt).toLocaleDateString('id-ID')}</span></div><div class="meta-row"><span class="label">Principal</span><span class="colon">:</span><span>${activeJob.customerName}</span></div><div class="meta-row"><span class="label">GRT</span><span class="colon">:</span><span>${vessel?.grt?.toLocaleString('id-ID') || '-'}</span></div><div class="meta-row"><span class="label">Port</span><span class="colon">:</span><span>${activeJob.portName}</span></div><div class="meta-row"><span class="label">ETA</span><span class="colon">:</span><span>${activeJob.eta || '-'}</span></div></div><div class="meta-col right"><div class="meta-row"><span class="label">Vessel</span><span class="colon">:</span><span>${activeJob.vesselName}</span></div><div class="meta-row"><span class="label">Estimated Day</span><span class="colon">:</span><span>${activeJob.inquiry?.estimatedDays || '-'}</span></div><div class="meta-row"><span class="label">Flag</span><span class="colon">:</span><span>${vessel?.flag || '-'}</span></div><div class="meta-row"><span class="label">Cargo Details</span><span class="colon">:</span><span>${activeJob.inquiry?.cargoDetails || '-'}</span></div><div class="meta-row"><span class="label">IMO</span><span class="colon">:</span><span>${vessel?.imoNumber || '-'}</span></div></div></div>`;
     const onePageHtml = buildEPDAHtml().replace('</style>', '@page{size:A4;margin:7mm}body{font-size:9px}.brand-row{margin-bottom:5px}.brand-wrap{min-height:55px;gap:10px}.logo{width:70px;height:52px}.brand{font-size:17px}.tag{font-size:10px;margin-top:2px}h2{font-size:10px;padding:4px;margin:5px 0 7px}.meta{gap:1px 20px;margin-bottom:6px}.meta-col{gap:1px}.meta-row{line-height:1.15}.meta-row .label{font-size:9px}table{page-break-inside:avoid;table-layout:fixed}table th:first-child,table td:first-child{width:5%}table th:nth-child(2),table td:nth-child(2){width:38%}table th:nth-child(3),table td:nth-child(3){width:12%}table th:nth-child(4),table td:nth-child(4){width:17%}table th:nth-child(5),table td:nth-child(5){width:28%}tr{page-break-inside:avoid}th,td{padding:3px 4px;font-size:8px}.bank{margin-top:10px;padding:5px;font-size:7px;line-height:1.2}.footer{margin-top:7px;font-size:8px;line-height:1.2}</style>');
     const salesViewHtml = onePageHtml
       .replace('<th style="width:7%">NO.</th><th>DESCRIPTION</th><th style="width:20%">AMOUNT IDR</th><th style="width:20%">REMARKS</th>', '<th style="width:5%">NO.</th><th>DESCRIPTION</th><th style="width:8%">CURRENCY</th><th style="width:17%">AMOUNT</th><th style="width:28%">REMARKS</th>')
       .replace('<tr class="grand"><td colspan="2" style="text-align:right">GRAND TOTAL</td><td style="text-align:right">', '<tr class="grand"><td colspan="3" style="text-align:right">GRAND TOTAL</td><td style="text-align:right">');
-    w.document.write(salesViewHtml.replace(/<div class="sign">[\s\S]*?<\/div>/, '').replace(/<div class="meta">[\s\S]*?(?=<table(?:\s|>))/i, inquiryMeta).replaceAll('>No.</span>', '>No EPDA</span>'));
-    w.document.close();
+    setPreviewDocument(salesViewHtml.replace(/<div class="sign">[\s\S]*?<\/div>/, '').replace(/<div class="meta">[\s\S]*?(?=<table(?:\s|>))/i, inquiryMeta).replaceAll('>No.</span>', '>No EPDA</span>'));
   };
 
   const buildFDAHtml = () => {
@@ -456,9 +491,11 @@ export const FDAView: React.FC<FDAViewProps> = ({
     }).join('');
     const total = actualList.reduce((sum, item) => sum + (item.amount || 0), 0);
     const vessel = vessels.find((item) => item.id === activeJob.vesselId);
-    const bank = '<div class="bank">Please kindly remit to our Bank Account<br>Bank Account Detail of PT. Lentera Global Maritim asf:<br><br><b>BANK NEGARA INDONESIA (Persero) Tbk</b><br>Address: BNI Bidakara<br>Jl. Gatot Subroto Kav 71-73, RT.12/RW.5, Tebet Timur,<br>Kec. Tebet, Kota Jakarta Selatan, DKI Jakarta 12820<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number : 2824-1212-69</b><br><b>Swift Code Bank : BNIIDNAXXX</b></div><div class="signature">Sincerely,<br>PT. Lentera Global Maritim<br><br><br>Finance</div>';
-    const footer = '<div class="footer">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span>email : maritim@lentera-global.com / web : www.lentera-global.com</span></div>';
-    return `<!doctype html><html><head><meta charset="utf-8"><title>${fdaNo}</title><style>@page{size:A4;margin:10mm}body{font-family:Arial,sans-serif;color:#172033;font-size:10px}.brand-row{text-align:center;margin-bottom:8px}.brand-wrap{display:inline-flex;align-items:center;gap:14px;text-align:left}.logo{width:82px;height:62px;object-fit:contain}.brand{font-weight:700;font-size:21px;color:#3562a8}.tag{color:#3562a8;font-size:12px;margin-top:3px}h2{text-align:center;background:#182a50;color:#fff;padding:5px;font-size:12px;margin:8px 0 10px}.meta{display:grid;grid-template-columns:1fr 1fr;gap:2px 28px;margin-bottom:10px}.meta-col{display:flex;flex-direction:column;gap:2px}.meta-row{display:grid;grid-template-columns:105px 8px minmax(0,1fr);line-height:1.25}.meta-col.right .meta-row{grid-template-columns:82px 8px minmax(0,1fr)}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #9ca3af;padding:4px 5px}th{background:#dbe8f2;text-align:center;font-size:9px}th:nth-child(1),td:nth-child(1){width:5%;text-align:center}th:nth-child(2),td:nth-child(2){width:42%;text-align:left}th:nth-child(3),td:nth-child(3){width:8%;text-align:center}th:nth-child(4),td:nth-child(4){width:17%;text-align:right;white-space:nowrap}th:nth-child(5),td:nth-child(5){width:28%;text-align:left}.section td{background:#808080;color:#fff;font-weight:700;text-align:left;text-transform:uppercase}.subtotal{background:#dbe8f2;font-weight:700}.subtotal td:first-child{text-align:right}.amount{text-align:right;white-space:nowrap}.grand{background:#dbe8f2;font-weight:800;color:#f00}.bank{display:inline-block;width:42%;margin-top:16px;border:1px solid #777;padding:8px;font-size:8px;line-height:1.3;vertical-align:top}.signature{display:inline-block;width:42%;margin:16px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.footer{margin-top:${print ? '18px' : '18px'};text-align:center;font-size:9px;line-height:1.35;font-weight:600}.footer span{color:#e11d48;text-decoration:underline}</style></head><body><div class="brand-row"><div class="brand-wrap"><img class="logo" src="./lgm-logo.png"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div><h2>FINAL DISBURSEMENT ACCOUNT</h2><div class="meta"><div class="meta-col"><div class="meta-row"><b>No FDA</b><span>:</span><span>${escape(fdaNo)}</span></div><div class="meta-row"><b>Date Inquiry</b><span>:</span><span>${escape(activeJob.inquiry?.date || '-')}</span></div><div class="meta-row"><b>Principal</b><span>:</span><span>${escape(activeJob.customerName)}</span></div><div class="meta-row"><b>GRT</b><span>:</span><span>${vessel?.grt?.toLocaleString('id-ID') || '-'}</span></div><div class="meta-row"><b>Port</b><span>:</span><span>${escape(activeJob.portName)}</span></div><div class="meta-row"><b>ETA</b><span>:</span><span>${escape(activeJob.eta || '-')}</span></div></div><div class="meta-col right"><div class="meta-row"><b>Vessel</b><span>:</span><span>${escape(activeJob.vesselName)}</span></div><div class="meta-row"><b>Estimated Day</b><span>:</span><span>${activeJob.inquiry?.estimatedDays || '-'}</span></div><div class="meta-row"><b>Flag</b><span>:</span><span>${escape(vessel?.flag || '-')}</span></div><div class="meta-row"><b>Cargo Details</b><span>:</span><span>${escape(activeJob.inquiry?.cargoDetails || '-')}</span></div><div class="meta-row"><b>IMO</b><span>:</span><span>${escape(vessel?.imoNumber || '-')}</span></div></div></div><table><thead><tr><th>NO.</th><th>DESCRIPTION</th><th>CURRENCY</th><th>AMOUNT</th><th>REMARKS</th></tr></thead><tbody>${rows}<tr class="grand"><td colspan="3">GRAND TOTAL</td><td class="amount">${money(total, viewCurrency)}</td><td></td></tr></tbody></table>${bank}${footer}</body></html>`;
+    const bank = viewCurrency === 'USD'
+      ? '<div class="bank"><div>Please kindly remit to our Bank Account</div><div>Bank Account Detail of PT. Lentera Global Maritim asf:</div><br><b>BANK MANDIRI (Persero) Tbk</b><br>Address:<br>BANK MANDIRI TEBET SUPOMO<br>Jl. Prof. Dr.Supomo SH No 43, Tebet, RT.04/RW.03<br>Tebet barat , Kec. Tebet, Kota Jakarta Selatan,<br>Daerah Khusus Ibukota Jakarta 12810<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number (USD) : 120-00-5575599-0</b><br><b>Swift Code Bank : BMRIIDJAXXX</b></div><div class="signature">Sincerely,<br>PT. Lentera Global Maritim<br><br><br>Finance</div>'
+      : '<div class="bank"><div>Please kindly remit to our Bank Account</div><div>Bank Account Detail of PT. Lentera Global Maritim asf:</div><br><b>BANK NEGARA INDONESIA (Persero) Tbk</b><br>Address:<br>BNI BIDAKARA<br>Jl. Gatot Subroto Kab 71-73, RT.12/RW.5, Tebet Timur,<br>Kec. Tebet, Kota Jakarta Selatan, Daerah Khusus Ibukota Jakarta 12820<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number : 2824-1212-09</b><br><b>Swift Code Bank : BNINIDJAXXX</b></div><div class="signature">Sincerely,<br>PT. Lentera Global Maritim<br><br><br>Finance</div>';
+    const officeFooter = '<div class="office-footer" style="position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center;font-size:9px;line-height:1.45;font-weight:600;color:#111;z-index:3;">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span style="color:#e11d48;text-decoration:underline">email : maritim@lentera-global.com / web : www.lentera-global.com</span></div>';
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${fdaNo}</title><style>@page{size:A4;margin:14mm}body{font-family:Arial,sans-serif;color:#172033;font-size:11px}html,body{margin:0;padding:0}.brand-row{text-align:center;margin:0 0 2px}.brand-wrap{display:inline-flex;align-items:center;gap:14px;text-align:left}.logo{width:82px;height:62px;object-fit:contain}.brand{font-weight:700;font-size:21px;color:#3562a8}.tag{color:#3562a8;font-size:12px;margin-top:3px}.divider{border-bottom:2px solid #315db2;margin:6px 0 12px}.title-block{margin:0 0 10px}.title-block h2{text-align:center;background:#182a50;color:#fff;padding:5px;font-size:12px;margin:0}.meta{display:grid;grid-template-columns:1fr 1fr;gap:2px 28px;margin-bottom:4px}.meta-col{display:flex;flex-direction:column;gap:2px}.meta-row{display:grid;grid-template-columns:105px 8px minmax(0,1fr);line-height:1.25}.meta-col.right .meta-row{grid-template-columns:82px 8px minmax(0,1fr)}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #9ca3af;padding:4px 5px}th{background:#dbe8f2;text-align:center;font-size:9px}th:nth-child(1),td:nth-child(1){width:5%;text-align:center}th:nth-child(2),td:nth-child(2){width:42%;text-align:left}th:nth-child(3),td:nth-child(3){width:8%;text-align:center}th:nth-child(4),td:nth-child(4){width:17%;text-align:right;white-space:nowrap}th:nth-child(5),td:nth-child(5){width:28%;text-align:left}.section td{background:#808080;color:#fff;font-weight:700;text-align:left;text-transform:uppercase}.subtotal{background:#dbe8f2;font-weight:700}.subtotal td:first-child{text-align:right}.amount{text-align:right;white-space:nowrap}.grand{background:#dbe8f2;font-weight:800;color:#f00}.bank{display:inline-block;width:42%;margin-top:24px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.footer{margin-top:22px;text-align:center;font-size:9px;line-height:1.45;font-weight:600}.footer span{color:#e11d48;text-decoration:underline}font-size:9px;line-height:1.35;font-weight:600}.footer span{color:#e11d48;text-decoration:underline}</style></head><body><div class="brand-row"><div class="brand-wrap"><img class="logo" src="./lgm-logo.png"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div><h2>FINAL DISBURSEMENT ACCOUNT</h2><div class="meta"><div class="meta-col"><div class="meta-row"><b>No FDA</b><span>:</span><span>${escape(fdaNo)}</span></div><div class="meta-row"><b>Date Inquiry</b><span>:</span><span>${escape(activeJob.inquiry?.date || '-')}</span></div><div class="meta-row"><b>Principal</b><span>:</span><span>${escape(activeJob.customerName)}</span></div><div class="meta-row"><b>GRT</b><span>:</span><span>${vessel?.grt?.toLocaleString('id-ID') || '-'}</span></div><div class="meta-row"><b>Port</b><span>:</span><span>${escape(activeJob.portName)}</span></div><div class="meta-row"><b>ETA</b><span>:</span><span>${escape(activeJob.eta || '-')}</span></div></div><div class="meta-col right"><div class="meta-row"><b>Vessel</b><span>:</span><span>${escape(activeJob.vesselName)}</span></div><div class="meta-row"><b>Estimated Day</b><span>:</span><span>${activeJob.inquiry?.estimatedDays || '-'}</span></div><div class="meta-row"><b>Flag</b><span>:</span><span>${escape(vessel?.flag || '-')}</span></div><div class="meta-row"><b>Cargo Details</b><span>:</span><span>${escape(activeJob.inquiry?.cargoDetails || '-')}</span></div><div class="meta-row"><b>IMO</b><span>:</span><span>${escape(vessel?.imoNumber || '-')}</span></div></div></div><table><thead><tr><th>NO.</th><th>DESCRIPTION</th><th>CURRENCY</th><th>AMOUNT</th><th>REMARKS</th></tr></thead><tbody>${rows}<tr class="grand"><td colspan="3">GRAND TOTAL</td><td class="amount">${money(total, viewCurrency)}</td><td></td></tr></tbody></table>${bank}${officeFooter}</body></html>`;
   };
 
   const buildFDAResultDocument = () => {
@@ -473,24 +510,16 @@ export const FDAView: React.FC<FDAViewProps> = ({
     }).join('');
     const total = actualList.reduce((sum, item) => sum + (item.amount || 0), 0);
     const vessel = vessels.find((item) => item.id === activeJob.vesselId);
-    return `<!doctype html><html><head><meta charset="utf-8"><title>${fdaNo}</title><style>@page{size:A4;margin:10mm}body{font-family:Arial,sans-serif;color:#172033;font-size:10px}.brand{text-align:center;margin-bottom:8px}.brand-wrap{display:inline-flex;align-items:center;gap:12px;text-align:left}.logo{width:78px;height:58px;object-fit:contain}.brand-name{font-size:20px;font-weight:700;color:#3562a8}.tagline{font-size:11px;color:#3562a8;margin-top:3px}h2{margin:8px 0;background:#214f84;color:#fff;text-align:center;padding:5px;font-size:12px}.meta{display:grid;grid-template-columns:1fr 1fr;gap:2px 28px;margin-bottom:9px}.meta-col{display:flex;flex-direction:column;gap:2px}.meta-row{display:grid;grid-template-columns:105px 8px minmax(0,1fr);line-height:1.25}.right .meta-row{grid-template-columns:82px 8px minmax(0,1fr)}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #9ca3af;padding:4px 5px}th{background:#dbe8f2;text-align:center;font-size:9px}th:nth-child(1),td:nth-child(1){width:5%;text-align:center}th:nth-child(2),td:nth-child(2){width:42%;text-align:left}th:nth-child(3),td:nth-child(3){width:8%;text-align:center}th:nth-child(4),td:nth-child(4){width:17%;text-align:right;white-space:nowrap}th:nth-child(5),td:nth-child(5){width:28%;text-align:left}.section td{background:#808080;color:#fff;font-weight:700;text-align:left;text-transform:uppercase}.subtotal{background:#dbe8f2;font-weight:700}.grand{background:#dbe8f2;color:#f00;font-weight:800}.amount{text-align:right;white-space:nowrap}.bank{display:inline-block;width:42%;margin-top:16px;border:1px solid #777;padding:8px;font-size:8px;line-height:1.3;vertical-align:top}.signature{display:inline-block;width:42%;margin:16px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.footer{margin-top:16px;text-align:center;font-size:9px;line-height:1.35;font-weight:600}.footer span{color:#e11d48;text-decoration:underline}</style></head><body><div class="brand"><div class="brand-wrap"><img class="logo" src="./lgm-logo.png"><div><div class="brand-name">PT Lentera Global Maritim</div><div class="tagline">Seamless Agent, Global Reach</div></div></div></div><h2>FINAL DISBURSEMENT ACCOUNT</h2><div class="meta"><div class="meta-col"><div class="meta-row"><b>No FDA</b><span>:</span><span>${escape(fdaNo)}</span></div><div class="meta-row"><b>Date Inquiry</b><span>:</span><span>${escape(activeJob.inquiry?.date || '-')}</span></div><div class="meta-row"><b>Principal</b><span>:</span><span>${escape(activeJob.customerName)}</span></div><div class="meta-row"><b>GRT</b><span>:</span><span>${vessel?.grt?.toLocaleString('id-ID') || '-'}</span></div><div class="meta-row"><b>Port</b><span>:</span><span>${escape(activeJob.portName)}</span></div><div class="meta-row"><b>ETA</b><span>:</span><span>${escape(activeJob.eta || '-')}</span></div></div><div class="meta-col right"><div class="meta-row"><b>Vessel</b><span>:</span><span>${escape(activeJob.vesselName)}</span></div><div class="meta-row"><b>Estimated Day</b><span>:</span><span>${activeJob.inquiry?.estimatedDays || '-'}</span></div><div class="meta-row"><b>Flag</b><span>:</span><span>${escape(vessel?.flag || '-')}</span></div><div class="meta-row"><b>Cargo Details</b><span>:</span><span>${escape(activeJob.inquiry?.cargoDetails || '-')}</span></div><div class="meta-row"><b>IMO</b><span>:</span><span>${escape(vessel?.imoNumber || '-')}</span></div></div></div><table><thead><tr><th>NO.</th><th>DESCRIPTION</th><th>CURRENCY</th><th>AMOUNT</th><th>REMARKS</th></tr></thead><tbody>${rows}<tr class="grand"><td colspan="3">GRAND TOTAL</td><td class="amount">${money(total, viewCurrency)}</td><td></td></tr></tbody></table><div class="bank">Please kindly remit to our Bank Account<br>Bank Account Detail of PT. Lentera Global Maritim asf:<br><br><b>BANK NEGARA INDONESIA (Persero) Tbk</b><br>Address: BNI Bidakara<br>Jl. Gatot Subroto Kav 71-73, RT.12/RW.5, Tebet Timur,<br>Kec. Tebet, Kota Jakarta Selatan, DKI Jakarta 12820<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number : 2824-1212-69</b><br><b>Swift Code Bank : BNIIDNAXXX</b></div><div class="signature">Sincerely,<br>PT. Lentera Global Maritim<br><br><br>Finance</div><div class="footer">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span>email : maritim@lentera-global.com / web : www.lentera-global.com</span></div></body></html>`;
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${fdaNo}</title><style>@page{size:A4;margin:10mm}body{font-family:Arial,sans-serif;color:#172033;font-size:10px}.brand{text-align:center;margin-bottom:8px}.brand-wrap{display:inline-flex;align-items:center;gap:12px;text-align:left}.logo{width:78px;height:58px;object-fit:contain}.brand-name{font-size:20px;font-weight:700;color:#3562a8}.tagline{font-size:11px;color:#3562a8;margin-top:3px}.divider{border-bottom:2px solid #315db2;margin:6px 0 10px}.title-block{margin:0 0 8px}.title-block h2{margin:0;background:#214f84;color:#fff;text-align:center;padding:5px;font-size:12px}.meta{display:grid;grid-template-columns:1fr 1fr;gap:2px 28px;margin-bottom:9px}.meta-col{display:flex;flex-direction:column;gap:2px}.meta-row{display:grid;grid-template-columns:105px 8px minmax(0,1fr);line-height:1.25}.right .meta-row{grid-template-columns:82px 8px minmax(0,1fr)}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #9ca3af;padding:4px 5px}th{background:#dbe8f2;text-align:center;font-size:9px}th:nth-child(1),td:nth-child(1){width:5%;text-align:center}th:nth-child(2),td:nth-child(2){width:42%;text-align:left}th:nth-child(3),td:nth-child(3){width:8%;text-align:center}th:nth-child(4),td:nth-child(4){width:17%;text-align:right;white-space:nowrap}th:nth-child(5),td:nth-child(5){width:28%;text-align:left}.section td{background:#808080;color:#fff;font-weight:700;text-align:left;text-transform:uppercase}.subtotal{background:#dbe8f2;font-weight:700}.grand{background:#dbe8f2;color:#f00;font-weight:800}.amount{text-align:right;white-space:nowrap}.bank{display:inline-block;width:42%;margin-top:16px;border:1px solid #777;padding:8px;font-size:8px;line-height:1.3;vertical-align:top}.signature{display:inline-block;width:42%;margin:16px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.footer{margin-top:16px;text-align:center;font-size:9px;line-height:1.35;font-weight:600}.footer span{color:#e11d48;text-decoration:underline}</style></head><body><div class="brand"><div class="brand-wrap"><img class="logo" src="./lgm-logo.png"><div><div class="brand-name">PT Lentera Global Maritim</div><div class="tagline">Seamless Agent, Global Reach</div></div></div></div><h2>FINAL DISBURSEMENT ACCOUNT</h2><div class="meta"><div class="meta-col"><div class="meta-row"><b>No FDA</b><span>:</span><span>${escape(fdaNo)}</span></div><div class="meta-row"><b>Date Inquiry</b><span>:</span><span>${escape(activeJob.inquiry?.date || '-')}</span></div><div class="meta-row"><b>Principal</b><span>:</span><span>${escape(activeJob.customerName)}</span></div><div class="meta-row"><b>GRT</b><span>:</span><span>${vessel?.grt?.toLocaleString('id-ID') || '-'}</span></div><div class="meta-row"><b>Port</b><span>:</span><span>${escape(activeJob.portName)}</span></div><div class="meta-row"><b>ETA</b><span>:</span><span>${escape(activeJob.eta || '-')}</span></div></div><div class="meta-col right"><div class="meta-row"><b>Vessel</b><span>:</span><span>${escape(activeJob.vesselName)}</span></div><div class="meta-row"><b>Estimated Day</b><span>:</span><span>${activeJob.inquiry?.estimatedDays || '-'}</span></div><div class="meta-row"><b>Flag</b><span>:</span><span>${escape(vessel?.flag || '-')}</span></div><div class="meta-row"><b>Cargo Details</b><span>:</span><span>${escape(activeJob.inquiry?.cargoDetails || '-')}</span></div><div class="meta-row"><b>IMO</b><span>:</span><span>${escape(vessel?.imoNumber || '-')}</span></div></div></div><table><thead><tr><th>NO.</th><th>DESCRIPTION</th><th>CURRENCY</th><th>AMOUNT</th><th>REMARKS</th></tr></thead><tbody>${rows}<tr class="grand"><td colspan="3">GRAND TOTAL</td><td class="amount">${money(total, viewCurrency)}</td><td></td></tr></tbody></table><div class="bank">Please kindly remit to our Bank Account<br>Bank Account Detail of PT. Lentera Global Maritim asf:<br><br><b>BANK NEGARA INDONESIA (Persero) Tbk</b><br>Address: BNI Bidakara<br>Jl. Gatot Subroto Kav 71-73, RT.12/RW.5, Tebet Timur,<br>Kec. Tebet, Kota Jakarta Selatan, DKI Jakarta 12820<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number : 2824-1212-69</b><br><b>Swift Code Bank : BNIIDNAXXX</b></div><div class="signature">Sincerely,<br>PT. Lentera Global Maritim<br><br><br>Finance</div><div class="footer">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span>email : maritim@lentera-global.com / web : www.lentera-global.com</span></div></body></html>`;
   };
 
   const previewFDA = () => {
-    const w = window.open('', '_blank', 'width=900,height=1100');
-    if (!w) return;
-    const vessel = vessels.find((item) => item.id === activeJob.vesselId);
-    const inquiryMeta = `<div class="meta"><div class="meta-col"><div class="meta-row"><span class="label">No FDA</span><span class="colon">:</span><span>${fdaNo}</span></div><div class="meta-row"><span class="label">Date Inquiry</span><span class="colon">:</span><span>${new Date(activeJob.inquiry?.date || activeJob.createdAt).toLocaleDateString('id-ID')}</span></div><div class="meta-row"><span class="label">Principal</span><span class="colon">:</span><span>${activeJob.customerName}</span></div><div class="meta-row"><span class="label">GRT</span><span class="colon">:</span><span>${vessel?.grt?.toLocaleString('id-ID') || '-'}</span></div><div class="meta-row"><span class="label">Port</span><span class="colon">:</span><span>${activeJob.portName}</span></div><div class="meta-row"><span class="label">ETA</span><span class="colon">:</span><span>${activeJob.eta || '-'}</span></div></div><div class="meta-col right"><div class="meta-row"><span class="label">Vessel</span><span class="colon">:</span><span>${activeJob.vesselName}</span></div><div class="meta-row"><span class="label">Estimated Day</span><span class="colon">:</span><span>${activeJob.inquiry?.estimatedDays || '-'}</span></div><div class="meta-row"><span class="label">Flag</span><span class="colon">:</span><span>${vessel?.flag || '-'}</span></div><div class="meta-row"><span class="label">Cargo Details</span><span class="colon">:</span><span>${activeJob.inquiry?.cargoDetails || '-'}</span></div><div class="meta-row"><span class="label">IMO</span><span class="colon">:</span><span>${vessel?.imoNumber || '-'}</span></div></div></div>`;
-    const onePageHtml = buildFDAHtml().replace('</style>', '@page{size:A4;margin:7mm}body{font-size:9px}.brand-row{margin-bottom:5px}.brand-wrap{min-height:55px;gap:10px}.logo{width:70px;height:52px}.brand{font-size:17px}.muted{font-size:10px;margin-top:2px}.document-title{font-size:10px;padding:4px;margin:5px 0 7px}.meta{gap:1px 20px;margin-bottom:6px}.meta-col{gap:1px}.meta-row{line-height:1.15}.meta-row .label{font-size:9px}table{page-break-inside:avoid;table-layout:fixed}table th:first-child,table td:first-child{width:5%}table th:nth-child(2),table td:nth-child(2){width:42%}table th:nth-child(3),table td:nth-child(3){width:8%}table th:nth-child(4),table td:nth-child(4){width:17%}table th:nth-child(5),table td:nth-child(5){width:28%}tr{page-break-inside:avoid}th,td{padding:3px 4px;font-size:8px}.subtotal td:first-child,.grand td:first-child{font-weight:700;text-align:right!important}.subtotal td.amount,.grand td.amount,.subtotal td:nth-child(2),.grand td:nth-child(2){font-variant-numeric:tabular-nums;text-align:right!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}.section td{padding-left:0!important}.bank{margin-top:10px;padding:5px;font-size:7px;line-height:1.2}.footer{margin-top:7px;font-size:8px;line-height:1.2}</style>');
-    w.document.write(buildFDAResultDocument().replace('</style>', 'th:nth-child(4){text-align:center!important}.subtotal td:first-child,.grand td:first-child{text-align:right!important}.subtotal td.amount,.grand td.amount{ text-align:right!important;white-space:nowrap}</style>'));
-    w.document.close();
+    const onePageHtml = buildFDAHtmlSalesTemplate(false).replace('</style>', '@page{size:A4;margin:14mm}body{font-size:9px}.brand-row{margin:0 0 2px}.brand-wrap{min-height:48px;gap:10px}.logo{width:70px;height:52px}.brand{font-size:17px}.tag{font-size:10px;margin-top:2px}h2{font-size:10px;padding:4px;margin:2px 0 4px}.meta{gap:1px 20px;margin-bottom:3px}.meta-col{gap:1px}.meta-row{line-height:1.15}.meta-row .label{font-size:9px}table{page-break-inside:avoid;table-layout:fixed}table th:first-child,table td:first-child{width:5%}table th:nth-child(2),table td:nth-child(2){width:42%}table th:nth-child(3),table td:nth-child(3){width:8%}table th:nth-child(4),table td:nth-child(4){width:17%}table th:nth-child(5),table td:nth-child(5){width:28%}tr{page-break-inside:avoid}th,td{padding:3px 4px;font-size:8px}.subtotal td:first-child,.grand td:first-child{font-weight:700;text-align:right!important}.subtotal td.amount,.grand td.amount,.subtotal td:nth-child(2),.grand td:nth-child(2){font-variant-numeric:tabular-nums;text-align:right!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}.section td{padding-left:0!important}.bank{display:inline-block;width:42%;margin-top:24px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.office-footer{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center;font-size:8px;line-height:1.2;font-weight:600;color:#111;z-index:3}.office-footer span{color:#e11d48;text-decoration:underline}</style>');
+    setPreviewDocument(onePageHtml);
   };
   const printFDA = () => {
-    const w = window.open('', '_blank', 'width=900,height=1100'); if (!w) return;
-    const vessel = vessels.find((item) => item.id === activeJob.vesselId);
-    const inquiryMeta = `<div class="meta"><div class="meta-col"><div class="meta-row"><span class="label">No EPDA</span><span class="colon">:</span><span>${fdaEpdaDisplayNo}</span></div><div class="meta-row"><span class="label">Date Inquiry</span><span class="colon">:</span><span>${new Date(activeJob.inquiry?.date || activeJob.createdAt).toLocaleDateString('id-ID')}</span></div><div class="meta-row"><span class="label">Principal</span><span class="colon">:</span><span>${activeJob.customerName}</span></div><div class="meta-row"><span class="label">GRT</span><span class="colon">:</span><span>${vessel?.grt?.toLocaleString('id-ID') || '-'}</span></div><div class="meta-row"><span class="label">Port</span><span class="colon">:</span><span>${activeJob.portName}</span></div><div class="meta-row"><span class="label">ETA</span><span class="colon">:</span><span>${activeJob.eta || '-'}</span></div></div><div class="meta-col right"><div class="meta-row"><span class="label">Vessel</span><span class="colon">:</span><span>${activeJob.vesselName}</span></div><div class="meta-row"><span class="label">Estimated Day</span><span class="colon">:</span><span>${activeJob.inquiry?.estimatedDays || '-'}</span></div><div class="meta-row"><span class="label">Flag</span><span class="colon">:</span><span>${vessel?.flag || '-'}</span></div><div class="meta-row"><span class="label">Cargo Details</span><span class="colon">:</span><span>${activeJob.inquiry?.cargoDetails || '-'}</span></div><div class="meta-row"><span class="label">IMO</span><span class="colon">:</span><span>${vessel?.imoNumber || '-'}</span></div></div></div>`;
-    const onePageHtml = buildFDAHtml().replace('</style>', '@page{size:A4;margin:7mm}body{font-size:9px}.brand-row{margin-bottom:5px}.brand-wrap{min-height:55px;gap:10px}.logo{width:70px;height:52px}.brand{font-size:17px}.muted{font-size:10px;margin-top:2px}.document-title{font-size:10px;padding:4px;margin:5px 0 7px}.meta{gap:1px 20px;margin-bottom:6px}.meta-col{gap:1px}.meta-row{line-height:1.15}.meta-row .label{font-size:9px}table{page-break-inside:avoid;table-layout:fixed}table th:first-child,table td:first-child{width:5%}table th:nth-child(2),table td:nth-child(2){width:42%}table th:nth-child(3),table td:nth-child(3){width:8%}table th:nth-child(4),table td:nth-child(4){width:17%}table th:nth-child(5),table td:nth-child(5){width:28%}tr{page-break-inside:avoid}th,td{padding:3px 4px;font-size:8px}.subtotal td:first-child,.grand td:first-child{font-weight:700;text-align:right!important}.subtotal td.amount,.grand td.amount,.subtotal td:nth-child(2),.grand td:nth-child(2){font-variant-numeric:tabular-nums;text-align:right!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}.section td{padding-left:0!important}.bank{margin-top:10px;padding:5px;font-size:7px;line-height:1.2}.footer{margin-top:7px;font-size:8px;line-height:1.2}</style>');
-    w.document.write(buildFDAResultDocument().replace('</style>', 'th:nth-child(4){text-align:center!important}.subtotal td:first-child,.grand td:first-child{text-align:right!important}.subtotal td.amount,.grand td.amount{text-align:right!important;white-space:nowrap}</style>')); w.document.close(); w.onload = () => { w.focus(); w.print(); };
+    const onePageHtml = buildFDAHtmlSalesTemplate(true).replace('</style>', '@page{size:A4;margin:14mm}body{font-size:9px}.brand-row{margin:0 0 2px}.brand-wrap{min-height:48px;gap:10px}.logo{width:70px;height:52px}.brand{font-size:17px}.tag{font-size:10px;margin-top:2px}h2{font-size:10px;padding:4px;margin:2px 0 4px}.meta{gap:1px 20px;margin-bottom:3px}.meta-col{gap:1px}.meta-row{line-height:1.15}.meta-row .label{font-size:9px}table{page-break-inside:avoid;table-layout:fixed}table th:first-child,table td:first-child{width:5%}table th:nth-child(2),table td:nth-child(2){width:42%}table th:nth-child(3),table td:nth-child(3){width:8%}table th:nth-child(4),table td:nth-child(4){width:17%}table th:nth-child(5),table td:nth-child(5){width:28%}tr{page-break-inside:avoid}th,td{padding:3px 4px;font-size:8px}.subtotal td:first-child,.grand td:first-child{font-weight:700;text-align:right!important}.subtotal td.amount,.grand td.amount,.subtotal td:nth-child(2),.grand td:nth-child(2){font-variant-numeric:tabular-nums;text-align:right!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}.section td{padding-left:0!important}.bank{display:inline-block;width:42%;margin-top:24px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.office-footer{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center;font-size:8px;line-height:1.2;font-weight:600;color:#111;z-index:3}.office-footer span{color:#e11d48;text-decoration:underline}</style>');
+    setPreviewDocument(onePageHtml);
   };
 
   const handleFDAFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -550,7 +579,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     const totalActualBuyLogged = totalActualBuy > 0 ? totalActualBuy : activeJob.quotation?.pda?.totalBuyRate || 0;
     const totalActualBilled = totalActualBuy > 0 ? totalActualBuy : totalQuotedPDA;
     const variance = totalActualBilled - totalActualBuyLogged;
-    const exchangeRate = activeJob.exchangeRateUSDToIDR || 15800;
+    const exchangeRate = effectiveExchangeRate;
     const totalBilledUSD = viewCurrency === 'USD' ? totalActualBilled : totalActualBilled / exchangeRate;
     const totalBilledIDR = viewCurrency === 'IDR' ? totalActualBilled : totalActualBilled * exchangeRate;
 
@@ -574,8 +603,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
         finalBilledToPrincipal: totalActualBilled, varianceAmount: variance, variancePercentage: totalActualBilled > 0 ? (variance / totalActualBilled) * 100 : 0,
         fdaApproved: true, approvedBy: 'FDA User', approvedAt: now, notes: 'FDA difinalisasi dan diteruskan ke Finance.' },
       ap: apFromActual, ar: arFromInvoice,
-      principalInvoice: { ...activeJob.principalInvoice, invoiceNo, invoiceDate: now.slice(0, 10), totalAmountUSD: totalBilledUSD,
-        totalAmountIDR: totalBilledIDR, balanceDueUSD: totalBilledUSD, balanceDueIDR: totalBilledIDR, status: 'ISSUED', pdfGenerated: false },
+      principalInvoice: { ...activeJob.principalInvoice, invoiceNo, invoiceDate: now.slice(0, 10),
+        dueDate: new Date(new Date(now).getTime() + 30 * 86400000).toISOString().slice(0, 10),
+        totalAmountUSD: totalBilledUSD, totalAmountIDR: totalBilledIDR, balanceDueUSD: totalBilledUSD, balanceDueIDR: totalBilledIDR, status: 'ISSUED', pdfGenerated: false },
       currentStage: 'AP_AR', status: 'IN_PROGRESS',
     });
 
@@ -607,6 +637,44 @@ export const FDAView: React.FC<FDAViewProps> = ({
         <div className="p-3 bg-cyan-500/20 border border-cyan-500/40 rounded-xl text-cyan-300 text-xs flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4" />
           <span>{msg}</span>
+        </div>
+      )}
+
+      {previewDocument && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) setPreviewDocument(null); }}
+        >
+          <div className="flex h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-700 px-4 py-3 gap-3">
+              <div className="min-w-0">
+                <div className="text-xs font-bold uppercase tracking-wider text-cyan-300">Preview FDA</div>
+                <div className="truncate text-sm text-white">Final Disbursement Account</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => iframePreviewRef.current?.contentWindow?.print()}
+                  className="rounded-lg bg-white px-3 py-1.5 text-sm font-bold text-slate-900 hover:bg-slate-100"
+                >
+                  Print / Save PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewDocument(null)}
+                  className="rounded-lg px-3 py-1.5 text-sm font-bold text-slate-300 hover:bg-slate-800 hover:text-white"
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+            <iframe
+              ref={iframePreviewRef}
+              srcDoc={previewDocument}
+              title="FDA Preview"
+              className="min-h-0 flex-1 bg-white"
+            />
+          </div>
         </div>
       )}
 
@@ -762,8 +830,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
               },
               {
                 label: 'TOTAL COST',
-                value: formatUSD(totalCost),
-                note: 'Total biaya yang ditagihkan final ke principal',
+                value: formatAccountingNumber(totalCost, 'IDR'),
+                note: 'Kumulatif grand total final ke principal, USD dikonversi ke IDR sesuai kurs FDA',
                 icon: Coins,
                 cls: 'orange',
               },
@@ -930,8 +998,10 @@ export const FDAView: React.FC<FDAViewProps> = ({
                 Kurs USD
                 <input
                   type="number"
-                  value={activeJob.exchangeRateUSDToIDR || 15800}
-                  readOnly
+                  min={1}
+                  step={1}
+                  value={exchangeRateInput}
+                  onChange={(e) => handleExchangeRateChange(e.target.value)}
                   className="w-24 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-right text-xs text-white"
                 />
               </label>
