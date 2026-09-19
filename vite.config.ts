@@ -1,24 +1,19 @@
-import path from 'path';
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-import tailwindcss from '@tailwindcss/vite';
+import { defineConfig, loadEnv } from 'vite'
+import react from '@vitejs/plugin-react'
 
+export default defineConfig(({ mode }) => {
+  // Memastikan semua variabel lingkungan (.env & GitHub Secrets) termuat dengan benar
+  const env = loadEnv(mode, process.cwd(), '')
 
-const repoBase = '/lenteraglobalmaritim/';
-
-export default defineConfig({
-  base: repoBase,
-  plugins: [react(), tailwindcss()],
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, '.'),
-    },
-  },
-  server: {
-    hmr: process.env.DISABLE_HMR !== 'true',
-    watch: process.env.DISABLE_HMR === 'true' ? null : {},
-  },
-
-  
-
-});
+  return {
+    // Sesuaikan base path dengan nama repositori GitHub Pages Anda
+    base: '/lenteraglobalmaritim/',
+    
+    plugins: [react()],
+    
+    define: {
+      // Menyuntikkan fallback aman jika env tidak sengaja kosong di production
+      'process.env': env
+    }
+  }
+})
