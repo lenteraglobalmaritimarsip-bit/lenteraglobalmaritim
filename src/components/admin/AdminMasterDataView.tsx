@@ -1,36 +1,6 @@
-import { supabase } from '../../supabaseClient';
-  const handleTambahUser = async (newUserData: any) => {e.preventDefault();
-
-  // ... (kode bawaan Anda untuk simpan ke state lokal/array)
-
-  // 💡 TAMBAHKAN BARIS INI DI PALING BAWAH FUNGSI LOKAL ANDA:
-  handleTambahUser(newUser); // Ganti 'newUser' sesuai nama objek variabel form di file Anda
-};
-    const { data, error } = await supabase
-      .from('app_users') // Nama tabel cloud di Supabase
-      .insert([
-        {
-          employee_code: newUserData.employeeCode || newUserData.employee_code,
-          name: newUserData.name,
-          email: newUserData.email,
-          username: newUserData.username,
-          password_hash: newUserData.password || 'default_hash_123', // Samakan dengan input password sistem Anda
-          role: newUserData.role, // Pastikan isinya huruf besar: ADMIN/SALES/MANAGER_OPS/FDA/FINANCE
-          status: 'ACTIVE'
-        }
-      ])
-      .select();
-
-    if (error) {
-      alert("Gagal masuk database cloud! Alasan: " + error.message);
-      console.error("Detail Error:", error.message);
-    } else {
-      alert("Sukses! Karyawan baru telah resmi terdaftar di Supabase Cloud.");
-      console.log("Data berhasil masuk:", data);
-    }
-  };
-
 import React, { useEffect, useState } from 'react';
+// 1. IMPORT SUPABASE DI SINI
+import { supabase } from '../../supabaseClient';
 import {
   Users,
   Building2,
@@ -95,6 +65,37 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     { type: 'CUSTOMERS' | 'VESSELS' | 'PORTS' | 'FIX_TARIFF' | 'EXPENSES_ITEM'; id: string } | null
   >(null);
   const [editMasterForm, setEditMasterForm] = useState<any>({});
+
+  // 2. FUNGSI MENYIMPAN KE SUPABASE CLOUD (KODE DINAMIS)
+  const handleTambahUserCloud = async (newUserData: Partial<User>) => {
+    // Generate code acak jika employee_code kosong untuk menghindari error database
+    const empCode = 'EMP-' + Math.floor(1000 + Math.random() * 9000);
+
+    const { data, error } = await supabase
+      .from('app_users')
+      .insert([
+        {
+          employee_code: newUserData.username || empCode, 
+          name: newUserData.name,
+          email: newUserData.email,
+          username: newUserData.username,
+          password_hash: newUserData.password || 'default_hash_123',
+          role: newUserData.role || 'SALES', 
+          department: newUserData.department || 'Commercial',
+          phone: newUserData.phone || '',
+          status: 'ACTIVE'
+        }
+      ])
+      .select();
+
+    if (error) {
+      alert("Gagal sinkronisasi ke Supabase Cloud: " + error.message);
+      console.error("Detail Error Supabase:", error.message);
+    } else {
+      alert("🎉 Sukses! User baru '" + newUserData.name + "' berhasil disimpan di Database Online Supabase.");
+      console.log("Data Cloud Tersimpan:", data);
+    }
+  };
 
   const openMasterEditor = (
     type: 'CUSTOMERS' | 'VESSELS' | 'PORTS' | 'FIX_TARIFF' | 'EXPENSES_ITEM',
@@ -162,19 +163,14 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     onDataSaved?.(activeTab);
   };
 
-  // Keep the content synchronized with the sidebar selection.
-  // Without this, initialTab is only read on first mount, so clicking
-  // Customers/Vessels/Ports/etc. in the sidebar would leave the old table visible.
   useEffect(() => {
     setActiveTab(initialTab);
     setSearchQuery('');
-    // Auto-back/reset whenever another master-data menu is clicked.
     setShowAddModal(false);
     closeMasterEditor();
     setEditingUser(null);
   }, [initialTab]);
 
-  // Simple state holders for new items
   const [newUser, setNewUser] = useState<Partial<User>>({
     name: '',
     email: '',
@@ -258,6 +254,60 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     preferredVendor: '',
     calculationType: 'FIXED',
   });
+
+  // 3. PENGGABUNGAN FUNGSI SAVE UTAMA
+  const handleSaveItem = (e: React.FormEvent) => {
+    e.preventDefault();
+    setAddFormError('');
+    try {
+      if (activeTab === 'USERS') {
+        if (!newUser.name?.trim() || !newUser.email?.trim() || !newUser.username?.trim() || !newUser.password || !newUser.position?.trim()) {
+          setAddFormError('Lengkapi User, Password, Nama, Jabatan, dan Email.');
+          return;
+        }
+        
+        // Simpan ke database lokal bawaan Anda
+        const createdUser = db.createUser(newUser as any);
+        saveStoredAccount({
+          id: createdUser.id,
+          username: newUser.username,
+          password: newUser.password,
+          name: newUser.name,
+          role: newUser.role as UserRole,
+          position: newUser.position,
+          status: 'ACTIVE'
+        });
+
+        // 💡 JALANKAN OTOMATIS KE SUPABASE CLOUD DI SINI
+        handleTambahUserCloud(newUser);
+
+        // Reset Form input lokal
+        setNewUser({
+          name: '', email: '', role: 'SALES', department: 'Commercial',
+          branch: 'Head Office', status: 'ACTIVE', phone: '', username: '', password: '', position: ''
+        });
+      }
+      
+      // Logika penyimpanan untuk tab master data lainnya (Customers, Vessels, dll)
+      if (activeTab === 'CUSTOMERS') {
+        db.createCustomer(newCustomer as any);
+        setNewCustomer({ code: '', companyName: '', country: 'Singapore', type: 'PRINCIPAL', contactPerson: '', email: '', phone: '', address: '', creditTermDays: 30 });
+      }
+      if (activeTab === 'VESSELS') {
+        db.createVessel(newVessel as any);
+        setNewVessel({ name: '', imoNumber: '', callSign: '', flag: 'Panama', vesselType: 'BULK CARRIER', grt: 30000, nrt: 15000, dwt: 50000, loa: 180, beam: 30, yearBuilt: 2020 });
+      }
+      if (activeTab === 'PORTS') {
+        db.createPort(newPort as any);
+        setNewPort({ code: '', name: '', country: 'Indonesia', unlocode: '', channelDepthMeters: 14, tideRestriction: 'Standard tidal window', operatingHours: '24/7' });
+      }
+      if (activeTab === 'ZONES') {
+        db.createZone(newZone as any);
+        setNewZone({ portId: ports[0]?.id || '', portName: ports[0]?.name || '', zoneCode: '', zoneName: '', type: 'BERTH', maxDraftMeters: 12, description: '' });
+      }
+      if (activeTab === 'FIX_TARIFF') {
+        const port = ports.find((p) => p.id === newTariff.portId);
+
 
   const handleSaveItem = (e: React.FormEvent) => {
     e.preventDefault();
