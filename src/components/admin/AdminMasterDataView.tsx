@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../supabaseClient';
+
 import {
   Users,
   Building2,
@@ -228,50 +229,17 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     calculationType: 'FIXED',
   });
 
-  const handleSaveItem = (e: React.FormEvent) => {// ...existing code...
-
-  const handleSaveItem = async (e: React.FormEvent) => {
+  const handleSaveItem = (e: React.FormEvent) => {
     e.preventDefault();
     setAddFormError('');
-
     try {
       if (activeTab === 'USERS') {
         if (!newUser.name?.trim() || !newUser.email?.trim() || !newUser.username?.trim() || !newUser.password || !newUser.position?.trim()) {
           setAddFormError('Lengkapi User, Password, Nama, Jabatan, dan Email sebelum menyimpan.');
           return;
         }
-
         const created = db.addUser(newUser as Omit<User, 'id'>);
-        saveStoredAccount({
-          ...created,
-          username: newUser.username!,
-          password: newUser.password!,
-        });
-
-        if (supabase && typeof supabase.from === 'function') {
-          const payload = {
-            email: newUser.email,
-            username: newUser.username,
-            password_hash: newUser.password,
-            role: newUser.role || 'SALES',
-            name: newUser.name,
-            department: newUser.department || 'Commercial',
-            branch: newUser.branch || 'Head Office',
-            phone: newUser.phone || '',
-            status: newUser.status || 'ACTIVE',
-          };
-
-          const { data, error } = await supabase
-            .from('app_users')
-            .insert([payload]);
-
-          if (error) {
-            console.warn('Supabase insert failed:', error.message);
-            console.warn('Payload:', payload);
-          } else {
-            console.log('Supabase insert success:', data);
-          }
-        }
+        saveStoredAccount({ ...created, username: newUser.username!, password: newUser.password! });
       } else if (activeTab === 'CUSTOMERS') {
         if (!newCustomer.companyName?.trim()) {
           setAddFormError('Nama perusahaan wajib diisi sebelum menyimpan.');
@@ -323,9 +291,6 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     setShowAddModal(false);
     setAddFormError('');
     onDataSaved?.(activeTab);
-  };
-
-// ...existing code...
   };
 
   const formatExpenseCategory = (category?: string) => ({
