@@ -1,3 +1,35 @@
+import { supabase } from '../../supabaseClient';
+  const handleTambahUser = async (newUserData: any) => {e.preventDefault();
+
+  // ... (kode bawaan Anda untuk simpan ke state lokal/array)
+
+  // 💡 TAMBAHKAN BARIS INI DI PALING BAWAH FUNGSI LOKAL ANDA:
+  handleTambahUser(newUser); // Ganti 'newUser' sesuai nama objek variabel form di file Anda
+};
+    const { data, error } = await supabase
+      .from('app_users') // Nama tabel cloud di Supabase
+      .insert([
+        {
+          employee_code: newUserData.employeeCode || newUserData.employee_code,
+          name: newUserData.name,
+          email: newUserData.email,
+          username: newUserData.username,
+          password_hash: newUserData.password || 'default_hash_123', // Samakan dengan input password sistem Anda
+          role: newUserData.role, // Pastikan isinya huruf besar: ADMIN/SALES/MANAGER_OPS/FDA/FINANCE
+          status: 'ACTIVE'
+        }
+      ])
+      .select();
+
+    if (error) {
+      alert("Gagal masuk database cloud! Alasan: " + error.message);
+      console.error("Detail Error:", error.message);
+    } else {
+      alert("Sukses! Karyawan baru telah resmi terdaftar di Supabase Cloud.");
+      console.log("Data berhasil masuk:", data);
+    }
+  };
+
 import React, { useEffect, useState } from 'react';
 import {
   Users,
