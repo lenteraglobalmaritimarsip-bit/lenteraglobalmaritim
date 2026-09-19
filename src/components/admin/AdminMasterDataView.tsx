@@ -1,9 +1,3 @@
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 import React, { useEffect, useState } from 'react';
 import {
   Users,
@@ -233,57 +227,68 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     calculationType: 'FIXED',
   });
 
-  const handleSaveItem = async (e: React.FormEvent) => {
+  const handleSaveItem = (e: React.FormEvent) => {
     e.preventDefault();
     setAddFormError('');
-
     try {
       if (activeTab === 'USERS') {
         if (!newUser.name?.trim() || !newUser.email?.trim() || !newUser.username?.trim() || !newUser.password || !newUser.position?.trim()) {
           setAddFormError('Lengkapi User, Password, Nama, Jabatan, dan Email sebelum menyimpan.');
           return;
         }
-
         const created = db.addUser(newUser as Omit<User, 'id'>);
-        saveStoredAccount({
-          ...created,
-          username: newUser.username!,
-          password: newUser.password!,
-        });
-
-        if (supabase && typeof supabase.from === 'function') {
-          const payload = {
-            email: newUser.email,
-            username: newUser.username,
-            password_hash: newUser.password,
-            role: newUser.role || 'SALES',
-            name: newUser.name,
-            department: newUser.department || 'Commercial',
-            branch: newUser.branch || 'Head Office',
-            phone: newUser.phone || '',
-            status: newUser.status || 'ACTIVE',
-          };
-
-          const { data, error } = await supabase
-            .from('app_users')
-            .insert([payload]);
-
-          if (error) {
-            console.warn('Supabase insert failed:', error.message);
-          } else {
-            console.log('Supabase insert success:', data);
-          }
+        saveStoredAccount({ ...created, username: newUser.username!, password: newUser.password! });
+      } else if (activeTab === 'CUSTOMERS') {
+        if (!newCustomer.companyName?.trim()) {
+          setAddFormError('Nama perusahaan wajib diisi sebelum menyimpan.');
+          return;
         }
+        db.addCustomer(newCustomer as Omit<Customer, 'id'>);
+      } else if (activeTab === 'VESSELS') {
+        if (!newVessel.name?.trim()) {
+          setAddFormError('Nama kapal wajib diisi sebelum menyimpan.');
+          return;
+        }
+        db.addVessel(newVessel as Omit<Vessel, 'id'>);
+      } else if (activeTab === 'PORTS') {
+        if (!newPort.name?.trim()) {
+          setAddFormError('Nama pelabuhan wajib diisi sebelum menyimpan.');
+          return;
+        }
+        db.addPort(newPort as Omit<Port, 'id'>);
+      } else if (activeTab === 'ZONES') {
+        if (!newZone.zoneName?.trim()) {
+          setAddFormError('Nama zona wajib diisi sebelum menyimpan.');
+          return;
+        }
+        const port = ports.find((p) => p.id === newZone.portId);
+        db.addZone({ ...newZone, portName: port?.name || '' } as Omit<Zone, 'id'>);
+      } else if (activeTab === 'FIX_TARIFF') {
+        if (!newTariff.serviceName?.trim()) {
+          setAddFormError('Nama layanan wajib diisi sebelum menyimpan.');
+          return;
+        }
+        const port = ports.find((p) => p.id === newTariff.portId);
+        db.addFixTariff({ ...newTariff, portName: port?.name || '' } as Omit<FixTariff, 'id'>);
+      } else if (activeTab === 'EXPENSES_ITEM') {
+        if (!newExpense.name?.trim()) {
+          setAddFormError('Nama item wajib diisi sebelum menyimpan.');
+          return;
+        }
+        db.addExpensesItem(newExpense as Omit<ExpensesItem, 'id'>);
+      } else {
+        setAddFormError('Menu master data tidak dikenali.');
+        return;
       }
-
-      setShowAddModal(false);
-      setAddFormError('');
-      onDataSaved?.(activeTab);
     } catch (error) {
       console.error('Master data save failed:', error);
       setAddFormError('Data gagal disimpan. Periksa penyimpanan browser lalu coba lagi.');
       return;
     }
+
+    setShowAddModal(false);
+    setAddFormError('');
+    onDataSaved?.(activeTab);
   };
 
   const formatExpenseCategory = (category?: string) => ({
