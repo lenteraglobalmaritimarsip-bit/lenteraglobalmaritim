@@ -35,7 +35,7 @@ export function getStoredAccounts(): AuthAccount[] {
   try {
     const raw = localStorage.getItem('lgm_auth_accounts');
     if (!raw) return [...DEMO_ACCOUNTS];
-    const stored = JSON.parse(raw) as AuthAccount[];
+    const stored = (JSON.parse(raw) as AuthAccount[]).filter((item): item is AuthAccount => Boolean(item && typeof item === 'object'));
     return DEMO_ACCOUNTS.map((base) => stored.find((x) => x.id === base.id) || base)
       .concat(stored.filter((x) => !DEMO_ACCOUNTS.some((b) => b.id === x.id)));
   } catch { return [...DEMO_ACCOUNTS]; }
@@ -49,7 +49,7 @@ export function saveStoredAccount(account: AuthAccount): void {
 
 export function authenticate(username: string, password: string): AuthAccount | null {
   const normalized = username.trim().toLowerCase();
-  const account = getStoredAccounts().find((item) => item.username === normalized && item.password === password && item.status === 'ACTIVE');
+  const account = getStoredAccounts().find((item) => item?.username === normalized && item.password === password && item.status === 'ACTIVE');
   return account || null;
 }
 
