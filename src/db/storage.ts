@@ -210,6 +210,7 @@ class DatabaseService {
         preferredVendor: row.preferred_vendor || row.preferredVendor,
       })),
       this.loadTable<JobCall>('vessel_calls', INITIAL_JOB_CALLS, (row) => ({
+        ...(this.state.jobCalls.find((job) => job.jobId === row.job_id) || INITIAL_JOB_CALLS.find((job) => job.jobId === row.job_id) || INITIAL_JOB_CALLS[0]),
         ...row,
         jobId: row.job_id || row.jobId,
         exchangeRateUSDToIDR: row.exchange_rate_usd_idr ?? row.exchangeRateUSDToIDR,
