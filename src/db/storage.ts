@@ -210,6 +210,7 @@ class DatabaseService {
       })),
       this.loadTable<JobCall>('vessel_calls', INITIAL_JOB_CALLS, (row) => ({
         ...row,
+        jobId: row.job_id || row.jobId,
         exchangeRateUSDToIDR: row.exchange_rate_usd_idr ?? row.exchangeRateUSDToIDR,
         currentStage: row.current_stage || row.currentStage,
         createdAt: row.created_at || row.createdAt,
