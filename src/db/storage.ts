@@ -305,14 +305,40 @@ class DatabaseService {
       supabase.from('customers').upsert(this.state.customers.map((customer) => ({ code: customer.code, company_name: customer.companyName, country: customer.country, type: customer.type, contact_person: customer.contactPerson, email: customer.email, phone: customer.phone, address: customer.address, credit_term_days: customer.creditTermDays })), { onConflict: 'code' }),
       supabase.from('vessels').upsert(this.state.vessels.map((vessel) => ({ name: vessel.name, imo_number: vessel.imoNumber || null, call_sign: vessel.callSign, flag: vessel.flag, vessel_type: vessel.vesselType, grt: vessel.grt, nrt: vessel.nrt, dwt: vessel.dwt, loa: vessel.loa, beam: vessel.beam, year_built: vessel.yearBuilt })), { onConflict: 'imo_number' }),
       supabase.from('ports').upsert(this.state.ports.map((port) => ({ code: port.code, name: port.name, country: port.country, unlocode: port.unlocode, channel_depth_m: port.channelDepthMeters, tide_restriction: port.tideRestriction, operating_hours: port.operatingHours })), { onConflict: 'code' }),
-      supabase.from('zones').upsert(this.state.zones.map((zone) => ({ zone_code: zone.zoneCode, zone_name: zone.zoneName, zone_type: zone.type, max_draft_m: zone.maxDraftMeters, description: zone.description })), { onConflict: 'zone_code' }),
-      supabase.from('fix_tariffs').upsert(this.state.fixTariffs.map((tariff) => ({ service_code: tariff.serviceCode, service_name: tariff.serviceName, calculation_basis: tariff.calculationBasis, currency: tariff.currency, rate: tariff.rate, min_charge: tariff.minCharge, description: tariff.description })), { onConflict: 'service_code' }),
+      this.saveRowsWithoutConflict('zones', 'zone_code', this.state.zones.map((zone) => ({ zone_code: zone.zoneCode, zone_name: zone.zoneName, zone_type: zone.type, max_draft_m: zone.maxDraftMeters, description: zone.description }))),
+      this.saveRowsWithoutConflict('fix_tariffs', 'service_code', this.state.fixTariffs.map((tariff) => ({ service_code: tariff.serviceCode, service_name: tariff.serviceName, calculation_basis: tariff.calculationBasis, currency: tariff.currency, rate: tariff.rate, min_charge: tariff.minCharge, description: tariff.description }))),
       supabase.from('expense_items').upsert(this.state.expensesItems.map((item) => ({ code: item.code, category: item.category, name: item.name, unit: item.unit, default_currency: item.defaultCurrency, standard_cost_buy: item.standardCostBuy, standard_cost_sell: item.standardCostSell, preferred_vendor: item.preferredVendor })), { onConflict: 'code' }),
-      supabase.from('vessel_calls').upsert(this.state.jobCalls.map((job) => ({ job_id: job.jobId, eta: job.eta, etd: job.etd, purpose_of_call: job.purposeOfCall, currency: job.currency, exchange_rate_usd_idr: job.exchangeRateUSDToIDR, current_stage: job.currentStage, status: job.status })), { onConflict: 'job_id' }),
+      this.saveRowsWithoutConflict('vessel_calls', 'job_id', this.state.jobCalls.map((job) => ({ job_id: job.jobId, eta: job.eta, etd: job.etd, purpose_of_call: job.purposeOfCall, currency: job.currency, exchange_rate_usd_idr: job.exchangeRateUSDToIDR, current_stage: job.currentStage, status: job.status }))),
     ]);
-    const failed = results.find((result) => result.error);
-    if (failed?.error) throw failed.error;
+    const failed = results.find((result) => result && 'error' in result && result.error);
+    if (failed && 'error' in failed && failed.error) throw failed.error;
     this.notify();
+  }
+
+  private async saveRowsWithoutConflict(table: string, key: string, rows: Record<string, unknown>[]): Promise<void> {
+    for (const row of rows) {
+      const keyValue = row[key];
+      if (!keyValue) {
+        const { error } = await supabase.from(table).insert(row);
+        if (error) throw error;
+        continue;
+      }
+
+      const { data: existing, error: lookupError } = await supabase
+        .from(table)
+        .select('id')
+        .eq(key, keyValue)
+        .limit(1);
+      if (lookupError) throw lookupError;
+
+      if (existing?.[0]?.id) {
+        const { error } = await supabase.from(table).update(row).eq('id', existing[0].id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from(table).insert(row);
+        if (error) throw error;
+      }
+    }
   }
 
   private async saveToStorage(): Promise<void> {
