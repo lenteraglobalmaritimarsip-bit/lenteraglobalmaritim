@@ -38,6 +38,26 @@ const resolveInquiryOwner = (job: JobCall) => ({
   branch: job.inquiry?.createdByBranch || 'Head Office'
 });
 
+const emptyInquiry = {
+  inquiryNo: '-',
+  date: '',
+  cargoDetails: '-',
+  estimatedDays: 0,
+  specialRequirements: '-',
+  status: 'RECEIVED' as const,
+  createdBy: 'Unknown User',
+  createdByBranch: 'Head Office',
+  etaRemarks: '-',
+  etdRemarks: '-',
+  quantity: 0,
+  quantityUnit: 'TON' as const,
+};
+
+const safeInquiry = (job: JobCall) => ({
+  ...emptyInquiry,
+  ...(job.inquiry || {}),
+});
+
 function getManagementStatus(job: JobCall): Array<{label:string; value:string; tone:StatusTone}> {
   const epda = job.quotation?.epda?.status;
   const pda = job.quotation?.pda?.status;
@@ -140,12 +160,13 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,onSelec
     const statuses = getManagementStatus(j);
     const statusByLabel = Object.fromEntries(statuses.map(s => [s.label, s.value]));
     const owner = resolveInquiryOwner(j);
+    const inquiry = safeInquiry(j);
     return [
-      index + 1, j.jobId, j.inquiry.inquiryNo, formatDateDisplay(j.inquiry.date), owner.createdBy, owner.branch, j.vesselName,
+      index + 1, j.jobId, inquiry.inquiryNo, formatDateDisplay(inquiry.date), owner.createdBy, owner.branch, j.vesselName,
       vessel?.imoNumber || '-', vessel?.callSign || '-', vessel?.flag || '-', vessel?.vesselType || '-',
-      vessel?.grt ?? '-', vessel?.nrt ?? '-', vessel?.loa ?? '-', vessel?.beam ?? '-', j.inquiry.quantity ?? '-', j.inquiry.quantityUnit === 'MATRIX_TON' ? 'MT' : 'T', j.customerName,
-      j.portName, formatDateDisplay(j.eta, true), j.inquiry.etaRemarks || '-', formatDateDisplay(j.etd, true), j.inquiry.etdRemarks || '-', j.purposeOfCall.replace(/_/g, ' '),
-      j.inquiry.estimatedDays, j.inquiry.cargoDetails, j.inquiry.specialRequirements || '-', statusLabel[j.status] || j.status,
+      vessel?.grt ?? '-', vessel?.nrt ?? '-', vessel?.loa ?? '-', vessel?.beam ?? '-', inquiry.quantity ?? '-', inquiry.quantityUnit === 'MATRIX_TON' ? 'MT' : 'T', j.customerName,
+      j.portName, formatDateDisplay(j.eta, true), inquiry.etaRemarks || '-', formatDateDisplay(j.etd, true), inquiry.etdRemarks || '-', (j.purposeOfCall || '').replace(/_/g, ' ') || '-',
+      inquiry.estimatedDays, inquiry.cargoDetails, inquiry.specialRequirements || '-', statusLabel[j.status] || j.status,
       statusByLabel.KESIMPULAN || '-', statusByLabel.EPDA || '-', statusByLabel.PDA || '-', statusByLabel['Crew Change'] || '-',
       statusByLabel['Manager Approval'] || '-', statusByLabel['Operational Data'] || '-', statusByLabel['Actual Cost'] || '-',
       statusByLabel.FDA || '-', statusByLabel['Finance (AP / AR / Invoice)'] || '-', statusByLabel.Closing || '-',
@@ -196,6 +217,7 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,onSelec
     const statuses = getManagementStatus(selectedJob);
     const conclusion = statuses[statuses.length - 1];
     const inquiryOwner = resolveInquiryOwner(selectedJob);
+    const inquiry = safeInquiry(selectedJob);
     return <div className="vessel-calls-page">
       <section className="vessel-calls-hero">
         <div>
@@ -214,12 +236,12 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,onSelec
       <section className="vessel-inquiry-card">
         <div className="vessel-inquiry-head">
           <div><div className="eyebrow"><FileText size={14}/> INQUIRY DATA</div><h2>Vessel Call Inquiry</h2><p>Ringkasan inquiry yang menjadi dasar pembentukan Vessel Call ini.</p></div>
-          <span className={`inquiry-status ${selectedJob.inquiry.status.toLowerCase()}`}>{selectedJob.inquiry.status}</span>
+          <span className={`inquiry-status ${String(inquiry.status || 'received').toLowerCase()}`}>{inquiry.status}</span>
         </div>
         <div className="vessel-inquiry-grid">
-          <div><small>INQUIRY NO.</small><strong>{selectedJob.inquiry.inquiryNo}</strong></div>
-          <div><small>TANGGAL INQUIRY</small><strong>{formatDateDisplay(selectedJob.inquiry.date)}</strong></div>
-          <div><small>STATUS INQUIRY</small><strong>{selectedJob.inquiry.status}</strong></div>
+          <div><small>INQUIRY NO.</small><strong>{inquiry.inquiryNo}</strong></div>
+          <div><small>TANGGAL INQUIRY</small><strong>{formatDateDisplay(inquiry.date)}</strong></div>
+          <div><small>STATUS INQUIRY</small><strong>{inquiry.status}</strong></div>
           <div><small>DIBUAT OLEH</small><strong>{inquiryOwner.createdBy}</strong></div>
 
           <div><small>BRANCH</small><strong>{inquiryOwner.branch}</strong></div>
@@ -230,12 +252,12 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,onSelec
           <div><small>CUSTOMER / PRINCIPAL</small><strong>{selectedJob.customerName}</strong></div>
           <div><small>PELABUHAN TUJUAN</small><strong>{selectedJob.portName}</strong></div>
           <div><small>ETA</small><strong>{formatDateDisplay(selectedJob.eta, true)}</strong></div>
-          <div><small>KETERANGAN ETA</small><strong>{selectedJob.inquiry.etaRemarks || '-'}</strong></div>
+          <div><small>KETERANGAN ETA</small><strong>{inquiry.etaRemarks || '-'}</strong></div>
 
           <div><small>ETD</small><strong>{formatDateDisplay(selectedJob.etd, true)}</strong></div>
-          <div><small>KETERANGAN ETD</small><strong>{selectedJob.inquiry.etdRemarks || '-'}</strong></div>
-          <div><small>QUANTITY</small><strong>{selectedJob.inquiry.quantity ?? '-'} {selectedJob.inquiry.quantityUnit === 'MATRIX_TON' ? 'MT' : 'T'}</strong></div>
-          <div><small>ESTIMASI DURASI</small><strong>{selectedJob.inquiry.estimatedDays ?? 0} hari</strong></div>
+          <div><small>KETERANGAN ETD</small><strong>{inquiry.etdRemarks || '-'}</strong></div>
+          <div><small>QUANTITY</small><strong>{inquiry.quantity ?? '-'} {inquiry.quantityUnit === 'MATRIX_TON' ? 'MT' : 'T'}</strong></div>
+          <div><small>ESTIMASI DURASI</small><strong>{inquiry.estimatedDays ?? 0} hari</strong></div>
 
           <div><small>VESSEL TYPE</small><strong>{selectedVessel?.vesselType || '-'}</strong></div>
           <div><small>GRT / NRT / DWT</small><strong>{selectedVessel?.grt?.toLocaleString() || '-'} / {selectedVessel?.nrt?.toLocaleString() || '-'} / {selectedVessel?.dwt?.toLocaleString() || '-'}</strong></div>
@@ -247,9 +269,9 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,onSelec
           <div><small>BRANCH</small><strong>{inquiryOwner.branch}</strong></div>
           <div><small>STATUS VESSEL CALL</small><strong>{selectedJob.status}</strong></div>
 
-          <div className="wide"><small>TUJUAN KUNJUNGAN</small><strong>{selectedJob.purposeOfCall.replace(/_/g, ' ')}</strong></div>
-          <div className="wide"><small>CARGO / PURPOSE DETAILS</small><strong>{selectedJob.inquiry.cargoDetails || '-'}</strong></div>
-          <div className="wide"><small>SPECIAL REQUIREMENTS</small><strong>{selectedJob.inquiry.specialRequirements || 'Tidak ada catatan khusus.'}</strong></div>
+          <div className="wide"><small>TUJUAN KUNJUNGAN</small><strong>{(selectedJob.purposeOfCall || '').replace(/_/g, ' ') || '-'}</strong></div>
+          <div className="wide"><small>CARGO / PURPOSE DETAILS</small><strong>{inquiry.cargoDetails || '-'}</strong></div>
+          <div className="wide"><small>SPECIAL REQUIREMENTS</small><strong>{inquiry.specialRequirements || 'Tidak ada catatan khusus.'}</strong></div>
         </div>
       </section>
 

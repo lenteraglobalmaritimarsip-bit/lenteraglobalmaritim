@@ -20,7 +20,7 @@ import {
   INITIAL_EXPENSES_ITEMS,
   INITIAL_JOB_CALLS,
 } from './initialData';
-import { supabase } from '@/supabaseClient';
+import { supabase, isSupabaseConfigured } from '@/supabaseClient';
 
 export interface DatabaseState {
   users: User[];
@@ -37,6 +37,7 @@ export interface DatabaseState {
 }
 
 const REMOVED_JOB_CALL_IDS = new Set(['VC-2026-0098', 'VC-2026-0099', 'VC-2026-0095']);
+const LOCAL_DATABASE_KEY = 'lgm_database_state';
 
 const withoutRemovedJobCalls = (jobCalls: JobCall[]): JobCall[] =>
   jobCalls.filter((job) => !REMOVED_JOB_CALL_IDS.has(job.jobId));
@@ -143,7 +144,7 @@ class DatabaseService {
   private actor: { id?: string; name: string; role: UserRole; branch?: string } = { name: 'System', role: 'ADMIN' };
 
   constructor() {
-    this.state = this.getDefaultState();
+    this.state = this.loadLocalState();
   }
 
   private getDefaultState(): DatabaseState {
@@ -162,7 +163,38 @@ class DatabaseService {
     };
   }
 
+  private loadLocalState(): DatabaseState {
+    const defaults = this.getDefaultState();
+    if (typeof localStorage === 'undefined') return defaults;
+
+    try {
+      const stored = JSON.parse(localStorage.getItem(LOCAL_DATABASE_KEY) || 'null') as Partial<DatabaseState> | null;
+      if (!stored || typeof stored !== 'object') return defaults;
+      return {
+        ...defaults,
+        ...stored,
+        users: Array.isArray(stored.users) ? stored.users : defaults.users,
+        customers: Array.isArray(stored.customers) ? stored.customers : defaults.customers,
+        vessels: Array.isArray(stored.vessels) ? stored.vessels : defaults.vessels,
+        ports: Array.isArray(stored.ports) ? stored.ports : defaults.ports,
+        zones: Array.isArray(stored.zones) ? stored.zones : defaults.zones,
+        fixTariffs: Array.isArray(stored.fixTariffs) ? stored.fixTariffs : defaults.fixTariffs,
+        expensesItems: Array.isArray(stored.expensesItems) ? stored.expensesItems : defaults.expensesItems,
+        jobCalls: Array.isArray(stored.jobCalls) ? withoutRemovedJobCalls(stored.jobCalls) : defaults.jobCalls,
+        auditLogs: Array.isArray(stored.auditLogs) ? stored.auditLogs : defaults.auditLogs,
+      };
+    } catch {
+      return defaults;
+    }
+  }
+
   public async hydrate(): Promise<void> {
+    if (!isSupabaseConfigured || !supabase) {
+      this.state = this.loadLocalState();
+      this.notify();
+      return;
+    }
+
     const [users, customers, vessels, ports, zones, fixTariffs, expensesItems, jobCalls, auditLogs] = await Promise.all([
       this.loadTable<User>('app_users', INITIAL_USERS, (row) => ({
         ...row,
@@ -210,7 +242,6 @@ class DatabaseService {
         preferredVendor: row.preferred_vendor || row.preferredVendor,
       })),
       this.loadTable<JobCall>('vessel_calls', INITIAL_JOB_CALLS, (row) => ({
-        ...(this.state.jobCalls.find((job) => job.jobId === row.job_id) || INITIAL_JOB_CALLS.find((job) => job.jobId === row.job_id) || INITIAL_JOB_CALLS[0]),
         ...row,
         jobId: row.job_id || row.jobId,
         exchangeRateUSDToIDR: row.exchange_rate_usd_idr ?? row.exchangeRateUSDToIDR,
@@ -244,6 +275,10 @@ class DatabaseService {
   }
 
   private async loadTable<T>(table: string, seeds: T[], mapRow: (row: any) => T): Promise<T[]> {
+    if (!isSupabaseConfigured || !supabase) {
+      return seeds;
+    }
+
     const { data, error } = await supabase.from(table).select('*');
     if (error) throw error;
     if (data && data.length > 0) return data.map(mapRow);
@@ -303,6 +338,11 @@ class DatabaseService {
   }
 
   private async saveToSupabase(): Promise<void> {
+    if (!isSupabaseConfigured || !supabase) {
+      this.notify();
+      return;
+    }
+
     const results = await Promise.all([
       supabase.from('app_users').upsert(this.state.users.map((user) => ({ employee_code: user.id, name: user.name, email: user.email, username: user.username || user.email, password_hash: user.password || '', role: user.role, department: user.department, branch: user.branch, phone: user.phone, status: user.status })), { onConflict: 'employee_code' }),
       supabase.from('customers').upsert(this.state.customers.map((customer) => ({ code: customer.code, company_name: customer.companyName, country: customer.country, type: customer.type, contact_person: customer.contactPerson, email: customer.email, phone: customer.phone, address: customer.address, credit_term_days: customer.creditTermDays })), { onConflict: 'code' }),
@@ -345,6 +385,16 @@ class DatabaseService {
   }
 
   private async saveToStorage(): Promise<void> {
+    if (!isSupabaseConfigured || !supabase) {
+      try {
+        localStorage.setItem(LOCAL_DATABASE_KEY, JSON.stringify(this.state));
+      } catch (error) {
+        console.error('Failed to save local database:', error);
+      }
+      this.notify();
+      return;
+    }
+
     await this.saveToSupabase();
   }
 

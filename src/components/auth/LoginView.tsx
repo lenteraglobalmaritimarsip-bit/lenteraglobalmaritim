@@ -1,10 +1,16 @@
 import React, { useState } from 'react';
 import { ArrowRight, Eye, EyeOff, LockKeyhole, UserRound } from 'lucide-react';
-import { AuthAccount, getStoredAccounts } from '../../auth';
-import { supabase } from '@/supabaseClient';
+import { AuthAccount, authenticate } from '../../auth';
 
 interface LoginViewProps { onLogin: (account: AuthAccount, rememberMe?: boolean) => void; }
 
+const DEMO_LOGIN_PRESETS = [
+  { label: 'Admin', username: 'admin', password: 'admin123' },
+  { label: 'Sales', username: 'sales', password: 'sales123' },
+  { label: 'Manager', username: 'manager', password: 'manager123' },
+  { label: 'FDA', username: 'fda', password: 'fda123' },
+  { label: 'Finance', username: 'finance', password: 'finance123' },
+];
 
 export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
   const [username, setUsername] = useState('');
@@ -21,29 +27,19 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
     year: 'numeric',
   }).format(new Date());
 
-  const submit = async (e: React.FormEvent) => {
+  const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
-    const account = getStoredAccounts().find((item) => item.username === username.trim().toLowerCase() && item.status === 'ACTIVE');
-    if (!account) {
-      setError('Username atau password tidak valid.');
-      setLoading(false);
-      return;
-    }
-
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email: account.email,
-      password,
-    });
-    if (authError) {
-      setError('Username atau password tidak valid.');
-      setLoading(false);
-      return;
-    }
-
-    onLogin(account, rememberMe);
-    setLoading(false);
+    window.setTimeout(() => {
+      const account = authenticate(username, password);
+      if (!account) {
+        setError('Username atau password tidak valid.');
+        setLoading(false);
+        return;
+      }
+      onLogin(account, rememberMe);
+    }, 280);
   };
 
 
@@ -55,7 +51,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
       <header className="lgm-login-topbar">
         <div className="lgm-login-brand">
           <span className="lgm-login-logo">
-            <img src="./lgm-logo.png" alt="PT Lentera Global Maritim" />
+            <img src="/lenteraglobalmaritim/lgm-logo.png" alt="PT Lentera Global Maritim" />
           </span>
           <span className="lgm-login-brand-text">
             <b>SYSTEM MANAGEMENT AGENCY SHIPPING</b>
@@ -93,6 +89,24 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
               <h2>Login ke Portal</h2>
               <p>Silakan masuk menggunakan akun sesuai role pekerjaan Anda.</p>
             </div>
+            <span className="lgm-demo-mode">Mode Demo Lokal</span>
+          </div>
+
+          <div className="lgm-demo-quicklist" aria-label="Demo login presets">
+            {DEMO_LOGIN_PRESETS.map((preset) => (
+              <button
+                key={preset.username}
+                type="button"
+                className="lgm-demo-preset"
+                onClick={() => {
+                  setUsername(preset.username);
+                  setPassword(preset.password);
+                  setError('');
+                }}
+              >
+                {preset.label}
+              </button>
+            ))}
           </div>
 
           <form onSubmit={submit}>

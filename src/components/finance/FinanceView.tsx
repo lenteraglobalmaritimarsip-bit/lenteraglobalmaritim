@@ -506,7 +506,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       <div class="page">
         <div class="brand-row">
           <div class="brand-wrap">
-            <img class="logo" src="./lgm-logo.png" alt="LGM">
+            <img class="logo" src="/lenteraglobalmaritim/lgm-logo.png" alt="LGM">
             <div>
               <div class="brand">PT Lentera Global Maritim</div>
               <div class="tag">Seamless Agent, Global Reach</div>
