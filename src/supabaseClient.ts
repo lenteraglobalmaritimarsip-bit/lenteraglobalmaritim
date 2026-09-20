@@ -1,8 +1,13 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+// Menggunakan casting 'any' agar TypeScript mengizinkan kompilasi tanpa komplain tipe data env
+const _meta = (import.meta as any);
 
-// Membuat jembatan koneksi resmi ke database online Supabase Anda
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+const supabaseUrl = _meta.env?.VITE_SUPABASE_URL || '';
+const supabaseAnonKey = _meta.env?.VITE_SUPABASE_ANON_KEY || '';
 
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.warn('Peringatan: Variabel lingkungan Supabase belum terkonfigurasi di file .env');
+}
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);

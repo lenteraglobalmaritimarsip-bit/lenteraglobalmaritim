@@ -20,6 +20,7 @@ import {
   INITIAL_EXPENSES_ITEMS,
   INITIAL_JOB_CALLS,
 } from './initialData';
+import { supabase } from '@/supabaseClient';
 
 export interface DatabaseState {
   users: User[];
@@ -35,7 +36,6 @@ export interface DatabaseState {
   auditLogs: AuditLog[];
 }
 
-const STORAGE_KEY = 'maritimport_database_v2';
 const REMOVED_JOB_CALL_IDS = new Set(['VC-2026-0098', 'VC-2026-0099', 'VC-2026-0095']);
 
 const withoutRemovedJobCalls = (jobCalls: JobCall[]): JobCall[] =>
@@ -85,23 +85,7 @@ export const normalizeBranchCode = (branch?: string): string => {
 };
 
 export const getCurrentBranchName = (): string => {
-  try {
-    const raw = localStorage.getItem('lgm_active_user');
-    if (!raw) return 'Head Office';
-    const parsed = JSON.parse(raw) as { id?: string; username?: string; name?: string; branch?: string };
-
-    const users = db.getState().users;
-    const matched = users.find((user) =>
-      (parsed.id && user.id === parsed.id) ||
-      (parsed.username && user.username === parsed.username) ||
-      (parsed.name && user.name.trim().toLowerCase() === parsed.name.trim().toLowerCase())
-    );
-
-    if (matched?.branch?.trim()) return matched.branch.trim();
-    return parsed?.branch || 'Head Office';
-  } catch {
-    return 'Head Office';
-  }
+  return db.getActorBranch();
 };
 
 export const getCurrentBranchCode = (): string => {
@@ -159,7 +143,7 @@ class DatabaseService {
   private actor: { id?: string; name: string; role: UserRole; branch?: string } = { name: 'System', role: 'ADMIN' };
 
   constructor() {
-    this.state = this.loadFromStorage();
+    this.state = this.getDefaultState();
   }
 
   private getDefaultState(): DatabaseState {
@@ -178,31 +162,120 @@ class DatabaseService {
     };
   }
 
-  private loadFromStorage(): DatabaseState {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return this.getDefaultState();
+  public async hydrate(): Promise<void> {
+    const [users, customers, vessels, ports, zones, fixTariffs, expensesItems, jobCalls, auditLogs] = await Promise.all([
+      this.loadTable<User>('app_users', INITIAL_USERS, (row) => ({
+        ...row,
+        id: row.employee_code || row.id,
+      })),
+      this.loadTable<Customer>('customers', INITIAL_CUSTOMERS, (row) => ({
+        ...row,
+        companyName: row.company_name || row.companyName,
+        creditTermDays: row.credit_term_days ?? row.creditTermDays,
+      })),
+      this.loadTable<Vessel>('vessels', INITIAL_VESSELS, (row) => ({
+        ...row,
+        imoNumber: row.imo_number || row.imoNumber,
+        callSign: row.call_sign || row.callSign,
+        vesselType: row.vessel_type || row.vesselType,
+        yearBuilt: row.year_built ?? row.yearBuilt,
+      })),
+      this.loadTable<Port>('ports', INITIAL_PORTS, (row) => ({
+        ...row,
+        unlocode: row.unlocode,
+        channelDepthMeters: row.channel_depth_m ?? row.channelDepthMeters,
+        tideRestriction: row.tide_restriction || row.tideRestriction,
+        operatingHours: row.operating_hours || row.operatingHours,
+      })),
+      this.loadTable<Zone>('zones', INITIAL_ZONES, (row) => ({
+        ...row,
+        zoneCode: row.zone_code || row.zoneCode,
+        zoneName: row.zone_name || row.zoneName,
+        type: row.zone_type || row.type,
+        maxDraftMeters: row.max_draft_m ?? row.maxDraftMeters,
+      })),
+      this.loadTable<FixTariff>('fix_tariffs', INITIAL_FIX_TARIFFS, (row) => ({
+        ...row,
+        serviceCode: row.service_code || row.serviceCode,
+        serviceName: row.service_name || row.serviceName,
+        calculationBasis: row.calculation_basis || row.calculationBasis,
+        minCharge: row.min_charge ?? row.minCharge,
+      })),
+      this.loadTable<ExpensesItem>('expense_items', INITIAL_EXPENSES_ITEMS, (row) => ({
+        ...row,
+        defaultCurrency: row.default_currency || row.defaultCurrency,
+        standardCostBuy: row.standard_cost_buy ?? row.standardCostBuy,
+        standardCostSell: row.standard_cost_sell ?? row.standardCostSell,
+        preferredVendor: row.preferred_vendor || row.preferredVendor,
+      })),
+      this.loadTable<JobCall>('vessel_calls', INITIAL_JOB_CALLS, (row) => ({
+        ...row,
+        exchangeRateUSDToIDR: row.exchange_rate_usd_idr ?? row.exchangeRateUSDToIDR,
+        currentStage: row.current_stage || row.currentStage,
+        createdAt: row.created_at || row.createdAt,
+        updatedAt: row.updated_at || row.updatedAt,
+      })),
+      this.loadTable<AuditLog>('audit_logs', [], (row) => ({
+        ...row,
+        timestamp: row.created_at || row.timestamp,
+        actorId: row.user_id || row.actorId,
+        entity: row.entity_type || row.entity,
+        entityId: row.entity_id || row.entityId,
+      })),
+    ]);
 
-      const parsed = JSON.parse(raw) as DatabaseState;
-      const state: DatabaseState = {
-        ...this.getDefaultState(),
-        ...parsed,
-        users: Array.isArray(parsed.users) ? parsed.users : INITIAL_USERS,
-        customers: Array.isArray(parsed.customers) ? parsed.customers : INITIAL_CUSTOMERS,
-        vessels: Array.isArray(parsed.vessels) ? parsed.vessels : INITIAL_VESSELS,
-        ports: Array.isArray(parsed.ports) ? parsed.ports : INITIAL_PORTS,
-        zones: Array.isArray(parsed.zones) ? parsed.zones : INITIAL_ZONES,
-        fixTariffs: Array.isArray(parsed.fixTariffs) ? parsed.fixTariffs : INITIAL_FIX_TARIFFS,
-        expensesItems: Array.isArray(parsed.expensesItems) ? parsed.expensesItems : INITIAL_EXPENSES_ITEMS,
-        jobCalls: Array.isArray(parsed.jobCalls)
-          ? withoutRemovedJobCalls(parsed.jobCalls).map(syncActualFDAInvoice)
-          : [],
-        auditLogs: Array.isArray(parsed.auditLogs) ? parsed.auditLogs : [],
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      return state;
-    } catch {
-      return this.getDefaultState();
+    this.state = {
+      ...this.state,
+      users,
+      customers,
+      vessels,
+      ports,
+      zones,
+      fixTariffs,
+      expensesItems,
+      jobCalls: withoutRemovedJobCalls(jobCalls).map(syncActualFDAInvoice),
+      auditLogs,
+      selectedJobId: jobCalls[0]?.jobId || this.state.selectedJobId,
+    };
+    this.notify();
+  }
+
+  private async loadTable<T>(table: string, seeds: T[], mapRow: (row: any) => T): Promise<T[]> {
+    const { data, error } = await supabase.from(table).select('*');
+    if (error) throw error;
+    if (data && data.length > 0) return data.map(mapRow);
+
+    if (!seeds.length) return [];
+    const { data: inserted, error: insertError } = await supabase
+      .from(table)
+      .insert(seeds.map((seed) => this.toSupabaseRow(table, seed)))
+      .select('*');
+    if (insertError) throw insertError;
+    return (inserted || seeds).map(mapRow);
+  }
+
+  private toSupabaseRow(table: string, value: any): Record<string, unknown> {
+    switch (table) {
+      case 'app_users':
+        return { employee_code: value.id, name: value.name, email: value.email, username: value.username || value.email, password_hash: value.password || '', role: value.role, department: value.department, phone: value.phone, status: value.status || 'ACTIVE' };
+      case 'customers':
+        return { code: value.code, company_name: value.companyName, country: value.country, type: value.type, contact_person: value.contactPerson, email: value.email, phone: value.phone, address: value.address, credit_term_days: value.creditTermDays };
+      case 'vessels':
+        return { name: value.name, imo_number: value.imoNumber || null, call_sign: value.callSign, flag: value.flag, vessel_type: value.vesselType, grt: value.grt, nrt: value.nrt, dwt: value.dwt, loa: value.loa, beam: value.beam, year_built: value.yearBuilt };
+      case 'ports':
+        return { code: value.code, name: value.name, country: value.country, unlocode: value.unlocode, channel_depth_m: value.channelDepthMeters, tide_restriction: value.tideRestriction, operating_hours: value.operatingHours };
+      case 'zones':
+        return { zone_code: value.zoneCode, zone_name: value.zoneName, zone_type: value.type, max_draft_m: value.maxDraftMeters, description: value.description };
+      case 'fix_tariffs':
+        return { service_code: value.serviceCode, service_name: value.serviceName, calculation_basis: value.calculationBasis, currency: value.currency, rate: value.rate, min_charge: value.minCharge, description: value.description };
+      case 'expense_items':
+        return { code: value.code, category: value.category, name: value.name, unit: value.unit, default_currency: value.defaultCurrency, standard_cost_buy: value.standardCostBuy, standard_cost_sell: value.standardCostSell, preferred_vendor: value.preferredVendor };
+      case 'vessel_calls':
+        return { job_id: value.jobId, eta: value.eta, etd: value.etd, purpose_of_call: value.purposeOfCall, currency: value.currency, exchange_rate_usd_idr: value.exchangeRateUSDToIDR, current_stage: value.currentStage, status: value.status };
+      case 'audit_logs':
+        return { action: value.action, entity_type: value.entity, entity_id: value.entityId, metadata: { description: value.description, actor_name: value.actorName, role: value.role }, created_at: value.timestamp };
+      default:
+        return value;
     }
   }
 
@@ -222,13 +295,26 @@ class DatabaseService {
     this.actor = actor;
   }
 
-  private saveToStorage(): void {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
-    } catch {
-      // Ignore storage quota issues in the local demo workflow.
-    }
+  public getActorBranch(): string {
+    return this.actor.branch?.trim() || 'Head Office';
+  }
+
+  private async saveToSupabase(): Promise<void> {
+    await Promise.all([
+      supabase.from('app_users').upsert(this.state.users.map(({ id, ...user }) => ({ ...user, employee_code: id, password_hash: user.password || '' })), { onConflict: 'employee_code' }),
+      supabase.from('customers').upsert(this.state.customers.map(({ id, ...customer }) => ({ ...customer, company_name: customer.companyName, credit_term_days: customer.creditTermDays })), { onConflict: 'code' }),
+      supabase.from('vessels').upsert(this.state.vessels.map(({ id, ...vessel }) => ({ ...vessel, imo_number: vessel.imoNumber, call_sign: vessel.callSign, vessel_type: vessel.vesselType, year_built: vessel.yearBuilt })), { onConflict: 'imo_number' }),
+      supabase.from('ports').upsert(this.state.ports.map(({ id, ...port }) => ({ ...port, channel_depth_m: port.channelDepthMeters, tide_restriction: port.tideRestriction, operating_hours: port.operatingHours })), { onConflict: 'code' }),
+      supabase.from('zones').upsert(this.state.zones.map(({ id, ...zone }) => ({ ...zone, zone_code: zone.zoneCode, zone_name: zone.zoneName, zone_type: zone.type, max_draft_m: zone.maxDraftMeters })), { onConflict: 'zone_code' }),
+      supabase.from('fix_tariffs').upsert(this.state.fixTariffs.map(({ id, ...tariff }) => ({ ...tariff, service_code: tariff.serviceCode, service_name: tariff.serviceName, calculation_basis: tariff.calculationBasis, min_charge: tariff.minCharge })), { onConflict: 'service_code' }),
+      supabase.from('expense_items').upsert(this.state.expensesItems.map(({ id, ...item }) => ({ ...item, default_currency: item.defaultCurrency, standard_cost_buy: item.standardCostBuy, standard_cost_sell: item.standardCostSell, preferred_vendor: item.preferredVendor })), { onConflict: 'code' }),
+      supabase.from('vessel_calls').upsert(this.state.jobCalls.map(({ jobId, ...job }) => ({ ...job, job_id: jobId, exchange_rate_usd_idr: job.exchangeRateUSDToIDR, current_stage: job.currentStage })), { onConflict: 'job_id' }),
+    ]);
     this.notify();
+  }
+
+  private async saveToStorage(): Promise<void> {
+    await this.saveToSupabase();
   }
 
   public subscribe(listener: (state: DatabaseState) => void): () => void {
@@ -248,14 +334,10 @@ class DatabaseService {
     });
   }
 
-  public resetToInitial(): void {
+  public async resetToInitial(): Promise<void> {
     const fresh = this.getDefaultState();
     this.state = fresh;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(fresh));
-    } catch {
-      // Ignore storage quota issues in the local demo workflow.
-    }
+    await this.saveToSupabase();
     this.notify();
   }
 
@@ -263,14 +345,14 @@ class DatabaseService {
     return this.state;
   }
 
-  public setRole(role: UserRole): void {
+  public async setRole(role: UserRole): Promise<void> {
     this.state.currentRole = role;
-    this.saveToStorage();
+    await this.saveToSupabase();
   }
 
-  public setSelectedJobId(jobId: string): void {
+  public async setSelectedJobId(jobId: string): Promise<void> {
     this.state.selectedJobId = jobId;
-    this.saveToStorage();
+    await this.saveToSupabase();
   }
 
   public resetToSeeds(): void {

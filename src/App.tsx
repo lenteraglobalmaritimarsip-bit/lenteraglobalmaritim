@@ -193,6 +193,7 @@ export default function App() {
   // Subscribe to reactive database changes
   useEffect(() => {
     if (currentUser) db.setActor({ id: currentUser.id, name: currentUser.name, role: currentUser.role, branch: currentUser.branch });
+    void db.hydrate().catch((error) => console.error('Supabase hydrate failed:', error));
     const unsubscribe = db.subscribe((newState) => {
       setData({ ...newState });
     });
