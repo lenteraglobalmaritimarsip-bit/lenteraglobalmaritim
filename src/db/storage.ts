@@ -167,6 +167,7 @@ class DatabaseService {
       this.loadTable<User>('app_users', INITIAL_USERS, (row) => ({
         ...row,
         id: row.employee_code || row.id,
+        branch: row.branch || row.branch_name || 'Head Office',
       })),
       this.loadTable<Customer>('customers', INITIAL_CUSTOMERS, (row) => ({
         ...row,
@@ -302,7 +303,7 @@ class DatabaseService {
 
   private async saveToSupabase(): Promise<void> {
     const results = await Promise.all([
-      supabase.from('app_users').upsert(this.state.users.map((user) => ({ employee_code: user.id, name: user.name, email: user.email, username: user.username || user.email, password_hash: user.password || '', role: user.role, department: user.department, phone: user.phone, status: user.status })), { onConflict: 'employee_code' }),
+      supabase.from('app_users').upsert(this.state.users.map((user) => ({ employee_code: user.id, name: user.name, email: user.email, username: user.username || user.email, password_hash: user.password || '', role: user.role, department: user.department, branch: user.branch, phone: user.phone, status: user.status })), { onConflict: 'employee_code' }),
       supabase.from('customers').upsert(this.state.customers.map((customer) => ({ code: customer.code, company_name: customer.companyName, country: customer.country, type: customer.type, contact_person: customer.contactPerson, email: customer.email, phone: customer.phone, address: customer.address, credit_term_days: customer.creditTermDays })), { onConflict: 'code' }),
       supabase.from('vessels').upsert(this.state.vessels.map((vessel) => ({ name: vessel.name, imo_number: vessel.imoNumber || null, call_sign: vessel.callSign, flag: vessel.flag, vessel_type: vessel.vesselType, grt: vessel.grt, nrt: vessel.nrt, dwt: vessel.dwt, loa: vessel.loa, beam: vessel.beam, year_built: vessel.yearBuilt })), { onConflict: 'imo_number' }),
       supabase.from('ports').upsert(this.state.ports.map((port) => ({ code: port.code, name: port.name, country: port.country, unlocode: port.unlocode, channel_depth_m: port.channelDepthMeters, tide_restriction: port.tideRestriction, operating_hours: port.operatingHours })), { onConflict: 'code' }),
