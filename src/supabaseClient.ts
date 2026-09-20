@@ -10,4 +10,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.warn('Peringatan: Variabel lingkungan Supabase belum terkonfigurasi di file .env');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseAnonKey || 'placeholder-anon-key',
+);
