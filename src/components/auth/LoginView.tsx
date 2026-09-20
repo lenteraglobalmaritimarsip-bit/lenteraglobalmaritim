@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowRight, Eye, EyeOff, LockKeyhole, UserRound } from 'lucide-react';
-import { AuthAccount, authenticate } from '../../auth';
+import { AuthAccount, getStoredAccounts } from '../../auth';
+import { supabase } from '@/supabaseClient';
 
 interface LoginViewProps { onLogin: (account: AuthAccount, rememberMe?: boolean) => void; }
 
@@ -20,19 +21,29 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
     year: 'numeric',
   }).format(new Date());
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
-    window.setTimeout(() => {
-      const account = authenticate(username, password);
-      if (!account) {
-        setError('Username atau password tidak valid.');
-        setLoading(false);
-        return;
-      }
-      onLogin(account, rememberMe);
-    }, 280);
+    const account = getStoredAccounts().find((item) => item.username === username.trim().toLowerCase() && item.status === 'ACTIVE');
+    if (!account) {
+      setError('Username atau password tidak valid.');
+      setLoading(false);
+      return;
+    }
+
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: account.email,
+      password,
+    });
+    if (authError) {
+      setError('Username atau password tidak valid.');
+      setLoading(false);
+      return;
+    }
+
+    onLogin(account, rememberMe);
+    setLoading(false);
   };
 
 

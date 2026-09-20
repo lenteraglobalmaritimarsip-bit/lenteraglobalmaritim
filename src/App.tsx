@@ -17,6 +17,7 @@ import { FDAView } from './components/fda/FDAView';
 import { FinanceView } from './components/finance/FinanceView';
 import { AuthAccount, DEMO_ACCOUNTS, getStoredAccounts, saveStoredAccount } from './auth';
 import { LoginView } from './components/auth/LoginView';
+import { supabase } from './supabaseClient';
 
 const syncCurrentUserFromMaster = (account: AuthAccount | null): AuthAccount | null => {
   if (!account) return null;
@@ -183,8 +184,9 @@ export default function App() {
     window.alert('Password berhasil diperbarui.');
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     const userId = currentUser?.id;
+    await supabase.auth.signOut();
     setCurrentUser(null);
     setLoginToast(null);
     clearStoredAuthSession(userId);
