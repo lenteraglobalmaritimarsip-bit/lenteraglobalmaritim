@@ -300,16 +300,18 @@ class DatabaseService {
   }
 
   private async saveToSupabase(): Promise<void> {
-    await Promise.all([
-      supabase.from('app_users').upsert(this.state.users.map(({ id, ...user }) => ({ ...user, employee_code: id, password_hash: user.password || '' })), { onConflict: 'employee_code' }),
-      supabase.from('customers').upsert(this.state.customers.map(({ id, ...customer }) => ({ ...customer, company_name: customer.companyName, credit_term_days: customer.creditTermDays })), { onConflict: 'code' }),
-      supabase.from('vessels').upsert(this.state.vessels.map(({ id, ...vessel }) => ({ ...vessel, imo_number: vessel.imoNumber, call_sign: vessel.callSign, vessel_type: vessel.vesselType, year_built: vessel.yearBuilt })), { onConflict: 'imo_number' }),
-      supabase.from('ports').upsert(this.state.ports.map(({ id, ...port }) => ({ ...port, channel_depth_m: port.channelDepthMeters, tide_restriction: port.tideRestriction, operating_hours: port.operatingHours })), { onConflict: 'code' }),
-      supabase.from('zones').upsert(this.state.zones.map(({ id, ...zone }) => ({ ...zone, zone_code: zone.zoneCode, zone_name: zone.zoneName, zone_type: zone.type, max_draft_m: zone.maxDraftMeters })), { onConflict: 'zone_code' }),
-      supabase.from('fix_tariffs').upsert(this.state.fixTariffs.map(({ id, ...tariff }) => ({ ...tariff, service_code: tariff.serviceCode, service_name: tariff.serviceName, calculation_basis: tariff.calculationBasis, min_charge: tariff.minCharge })), { onConflict: 'service_code' }),
-      supabase.from('expense_items').upsert(this.state.expensesItems.map(({ id, ...item }) => ({ ...item, default_currency: item.defaultCurrency, standard_cost_buy: item.standardCostBuy, standard_cost_sell: item.standardCostSell, preferred_vendor: item.preferredVendor })), { onConflict: 'code' }),
-      supabase.from('vessel_calls').upsert(this.state.jobCalls.map(({ jobId, ...job }) => ({ ...job, job_id: jobId, exchange_rate_usd_idr: job.exchangeRateUSDToIDR, current_stage: job.currentStage })), { onConflict: 'job_id' }),
+    const results = await Promise.all([
+      supabase.from('app_users').upsert(this.state.users.map((user) => ({ employee_code: user.id, name: user.name, email: user.email, username: user.username || user.email, password_hash: user.password || '', role: user.role, department: user.department, phone: user.phone, status: user.status })), { onConflict: 'employee_code' }),
+      supabase.from('customers').upsert(this.state.customers.map((customer) => ({ code: customer.code, company_name: customer.companyName, country: customer.country, type: customer.type, contact_person: customer.contactPerson, email: customer.email, phone: customer.phone, address: customer.address, credit_term_days: customer.creditTermDays })), { onConflict: 'code' }),
+      supabase.from('vessels').upsert(this.state.vessels.map((vessel) => ({ name: vessel.name, imo_number: vessel.imoNumber || null, call_sign: vessel.callSign, flag: vessel.flag, vessel_type: vessel.vesselType, grt: vessel.grt, nrt: vessel.nrt, dwt: vessel.dwt, loa: vessel.loa, beam: vessel.beam, year_built: vessel.yearBuilt })), { onConflict: 'imo_number' }),
+      supabase.from('ports').upsert(this.state.ports.map((port) => ({ code: port.code, name: port.name, country: port.country, unlocode: port.unlocode, channel_depth_m: port.channelDepthMeters, tide_restriction: port.tideRestriction, operating_hours: port.operatingHours })), { onConflict: 'code' }),
+      supabase.from('zones').upsert(this.state.zones.map((zone) => ({ zone_code: zone.zoneCode, zone_name: zone.zoneName, zone_type: zone.type, max_draft_m: zone.maxDraftMeters, description: zone.description })), { onConflict: 'zone_code' }),
+      supabase.from('fix_tariffs').upsert(this.state.fixTariffs.map((tariff) => ({ service_code: tariff.serviceCode, service_name: tariff.serviceName, calculation_basis: tariff.calculationBasis, currency: tariff.currency, rate: tariff.rate, min_charge: tariff.minCharge, description: tariff.description })), { onConflict: 'service_code' }),
+      supabase.from('expense_items').upsert(this.state.expensesItems.map((item) => ({ code: item.code, category: item.category, name: item.name, unit: item.unit, default_currency: item.defaultCurrency, standard_cost_buy: item.standardCostBuy, standard_cost_sell: item.standardCostSell, preferred_vendor: item.preferredVendor })), { onConflict: 'code' }),
+      supabase.from('vessel_calls').upsert(this.state.jobCalls.map((job) => ({ job_id: job.jobId, eta: job.eta, etd: job.etd, purpose_of_call: job.purposeOfCall, currency: job.currency, exchange_rate_usd_idr: job.exchangeRateUSDToIDR, current_stage: job.currentStage, status: job.status })), { onConflict: 'job_id' }),
     ]);
+    const failed = results.find((result) => result.error);
+    if (failed?.error) throw failed.error;
     this.notify();
   }
 
