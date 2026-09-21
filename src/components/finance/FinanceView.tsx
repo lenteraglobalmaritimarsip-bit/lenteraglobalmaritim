@@ -201,7 +201,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     0
   );
   const totalReceived_IDR = totalAdvancePayment_IDR + totalInvoiceReceived_IDR;
-  const totalIncomingBill_IDR = totalPrincipalBilled_IDR;
+  const totalIncomingBill_IDR = approvedFDAJobs.reduce((sum, job) => sum + getJobPrincipalReceived(job), 0);
   const totalOutstanding_IDR = approvedFDAJobs.reduce(
     (sum, job) => sum + (isClosedJob(job)
       ? 0
@@ -814,63 +814,28 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
           {/* KPI Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg">
-              <span className="text-xs uppercase font-bold text-slate-400 block">
-                TOTAL TAGIHAN PRINCIPAL
-              </span>
-              <span className="text-xl font-black text-cyan-300 font-mono mt-1 block">
-                {formatIDR(totalPrincipalBilled_IDR)}
-              </span>
-              <span className="text-[11px] text-emerald-400">
-                Sudah Diterima: {formatIDR(totalReceived_IDR)}
-              </span>
+              <span className="text-xs uppercase font-bold text-slate-400 block">TOTAL TAGIHAN PRINCIPAL</span>
+              <span className="text-xl font-black text-cyan-300 font-mono mt-1 block">{formatIDR(totalPrincipalBilled_IDR)}</span>
             </div>
-
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg">
-              <span className="text-xs uppercase font-bold text-slate-400 block">
-                TOTAL TAGIHAN MASUK
-              </span>
-              <span className="text-xl font-black text-slate-200 font-mono mt-1 block">
-                {formatIDR(totalIncomingBill_IDR)}
-              </span>
-              <span className="text-[11px] text-slate-400">
-                Total Diterima (Received)
-              </span>
+              <span className="text-xs uppercase font-bold text-slate-400 block">TOTAL TAGIHAN MASUK</span>
+              <span className="text-xl font-black text-slate-200 font-mono mt-1 block">{formatIDR(totalIncomingBill_IDR)}</span>
+              <span className="text-[11px] text-slate-400">Total Diterima (Received)</span>
             </div>
-
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg">
-              <span className="text-xs uppercase font-bold text-slate-400 block">
-                TOTAL SISA TAGIHAN
-              </span>
-              <span className="text-xl font-black text-emerald-400 font-mono mt-1 block">
-                {formatIDR(totalOutstanding_IDR)}
-              </span>
-              <span className="text-[11px] text-emerald-400 font-semibold">
-                AR Sisa Saldo Belum Bayar
-              </span>
+              <span className="text-xs uppercase font-bold text-slate-400 block">TOTAL SISA TAGIHAN</span>
+              <span className="text-xl font-black text-emerald-400 font-mono mt-1 block">{formatIDR(totalOutstanding_IDR)}</span>
+              <span className="text-[11px] text-emerald-400 font-semibold">AR Sisa Saldo Belum Bayar</span>
             </div>
-
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg">
-              <span className="text-xs uppercase font-bold text-slate-400 block">
-                TOTAL ADVANCE PAYMENT
-              </span>
-              <span className="text-xl font-black text-amber-400 font-mono mt-1 block">
-                {formatIDR(totalAdvancePayment_IDR)}
-              </span>
-              <span className="text-[11px] text-slate-400">
-                Kumulatif Advance Payment dari AR
-              </span>
+              <span className="text-xs uppercase font-bold text-slate-400 block">TOTAL ADVANCE PAYMENT</span>
+              <span className="text-xl font-black text-amber-400 font-mono mt-1 block">{formatIDR(totalAdvancePayment_IDR)}</span>
+              <span className="text-[11px] text-slate-400">Kumulatif Advance Payment dari AR</span>
             </div>
-
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg">
-              <span className="text-xs uppercase font-bold text-slate-400 block">
-                JUMLAH JOB ID PENDING
-              </span>
-              <span className="text-xl font-black text-amber-400 font-mono mt-1 block">
-                {pendingJobCount}
-              </span>
-              <span className="text-[11px] text-slate-400">
-                Job FDA approved dengan sisa tagihan
-              </span>
+              <span className="text-xs uppercase font-bold text-slate-400 block">JUMLAH JOB ID PENDING</span>
+              <span className="text-xl font-black text-amber-400 font-mono mt-1 block">{pendingJobCount}</span>
+              <span className="text-[11px] text-slate-400">Job FDA approved dengan sisa tagihan</span>
             </div>
           </div>
 
@@ -886,6 +851,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   <tr>
                     <th className="p-3">No</th>
                     <th className="p-3">JOB ID</th>
+                    <th className="p-3">Branch</th>
                     <th className="p-3">NO FDA</th>
                     <th className="p-3">Vessel & Principal</th>
                     <th className="p-3 text-right">Total Tagihan (IDR)</th>
@@ -927,6 +893,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                       <tr key={j.jobId} className="hover:bg-slate-800/40">
                         <td className="p-3 text-slate-400">{index + 1}</td>
                         <td className="p-3 font-mono font-bold text-cyan-400">{j.jobId}</td>
+                        <td className="p-3 text-slate-300">{j.inquiry?.createdByBranch || 'Head Office'}</td>
                         <td className="p-3 font-mono text-slate-300">{j.fda?.fdaNo || '-'}</td>
                         <td className="p-3">
                           <span className="font-bold text-white block">{j.vesselName}</span>

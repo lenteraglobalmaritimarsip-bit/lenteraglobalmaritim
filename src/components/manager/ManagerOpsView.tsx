@@ -72,7 +72,6 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
   const totalReceivedIDR = approvedFDAJobs.reduce((sum, job) => {
     const rate = job.exchangeRateUSDToIDR || 15800;
     return sum + (job.principalReceipts || []).reduce((receiptSum, receipt) => {
-      if (receipt.paymentType === 'ADVANCE_PAYMENT' && isClosedJob(job)) return receiptSum;
       const receiptCurrency = receipt.currency || job.currency || 'IDR';
       return receiptSum + (receiptCurrency === 'USD' ? receipt.amount * rate : receipt.amount);
     }, 0);
@@ -170,15 +169,31 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
         <div className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
             {summaryCards.map((card) => (
-              <div key={card.label} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg">
-                <div className="flex items-center justify-between text-slate-400">
-                  <span className="text-[10px] uppercase font-bold tracking-wider">{card.label}</span>
-                  <div className={`h-2.5 w-2.5 rounded-full ${card.tone === 'cyan' ? 'bg-cyan-400' : card.tone === 'amber' ? 'bg-amber-400' : card.tone === 'emerald' ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+              <div
+                key={card.label}
+                style={{
+                  background: card.tone === 'cyan'
+                    ? 'linear-gradient(135deg,#0e9bb5,#128da5)'
+                    : card.tone === 'amber'
+                    ? 'linear-gradient(135deg,#f59e0b,#ee8c00)'
+                    : card.tone === 'emerald'
+                    ? 'linear-gradient(135deg,#11866f,#0f7a67)'
+                    : 'linear-gradient(135deg,#e85d75,#d94662)',
+                  borderRadius: 13,
+                  padding: '15px 16px',
+                  color: '#fff',
+                  minHeight: 128,
+                  position: 'relative',
+                  overflow: 'hidden',
+                  boxShadow: '0 8px 16px rgba(26,78,140,.12)',
+                }}
+              >
+                <div style={{ position: 'absolute', right: -24, top: -22, width: 110, height: 110, border: '1px solid rgba(255,255,255,.18)', borderRadius: '50%' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 10, opacity: .78, fontWeight: 850, letterSpacing: '.05em' }}>{card.detail}</span>
+                  <span style={{ background: '#fff', color: card.tone === 'amber' ? '#d67b00' : '#1670bd', borderRadius: 999, padding: '4px 9px', fontSize: 9, fontWeight: 850 }}>{card.label}</span>
                 </div>
-                <div className="mt-3">
-                  <span className="text-xl font-black font-mono text-white block">{card.value}</span>
-                  <span className="text-[11px] text-slate-400 block mt-1">{card.detail}</span>
-                </div>
+                <div style={{ fontSize: 28, fontWeight: 900, marginTop: 11, lineHeight: 1 }}>{card.value}</div>
               </div>
             ))}
           </div>
@@ -233,6 +248,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                   <tr>
                     <th className="p-3">Job ID</th>
                     <th className="p-3">Vessel</th>
+                    <th className="p-3">Branch</th>
                     <th className="p-3">Pelabuhan / Dermaga</th>
                     <th className="p-3">ETA - ETD</th>
                     <th className="p-3">Tahap Berjalan</th>
@@ -247,6 +263,9 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                       <td className="p-3">
                         <span className="font-bold text-white block">{j.vesselName}</span>
                         <span className="text-[11px] text-slate-400">{j.customerName}</span>
+                      </td>
+                      <td className="p-3 text-slate-300">
+                        {resolveCreatedByMeta(j).branch}
                       </td>
                       <td className="p-3">
                         <span className="text-slate-200 block">{j.portName}</span>

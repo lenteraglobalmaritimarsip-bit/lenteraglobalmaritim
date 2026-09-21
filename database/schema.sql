@@ -356,3 +356,36 @@ CREATE INDEX IF NOT EXISTS idx_ar_job ON ar_items(job_id);
 CREATE INDEX IF NOT EXISTS idx_principal_receipts_job ON principal_receipts(job_id);
 CREATE INDEX IF NOT EXISTS idx_statement_of_facts_job ON statement_of_facts(job_id, event_time);
 CREATE INDEX IF NOT EXISTS idx_audit_user_created ON audit_logs(user_id, created_at DESC);
+
+-- Application field alignment for the current React data model.
+-- These statements are idempotent and can be run in an existing Supabase project.
+ALTER TABLE vessel_calls
+  ADD COLUMN IF NOT EXISTS vessel_name VARCHAR(180),
+  ADD COLUMN IF NOT EXISTS port_name VARCHAR(150),
+  ADD COLUMN IF NOT EXISTS customer_name VARCHAR(180),
+  ADD COLUMN IF NOT EXISTS ata TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS atb TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS atd TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS pilot_on_board_time TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS pilot_off_time TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS berth_zone_name VARCHAR(120),
+  ADD COLUMN IF NOT EXISTS cargo_quantity_metric_tons NUMERIC(14,3),
+  ADD COLUMN IF NOT EXISTS cargo_commodity VARCHAR(180),
+  ADD COLUMN IF NOT EXISTS harbor_master_clearance_no VARCHAR(80);
+
+ALTER TABLE inquiries
+  ADD COLUMN IF NOT EXISTS eta_remarks TEXT,
+  ADD COLUMN IF NOT EXISTS etd_remarks TEXT,
+  ADD COLUMN IF NOT EXISTS created_by_user_id UUID REFERENCES app_users(id);
+
+ALTER TABLE fda_records
+  ADD COLUMN IF NOT EXISTS currency VARCHAR(3) CHECK (currency IN ('USD','IDR'));
+
+ALTER TABLE principal_invoices
+  ADD COLUMN IF NOT EXISTS pdf_data_url TEXT;
+
+ALTER TABLE app_users
+  ADD COLUMN IF NOT EXISTS branch_code VARCHAR(20);
+
+CREATE INDEX IF NOT EXISTS idx_inquiries_created_by_branch ON inquiries(created_by_branch);
+CREATE INDEX IF NOT EXISTS idx_vessel_calls_created_by ON vessel_calls(created_by);
