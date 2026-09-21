@@ -376,6 +376,8 @@ ALTER TABLE vessel_calls
 ALTER TABLE inquiries
   ADD COLUMN IF NOT EXISTS eta_remarks TEXT,
   ADD COLUMN IF NOT EXISTS etd_remarks TEXT,
+  ADD COLUMN IF NOT EXISTS created_by_branch VARCHAR(60),
+  ADD COLUMN IF NOT EXISTS created_by_branch_code VARCHAR(20),
   ADD COLUMN IF NOT EXISTS created_by_user_id UUID REFERENCES app_users(id);
 
 ALTER TABLE fda_records
