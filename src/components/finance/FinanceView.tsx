@@ -484,7 +484,9 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
         .meta-box { border: 1px solid #dfe7f0; background: #f6f8fb; padding: 10px 12px; border-radius: 4px; min-height: 92px; }
         .meta-label { display: block; font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #2c4d73; margin-bottom: 8px; }
         .meta-value { font-size: 11px; color: #22314d; line-height: 1.5; }
-        .meta-value strong { font-weight: 700; color: #1a2950; }
+        .meta-row { display: grid; grid-template-columns: 72px 6px minmax(0, 1fr); gap: 1px; align-items: baseline; }
+        .meta-key { font-weight: 700; color: #1a2950; white-space: nowrap; }
+        .meta-colon { color: #22314d; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; table-layout: fixed; }
         thead th { background: #dfeaf3; color: #1a2950; font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 8px; border-bottom: 1px solid #d3deea; text-align: left; }
         thead th.amount, tbody td.amount { text-align: right; white-space: nowrap; }
@@ -522,19 +524,19 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
         <div class="meta-grid">
           <div class="meta-box">
             <span class="meta-label">Billed To Principal:</span>
-            <div class="meta-value"><strong>${escapeHtml(activeJob.customerName)}</strong></div>
-            <div class="meta-value">Port: ${escapeHtml(activeJob.portName)}</div>
-            <div class="meta-value">Vessel / IMO: ${escapeHtml(activeJob.vesselName)} / ${escapeHtml(vesselMaster?.imoNumber || '-')}</div>
-            <div class="meta-value">ETA / ETD: ${escapeHtml(formatDateDisplay(activeJob.eta))} / ${escapeHtml(formatDateDisplay(activeJob.etd))}</div>
-            <div class="meta-value">Flag: ${escapeHtml(vesselMaster?.flag || '-')}</div>
+            <div class="meta-value meta-row"><div class="meta-key">Principal</div><div class="meta-colon">:</div><div>${escapeHtml(activeJob.customerName)}</div></div>
+            <div class="meta-value meta-row"><div class="meta-key">Port</div><div class="meta-colon">:</div><div>${escapeHtml(activeJob.portName)}</div></div>
+            <div class="meta-value meta-row"><div class="meta-key">Vessel / IMO</div><div class="meta-colon">:</div><div>${escapeHtml(activeJob.vesselName)} / ${escapeHtml(vesselMaster?.imoNumber || '-')}</div></div>
+            <div class="meta-value meta-row"><div class="meta-key">ETA / ETD</div><div class="meta-colon">:</div><div>${escapeHtml(formatDateDisplay(activeJob.eta))} / ${escapeHtml(formatDateDisplay(activeJob.etd))}</div></div>
+            <div class="meta-value meta-row"><div class="meta-key">Flag</div><div class="meta-colon">:</div><div>${escapeHtml(vesselMaster?.flag || '-')}</div></div>
           </div>
 
           <div class="meta-box">
             <span class="meta-label">Bank Details:</span>
-            <div class="meta-value"><strong>Invoice No.</strong>: ${escapeHtml(activeJob.principalInvoice?.invoiceNo || `INV-${activeJob.jobId}`)}</div>
-            <div class="meta-value"><strong>Issue Date</strong>: ${escapeHtml(formatDateDisplay(invoiceIssueDate))}</div>
-            <div class="meta-value"><strong>Due Date</strong>: ${escapeHtml(formatDateDisplay(invoiceDueDate))}</div>
-            <div class="meta-value"><strong>Bank</strong>: ${escapeHtml(printBankInfo)}</div>
+            <div class="meta-value meta-row"><div class="meta-key">Invoice No.</div><div class="meta-colon">:</div><div>${escapeHtml(activeJob.principalInvoice?.invoiceNo || `INV-${activeJob.jobId}`)}</div></div>
+            <div class="meta-value meta-row"><div class="meta-key">Issue Date</div><div class="meta-colon">:</div><div>${escapeHtml(formatDateDisplay(invoiceIssueDate))}</div></div>
+            <div class="meta-value meta-row"><div class="meta-key">Due Date</div><div class="meta-colon">:</div><div>${escapeHtml(formatDateDisplay(invoiceDueDate))}</div></div>
+            <div class="meta-value meta-row"><div class="meta-key">Bank</div><div class="meta-colon">:</div><div>${escapeHtml(printBankInfo)}</div></div>
           </div>
         </div>
 

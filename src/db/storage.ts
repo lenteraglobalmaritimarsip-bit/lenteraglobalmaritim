@@ -36,11 +36,9 @@ export interface DatabaseState {
   auditLogs: AuditLog[];
 }
 
-const REMOVED_JOB_CALL_IDS = new Set(['VC-2026-0098', 'VC-2026-0099', 'VC-2026-0095']);
 const LOCAL_DATABASE_KEY = 'lgm_database_state';
 
-const withoutRemovedJobCalls = (jobCalls: JobCall[]): JobCall[] =>
-  jobCalls.filter((job) => !REMOVED_JOB_CALL_IDS.has(job.jobId));
+const withoutRemovedJobCalls = (jobCalls: JobCall[]): JobCall[] => jobCalls;
 
 const syncActualFDAInvoice = (job: JobCall): JobCall => {
   const actualTotal = (job.actualCosts || []).reduce((sum, item) => sum + (item.amount || 0), 0);
@@ -180,7 +178,7 @@ class DatabaseService {
         zones: Array.isArray(stored.zones) ? stored.zones : defaults.zones,
         fixTariffs: Array.isArray(stored.fixTariffs) ? stored.fixTariffs : defaults.fixTariffs,
         expensesItems: Array.isArray(stored.expensesItems) ? stored.expensesItems : defaults.expensesItems,
-        jobCalls: Array.isArray(stored.jobCalls) ? withoutRemovedJobCalls(stored.jobCalls) : defaults.jobCalls,
+        jobCalls: Array.isArray(stored.jobCalls) ? stored.jobCalls : defaults.jobCalls,
         auditLogs: Array.isArray(stored.auditLogs) ? stored.auditLogs : defaults.auditLogs,
       };
     } catch {
@@ -229,6 +227,7 @@ class DatabaseService {
       })),
       this.loadTable<FixTariff>('fix_tariffs', INITIAL_FIX_TARIFFS, (row) => ({
         ...row,
+        costCategory: row.cost_category || row.costCategory,
         serviceCode: row.service_code || row.serviceCode,
         serviceName: row.service_name || row.serviceName,
         calculationBasis: row.calculation_basis || row.calculationBasis,
@@ -236,7 +235,10 @@ class DatabaseService {
       })),
       this.loadTable<ExpensesItem>('expense_items', INITIAL_EXPENSES_ITEMS, (row) => ({
         ...row,
+        portId: row.port_id || row.portId,
+        portName: row.port_name || row.portName,
         defaultCurrency: row.default_currency || row.defaultCurrency,
+        calculationType: row.calculation_type || row.calculationType,
         standardCostBuy: row.standard_cost_buy ?? row.standardCostBuy,
         standardCostSell: row.standard_cost_sell ?? row.standardCostSell,
         preferredVendor: row.preferred_vendor || row.preferredVendor,
@@ -305,9 +307,21 @@ class DatabaseService {
       case 'zones':
         return { zone_code: value.zoneCode, zone_name: value.zoneName, zone_type: value.type, max_draft_m: value.maxDraftMeters, description: value.description };
       case 'fix_tariffs':
-        return { service_code: value.serviceCode, service_name: value.serviceName, calculation_basis: value.calculationBasis, currency: value.currency, rate: value.rate, min_charge: value.minCharge, description: value.description };
+        return { service_code: value.serviceCode, service_name: value.serviceName, cost_category: value.costCategory, calculation_basis: value.calculationBasis, currency: value.currency, rate: value.rate, min_charge: value.minCharge, description: value.description };
       case 'expense_items':
-        return { code: value.code, category: value.category, name: value.name, unit: value.unit, default_currency: value.defaultCurrency, standard_cost_buy: value.standardCostBuy, standard_cost_sell: value.standardCostSell, preferred_vendor: value.preferredVendor };
+        return {
+          port_id: value.portId,
+          port_name: value.portName,
+          code: value.code,
+          category: value.category,
+          name: value.name,
+          unit: value.unit,
+          default_currency: value.defaultCurrency,
+          calculation_type: value.calculationType ?? null,
+          standard_cost_buy: value.standardCostBuy,
+          standard_cost_sell: value.standardCostSell,
+          preferred_vendor: value.preferredVendor,
+        };
       case 'vessel_calls':
         return { job_id: value.jobId, eta: value.eta, etd: value.etd, purpose_of_call: value.purposeOfCall, currency: value.currency, exchange_rate_usd_idr: value.exchangeRateUSDToIDR, current_stage: value.currentStage, status: value.status };
       case 'audit_logs':
@@ -349,8 +363,20 @@ class DatabaseService {
       supabase.from('vessels').upsert(this.state.vessels.map((vessel) => ({ name: vessel.name, imo_number: vessel.imoNumber || null, call_sign: vessel.callSign, flag: vessel.flag, vessel_type: vessel.vesselType, grt: vessel.grt, nrt: vessel.nrt, dwt: vessel.dwt, loa: vessel.loa, beam: vessel.beam, year_built: vessel.yearBuilt })), { onConflict: 'imo_number' }),
       supabase.from('ports').upsert(this.state.ports.map((port) => ({ code: port.code, name: port.name, country: port.country, unlocode: port.unlocode, channel_depth_m: port.channelDepthMeters, tide_restriction: port.tideRestriction, operating_hours: port.operatingHours })), { onConflict: 'code' }),
       this.saveRowsWithoutConflict('zones', 'zone_code', this.state.zones.map((zone) => ({ zone_code: zone.zoneCode, zone_name: zone.zoneName, zone_type: zone.type, max_draft_m: zone.maxDraftMeters, description: zone.description }))),
-      this.saveRowsWithoutConflict('fix_tariffs', 'service_code', this.state.fixTariffs.map((tariff) => ({ service_code: tariff.serviceCode, service_name: tariff.serviceName, calculation_basis: tariff.calculationBasis, currency: tariff.currency, rate: tariff.rate, min_charge: tariff.minCharge, description: tariff.description }))),
-      supabase.from('expense_items').upsert(this.state.expensesItems.map((item) => ({ code: item.code, category: item.category, name: item.name, unit: item.unit, default_currency: item.defaultCurrency, standard_cost_buy: item.standardCostBuy, standard_cost_sell: item.standardCostSell, preferred_vendor: item.preferredVendor })), { onConflict: 'code' }),
+      this.saveRowsWithoutConflict('fix_tariffs', 'service_code', this.state.fixTariffs.map((tariff) => ({ service_code: tariff.serviceCode, service_name: tariff.serviceName, cost_category: tariff.costCategory, calculation_basis: tariff.calculationBasis, currency: tariff.currency, rate: tariff.rate, min_charge: tariff.minCharge, description: tariff.description }))),
+      supabase.from('expense_items').upsert(this.state.expensesItems.map((item) => ({
+        port_id: item.portId,
+        port_name: item.portName,
+        code: item.code,
+        category: item.category,
+        name: item.name,
+        unit: item.unit,
+        default_currency: item.defaultCurrency,
+        calculation_type: item.calculationType ?? null,
+        standard_cost_buy: item.standardCostBuy,
+        standard_cost_sell: item.standardCostSell,
+        preferred_vendor: item.preferredVendor,
+      })), { onConflict: 'code' }),
       this.saveRowsWithoutConflict('vessel_calls', 'job_id', this.state.jobCalls.map((job) => ({ job_id: job.jobId, eta: job.eta, etd: job.etd, purpose_of_call: job.purposeOfCall, currency: job.currency, exchange_rate_usd_idr: job.exchangeRateUSDToIDR, current_stage: job.currentStage, status: job.status }))),
     ]);
     const failed = results.find((result) => result && 'error' in result && result.error);
@@ -613,7 +639,8 @@ class DatabaseService {
   // Expenses Items
   public addExpensesItem(item: Omit<ExpensesItem, 'id'>): ExpensesItem {
     const id = `EXP-${String(this.state.expensesItems.length + 1).padStart(3, '0')}`;
-    const newItem: ExpensesItem = { ...item, id };
+    const portName = item.portName || this.state.ports.find((p) => p.id === item.portId)?.name || '';
+    const newItem: ExpensesItem = { ...item, portName, id };
     this.state.expensesItems = [...this.state.expensesItems, newItem];
     this.audit('CREATE', 'EXPENSE_ITEM', `Created expense item ${newItem.name}`, newItem.id);
     this.saveToStorage();
@@ -621,9 +648,12 @@ class DatabaseService {
   }
 
   public updateExpensesItem(id: string, updates: Partial<ExpensesItem>): void {
-    this.state.expensesItems = this.state.expensesItems.map((e) =>
-      e.id === id ? { ...e, ...updates } : e
-    );
+    this.state.expensesItems = this.state.expensesItems.map((e) => {
+      if (e.id !== id) return e;
+      const resolvedPortId = updates.portId ?? e.portId;
+      const resolvedPortName = updates.portName || e.portName || this.state.ports.find((p) => p.id === resolvedPortId)?.name || e.portName || '';
+      return { ...e, ...updates, portId: resolvedPortId, portName: resolvedPortName };
+    });
     this.saveToStorage();
   }
 

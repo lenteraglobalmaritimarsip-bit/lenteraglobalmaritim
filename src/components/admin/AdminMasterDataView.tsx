@@ -205,6 +205,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   const [newTariff, setNewTariff] = useState<Partial<FixTariff>>({
     portId: ports[0]?.id || '',
     portName: ports[0]?.name || '',
+    costCategory: 'PORT_EXPENSES',
     serviceCode: '',
     serviceName: '',
     calculationBasis: 'PER_GRT',
@@ -215,7 +216,40 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     description: '',
   });
 
+  const applyTariffDefaultsFromMaster = (serviceName: string, portId?: string) => {
+    if (!serviceName?.trim()) return;
+
+    const normalized = serviceName.trim().toLowerCase();
+    const match = expensesItems.find((item) => {
+      const samePort = !portId || !item.portId || item.portId === portId;
+      return samePort && (item.name.toLowerCase() === normalized || item.name.toLowerCase().includes(normalized) || normalized.includes(item.name.toLowerCase()));
+    });
+
+    if (!match) return;
+
+    setNewTariff((current) => ({
+      ...current,
+      portId: portId || current.portId || match.portId || '',
+      portName: portId ? ports.find((p) => p.id === portId)?.name || current.portName || '' : match.portName || current.portName || '',
+      costCategory: match.category,
+      currency: match.defaultCurrency || current.currency || 'USD',
+      rate: Number(match.standardCostSell || match.standardCostBuy || current.rate || 0),
+      minCharge: Number(match.standardCostBuy || match.standardCostSell || current.minCharge || 0),
+      calculationBasis: match.calculationType === 'QTY_RATE'
+        ? 'PER_MOVE'
+        : match.calculationType === 'PERCENTAGE'
+          ? 'PER_GRT'
+          : match.calculationType === 'FIXED'
+            ? 'LUMP_SUM'
+            : match.calculationType === 'VARIABLE'
+              ? 'PER_DAY'
+              : current.calculationBasis || 'PER_GRT',
+    }));
+  };
+
   const [newExpense, setNewExpense] = useState<Partial<ExpensesItem>>({
+    portId: ports[0]?.id || '',
+    portName: ports[0]?.name || '',
     code: '',
     category: 'PORT_EXPENSES',
     name: '',
@@ -251,8 +285,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         }
         db.addVessel(newVessel as Omit<Vessel, 'id'>);
       } else if (activeTab === 'PORTS') {
-        if (!newPort.name?.trim()) {
-          setAddFormError('Nama pelabuhan wajib diisi sebelum menyimpan.');
+        if (!newPort.code?.trim() || !newPort.name?.trim()) {
+          setAddFormError('Kode dan nama pelabuhan wajib diisi sebelum menyimpan.');
           return;
         }
         db.addPort(newPort as Omit<Port, 'id'>);
@@ -275,7 +309,14 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           setAddFormError('Nama item wajib diisi sebelum menyimpan.');
           return;
         }
-        db.addExpensesItem(newExpense as Omit<ExpensesItem, 'id'>);
+        const port = ports.find((p) => p.id === newExpense.portId);
+        db.addExpensesItem({
+          ...newExpense,
+          code: newExpense.code?.trim() || '',
+          name: newExpense.name.trim(),
+          portId: newExpense.portId || '',
+          portName: port?.name || newExpense.portName || '',
+        } as Omit<ExpensesItem, 'id'>);
       } else {
         setAddFormError('Menu master data tidak dikenali.');
         return;
@@ -290,6 +331,22 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     setAddFormError('');
     onDataSaved?.(activeTab);
   };
+
+  const formatCostCategory = (category?: string) => ({
+    PORT_EXPENSES: 'Port expenses',
+    CLEARANCE: 'Clearance',
+    GENERAL_EXPENSES: 'General expenses',
+    CREW_EXPENSES: 'Crew expenses',
+    AGENCY_FEE: 'Agency fee',
+    PORT_DUES: 'Port expenses',
+    PILOTAGE_TOWAGE: 'Pilotage & towage',
+    BERTHING: 'Berthing',
+    CREW_CHANGE: 'Crew change',
+    IMMIGRATION_CUSTOMS: 'Immigration & customs',
+    LOGISTICS_SUPPLIES: 'Logistics',
+    TAX_CONTINGENCY: 'Tax contingency',
+    SUNDRY: 'Sundry',
+  } as Record<string, string>)[category || ''] || category || '-';
 
   const formatExpenseCategory = (category?: string) => ({
     PORT_EXPENSES: 'Port expenses',
@@ -452,7 +509,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         {/* PORTS TABLE */}
         {activeTab === 'PORTS' && (
           <div className="overflow-x-auto"><table className="w-full text-left text-xs">
-            <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-200"><tr><th className="p-3.5">No</th><th className="p-3.5">Code</th><th className="p-3.5">Nama Pelabuhan</th><th className="p-3.5">Country</th><th className="p-3.5 text-right">Aksi</th></tr></thead>
+            <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-200"><tr><th className="p-3.5">No</th><th className="p-3.5">Code</th><th className="p-3.5">Port</th><th className="p-3.5">Country</th><th className="p-3.5 text-right">Aksi</th></tr></thead>
             <tbody className="divide-y divide-slate-100">{ports.filter(p=>p.name.toLowerCase().includes(searchQuery.toLowerCase())).map(p=><tr key={p.id} className="hover:bg-slate-50"><td className="p-3.5 font-mono text-slate-500">{ports.indexOf(p)+1}</td><td className="p-3.5 font-mono font-bold text-cyan-600">{p.code}</td><td className="p-3.5 font-bold text-slate-900">{p.name}</td><td className="p-3.5 text-slate-600">{p.country}</td><td className="p-3.5 text-right"><div className="flex items-center justify-end gap-1.5"><button onClick={()=>openMasterEditor('PORTS', p)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500" title="Edit Port"><Edit2 className="w-3.5 h-3.5"/></button><button onClick={()=>db.deletePort(p.id)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-500" title="Hapus Port"><Trash2 className="w-3.5 h-3.5"/></button></div></td></tr>)}</tbody>
           </table></div>
         )}
@@ -466,7 +523,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                   <th className="p-3.5">No</th>
                   <th className="p-3.5">Zone Code</th>
                   <th className="p-3.5">Nama Zone / Dermaga</th>
-                  <th className="p-3.5">Pelabuhan</th>
+                  <th className="p-3.5">Port</th>
                   <th className="p-3.5">Tipe Zona</th>
                   <th className="p-3.5">Max Draft (m)</th>
                   <th className="p-3.5">Deskripsi</th>
@@ -511,12 +568,12 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
               <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-200">
                 <tr>
                   <th className="p-3.5">No</th>
-                  <th className="p-3.5">Pelabuhan</th>
+                  <th className="p-3.5">Port</th>
                   <th className="p-3.5">Item Service</th>
-                  <th className="p-3.5">Type Tarif</th>
-                  <th className="p-3.5">Mata Uang</th>
-                  <th className="p-3.5 text-right">Tarif Dasar</th>
-                  <th className="p-3.5 text-right">Aksi</th>
+                  <th className="p-3.5">Type</th>
+                  <th className="p-3.5">Currency</th>
+                  <th className="p-3.5 text-right">Rate</th>
+                  <th className="p-3.5 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -554,13 +611,13 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
               <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-200">
                 <tr>
                   <th className="p-3.5">No</th>
-                  <th className="p-3.5">Kategori</th>
-                  <th className="p-3.5">Nama Item</th>
-                  <th className="p-3.5">Type Kalkulasi</th>
-                  <th className="p-3.5">Unit</th>
-                  <th className="p-3.5">Mata Uang</th>
-                  <th className="p-3.5">Standar Biaya</th>
-                  <th className="p-3.5 text-right">Aksi</th>
+                  <th className="p-3.5">Port</th>
+                  <th className="p-3.5">Item Name</th>
+                  <th className="p-3.5">Category</th>
+                  <th className="p-3.5">Type</th>
+                  <th className="p-3.5">Currency</th>
+                  <th className="p-3.5 text-right">Rate</th>
+                  <th className="p-3.5 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -569,16 +626,16 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                   .map((e, index) => (
                     <tr key={e.id} className="hover:bg-slate-50">
                       <td className="p-3.5 font-mono text-slate-500">{index + 1}</td>
+                      <td className="p-3.5 font-semibold text-slate-700">{e.portName || ports.find((port) => port.id === e.portId)?.name || '-'}</td>
+                      <td className="p-3.5 font-bold text-slate-900">{e.name}</td>
                       <td className="p-3.5">
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-50 text-slate-600">
                           {formatExpenseCategory(e.category)}
                         </span>
                       </td>
-                      <td className="p-3.5 font-bold text-slate-900">{e.name}</td>
                       <td className="p-3.5"><span className="px-2 py-0.5 rounded text-[10px] font-bold bg-violet-50 text-violet-600">{e.calculationType || 'FIXED'}</span></td>
-                      <td className="p-3.5 text-slate-600">{e.unit || '-'}</td>
                       <td className="p-3.5 font-mono font-semibold text-slate-700">{e.defaultCurrency || 'USD'}</td>
-                      <td className="p-3.5 font-semibold text-slate-700">{Number(e.standardCostBuy || 0).toLocaleString('en-US')}</td>
+                      <td className="p-3.5 text-right font-mono font-bold text-slate-700">{Number(e.standardCostSell || e.standardCostBuy || 0).toLocaleString('en-US')}</td>
                       <td className="p-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button onClick={() => openMasterEditor('EXPENSES_ITEM', e)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500" title="Edit Expense Item"><Edit2 className="w-3.5 h-3.5"/></button>
@@ -659,7 +716,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     <label className="block"><span className="text-slate-500 font-semibold">Kode Port</span><input required value={editMasterForm.code || ''} onChange={e=>setEditMasterForm({...editMasterForm,code:e.target.value.toUpperCase()})} className="master-edit-input" /></label>
                     <label className="block"><span className="text-slate-500 font-semibold">UN/LOCODE</span><input value={editMasterForm.unlocode || ''} onChange={e=>setEditMasterForm({...editMasterForm,unlocode:e.target.value.toUpperCase()})} className="master-edit-input" /></label>
                   </div>
-                  <label className="block"><span className="text-slate-500 font-semibold">Nama Pelabuhan</span><input required value={editMasterForm.name || ''} onChange={e=>setEditMasterForm({...editMasterForm,name:e.target.value})} className="master-edit-input" /></label>
+                  <label className="block"><span className="text-slate-500 font-semibold">Port</span><input required value={editMasterForm.name || ''} onChange={e=>setEditMasterForm({...editMasterForm,name:e.target.value})} className="master-edit-input" /></label>
                   <div className="grid grid-cols-2 gap-3">
                     <label className="block"><span className="text-slate-500 font-semibold">Country</span><input value={editMasterForm.country || ''} onChange={e=>setEditMasterForm({...editMasterForm,country:e.target.value})} className="master-edit-input" /></label>
                     <label className="block"><span className="text-slate-500 font-semibold">Channel Depth (m)</span><input type="number" step="0.01" value={editMasterForm.channelDepthMeters ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,channelDepthMeters:Number(e.target.value)})} className="master-edit-input" /></label>
@@ -674,17 +731,16 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
               {editingMaster.type === 'FIX_TARIFF' && (
                 <>
                   <div className="grid grid-cols-2 gap-3">
-                    <label className="block"><span className="text-slate-500 font-semibold">Pelabuhan</span><select value={editMasterForm.portId || ''} onChange={e=>setEditMasterForm({...editMasterForm,portId:e.target.value})} className="master-edit-input">{ports.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-                    <label className="block"><span className="text-slate-500 font-semibold">Type Tarif</span><select value={editMasterForm.tariffType || 'VARIABLE'} onChange={e=>setEditMasterForm({...editMasterForm,tariffType:e.target.value})} className="master-edit-input"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="RANGE">Range</option></select></label>
-                  </div>
-                  <label className="block"><span className="text-slate-500 font-semibold">Nama Layanan</span><input required value={editMasterForm.serviceName || ''} onChange={e=>setEditMasterForm({...editMasterForm,serviceName:e.target.value})} className="master-edit-input" /></label>
-                  <div className="grid grid-cols-3 gap-3">
-                    <label className="block"><span className="text-slate-500 font-semibold">Service Code</span><input value={editMasterForm.serviceCode || ''} onChange={e=>setEditMasterForm({...editMasterForm,serviceCode:e.target.value})} className="master-edit-input" /></label>
-                    <label className="block"><span className="text-slate-500 font-semibold">Rate</span><input type="number" step="0.001" value={editMasterForm.rate ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,rate:Number(e.target.value)})} className="master-edit-input" /></label>
-                    <label className="block"><span className="text-slate-500 font-semibold">Currency</span><select value={editMasterForm.currency || 'USD'} onChange={e=>setEditMasterForm({...editMasterForm,currency:e.target.value})} className="master-edit-input"><option>USD</option><option>IDR</option></select></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">Port</span><select value={editMasterForm.portId || ''} onChange={e=>setEditMasterForm({...editMasterForm,portId:e.target.value})} className="master-edit-input">{ports.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">Category Cost</span><select value={editMasterForm.costCategory || 'PORT_EXPENSES'} onChange={e=>setEditMasterForm({...editMasterForm,costCategory:e.target.value})} className="master-edit-input"><option value="PORT_EXPENSES">Port expenses</option><option value="PILOTAGE_TOWAGE">Pilotage & towage</option><option value="BERTHING">Berthing</option><option value="PORT_DUES">Port dues</option><option value="AGENCY_FEE">Agency fee</option><option value="IMMIGRATION_CUSTOMS">Immigration & customs</option><option value="LOGISTICS_SUPPLIES">Logistics</option><option value="CREW_CHANGE">Crew change</option><option value="CLEARANCE">Clearance</option><option value="GENERAL_EXPENSES">General expenses</option><option value="CREW_EXPENSES">Crew expenses</option><option value="TAX_CONTINGENCY">Tax contingency</option><option value="SUNDRY">Sundry</option></select></label>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <label className="block"><span className="text-slate-500 font-semibold">Calculation Basis</span><select value={editMasterForm.calculationBasis || 'PER_GRT'} onChange={e=>setEditMasterForm({...editMasterForm,calculationBasis:e.target.value})} className="master-edit-input"><option value="PER_GRT">Per GRT</option><option value="PER_DAY">Per Day</option><option value="LUMP_SUM">Lump Sum</option><option value="PER_HOUR">Per Hour</option><option value="PER_MOVE">Per Move</option></select></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">Type</span><select value={editMasterForm.tariffType || 'VARIABLE'} onChange={e=>setEditMasterForm({...editMasterForm,tariffType:e.target.value})} className="master-edit-input"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="RANGE">Range</option></select></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">Item Service</span><input required value={editMasterForm.serviceName || ''} onChange={e=>setEditMasterForm({...editMasterForm,serviceName:e.target.value})} className="master-edit-input" /></label>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <label className="block"><span className="text-slate-500 font-semibold">Rate</span><input type="number" step="0.001" value={editMasterForm.rate ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,rate:Number(e.target.value)})} className="master-edit-input" /></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">Currency</span><select value={editMasterForm.currency || 'USD'} onChange={e=>setEditMasterForm({...editMasterForm,currency:e.target.value})} className="master-edit-input"><option>USD</option><option>IDR</option></select></label>
                     <label className="block"><span className="text-slate-500 font-semibold">Minimum Charge</span><input type="number" value={editMasterForm.minCharge ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,minCharge:Number(e.target.value)})} className="master-edit-input" /></label>
                   </div>
                 </>
@@ -693,22 +749,18 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
               {editingMaster.type === 'EXPENSES_ITEM' && (
                 <>
                   <div className="grid grid-cols-2 gap-3">
-                    <label className="block"><span className="text-slate-500 font-semibold">Kode Item</span><input required value={editMasterForm.code || ''} onChange={e=>setEditMasterForm({...editMasterForm,code:e.target.value})} className="master-edit-input" /></label>
-                    <label className="block"><span className="text-slate-500 font-semibold">Kategori</span><select required value={editMasterForm.category || 'PORT_EXPENSES'} onChange={e=>setEditMasterForm({...editMasterForm,category:e.target.value})} className="master-edit-input"><option value="PORT_EXPENSES">Port expenses</option><option value="CLEARANCE">Clearance</option><option value="GENERAL_EXPENSES">General expenses</option><option value="CREW_EXPENSES">Crew expenses</option><option value="AGENCY_FEE">Agency fee</option></select></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">Port</span><select value={editMasterForm.portId || ''} onChange={e=>setEditMasterForm({...editMasterForm,portId:e.target.value,portName: ports.find((p) => p.id === e.target.value)?.name || ''})} className="master-edit-input">{ports.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">Category</span><select required value={editMasterForm.category || 'PORT_EXPENSES'} onChange={e=>setEditMasterForm({...editMasterForm,category:e.target.value})} className="master-edit-input"><option value="PORT_EXPENSES">Port expenses</option><option value="CLEARANCE">Clearance</option><option value="GENERAL_EXPENSES">General expenses</option><option value="CREW_EXPENSES">Crew expenses</option><option value="AGENCY_FEE">Agency fee</option></select></label>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <label className="block"><span className="text-slate-500 font-semibold">Nama Item</span><input required value={editMasterForm.name || ''} onChange={e=>setEditMasterForm({...editMasterForm,name:e.target.value})} className="master-edit-input" /></label>
-                    <label className="block"><span className="text-slate-500 font-semibold">Unit</span><input value={editMasterForm.unit || ''} onChange={e=>setEditMasterForm({...editMasterForm,unit:e.target.value})} className="master-edit-input" placeholder="job / hour / day / pcs / GRT" /></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">Item Name</span><input required value={editMasterForm.name || ''} onChange={e=>setEditMasterForm({...editMasterForm,name:e.target.value})} className="master-edit-input" /></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">Unit</span><select value={editMasterForm.unit || 'job'} onChange={e=>setEditMasterForm({...editMasterForm,unit:e.target.value})} className="master-edit-input"><option value="job">job</option><option value="hour">hour</option><option value="day">day</option><option value="qty">qty</option><option value="GRT">GRT</option></select></label>
                   </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <label className="block"><span className="text-slate-500 font-semibold">Type Kalkulasi</span><select value={editMasterForm.calculationType || 'FIXED'} onChange={e=>setEditMasterForm({...editMasterForm,calculationType:e.target.value})} className="master-edit-input"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="QTY_RATE">Qty_rate</option><option value="PERCENTAGE">Percentage</option><option value="RANGE">Range</option></select></label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="block"><span className="text-slate-500 font-semibold">Calculation Type</span><select value={editMasterForm.calculationType || 'FIXED'} onChange={e=>setEditMasterForm({...editMasterForm,calculationType:e.target.value})} className="master-edit-input"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="QTY_RATE">Qty_rate</option><option value="PERCENTAGE">Percentage</option><option value="RANGE">Range</option></select></label>
                     <label className="block"><span className="text-slate-500 font-semibold">Currency</span><select value={editMasterForm.defaultCurrency || 'USD'} onChange={e=>setEditMasterForm({...editMasterForm,defaultCurrency:e.target.value})} className="master-edit-input"><option>USD</option><option>IDR</option></select></label>
-                    <label className="block"><span className="text-slate-500 font-semibold">Preferred Vendor</span><input value={editMasterForm.preferredVendor || ''} onChange={e=>setEditMasterForm({...editMasterForm,preferredVendor:e.target.value})} className="master-edit-input" /></label>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="block"><span className="text-slate-500 font-semibold">Standard Buy Cost</span><input type="number" value={editMasterForm.standardCostBuy ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,standardCostBuy:Number(e.target.value)})} className="master-edit-input" /></label>
-                    <label className="block"><span className="text-slate-500 font-semibold">Standard Sell Cost</span><input type="number" value={editMasterForm.standardCostSell ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,standardCostSell:Number(e.target.value)})} className="master-edit-input" /></label>
-                  </div>
+                  <label className="block"><span className="text-slate-500 font-semibold">Rate / Standard Cost</span><input type="number" value={editMasterForm.standardCostSell ?? editMasterForm.standardCostBuy ?? 0} onChange={e=>{ const value = Number(e.target.value); setEditMasterForm({...editMasterForm, standardCostBuy: value, standardCostSell: value}); }} className="master-edit-input" /></label>
                 </>
               )}
 
@@ -1005,7 +1057,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     </div>
                   </div>
                   <div>
-                    <label className="text-slate-400 block mb-1">Nama Pelabuhan:</label>
+                    <label className="text-slate-400 block mb-1">Port:</label>
                     <input
                       type="text"
                       required
@@ -1042,7 +1094,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 <>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-slate-400 block mb-1">Pelabuhan:</label>
+                      <label className="text-slate-400 block mb-1">Port:</label>
                       <select
                         value={newZone.portId}
                         onChange={(e) => setNewZone({ ...newZone, portId: e.target.value })}
@@ -1085,10 +1137,14 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 <>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-slate-400 block mb-1">Pelabuhan:</label>
+                      <label className="text-slate-400 block mb-1">Port:</label>
                       <select
                         value={newTariff.portId}
-                        onChange={(e) => setNewTariff({ ...newTariff, portId: e.target.value })}
+                        onChange={(e) => {
+                          const nextPortId = e.target.value;
+                          setNewTariff({ ...newTariff, portId: nextPortId, portName: ports.find((p) => p.id === nextPortId)?.name || '' });
+                          applyTariffDefaultsFromMaster(newTariff.serviceName || '', nextPortId);
+                        }}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
                       >
                         {ports.map((p) => (
@@ -1097,29 +1153,58 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                       </select>
                     </div>
                     <div>
-                      <label className="text-slate-400 block mb-1">Type Tarif:</label>
+                      <label className="text-slate-400 block mb-1">Category Cost:</label>
                       <select
-                        value={newTariff.tariffType}
-                        onChange={(e) => setNewTariff({ ...newTariff, tariffType: e.target.value as any })}
+                        value={newTariff.costCategory || 'PORT_EXPENSES'}
+                        onChange={(e) => setNewTariff({ ...newTariff, costCategory: e.target.value })}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
                       >
-                        <option value="FIXED">Fixed</option>
-                        <option value="VARIABLE">Variabel</option>
-                        <option value="RANGE">Range</option>
+                        <option value="PORT_EXPENSES">Port expenses</option>
+                        <option value="PILOTAGE_TOWAGE">Pilotage & towage</option>
+                        <option value="BERTHING">Berthing</option>
+                        <option value="PORT_DUES">Port dues</option>
+                        <option value="AGENCY_FEE">Agency fee</option>
+                        <option value="IMMIGRATION_CUSTOMS">Immigration & customs</option>
+                        <option value="LOGISTICS_SUPPLIES">Logistics</option>
+                        <option value="CREW_CHANGE">Crew change</option>
+                        <option value="CLEARANCE">Clearance</option>
+                        <option value="GENERAL_EXPENSES">General expenses</option>
+                        <option value="CREW_EXPENSES">Crew expenses</option>
+                        <option value="TAX_CONTINGENCY">Tax contingency</option>
+                        <option value="SUNDRY">Sundry</option>
                       </select>
                     </div>
                   </div>
+
                   <div>
-                    <label className="text-slate-400 block mb-1">Nama Layanan Tarif:</label>
+                    <label className="text-slate-400 block mb-1">Type:</label>
+                    <select
+                      value={newTariff.tariffType}
+                      onChange={(e) => setNewTariff({ ...newTariff, tariffType: e.target.value as any })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
+                    >
+                      <option value="FIXED">Fixed</option>
+                      <option value="VARIABLE">Variabel</option>
+                      <option value="RANGE">Range</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-slate-400 block mb-1">Item Service:</label>
                     <input
                       type="text"
                       required
                       placeholder="e.g. Harbour Pilotage Service"
                       value={newTariff.serviceName}
-                      onChange={(e) => setNewTariff({ ...newTariff, serviceName: e.target.value })}
+                      onChange={(e) => {
+                        const nextServiceName = e.target.value;
+                        setNewTariff({ ...newTariff, serviceName: nextServiceName });
+                        applyTariffDefaultsFromMaster(nextServiceName, newTariff.portId);
+                      }}
                       className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
                     />
                   </div>
+
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-slate-400 block mb-1">Rate Nominal:</label>
@@ -1132,7 +1217,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                       />
                     </div>
                     <div>
-                      <label className="text-slate-400 block mb-1">Mata Uang:</label>
+                      <label className="text-slate-400 block mb-1">Currency:</label>
                       <select
                         value={newTariff.currency}
                         onChange={(e) => setNewTariff({ ...newTariff, currency: e.target.value as any })}
@@ -1143,27 +1228,15 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                       </select>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-slate-400 block mb-1">Service Code:</label>
-                      <input value={newTariff.serviceCode} onChange={(e) => setNewTariff({ ...newTariff, serviceCode: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" />
-                    </div>
-                    <div>
-                      <label className="text-slate-400 block mb-1">Calculation Basis:</label>
-                      <select value={newTariff.calculationBasis} onChange={(e) => setNewTariff({ ...newTariff, calculationBasis: e.target.value as any })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white">
-                        <option value="PER_GRT">Per GRT</option><option value="PER_DAY">Per Day</option><option value="LUMP_SUM">Lump Sum</option><option value="PER_HOUR">Per Hour</option><option value="PER_MOVE">Per Move</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-slate-400 block mb-1">Minimum Charge:</label>
-                      <input type="number" value={newTariff.minCharge} onChange={(e) => setNewTariff({ ...newTariff, minCharge: Number(e.target.value) })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" />
-                    </div>
-                    <div>
-                      <label className="text-slate-400 block mb-1">Description:</label>
-                      <input value={newTariff.description} onChange={(e) => setNewTariff({ ...newTariff, description: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" />
-                    </div>
+
+                  <div>
+                    <label className="text-slate-400 block mb-1">Minimum Charge:</label>
+                    <input
+                      type="number"
+                      value={newTariff.minCharge}
+                      onChange={(e) => setNewTariff({ ...newTariff, minCharge: Number(e.target.value) })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
+                    />
                   </div>
                 </>
               )}
@@ -1172,18 +1245,23 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 <>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-slate-400 block mb-1">Kode Item:</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="e.g. EXP-PILOT"
-                        value={newExpense.code}
-                        onChange={(e) => setNewExpense({ ...newExpense, code: e.target.value })}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
-                      />
+                      <label className="text-slate-400 block mb-1">Port:</label>
+                      <select
+                        value={newExpense.portId || ''}
+                        onChange={(e) => setNewExpense({
+                          ...newExpense,
+                          portId: e.target.value,
+                          portName: ports.find((p) => p.id === e.target.value)?.name || '',
+                        })}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
+                      >
+                        {ports.map((p) => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
                     </div>
                     <div>
-                      <label className="text-slate-400 block mb-1">Kategori Item:</label>
+                      <label className="text-slate-400 block mb-1">Category:</label>
                       <select
                         value={newExpense.category}
                         onChange={(e) => setNewExpense({ ...newExpense, category: e.target.value as any })}
@@ -1197,12 +1275,13 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                       </select>
                     </div>
                   </div>
+
                   <div>
-                    <label className="text-slate-400 block mb-1">Tipe Kalkulasi:</label>
+                    <label className="text-slate-400 block mb-1">Calculation Type:</label>
                     <select value={newExpense.calculationType} onChange={(e) => setNewExpense({ ...newExpense, calculationType: e.target.value as any })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white mb-3">
                       <option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="QTY_RATE">Qty_rate</option><option value="PERCENTAGE">Percentage</option><option value="RANGE">Range</option>
                     </select>
-                    <label className="text-slate-400 block mb-1">Nama Item Biaya:</label>
+                    <label className="text-slate-400 block mb-1">Item Name:</label>
                     <input
                       type="text"
                       required
@@ -1212,50 +1291,46 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                       className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
                     />
                   </div>
-                  <div>
-                    <label className="text-slate-400 block mb-1">Unit:</label>
-                    <input
-                      type="text"
-                      value={newExpense.unit || ''}
-                      onChange={(e) => setNewExpense({ ...newExpense, unit: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
-                      placeholder="Contoh: job, hour, day, pcs, GRT"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-slate-400 block mb-1">Mata Uang:</label>
-                    <select
-                      value={newExpense.defaultCurrency}
-                      onChange={(e) => setNewExpense({ ...newExpense, defaultCurrency: e.target.value as 'IDR' | 'USD' })}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
-                    >
-                      <option value="IDR">IDR</option>
-                      <option value="USD">USD</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-slate-400 block mb-1">Preferred Vendor:</label>
-                    <input value={newExpense.preferredVendor || ''} onChange={(e) => setNewExpense({ ...newExpense, preferredVendor: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" />
-                  </div>
+
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-slate-400 block mb-1">Standard Buy Cost:</label>
-                      <input
-                        type="number"
-                        value={newExpense.standardCostBuy}
-                        onChange={(e) => setNewExpense({ ...newExpense, standardCostBuy: Number(e.target.value) })}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
-                      />
+                      <label className="text-slate-400 block mb-1">Unit:</label>
+                      <select
+                        value={newExpense.unit || 'job'}
+                        onChange={(e) => setNewExpense({ ...newExpense, unit: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
+                      >
+                        <option value="job">job</option>
+                        <option value="hour">hour</option>
+                        <option value="day">day</option>
+                        <option value="qty">qty</option>
+                        <option value="GRT">GRT</option>
+                      </select>
                     </div>
                     <div>
-                      <label className="text-slate-400 block mb-1">Standard Sell Cost:</label>
-                      <input
-                        type="number"
-                        value={newExpense.standardCostSell}
-                        onChange={(e) => setNewExpense({ ...newExpense, standardCostSell: Number(e.target.value) })}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
-                      />
+                      <label className="text-slate-400 block mb-1">Currency:</label>
+                      <select
+                        value={newExpense.defaultCurrency}
+                        onChange={(e) => setNewExpense({ ...newExpense, defaultCurrency: e.target.value as 'IDR' | 'USD' })}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
+                      >
+                        <option value="IDR">IDR</option>
+                        <option value="USD">USD</option>
+                      </select>
                     </div>
+                  </div>
+
+                  <div>
+                    <label className="text-slate-400 block mb-1">Rate / Standard Cost:</label>
+                    <input
+                      type="number"
+                      value={newExpense.standardCostSell || newExpense.standardCostBuy || 0}
+                      onChange={(e) => {
+                        const value = Number(e.target.value);
+                        setNewExpense({ ...newExpense, standardCostBuy: value, standardCostSell: value });
+                      }}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
+                    />
                   </div>
                 </>
               )}

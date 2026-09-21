@@ -78,6 +78,8 @@ CREATE TABLE IF NOT EXISTS zones (
 
 CREATE TABLE IF NOT EXISTS expense_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  port_id UUID REFERENCES ports(id),
+  port_name VARCHAR(150),
   code VARCHAR(40) UNIQUE NOT NULL,
   category VARCHAR(50) NOT NULL CHECK (category IN ('PORT_EXPENSES','CLEARANCE','GENERAL_EXPENSES','CREW_EXPENSES','AGENCY_FEE','TAX_CONTINGENCY','PORT_DUES','PILOTAGE_TOWAGE','BERTHING','CREW_CHANGE','IMMIGRATION_CUSTOMS','LOGISTICS_SUPPLIES','SUNDRY')),
   name VARCHAR(180) NOT NULL,
@@ -93,6 +95,7 @@ CREATE TABLE IF NOT EXISTS expense_items (
 CREATE TABLE IF NOT EXISTS fix_tariffs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   port_id UUID REFERENCES ports(id),
+  cost_category VARCHAR(80),
   service_code VARCHAR(40),
   service_name VARCHAR(180),
   calculation_basis VARCHAR(30) CHECK (calculation_basis IN ('PER_GRT','PER_DAY','LUMP_SUM','PER_HOUR','PER_MOVE')),
@@ -164,6 +167,7 @@ CREATE TABLE IF NOT EXISTS quotation_items (
   description VARCHAR(240),
   category VARCHAR(80),
   basis VARCHAR(80),
+  type VARCHAR(20) DEFAULT 'VARIABLE' CHECK (type IN ('FIXED','VARIABLE','RANGE')),
   quantity NUMERIC(14,3) DEFAULT 1,
   unit_buy NUMERIC(18,2) DEFAULT 0,
   unit_sell NUMERIC(18,2) DEFAULT 0,
@@ -222,6 +226,7 @@ CREATE TABLE IF NOT EXISTS actual_costs (
   item_code VARCHAR(40),
   description VARCHAR(240),
   category VARCHAR(80),
+  type VARCHAR(20) DEFAULT 'VARIABLE' CHECK (type IN ('FIXED','VARIABLE','RANGE')),
   vendor_name VARCHAR(180),
   invoice_or_voucher_no VARCHAR(80),
   cost_date DATE,

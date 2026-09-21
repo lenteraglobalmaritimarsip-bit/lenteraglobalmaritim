@@ -18,8 +18,9 @@ import {
   Upload,
   Trash2,
 } from 'lucide-react';
-import { JobCall, ActualCostItem, ActiveTab, Vessel } from '../../types';
+import { JobCall, ActualCostItem, ActiveTab, Vessel, FixTariff, ExpensesItem } from '../../types';
 import { db, buildBranchAwareFDANumber, buildBranchAwareInvoiceNumber, getCurrentBranchName, formatEPDAQuoteNoForDisplay } from '../../db/storage';
+import { calculateTariffForJob, CalculationBasis } from '../../utils/tariff';
 
 interface FDAViewProps {
   initialTab?: 'DASHBOARD' | 'JOB_ID' | 'ACTUAL_COST' | 'QUOTES_VIEW' | 'APPROVAL';
@@ -27,6 +28,8 @@ interface FDAViewProps {
   vessels: Vessel[];
   activeJob: JobCall;
   onSelectJob: (jobId: string) => void;
+  fixTariffs?: FixTariff[];
+  expensesItems?: ExpensesItem[];
   onNavigate: (tab: ActiveTab) => void;
 }
 
@@ -36,6 +39,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
   vessels,
   activeJob,
   onSelectJob,
+  fixTariffs = [],
+  expensesItems = [],
   onNavigate,
 }) => {
   const [subTab, setSubTab] = useState<'DASHBOARD' | 'JOB_ID' | 'ACTUAL_COST' | 'QUOTES_VIEW' | 'APPROVAL'>(initialTab);
@@ -83,6 +88,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const [exchangeRateInput, setExchangeRateInput] = useState<number>(activeJob.exchangeRateUSDToIDR || 15800);
   const [jobMonthFilter, setJobMonthFilter] = useState<string>('');
   const [jobSearch, setJobSearch] = useState('');
+  const [actualEntryMode, setActualEntryMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
   const [actualQuantity, setActualQuantity] = useState(1);
   const [actualList, setActualList] = useState<ActualCostItem[]>(activeJob.actualCosts || []);
 
@@ -130,6 +136,10 @@ export const FDAView: React.FC<FDAViewProps> = ({
     amountSellBilled: 0,
     notes: '',
     attachmentName: '',
+    calculationBasis: 'PER_GRT' as CalculationBasis,
+    tariffType: 'VARIABLE' as 'FIXED' | 'VARIABLE' | 'RANGE',
+    rate: 0,
+    minCharge: 0,
   });
 
 
@@ -180,6 +190,58 @@ export const FDAView: React.FC<FDAViewProps> = ({
     new Date(activeJob.quotation?.epda?.date || activeJob.inquiry?.date || activeJob.createdAt)
   );
   const vesselMaster = vessels.find((vessel) => vessel.id === activeJob.vesselId);
+  const portMatches = (portId?: string, portName?: string) => {
+    const currentPortId = (activeJob.portId || activeJob.inquiry?.portId || '').trim();
+    const currentPortName = (activeJob.portName || activeJob.inquiry?.portName || '').trim();
+    const targetPortId = portId?.trim();
+    const targetPortName = portName?.trim();
+
+    return (!!currentPortId && !!targetPortId && currentPortId === targetPortId)
+      || (!!currentPortName && !!targetPortName && currentPortName.toLowerCase() === targetPortName.toLowerCase());
+  };
+  const autoServiceOptions = [
+    ...fixTariffs
+      .filter((tariff) => portMatches(tariff.portId, tariff.portName))
+      .map((tariff) => ({
+        name: tariff.serviceName,
+        category: tariff.costCategory || 'PORT_EXPENSES',
+        calculationBasis: tariff.calculationBasis,
+        tariffType: tariff.tariffType || (tariff.calculationBasis === 'LUMP_SUM' ? 'FIXED' : 'VARIABLE'),
+        rate: tariff.rate,
+        minCharge: tariff.minCharge,
+        currency: tariff.currency,
+      })),
+    ...expensesItems
+      .filter((item) => portMatches(item.portId, item.portName))
+      .map((item) => ({
+        name: item.name,
+        category: item.category,
+        calculationBasis: 'PER_GRT' as CalculationBasis,
+        tariffType: item.calculationType === 'FIXED' ? 'FIXED' : 'VARIABLE',
+        rate: item.standardCostSell || 0,
+        minCharge: item.standardCostBuy || 0,
+        currency: item.defaultCurrency,
+      })),
+  ].filter((option, index, arr) => option.name && arr.findIndex((item) => item.name === option.name && item.category === option.category) === index);
+
+  const applySelectedAutoService = (selectedName: string) => {
+    const selected = autoServiceOptions.find((option) => option.name === selectedName);
+    if (!selected) {
+      setNewActual({ ...newActual, description: selectedName });
+      return;
+    }
+
+    setViewCurrency(selected.currency ?? viewCurrency);
+    setNewActual({
+      ...newActual,
+      description: selected.name,
+      category: selected.category,
+      calculationBasis: selected.tariffType === 'FIXED' ? 'LUMP_SUM' : selected.calculationBasis,
+      tariffType: selected.tariffType,
+      rate: selected.rate,
+      minCharge: selected.minCharge,
+    });
+  };
   const monthSet = new Set<string>();
 
   jobCalls.forEach((job) => {
@@ -239,7 +301,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
     CREW_EXPENSES: 4,
     CREW_CHANGE: 4,
     AGENCY_FEE: 5,
-    TAX_CONTINGENCY: 6,
+    OWNER_MATTER: 6,
+    TAX_CONTINGENCY: 7,
   };
   const sortedFDAResultRows = [...fdaResultRows].sort((left, right) => {
     const rankDifference = (categoryRank[left.category] || 99) - (categoryRank[right.category] || 99);
@@ -253,6 +316,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       GENERAL_EXPENSES: 'GENERAL EXPENSES',
       CREW_EXPENSES: 'CREW EXPENSES',
       AGENCY_FEE: 'AGENCY FEE',
+      OWNER_MATTER: 'OWNER MATTER',
       TAX_CONTINGENCY: 'TAX & CONTINGENCY',
       VAT_11: 'VAT 11%',
       PPH_INCOME_TAX: 'PPH / INCOME TAX',
@@ -288,7 +352,60 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const approvedJobs = jobCalls.filter((job) => job.managerApproval?.status === 'APPROVED');
   const actualQuantityValue = Number(actualQuantity) || 1;
   const actualTariff = Number(newActual.amountBuy) || 0;
-  const actualAmount = actualQuantityValue * actualTariff;
+  const currentTariffType = newActual.tariffType || (newActual.calculationBasis === 'LUMP_SUM' ? 'FIXED' : 'VARIABLE');
+  const autoTariffPreview = calculateTariffForJob({
+    vesselGRT: vesselMaster?.grt || 0,
+    estimatedDays: Number(activeJob.inquiry?.estimatedDays || 0),
+    hours: 1,
+    moveCount: 1,
+    rate: Number(newActual.rate) || 0,
+    minCharge: Number(newActual.minCharge) || 0,
+    calculationBasis: newActual.calculationBasis || 'PER_GRT',
+    tariffType: currentTariffType,
+  });
+  const actualAmount = actualQuantityValue * (actualEntryMode === 'AUTO' ? autoTariffPreview : actualTariff);
+
+  const handleQuickAddMasterData = () => {
+    const itemName = (newActual.description || '').trim();
+    const rateValue = Number(newActual.amountBuy) || Number(newActual.rate) || 0;
+    if (!itemName || rateValue <= 0) {
+      window.alert('Isi nama item service dan tarif sebelum menambah data master.');
+      return;
+    }
+
+    const portId = (activeJob.portId || activeJob.inquiry?.portId || '').trim();
+    const portName = (activeJob.portName || activeJob.inquiry?.portName || '').trim();
+
+    db.addFixTariff({
+      portId,
+      portName,
+      costCategory: newActual.category || 'PORT_EXPENSES',
+      serviceCode: '',
+      serviceName: itemName,
+      calculationBasis: newActual.calculationBasis || 'LUMP_SUM',
+      tariffType: newActual.tariffType || 'FIXED',
+      currency: viewCurrency,
+      rate: rateValue,
+      minCharge: Number(newActual.minCharge) || rateValue,
+      description: newActual.notes || 'Created from FDA manual entry',
+    });
+
+    db.addExpensesItem({
+      portId: portId || undefined,
+      portName: portName || undefined,
+      code: `FDA-${Date.now().toString().slice(-6)}`,
+      category: (newActual.category || 'PORT_EXPENSES') as any,
+      name: itemName,
+      unit: 'job',
+      defaultCurrency: viewCurrency,
+      standardCostBuy: rateValue,
+      standardCostSell: rateValue,
+      preferredVendor: newActual.vendorName || '',
+      calculationType: newActual.tariffType || 'FIXED',
+    });
+
+    window.alert('Data master item berhasil ditambahkan untuk FDA. Item baru siap dipakai di mode otomatis.');
+  };
 
   const handleAddActualCost = (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -299,7 +416,17 @@ export const FDAView: React.FC<FDAViewProps> = ({
     }
 
     const quantity = Number(actualQuantity) || 1;
-    const tariff = Number(newActual.amountBuy) || 0;
+    const autoTariffValue = calculateTariffForJob({
+      vesselGRT: vesselMaster?.grt || 0,
+      estimatedDays: Number(activeJob.inquiry?.estimatedDays || 0),
+      hours: 1,
+      moveCount: 1,
+      rate: Number(newActual.rate) || 0,
+      minCharge: Number(newActual.minCharge) || 0,
+      calculationBasis: newActual.calculationBasis || 'PER_GRT',
+      tariffType: currentTariffType,
+    });
+    const tariff = actualEntryMode === 'AUTO' ? autoTariffValue : Number(newActual.amountBuy) || 0;
     const calculatedAmount = quantity * tariff;
 
     const normalizedDescription = newActual.description || {
@@ -312,8 +439,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
     if (editingActualId) {
       const updated = actualList.map(it => it.id === editingActualId ? {
         ...it, description: normalizedDescription, category: newActual.category, vendorName: newActual.vendorName || 'Vendor / Pelindo',
-        invoiceOrVoucherNo: newActual.vendorInvoiceNo || `AUTO-${Date.now()}`,  amount: calculatedAmount,
-        pdaAmountEstimated: quotedReferenceValue,
+        invoiceOrVoucherNo: newActual.vendorInvoiceNo || `AUTO-${Date.now()}`, quantity: quantity,
+        amount: calculatedAmount, pdaAmountEstimated: quotedReferenceValue,
         varianceAmount: calculatedAmount - quotedReferenceValue, remarks: newActual.notes,
         attachmentName: newActual.attachmentName || it.attachmentName, status: 'APPROVED_BY_FDA' as const,
       } : it);
@@ -324,8 +451,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
       const item: ActualCostItem = {
         id: `ACT-${Date.now()}`, jobId: activeJob.jobId, itemCode: `EXP-${Math.floor(100 + Math.random() * 900)}`,
         description: normalizedDescription, category: newActual.category, vendorName: newActual.vendorName || 'Vendor / Pelindo',
-        invoiceOrVoucherNo: newActual.vendorInvoiceNo || `AUTO-${Date.now()}`,  date: new Date().toISOString().slice(0, 10), amount: calculatedAmount,
-        currency: viewCurrency, pdaAmountEstimated: quotedReferenceValue,
+        invoiceOrVoucherNo: newActual.vendorInvoiceNo || `AUTO-${Date.now()}`, date: new Date().toISOString().slice(0, 10), quantity,
+        amount: calculatedAmount, currency: viewCurrency, pdaAmountEstimated: quotedReferenceValue,
         varianceAmount: calculatedAmount - quotedReferenceValue, remarks: newActual.notes,
         status: 'APPROVED_BY_FDA', attachmentName: newActual.attachmentName || undefined,
       };
@@ -337,7 +464,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
     setShowAddActualModal(false);
     setEditingActualId(null);
-    setNewActual({ description: '', category: 'PORT_EXPENSES', vendorName: '', vendorInvoiceNo: '', amountBuy: 0, amountSellBilled: 0, notes: '', attachmentName: '' });
+    setNewActual({ description: '', category: 'PORT_EXPENSES', vendorName: '', vendorInvoiceNo: '', amountBuy: 0, amountSellBilled: 0, notes: '', attachmentName: '', calculationBasis: 'PER_GRT', tariffType: 'VARIABLE', rate: 0, minCharge: 0 });
     setActualQuantity(1);
     setTimeout(() => setMsg(null), 3000);
   };
@@ -1216,25 +1343,77 @@ export const FDAView: React.FC<FDAViewProps> = ({
             </div>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
-            <h3 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase text-white"><Plus className="h-4 w-4 text-emerald-400" />Tambah Item FDA</h3>
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <span className="text-[10px] text-slate-500">Mode manual: nama biaya, kategori, tarif, QTY, dan remark diisi langsung tanpa master data tarif atau expenses.</span>
-              <button type="button" onClick={handleAddActualCost} className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-emerald-500"><Plus className="h-4 w-4" />TAMBAH ITEM</button>
+          <div className="rounded-2xl border border-slate-300 bg-[#edf2f4] p-5 shadow-sm">
+            <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex items-center gap-2 text-emerald-600">
+                <Plus className="h-4 w-4" />
+                <h3 className="text-[15px] font-bold uppercase tracking-wide text-slate-700">
+                  {actualEntryMode === 'AUTO' ? 'Tambah Item FDA Otomatis' : 'Tambah Item FDA Manual'}
+                </h3>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => setActualEntryMode('AUTO')} className={`rounded-lg border px-3 py-2 text-[11px] font-semibold ${actualEntryMode === 'AUTO' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-slate-700 hover:border-emerald-500 hover:text-emerald-600'}`}>
+                  Otomatis
+                </button>
+                <button type="button" onClick={() => setActualEntryMode('MANUAL')} className={`rounded-lg border px-3 py-2 text-[11px] font-semibold ${actualEntryMode === 'MANUAL' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-slate-700 hover:border-emerald-500 hover:text-emerald-600'}`}>
+                  Manual
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {actualEntryMode === 'MANUAL' && (
+                  <button type="button" onClick={handleQuickAddMasterData} className="flex items-center gap-1.5 rounded-xl border border-violet-500 bg-violet-600 px-3 py-2 text-[11px] font-bold text-white transition hover:bg-violet-500 shadow-sm">
+                    <Plus className="h-4 w-4" />
+                    TAMBAH DATA MASTER
+                  </button>
+                )}
+                <button type="button" onClick={handleAddActualCost} className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-emerald-500 shadow-sm">
+                  <Plus className="h-4 w-4" />
+                  TAMBAH ITEM
+                </button>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2 lg:grid-cols-7">
-              <div className="lg:col-span-2">
-                <label className="mb-1 block text-slate-400">Item Service</label>
-                <input required value={newActual.description} onChange={(e) => setNewActual({ ...newActual, description: e.target.value })} placeholder="Nama biaya final manual" className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 text-white" />
+            <p className="mb-4 text-xs text-slate-500">
+              {actualEntryMode === 'AUTO'
+                ? 'Mode otomatis: tarif dihitung dari asset dasar job (GRT / hari) dan min charge yang berlaku.'
+                : 'Mode manual: nama biaya, kategori, tarif, QTY, dan remark diisi langsung tanpa master data tarif atau expenses.'}
+            </p>
+
+            {actualEntryMode === 'AUTO' ? (
+              <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2 lg:grid-cols-6">
+                <div className="lg:col-span-2"><label className="mb-1 block text-slate-600">Item Service</label>{autoServiceOptions.length > 0 ? <select value={newActual.description} onChange={(e) => applySelectedAutoService(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="">Pilih item service</option>{autoServiceOptions.map((option) => <option key={`${option.name}-${option.category}`} value={option.name}>{option.name}</option>)}</select> : <input required value={newActual.description} onChange={(e) => setNewActual({ ...newActual, description: e.target.value })} placeholder="Nama biaya final otomatis" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none" />}</div>
+                <div><label className="mb-1 block text-slate-600">Category Cost</label><select value={newActual.category} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="AGENCY_FEE">AGENCY FEE</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option><option value="VAT_11">VAT 11%</option><option value="PPH_INCOME_TAX">PPH / INCOME TAX</option></select></div>
+                <div><label className="mb-1 block text-slate-600">Basis</label><select value={newActual.calculationBasis} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"><option value="PER_GRT">Per GRT</option><option value="PER_DAY">Per Day</option><option value="LUMP_SUM">Lump Sum</option><option value="PER_HOUR">Per Hour</option><option value="PER_MOVE">Per Move</option></select></div>
+                <div><label className="mb-1 block text-slate-600">Type</label><select value={newActual.tariffType} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="RANGE">Range</option></select></div>
+                <div><label className="mb-1 block text-slate-600">Rate</label><input type="text" inputMode="decimal" readOnly value={formatTariffInput(Number(newActual.rate) || 0)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
+                <div><label className="mb-1 block text-slate-600">Min Charge</label><input type="text" inputMode="decimal" readOnly value={formatTariffInput(Number(newActual.minCharge) || 0)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
+                <div><label className="mb-1 block text-slate-600">QTY</label><input type="number" min="1" value={actualQuantity} onChange={(e) => setActualQuantity(Math.max(1, Number(e.target.value) || 1))} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>
+                <div className="lg:col-span-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  <div><label className="mb-1 block text-slate-600">Basis Value</label><input readOnly value={newActual.calculationBasis === 'PER_GRT' ? `${vesselMaster?.grt?.toLocaleString('id-ID') || 0} GRT` : newActual.calculationBasis === 'PER_DAY' ? `${activeJob.inquiry?.estimatedDays || 0} hari` : '1 lump sum'} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
+                  <div><label className="mb-1 block text-slate-600">Tarif ({viewCurrency})</label><input readOnly value={formatAccountingNumber(autoTariffPreview, viewCurrency)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
+                  <div><label className="mb-1 block text-slate-600">Amount</label><input readOnly value={formatAccountingNumber(actualAmount, viewCurrency)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
+                </div>
+                <div className="lg:col-span-6"><label className="mb-1 block text-slate-600">Remark</label><input value={newActual.notes} onChange={(e) => setNewActual({ ...newActual, notes: e.target.value })} placeholder="Keterangan tambahan" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none" /></div>
               </div>
-              <div><label className="mb-1 block text-slate-400">Category Cost</label><select value={newActual.category} onChange={(e) => setNewActual({ ...newActual, category: e.target.value })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 text-white"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="AGENCY_FEE">AGENCY FEE</option><option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option><option value="VAT_11">VAT 11%</option><option value="PPH_INCOME_TAX">PPH / INCOME TAX</option></select></div>
-              <div><label className="mb-1 block text-slate-400">QTY</label><input type="number" min="1" value={actualQuantity} onChange={(e) => setActualQuantity(Math.max(1, Number(e.target.value) || 1))} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 text-white" /></div>
-              <div><label className="mb-1 block text-slate-400">Tarif ({viewCurrency})</label><input type="text" inputMode="decimal" value={formatTariffInput(newActual.amountBuy)} onChange={(e) => setNewActual({ ...newActual, amountBuy: parseTariffInput(e.target.value) })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 text-white" /></div>
-              <div><label className="mb-1 block text-slate-400">Amount (QTY x Tarif)</label><input readOnly value={formatAccountingNumber(actualAmount, viewCurrency)} className="w-full cursor-not-allowed rounded-lg border border-slate-800 bg-slate-950 p-2 text-slate-300" /></div>
-              <div><label className="mb-1 block text-slate-400">Remark</label><input value={newActual.notes} onChange={(e) => setNewActual({ ...newActual, notes: e.target.value })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 text-white" /></div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2 lg:grid-cols-6">
+                <div className="lg:col-span-2"><label className="mb-1 block text-slate-600">Item Service</label><input required value={newActual.description} onChange={(e) => setNewActual({ ...newActual, description: e.target.value })} placeholder="Nama biaya final manual" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none" /></div>
+                <div><label className="mb-1 block text-slate-600">Category Cost</label><select value={newActual.category} onChange={(e) => setNewActual({ ...newActual, category: e.target.value })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="AGENCY_FEE">AGENCY FEE</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option><option value="VAT_11">VAT 11%</option><option value="PPH_INCOME_TAX">PPH / INCOME TAX</option></select></div>
+                <div><label className="mb-1 block text-slate-600">Type</label><select value={newActual.tariffType} onChange={(e) => setNewActual({ ...newActual, tariffType: e.target.value as 'FIXED' | 'VARIABLE' | 'RANGE' })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="RANGE">Range</option></select></div>
+                <div><label className="mb-1 block text-slate-600">QTY</label><input type="number" min="1" value={actualQuantity} onChange={(e) => setActualQuantity(Math.max(1, Number(e.target.value) || 1))} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>
+                <div><label className="mb-1 block text-slate-600">Tarif ({viewCurrency})</label><input type="text" inputMode="decimal" value={formatTariffInput(newActual.amountBuy)} onChange={(e) => setNewActual({ ...newActual, amountBuy: parseTariffInput(e.target.value) })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>
+                <div><label className="mb-1 block text-slate-600">Amount</label><input readOnly value={formatAccountingNumber(actualAmount, viewCurrency)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
+                <div className="lg:col-span-6"><label className="mb-1 block text-slate-600">Remark</label><input value={newActual.notes} onChange={(e) => setNewActual({ ...newActual, notes: e.target.value })} placeholder="Keterangan tambahan" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none" /></div>
+              </div>
+            )}
+
+            <div className="mt-3 text-[10px] text-slate-500">
+              {actualEntryMode === 'AUTO'
+                ? 'Tarif otomatis mengikuti formula GRT/estimasi hari x rate, dengan minimum charge yang sudah ditetapkan.'
+                : 'Tarif dan QTY diisi manual. Amount otomatis dihitung dari Tarif x QTY dan dicatat sebagai biaya final FDA.'}
             </div>
-            <div className="mt-3 text-[10px] text-slate-500">Tarif dan QTY diisi manual. Amount otomatis dihitung dari Tarif x QTY dan dicatat sebagai biaya final FDA.</div>
           </div>
         </div>
       )}
@@ -1362,7 +1541,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
             <p className="text-[11px] text-slate-400 mb-4">Sesuai revisi PDF, user FDA fokus mengisi Amount aktual untuk 1 Job/Vessel Call. Data vendor dan nomor voucher dibuat otomatis bila kosong.</p>
             <form onSubmit={(e) => { e.preventDefault(); e.stopPropagation(); handleAddActualCost(); }} className="space-y-3 text-xs">
               <div><label className="text-slate-400 block mb-1">Description:</label><input type="text" required value={newActual.description} onChange={e=>setNewActual({...newActual,description:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"/></div>
-              <div><label className="text-slate-400 block mb-1">Category:</label><select value={newActual.category} onChange={e=>setNewActual({...newActual,category:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="AGENCY_FEE">AGENCY FEE</option><option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option><option value="VAT_11">VAT 11%</option><option value="PPH_INCOME_TAX">PPH / INCOME TAX</option></select></div>
+              <div><label className="text-slate-400 block mb-1">Category:</label><select value={newActual.category} onChange={e=>setNewActual({...newActual,category:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="AGENCY_FEE">AGENCY FEE</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option><option value="VAT_11">VAT 11%</option><option value="PPH_INCOME_TAX">PPH / INCOME TAX</option></select></div>
               <div><label className="text-slate-400 block mb-1">Tarif ({viewCurrency}):</label><input type="text" inputMode="decimal" required value={formatTariffInput(newActual.amountBuy)} onChange={e=>setNewActual({...newActual,amountBuy:parseTariffInput(e.target.value),amountSellBilled:parseTariffInput(e.target.value)})} className="w-full bg-slate-950 border border-cyan-700 rounded-lg p-2.5 text-white font-mono text-lg"/></div>
               <div><label className="text-slate-400 block mb-1">Remark (opsional):</label><input value={newActual.notes} onChange={e=>setNewActual({...newActual,notes:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"/></div>
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800"><button type="button" onClick={()=>{setShowAddActualModal(false);setEditingActualId(null)}} className="px-3.5 py-1.5 rounded-lg bg-slate-800 text-slate-300">Batal</button><button type="submit" className="px-4 py-1.5 rounded-lg bg-cyan-600 text-white font-bold">Simpan Amount</button></div>

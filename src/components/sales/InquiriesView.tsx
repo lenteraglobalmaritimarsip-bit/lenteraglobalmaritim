@@ -278,10 +278,10 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
 
       {/* New Inquiry Modal */}
       {showNewModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex justify-center p-4 pt-6 overflow-y-auto">
-          <div className="admin-add-modal bg-slate-50 border border-slate-300 rounded-2xl w-full max-w-4xl shadow-2xl p-6 max-h-[94vh] min-h-[72vh] overflow-y-auto self-start">
-            <div className="flex items-center justify-between border-b border-slate-300 pb-3 mb-4">
-              <div>
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex justify-center p-3 sm:p-4">
+          <div className="admin-add-modal bg-slate-100 border border-slate-300 rounded-2xl w-full max-w-5xl shadow-2xl p-4 h-[82vh] overflow-y-auto self-start">
+            <div className="flex items-center justify-between border-b border-slate-300 pb-3 mb-3">
+              <div className="w-full">
                 <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-violet-600">Inquiry Management</div>
                 <h3 className="text-base font-bold text-slate-900 mt-1">
                   Buat Inquiry & Register Job Call ID Baru
@@ -290,15 +290,15 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
               <button
                 type="button"
                 onClick={() => setShowNewModal(false)}
-                className="p-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-500 hover:text-slate-800"
+                className="p-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-500 hover:text-slate-800 shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateInquiry} className="space-y-3.5 text-xs text-slate-700">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
+            <form onSubmit={handleCreateInquiry} autoComplete="off" className="space-y-2 text-xs text-slate-700 overflow-hidden w-full max-w-full bg-slate-100">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
+                <div className="w-full">
                   <label className="text-slate-500 block mb-1 font-semibold">Date Inquiry</label>
                   <input
                     type="date"
@@ -342,8 +342,8 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
+                <div className="w-full">
                   <label className="text-slate-500 block mb-1 font-semibold">Pilih Kapal (Vessel Master)</label>
                   <select
                     value={form.vesselId}
@@ -373,8 +373,8 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full">
+                <div className="w-full">
                   <label className="text-slate-500 block mb-1 font-semibold">IMO Vessel</label>
                   <input
                     readOnly
@@ -400,8 +400,8 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-start">
-                <div className="text-slate-500 text-[10px] leading-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 items-start w-full">
+                <div className="text-slate-500 text-[10px] leading-4 w-full">
                   <label className="block mb-1 font-semibold">GRT (Gross Tonnage)</label>
                   <input readOnly value={selectedVessel?.grt?.toLocaleString() || '-'} className="w-full h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-white font-mono" />
                   <div className="mt-2">
@@ -428,8 +428,8 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                 </label>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
+                <div className="w-full">
                   <label className="text-slate-500 block mb-1 font-semibold">Estimated Time Arrival (ETA)</label>
                   <input
                     type="datetime-local"
@@ -471,8 +471,8 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
+                <div className="w-full">
                   <label className="text-slate-500 block mb-1 font-semibold">Tujuan Kunjungan (Purpose)</label>
                   <select
                     value={form.purposeOfCall}
@@ -481,6 +481,15 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                   >
                     <option value="CARGO_DISCHARGE">Bongkar Muatan (Discharge)</option>
                     <option value="CARGO_LOADING">Muat Kargo (Loading)</option>
+                    <option value="CARGO_OPERATIONS">Cargo Operations</option>
+                    <option value="SHIP_SERVICES_SUPPLIES">Ship Services & Supplies</option>
+                    <option value="CREW_PASSENGER_OPERATIONS">Crew & Passenger Operations</option>
+                    <option value="TECHNICAL_EMERGENCY">Technical & Emergency</option>
+                    <option value="PORT_SERVICE">Port service</option>
+                    <option value="HUSBANDRY_SERVICES">Husbandry Services</option>
+                    <option value="VESSEL_SUPPLIES">Vessel Supplies</option>
+                    <option value="MAINTENANCE_WASTE_MANAGEMENT">Maintenance & Waste Management</option>
+                    <option value="ADMINISTRATIVE_SERVICES">Administrative Services</option>
                     <option value="BUNKERING">Bunkering BBM / Air Tawar</option>
                     <option value="CREW_CHANGE_ONLY">Crew Change Saja</option>
                     <option value="REPAIR_MAINTENANCE">Perbaikan / Docking</option>
@@ -531,7 +540,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-bold flex items-center gap-1.5"
+                  className="px-5 py-2 rounded-lg border border-slate-300 bg-slate-200 text-slate-700 font-semibold shadow-sm flex items-center gap-1.5"
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   <span>Generate Job Call ID</span>

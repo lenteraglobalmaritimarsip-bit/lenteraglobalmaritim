@@ -80,6 +80,9 @@ export const Header: React.FC<HeaderProps> = ({
     const push = (n: HeaderNotification) => { if (!items.some(x => x.id === n.id)) items.push(n); };
 
     jobCalls.forEach((job) => {
+      const isExecutedOrClosed = !!(job.closing?.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED');
+      if (isExecutedOrClosed) return;
+
       const epdaSubmitted = job.quotation?.epda?.status === 'SUBMITTED';
       const approval = job.managerApproval?.status;
 

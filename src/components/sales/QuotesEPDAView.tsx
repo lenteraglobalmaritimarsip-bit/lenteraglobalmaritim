@@ -1,30 +1,53 @@
 import React, { useState } from 'react';
 import { FileSpreadsheet, Plus, Trash2, Save, Ship, Building, CheckCircle2, Download, Printer, Eye, Send } from 'lucide-react';
-import { JobCall, DisbursementItem, Currency, User, Vessel } from '../../types';
+import { JobCall, DisbursementItem, Currency, User, Vessel, FixTariff, ExpensesItem } from '../../types';
 import { db, getCurrentBranchName, buildBranchAwareEPDANumber } from '../../db/storage';
+import { calculateTariffForJob, CalculationBasis } from '../../utils/tariff';
 
 interface QuotesEPDAViewProps {
-  job: JobCall;
+  job?: JobCall;
   vessels: Vessel[];
   onSelectJob: (jobId: string) => void;
   allJobs: JobCall[];
   users: User[];
+  fixTariffs?: FixTariff[];
+  expensesItems?: ExpensesItem[];
   onDataSaved?: () => void;
 }
 
-export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, users, onDataSaved }) => {
+export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, users, fixTariffs = [], expensesItems = [], onDataSaved }) => {
+  if (!job) {
+    return (
+      <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-5 text-sm text-amber-200">
+        Data EPDA belum tersedia untuk job yang dipilih.
+      </div>
+    );
+  }
+
   const isReviewOnly = false;
-  const initialCurrency: Currency = job.quotation.epda.currency || job.currency || 'IDR';
+  const epdaQuote = job.quotation?.epda || {
+    quoteNo: '',
+    date: job.inquiry?.date || new Date().toISOString().slice(0, 10),
+    currency: job.currency || 'USD',
+    items: [] as DisbursementItem[],
+    totalBuyRate: 0,
+    totalSellRate: 0,
+    marginAmount: 0,
+    marginPercentage: 0,
+    status: 'DRAFT' as const,
+  };
+  const initialCurrency: Currency = epdaQuote.currency || job.currency || 'IDR';
   const [viewCurrency, setViewCurrency] = useState<Currency>(initialCurrency);
-  const [items, setItems] = useState<DisbursementItem[]>(() => (job.quotation.epda.items || []).map((item) => ({
+  const [items, setItems] = useState<DisbursementItem[]>(() => (epdaQuote.items || []).map((item) => ({
     ...item,
     currency: initialCurrency,
-    totalBuyRate: item.unitBuyRate * (item.quantity || 1),
-    totalSellRate: item.unitBuyRate * (item.quantity || 1),
-    unitSellRate: item.unitBuyRate * (item.quantity || 1),
+    totalBuyRate: Number(item.unitBuyRate || 0) * (item.quantity || 1),
+    totalSellRate: Number(item.unitSellRate || item.unitBuyRate || 0) * (item.quantity || 1),
+    unitSellRate: Number(item.unitSellRate || item.unitBuyRate || 0),
   })));
   const [exchangeRate, setExchangeRate] = useState<number>(job.exchangeRateUSDToIDR || 15800);
   const [isSaved, setIsSaved] = useState(false);
+  const [itemEntryMode, setItemEntryMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
   const [newItem, setNewItem] = useState({
     name: '',
     category: 'PORT_EXPENSES',
@@ -34,6 +57,10 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     unitSellRate: 0,
     amount: 0,
     remarks: '',
+    calculationBasis: 'PER_GRT' as CalculationBasis,
+    tariffType: 'VARIABLE' as 'FIXED' | 'VARIABLE' | 'RANGE',
+    rate: 0,
+    minCharge: 0,
   });
 
   const formatAmount = (value: number) => viewCurrency === 'IDR'
@@ -80,6 +107,58 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   const vesselMaster = vessels.find((vessel) => vessel.id === job.vesselId);
   const activeBranchName = getCurrentBranchName();
   const epdaNo = buildBranchAwareEPDANumber(job.jobId, activeBranchName, documentDate);
+  const portMatches = (portId?: string, portName?: string) => {
+    const currentPortId = (job.portId || job.inquiry?.portId || '').trim();
+    const currentPortName = (job.portName || job.inquiry?.portName || '').trim();
+    const targetPortId = portId?.trim();
+    const targetPortName = portName?.trim();
+
+    return (!!currentPortId && !!targetPortId && currentPortId === targetPortId)
+      || (!!currentPortName && !!targetPortName && currentPortName.toLowerCase() === targetPortName.toLowerCase());
+  };
+  const autoServiceOptions = [
+    ...fixTariffs
+      .filter((tariff) => portMatches(tariff.portId, tariff.portName))
+      .map((tariff) => ({
+        name: tariff.serviceName,
+        category: tariff.costCategory || 'PORT_EXPENSES',
+        calculationBasis: tariff.calculationBasis,
+        tariffType: tariff.tariffType || (tariff.calculationBasis === 'LUMP_SUM' ? 'FIXED' : 'VARIABLE'),
+        rate: tariff.rate,
+        minCharge: tariff.minCharge,
+        currency: tariff.currency,
+      })),
+    ...expensesItems
+      .filter((item) => portMatches(item.portId, item.portName))
+      .map((item) => ({
+        name: item.name,
+        category: item.category,
+        calculationBasis: 'PER_GRT' as CalculationBasis,
+        tariffType: item.calculationType === 'FIXED' ? 'FIXED' : 'VARIABLE',
+        rate: item.standardCostSell || 0,
+        minCharge: item.standardCostBuy || 0,
+        currency: item.defaultCurrency,
+      })),
+  ].filter((option, index, arr) => option.name && arr.findIndex((item) => item.name === option.name && item.category === option.category) === index);
+
+  const applySelectedAutoService = (selectedName: string) => {
+    const selected = autoServiceOptions.find((option) => option.name === selectedName);
+    if (!selected) {
+      setNewItem({ ...newItem, name: selectedName });
+      return;
+    }
+
+    setViewCurrency(selected.currency ?? viewCurrency);
+    setNewItem({
+      ...newItem,
+      name: selected.name,
+      category: selected.category,
+      calculationBasis: selected.tariffType === 'FIXED' ? 'LUMP_SUM' : selected.calculationBasis,
+      tariffType: selected.tariffType,
+      rate: selected.rate,
+      minCharge: selected.minCharge,
+    });
+  };
 
   const persist = () => {
     const currencyItems = items.map((item) => ({ ...item, currency: viewCurrency }));
@@ -114,25 +193,86 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     onDataSaved?.();
   };
 
+  const handleQuickAddMasterData = () => {
+    const itemName = newItem.name.trim();
+    const rateValue = Number(newItem.unitBuyRate) || Number(newItem.rate) || 0;
+    if (!itemName) {
+      window.alert('Isi nama item service terlebih dahulu sebelum menambah data master.');
+      return;
+    }
+
+    const portId = (job.portId || job.inquiry?.portId || '').trim();
+    const portName = (job.portName || job.inquiry?.portName || '').trim();
+    const quickRate = rateValue || Number(newItem.amount) || 0;
+
+    const tariffPayload = {
+      portId,
+      portName,
+      costCategory: newItem.category || 'PORT_EXPENSES',
+      serviceCode: '',
+      serviceName: itemName,
+      calculationBasis: newItem.calculationBasis || 'LUMP_SUM',
+      tariffType: newItem.tariffType || 'FIXED',
+      currency: viewCurrency,
+      rate: quickRate,
+      minCharge: quickRate,
+      description: newItem.remarks || 'Created from EPDA manual entry',
+    };
+
+    const expensePayload = {
+      portId: portId || undefined,
+      portName: portName || undefined,
+      code: `EPDA-${Date.now().toString().slice(-6)}`,
+      category: (newItem.category || 'PORT_EXPENSES') as any,
+      name: itemName,
+      unit: 'job',
+      defaultCurrency: viewCurrency,
+      standardCostBuy: quickRate,
+      standardCostSell: quickRate,
+      preferredVendor: '',
+      calculationType: newItem.tariffType || 'FIXED',
+    };
+
+    db.addFixTariff(tariffPayload);
+    db.addExpensesItem(expensePayload);
+    window.alert('Data master item berhasil ditambahkan. Item baru akan muncul di daftar otomatis.');
+  };
+
   const handleAddItem = (e: React.FormEvent) => {
     e.preventDefault();
     if (isReviewOnly) return;
     if (!newItem.name.trim()) return;
 
     const quantity = Number(newItem.quantity) || 1;
-    const unitBuyRate = Number(newItem.unitBuyRate) || 0;
-    const amount = quantity * unitBuyRate;
+    const selectedBasis = newItem.calculationBasis || 'PER_GRT';
+    const selectedType = newItem.tariffType || (selectedBasis === 'LUMP_SUM' ? 'FIXED' : 'VARIABLE');
+    const manualRate = Number(newItem.unitBuyRate) || 0;
+    const autoRate = Number(newItem.rate) || 0;
+    const autoMinCharge = Number(newItem.minCharge) || 0;
+    const tariffRate = itemEntryMode === 'AUTO' ? calculateTariffForJob({
+      vesselGRT: vesselMaster?.grt || 0,
+      estimatedDays: Number(job.inquiry?.estimatedDays || 0),
+      hours: 1,
+      moveCount: 1,
+      rate: autoRate,
+      minCharge: autoMinCharge,
+      calculationBasis: selectedBasis,
+      tariffType: selectedType,
+    }) : manualRate;
+    const calculatedAmount = quantity * tariffRate;
     const item: DisbursementItem = {
       id: `ITM-EPDA-${Date.now()}`,
       expenseItemId: '',
       name: newItem.name.trim(),
       category: newItem.category,
-      basis: newItem.basis,
+      basis: itemEntryMode === 'AUTO'
+        ? `${selectedBasis.replace(/_/g, ' ')} · ${autoRate > 0 ? `Rp ${autoRate.toLocaleString('id-ID')}` : 'rate belum diisi'}`
+        : newItem.basis,
       quantity,
-      unitBuyRate,
-      unitSellRate: Number(newItem.unitSellRate) || 0,
-      totalBuyRate: amount,
-      totalSellRate: amount,
+      unitBuyRate: tariffRate,
+      unitSellRate: Number(newItem.unitSellRate) || tariffRate,
+      totalBuyRate: calculatedAmount,
+      totalSellRate: calculatedAmount,
       currency: viewCurrency,
       remarks: newItem.remarks,
     };
@@ -147,6 +287,10 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       unitSellRate: 0,
       amount: 0,
       remarks: '',
+      calculationBasis: 'PER_GRT',
+      tariffType: 'VARIABLE',
+      rate: 0,
+      minCharge: 0,
     });
   };
 
@@ -172,6 +316,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     CREW_CHANGE: 4,
     AGENCY_FEE: 5,
     TAX_CONTINGENCY: 6,
+    OWNER_MATTER: 7,
   };
   const sortedItems = [...items].sort((left, right) => {
     const rankDifference = (categoryRank[left.category] || 99) - (categoryRank[right.category] || 99);
@@ -185,6 +330,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       CREW_EXPENSES: 'CREW EXPENSES',
       AGENCY_FEE: 'AGENCY FEE',
       TAX_CONTINGENCY: 'TAX & CONTINGENCY',
+      OWNER_MATTER: 'OWNER MATTER',
       VAT_11: 'VAT 11%',
       PPH_INCOME_TAX: 'PPH / INCOME TAX',
     };
@@ -328,52 +474,178 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
         <div className="overflow-x-auto"><table className="w-full text-left text-xs border-separate border-spacing-0"><thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider"><tr><th className="p-3.5 border-l border-slate-700">No</th><th className="p-3.5 border-l border-slate-700">Description</th><th className="p-3.5 border-l border-slate-700">Currency</th><th className="p-3.5 text-right border-l border-slate-700">Amount</th><th className="p-3.5 border-l border-slate-700">Remark</th></tr></thead><tbody className="divide-y divide-slate-800">{groupedItems.map((group) => <React.Fragment key={group.category}><tr className={`${categoryTone.screen} font-bold`}><td colSpan={5} style={{ color: '#fff', backgroundColor: '#4b5563' }} className="p-2.5 font-black uppercase tracking-[0.16em] border-l border-slate-700">{categoryLabel(group.category)}</td></tr>{group.items.map((it, index) => <tr key={it.id} className="transition-colors hover:bg-slate-700/40"><td className="p-3.5 font-mono text-slate-300 border-l border-slate-800">{index + 1}</td><td className="p-3.5 font-bold text-white border-l border-slate-800">{it.name}</td><td className="p-3.5 font-mono text-cyan-300 uppercase border-l border-slate-800">{it.currency || viewCurrency}</td><td className="p-3.5 text-right font-mono font-bold text-white border-l border-slate-800">{formatAmount(it.totalSellRate)}</td><td className="p-3.5 text-slate-300 border-l border-slate-800"><div className="flex items-center justify-between gap-3"><span>{it.remarks || '-'}</span><button type="button" onClick={() => autosaveItems(items.filter((item) => item.id !== it.id))} className="p-1.5 rounded-md text-rose-300 hover:bg-rose-500/20 hover:text-rose-200" title="Hapus item EPDA" aria-label={`Hapus ${it.name}`}><Trash2 className="w-3.5 h-3.5" /></button></div></td></tr>)}<tr className="bg-slate-950/70"><td colSpan={3} className="p-2.5 text-right font-bold uppercase tracking-wider text-slate-200 border-l border-slate-800">SUB TOTAL</td><td className="p-2.5 text-right font-mono font-bold text-white border-l border-slate-800">{formatAmount(group.items.reduce((sum, item) => sum + item.totalSellRate, 0))}</td><td className="border-l border-slate-800" /></tr></React.Fragment>)}</tbody><tfoot className="bg-slate-950"><tr><td colSpan={3} className="p-3.5 text-right font-black uppercase tracking-wider text-white border-l border-slate-800">GRAND TOTAL</td><td className="p-3.5 text-right font-mono text-lg font-black text-white border-l border-slate-800">{formatAmount(totalSellUSD)}</td><td className="border-l border-slate-800"/></tr></tfoot></table></div>
       </div>
 
-      {!isReviewOnly && <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-        <h3 className="text-xs font-bold text-white uppercase mb-3 flex items-center gap-2"><Plus className="w-4 h-4 text-emerald-400"/>Tambah Item EPDA</h3>
-        <div className="flex items-center justify-between gap-3 mb-3">
-          <span className="text-[10px] text-slate-500">Mode manual: semua data item EPDA diisi langsung tanpa master tarif atau expenses.</span>
+      {!isReviewOnly && <div className="rounded-2xl border border-slate-300 bg-[#edf2f4] p-5 shadow-sm">
+        <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex items-center gap-2 text-emerald-600">
+            <Plus className="h-4 w-4" />
+            <h3 className="text-[15px] font-bold uppercase tracking-wide text-slate-700">
+              {itemEntryMode === 'AUTO' ? 'Tambah Item EPDA Otomatis' : 'Tambah Item EPDA Manual'}
+            </h3>
+          </div>
+
           <div className="flex items-center gap-2">
-            <button type="submit" form="epda-entry-form" className="px-3.5 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-500 flex items-center gap-1.5"><Plus className="w-4 h-4"/>TAMBAH ITEM</button>
+            <button type="button" onClick={() => setItemEntryMode('AUTO')} className={`rounded-lg border px-3 py-2 text-[11px] font-semibold ${itemEntryMode === 'AUTO' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-slate-700 hover:border-emerald-500 hover:text-emerald-600'}`}>
+              Otomatis
+            </button>
+            <button type="button" onClick={() => setItemEntryMode('MANUAL')} className={`rounded-lg border px-3 py-2 text-[11px] font-semibold ${itemEntryMode === 'MANUAL' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-slate-700 hover:border-emerald-500 hover:text-emerald-600'}`}>
+              Manual
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {itemEntryMode === 'MANUAL' && (
+              <button type="button" onClick={handleQuickAddMasterData} className="flex items-center gap-1.5 rounded-xl border border-violet-500 bg-violet-600 px-3 py-2 text-[11px] font-bold text-white transition hover:bg-violet-500 shadow-sm">
+                <Plus className="h-4 w-4" />
+                TAMBAH DATA MASTER
+              </button>
+            )}
+            <button type="submit" form={itemEntryMode === 'AUTO' ? 'epda-auto-entry-form' : 'epda-entry-form'} className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-emerald-500 shadow-sm">
+              <Plus className="h-4 w-4" />
+              TAMBAH ITEM
+            </button>
           </div>
         </div>
 
-        <form id="epda-entry-form" onSubmit={handleAddItem} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-3 text-xs">
-          <div className="lg:col-span-2">
-            <label className="text-slate-400 block mb-1">Item Service</label>
-            <input required value={newItem.name} onChange={e => setNewItem({ ...newItem, name: e.target.value })} placeholder="Nama service manual" className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"/>
-          </div>
-          <div>
-            <label className="text-slate-400 block mb-1">Category Cost</label>
-            <select value={newItem.category} onChange={e => setNewItem({ ...newItem, category: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white">
-              <option value="PORT_EXPENSES">PORT EXPENSES</option>
-              <option value="CLEARANCE">CLEARANCE IN/OUT</option>
-              <option value="GENERAL_EXPENSES">GENERAL EXPENSES</option>
-              <option value="CREW_EXPENSES">CREW EXPENSES</option>
-              <option value="AGENCY_FEE">AGENCY FEE</option>
-              <option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option>
-              <option value="VAT_11">VAT 11%</option>
-              <option value="PPH_INCOME_TAX">PPH / INCOME TAX</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-slate-400 block mb-1">QTY</label>
-            <input type="number" min="1" step="1" value={newItem.quantity} onChange={e => setNewItem({ ...newItem, quantity: Math.max(1, Number(e.target.value) || 1) })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"/>
-          </div>
-          <div>
-            <label className="text-slate-400 block mb-1">Tarif ({viewCurrency})</label>
-            <input type="text" inputMode="decimal" value={formatEntryAmount(newItem.unitBuyRate)} onChange={e => setNewItem({ ...newItem, unitBuyRate: parseEntryAmount(e.target.value) as number })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"/>
-          </div>
-          <div>
-            <label className="text-slate-400 block mb-1">Amount</label>
-            <input type="text" value={formatEntryAmount((Number(newItem.quantity) || 1) * (Number(newItem.unitBuyRate) || 0))} readOnly className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-300 cursor-not-allowed"/>
-          </div>
-          <div>
-            <label className="text-slate-400 block mb-1">Remark</label>
-            <input value={newItem.remarks} onChange={e => setNewItem({ ...newItem, remarks: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"/>
-          </div>
-        </form>
+        <p className="mb-4 text-xs text-slate-500">
+          {itemEntryMode === 'AUTO'
+            ? 'Mode otomatis: tarif dihitung dari basis port/vessel dan data estimasi job, lalu diinput ke item EPDA.'
+            : 'Mode manual: semua data item EPDA diisi langsung tanpa master tarif atau expenses.'}
+        </p>
 
-        <div className="mt-3 text-[10px] text-slate-500">Amount dihitung otomatis dari QTY x Tarif. Data item lainnya tetap diisi secara manual.</div>
+        {itemEntryMode === 'AUTO' ? (
+          <form id="epda-auto-entry-form" onSubmit={handleAddItem} className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2 lg:grid-cols-6">
+            <div className="lg:col-span-2">
+              <label className="mb-1 block text-slate-600">Item Service</label>
+              {autoServiceOptions.length > 0 ? (
+                <select
+                  value={newItem.name}
+                  onChange={(e) => applySelectedAutoService(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"
+                >
+                  <option value="">Pilih item service</option>
+                  {autoServiceOptions.map((option) => (
+                    <option key={`${option.name}-${option.category}`} value={option.name}>{option.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <input required value={newItem.name} onChange={e => setNewItem({ ...newItem, name: e.target.value })} placeholder="Nama service otomatis" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none"/>
+              )}
+            </div>
+            <div>
+              <label className="mb-1 block text-slate-600">Category Cost</label>
+              <select value={newItem.category} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500">
+                <option value="PORT_EXPENSES">PORT EXPENSES</option>
+                <option value="CLEARANCE">CLEARANCE IN/OUT</option>
+                <option value="GENERAL_EXPENSES">GENERAL EXPENSES</option>
+                <option value="CREW_EXPENSES">CREW EXPENSES</option>
+                <option value="AGENCY_FEE">AGENCY FEE</option>
+                <option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option>
+                <option value="OWNER_MATTER">OWNER MATTER</option>
+                <option value="VAT_11">VAT 11%</option>
+                <option value="PPH_INCOME_TAX">PPH / INCOME TAX</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-slate-600">Basis</label>
+              <select value={newItem.calculationBasis} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500">
+                <option value="PER_GRT">Per GRT</option>
+                <option value="PER_DAY">Per Day</option>
+                <option value="LUMP_SUM">Lump Sum</option>
+                <option value="PER_HOUR">Per Hour</option>
+                <option value="PER_MOVE">Per Move</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-slate-600">Type</label>
+              <select value={newItem.tariffType} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500">
+                <option value="FIXED">Fixed</option>
+                <option value="VARIABLE">Variabel</option>
+                <option value="RANGE">Range</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-slate-600">Rate</label>
+              <input type="text" inputMode="decimal" readOnly value={formatEntryAmount(Number(newItem.rate) || 0)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"/>
+            </div>
+            <div>
+              <label className="mb-1 block text-slate-600">Min Charge</label>
+              <input type="text" inputMode="decimal" readOnly value={formatEntryAmount(Number(newItem.minCharge) || 0)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"/>
+            </div>
+            <div>
+              <label className="mb-1 block text-slate-600">QTY</label>
+              <input type="number" min="1" step="1" value={newItem.quantity} onChange={e => setNewItem({ ...newItem, quantity: Math.max(1, Number(e.target.value) || 1) })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"/>
+            </div>
+            <div className="lg:col-span-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <div>
+                <label className="mb-1 block text-slate-600">Basis Value</label>
+                <input readOnly value={newItem.calculationBasis === 'PER_GRT' ? `${vesselMaster?.grt?.toLocaleString('id-ID') || 0} GRT` : newItem.calculationBasis === 'PER_DAY' ? `${job.inquiry?.estimatedDays || 0} hari` : '1 lump sum'} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"/>
+              </div>
+              <div>
+                <label className="mb-1 block text-slate-600">Tarif ({viewCurrency})</label>
+                <input readOnly value={formatEntryAmount(calculateTariffForJob({ vesselGRT: vesselMaster?.grt || 0, estimatedDays: Number(job.inquiry?.estimatedDays || 0), hours: 1, moveCount: 1, rate: Number(newItem.rate) || 0, minCharge: Number(newItem.minCharge) || 0, calculationBasis: newItem.calculationBasis }))} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"/>
+              </div>
+              <div>
+                <label className="mb-1 block text-slate-600">Amount</label>
+                <input readOnly value={formatEntryAmount((Number(newItem.quantity) || 1) * calculateTariffForJob({ vesselGRT: vesselMaster?.grt || 0, estimatedDays: Number(job.inquiry?.estimatedDays || 0), hours: 1, moveCount: 1, rate: Number(newItem.rate) || 0, minCharge: Number(newItem.minCharge) || 0, calculationBasis: newItem.calculationBasis }))} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"/>
+              </div>
+            </div>
+            <div className="lg:col-span-6">
+              <label className="mb-1 block text-slate-600">Remark</label>
+              <input value={newItem.remarks} onChange={e => setNewItem({ ...newItem, remarks: e.target.value })} placeholder="Keterangan tambahan" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none"/>
+            </div>
+          </form>
+        ) : (
+          <form id="epda-entry-form" onSubmit={handleAddItem} className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2 lg:grid-cols-6">
+            <div className="lg:col-span-2">
+              <label className="mb-1 block text-slate-600">Item Service</label>
+              <input required value={newItem.name} onChange={e => setNewItem({ ...newItem, name: e.target.value })} placeholder="Nama service manual" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none"/>
+            </div>
+            <div>
+              <label className="mb-1 block text-slate-600">Category Cost</label>
+              <select value={newItem.category} onChange={e => setNewItem({ ...newItem, category: e.target.value })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none">
+                <option value="PORT_EXPENSES">PORT EXPENSES</option>
+                <option value="CLEARANCE">CLEARANCE IN/OUT</option>
+                <option value="GENERAL_EXPENSES">GENERAL EXPENSES</option>
+                <option value="CREW_EXPENSES">CREW EXPENSES</option>
+                <option value="AGENCY_FEE">AGENCY FEE</option>
+                <option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option>
+                <option value="OWNER_MATTER">OWNER MATTER</option>
+                <option value="VAT_11">VAT 11%</option>
+                <option value="PPH_INCOME_TAX">PPH / INCOME TAX</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-slate-600">Type</label>
+              <select value={newItem.tariffType} onChange={e => setNewItem({ ...newItem, tariffType: e.target.value as 'FIXED' | 'VARIABLE' | 'RANGE' })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none">
+                <option value="FIXED">Fixed</option>
+                <option value="VARIABLE">Variabel</option>
+                <option value="RANGE">Range</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-slate-600">QTY</label>
+              <input type="number" min="1" step="1" value={newItem.quantity} onChange={e => setNewItem({ ...newItem, quantity: Math.max(1, Number(e.target.value) || 1) })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"/>
+            </div>
+            <div>
+              <label className="mb-1 block text-slate-600">Tarif ({viewCurrency})</label>
+              <input type="text" inputMode="decimal" value={formatEntryAmount(newItem.unitBuyRate)} onChange={e => setNewItem({ ...newItem, unitBuyRate: parseEntryAmount(e.target.value) as number })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"/>
+            </div>
+            <div>
+              <label className="mb-1 block text-slate-600">Amount</label>
+              <input type="text" value={formatEntryAmount((Number(newItem.quantity) || 1) * (Number(newItem.unitBuyRate) || 0))} readOnly className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"/>
+            </div>
+            <div className="lg:col-span-6">
+              <label className="mb-1 block text-slate-600">Remark</label>
+              <input value={newItem.remarks} onChange={e => setNewItem({ ...newItem, remarks: e.target.value })} placeholder="Keterangan tambahan" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none"/>
+            </div>
+          </form>
+        )}
+
+        <div className="mt-3 text-[10px] text-slate-500">
+          {itemEntryMode === 'AUTO'
+            ? 'Formula otomatis: basis x rate, dengan minimum charge yang diizinkan.'
+            : 'Amount dihitung otomatis dari QTY x Tarif. Data item lainnya tetap diisi secara manual.'}
+        </div>
       </div>}
     </div>
   );

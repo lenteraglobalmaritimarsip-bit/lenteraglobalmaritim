@@ -94,6 +94,7 @@ export interface FixTariff {
   id: string;
   portId: string;
   portName: string;
+  costCategory?: string;
   serviceCode: string;
   serviceName: string;
   calculationBasis: 'PER_GRT' | 'PER_DAY' | 'LUMP_SUM' | 'PER_HOUR' | 'PER_MOVE';
@@ -107,6 +108,8 @@ export interface FixTariff {
 
 export interface ExpensesItem {
   id: string;
+  portId?: string;
+  portName?: string;
   code: string;
   category:
     | 'PORT_EXPENSES'
@@ -177,6 +180,7 @@ export interface ActualCostItem {
   vendorName: string;
   invoiceOrVoucherNo: string;
   date: string;
+  quantity?: number;
   amount: number;
   currency: Currency;
   pdaAmountEstimated: number;

@@ -215,19 +215,19 @@ export default function App() {
 
   const branchVisibleJobCalls = currentUser && currentUser.role === 'SALES'
     ? data.jobCalls.filter((job) => {
-        const jobBranch = job.inquiry?.createdByBranch
-          || job.inquiry?.createdByBranchCode
-          || job.inquiry?.createdBy
-          || currentUser.branch
-          || 'Head Office';
+        const directBranch = job.inquiry?.createdByBranch || job.inquiry?.createdByBranchCode;
+        const currentBranch = normalizeBranchCode(currentUser.branch || 'Head Office');
 
-        return normalizeBranchCode(jobBranch) === normalizeBranchCode(currentUser.branch || 'Head Office');
+        if (!directBranch) return true;
+        return normalizeBranchCode(directBranch) === currentBranch;
       })
     : data.jobCalls;
 
   const currentJob: JobCall =
     branchVisibleJobCalls.find((j) => j.jobId === selectedJobId) ||
+    data.jobCalls.find((j) => j.jobId === selectedJobId) ||
     branchVisibleJobCalls[0] ||
+    data.jobCalls[0] ||
     ({} as JobCall);
 
   if (!currentUser) return <LoginView onLogin={handleLogin} />;
@@ -348,6 +348,8 @@ export default function App() {
                 onSelectJob={setSelectedJobId}
                 allJobs={branchVisibleJobCalls}
                 users={data.users}
+                fixTariffs={data.fixTariffs}
+                expensesItems={data.expensesItems}
                 onDataSaved={notifySaved}
               />
             )}
@@ -448,6 +450,8 @@ export default function App() {
                   vessels={data.vessels}
                   activeJob={currentJob}
                   onSelectJob={setSelectedJobId}
+                  fixTariffs={data.fixTariffs}
+                  expensesItems={data.expensesItems}
                   onNavigate={setActiveTab}
                 />
               )}
