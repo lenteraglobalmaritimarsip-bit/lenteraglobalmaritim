@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>Panduan Template Master Data</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; color: #172033; font-size: 10.5pt; line-height: 1.45; }
+  h1 { color: #123c7a; font-size: 24pt; margin: 0 0 6px; }
+  h2 { color: #123c7a; font-size: 16pt; border-bottom: 2px solid #d8e3f2; padding-bottom: 5px; margin-top: 24px; }
+  h3 { color: #24599c; font-size: 12pt; margin-bottom: 5px; }
+  .cover { background: #edf4fc; border-left: 7px solid #1d5fa7; padding: 22px 24px; margin-bottom: 18px; }
+  .subtitle { color: #52637a; font-size: 11pt; }
+  .note { background: #fff7df; border: 1px solid #e8c66a; padding: 9px 12px; margin: 10px 0; }
+  .info { background: #eef8f2; border: 1px solid #9bd0ad; padding: 9px 12px; margin: 10px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; font-size: 9pt; }
+  th { background: #1d5fa7; color: white; text-align: left; padding: 7px; }
+  td { border: 1px solid #cbd5e1; padding: 6px 7px; vertical-align: top; }
+  tr:nth-child(even) td { background: #f6f9fc; }
+  code { font-family: Consolas, monospace; background: #f0f3f7; padding: 1px 3px; }
+  .example { font-family: Consolas, monospace; font-size: 8.5pt; background: #f4f6f8; border: 1px solid #d8dee6; padding: 9px; white-space: pre-wrap; }
+  .small { font-size: 8.5pt; color: #52637a; }
+  li { margin: 4px 0; }
+  .footer { margin-top: 28px; border-top: 1px solid #cbd5e1; padding-top: 7px; color: #64748b; font-size: 8.5pt; }
+</style>
+</head>
+<body>
+  <section class="cover">
+    <h1>Panduan Template Master Data</h1>
+    <div class="subtitle">Fix Tariff dan Expenses Item - MaritimPort Admin</div>
+    <p>Dokumen ini menjelaskan fungsi setiap kolom, nilai yang diperbolehkan, contoh pengisian, dan alur upload template Excel ke Master Data.</p>
+  </section>
+
+  <h2>1. Tujuan Template</h2>
+  <p>Template Excel digunakan untuk memasukkan banyak data master sekaligus melalui menu Admin. Admin cukup mengisi satu baris untuk satu data, menyimpan file, lalu memilih tombol <b>Upload Excel</b>.</p>
+  <div class="info"><b>Catatan:</b> Template dibuat langsung dari aplikasi dalam format <code>.xlsx</code>. Header kolom harus dipertahankan agar sistem dapat membacanya.</div>
+
+  <h2>2. Template Fix Tariff</h2>
+  <p>Fix Tariff berisi daftar tarif layanan berdasarkan pelabuhan. Data ini menjadi referensi harga ketika layanan dipakai pada proses quotation, PDA, atau perhitungan biaya.</p>
+  <h3>Kolom Fix Tariff</h3>
+  <table>
+    <tr><th>Kolom</th><th>Fungsi</th><th>Contoh / Aturan</th></tr>
+    <tr><td><code>portId</code></td><td>ID unik pelabuhan dari Master Data Ports.</td><td>Contoh: <code>port-001</code>. Boleh dikosongkan jika <code>portName</code> diisi dengan benar.</td></tr>
+    <tr><td><code>portName</code></td><td>Nama pelabuhan untuk menghubungkan tarif dengan port.</td><td>Contoh: <code>Batu Ampar, Batam</code>.</td></tr>
+    <tr><td><code>costCategory</code></td><td>Kategori biaya layanan.</td><td><code>PORT_EXPENSES</code>, <code>CLEARANCE</code>, <code>GENERAL_EXPENSES</code>, <code>CREW_EXPENSES</code>, <code>OWNER_MATTER</code>, <code>AGENCY_FEE</code>.</td></tr>
+    <tr><td><code>tariffType</code></td><td>Jenis tarif yang digunakan.</td><td><code>FIXED</code> untuk tarif tetap, <code>VARIABLE</code> untuk tarif berubah, <code>RANGE</code> untuk tarif berdasarkan rentang.</td></tr>
+    <tr><td><code>serviceName</code></td><td>Nama layanan atau item tarif.</td><td>Contoh: <code>Harbour Pilotage Service</code>.</td></tr>
+    <tr><td><code>rate</code></td><td>Nilai tarif dasar.</td><td>Contoh: <code>420</code>. Isi angka tanpa simbol mata uang.</td></tr>
+    <tr><td><code>currency</code></td><td>Mata uang tarif.</td><td>Hanya <code>USD</code> atau <code>IDR</code>.</td></tr>
+    <tr><td><code>minCharge</code></td><td>Minimum charge atau biaya minimum.</td><td>Contoh: <code>500</code>. Isi <code>0</code> jika tidak ada minimum.</td></tr>
+  </table>
+  <h3>Contoh Baris Fix Tariff</h3>
+  <div class="example">portId | portName | costCategory | tariffType | serviceName | rate | currency | minCharge
+port-001 | Batu Ampar, Batam | PORT_EXPENSES | VARIABLE | Harbour Pilotage Service | 0.038 | USD | 500</div>
+  <div class="note"><b>Perhatian:</b> Kolom <code>calculationBasis</code>, <code>serviceCode</code>, dan <code>description</code> tidak ada di template karena tidak digunakan pada form tambah saat ini. Sistem otomatis memberi nilai default untuk field internal yang tidak ditampilkan.</div>
+
+  <h2>3. Template Expenses Item</h2>
+  <p>Expenses Item berisi daftar item biaya operasional. Data ini menjadi master referensi untuk biaya pembelian, biaya penjualan, quotation, dan actual cost.</p>
+  <h3>Kolom Expenses Item</h3>
+  <table>
+    <tr><th>Kolom</th><th>Fungsi</th><th>Contoh / Aturan</th></tr>
+    <tr><td><code>portId</code></td><td>ID unik pelabuhan yang terkait dengan item biaya.</td><td>Contoh: <code>port-001</code>.</td></tr>
+    <tr><td><code>portName</code></td><td>Nama pelabuhan terkait.</td><td>Contoh: <code>Batu Ampar, Batam</code>.</td></tr>
+    <tr><td><code>category</code></td><td>Kategori biaya item.</td><td><code>PORT_EXPENSES</code>, <code>CLEARANCE</code>, <code>GENERAL_EXPENSES</code>, <code>CREW_EXPENSES</code>, <code>OWNER_MATTER</code>, <code>AGENCY_FEE</code>.</td></tr>
+    <tr><td><code>calculationType</code></td><td>Metode perhitungan item.</td><td><code>FIXED</code>, <code>VARIABLE</code>, <code>QTY_RATE</code>, <code>PERCENTAGE</code>, atau <code>RANGE</code>.</td></tr>
+    <tr><td><code>name</code></td><td>Nama item biaya.</td><td>Contoh: <code>Tugboat Assistance</code>.</td></tr>
+    <tr><td><code>unit</code></td><td>Satuan penggunaan item.</td><td><code>job</code>, <code>hour</code>, <code>day</code>, <code>qty</code>, atau <code>GRT</code>.</td></tr>
+    <tr><td><code>defaultCurrency</code></td><td>Mata uang default item.</td><td>Hanya <code>USD</code> atau <code>IDR</code>.</td></tr>
+    <tr><td><code>rate</code></td><td>Rate atau standard cost item.</td><td>Contoh: <code>420</code>. Nilai ini mengisi standard cost buy dan sell.</td></tr>
+  </table>
+  <h3>Contoh Baris Expenses Item</h3>
+  <div class="example">portId | portName | category | calculationType | name | unit | defaultCurrency | rate
+port-001 | Batu Ampar, Batam | PORT_EXPENSES | QTY_RATE | Tugboat Assistance | job | USD | 420</div>
+
+  <h2>4. Alur Upload</h2>
+  <ol>
+    <li>Buka Admin lalu masuk ke Master Data Fix Tariff atau Expenses Item.</li>
+    <li>Klik <b>Download Template</b> untuk membuat file Excel baru.</li>
+    <li>Isi data mulai dari baris kedua. Jangan mengubah nama header.</li>
+    <li>Simpan file dalam format Excel <code>.xlsx</code>.</li>
+    <li>Klik <b>Upload Excel</b> dan pilih file tersebut.</li>
+    <li>Sistem akan menampilkan jumlah data tersimpan, duplikat, dan baris tidak valid.</li>
+  </ol>
+
+  <h2>5. Aturan Validasi</h2>
+  <ul>
+    <li><code>serviceName</code> wajib diisi untuk Fix Tariff.</li>
+    <li><code>name</code> wajib diisi untuk Expenses Item.</li>
+    <li><code>currency</code> atau <code>defaultCurrency</code> wajib berisi <code>USD</code> atau <code>IDR</code>.</li>
+    <li>Duplikat akan dilewati berdasarkan nama item, port, kategori, dan mata uang.</li>
+    <li>Nama kategori pada Excel menggunakan kode sistem, bukan label tampilan. Contoh: gunakan <code>CLEARANCE</code>, bukan teks <code>CLEARANCE IN/OUT</code>.</li>
+    <li>Angka tidak perlu diberi simbol mata uang atau pemisah ribuan.</li>
+  </ul>
+
+  <h2>6. Ringkasan Presentasi</h2>
+  <table>
+    <tr><th>Template</th><th>Fokus</th><th>Dipakai Untuk</th></tr>
+    <tr><td>Fix Tariff</td><td>Tarif layanan per pelabuhan</td><td>Referensi harga layanan dan minimum charge</td></tr>
+    <tr><td>Expenses Item</td><td>Master item biaya operasional</td><td>Referensi biaya, satuan, metode hitung, dan currency</td></tr>
+  </table>
+  <p class="footer">MaritimPort - Admin Master Data Guide</p>
+</body>
+</html>

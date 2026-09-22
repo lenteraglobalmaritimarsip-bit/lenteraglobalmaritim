@@ -1,1 +1,1 @@
-portId,portName,code,category,name,unit,defaultCurrency,standardCostBuy,standardCostSell,preferredVendor,calculationType
+portId,portName,category,calculationType,name,unit,defaultCurrency,rate

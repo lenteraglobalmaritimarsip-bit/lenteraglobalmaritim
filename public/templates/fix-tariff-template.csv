@@ -1,1 +1,1 @@
-portId,portName,costCategory,serviceCode,serviceName,calculationBasis,tariffType,currency,rate,minCharge,description
+portId,portName,costCategory,tariffType,serviceName,rate,currency,minCharge

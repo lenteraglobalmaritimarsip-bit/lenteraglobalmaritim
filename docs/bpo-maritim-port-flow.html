@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>BPO MaritimPort - End-to-End Project Flow</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; color: #172033; font-size: 10pt; line-height: 1.4; }
+  h1 { color: #123c7a; font-size: 25pt; margin: 0 0 6px; }
+  h2 { color: #123c7a; font-size: 16pt; border-bottom: 2px solid #d8e3f2; padding-bottom: 5px; margin: 22px 0 10px; }
+  h3 { color: #24599c; font-size: 12pt; margin: 12px 0 5px; }
+  p { margin: 6px 0; }
+  .cover { background: #edf4fc; border-left: 7px solid #1d5fa7; padding: 23px 25px; margin-bottom: 16px; }
+  .subtitle { color: #52637a; font-size: 12pt; }
+  .tag { display: inline-block; background: #1d5fa7; color: white; padding: 5px 9px; margin-top: 12px; font-weight: bold; font-size: 9pt; }
+  .note { background: #fff7df; border: 1px solid #e8c66a; padding: 8px 11px; margin: 9px 0; }
+  .info { background: #eef8f2; border: 1px solid #9bd0ad; padding: 8px 11px; margin: 9px 0; }
+  .flow { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+  .flow span { background: #e8f1fb; border: 1px solid #9bbbdc; color: #174879; padding: 7px 9px; font-weight: bold; font-size: 8.5pt; }
+  .arrow { color: #1d5fa7; font-weight: bold; padding: 7px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 7px 0 13px; font-size: 8.7pt; }
+  th { background: #1d5fa7; color: white; text-align: left; padding: 6px; }
+  td { border: 1px solid #cbd5e1; padding: 5px 6px; vertical-align: top; }
+  tr:nth-child(even) td { background: #f6f9fc; }
+  code { font-family: Consolas, monospace; background: #f0f3f7; padding: 1px 3px; }
+  .stage { border-left: 5px solid #1d5fa7; padding: 7px 10px; background: #f5f8fc; margin: 10px 0; }
+  .stage strong { color: #123c7a; }
+  .page-break { page-break-before: always; }
+  li { margin: 3px 0; }
+  .small { color: #52637a; font-size: 8.5pt; }
+  .footer { margin-top: 24px; border-top: 1px solid #cbd5e1; padding-top: 6px; color: #64748b; font-size: 8pt; }
+</style>
+</head>
+<body>
+<section class="cover">
+  <h1>Business Process Overview</h1>
+  <div class="subtitle">MaritimPort - Shipping Agency Work Portal</div>
+  <span class="tag">END-TO-END VESSEL CALL TO JOB CLOSING</span>
+  <p style="margin-top:16px">Bahan presentasi ini menjelaskan alur kerja project, fungsi setiap role dan menu, titik kontrol, serta output dari inquiry sampai closing.</p>
+</section>
+
+<h2>1. Gambaran Besar Proses</h2>
+<p>Satu pekerjaan direpresentasikan sebagai satu <b>Job / Vessel Call ID</b>. ID ini menjadi pengikat seluruh data komersial, operasional, biaya aktual, FDA, invoice, penerimaan pembayaran, dan closing.</p>
+<div class="flow">
+  <span>1. Master Data</span><b class="arrow">&rarr;</b><span>2. Inquiry</span><b class="arrow">&rarr;</b><span>3. EPDA / PDA</span><b class="arrow">&rarr;</b><span>4. Manager Approval</span><b class="arrow">&rarr;</b><span>5. Operation</span><b class="arrow">&rarr;</b><span>6. Actual Cost</span><b class="arrow">&rarr;</b><span>7. FDA Approval</span><b class="arrow">&rarr;</b><span>8. Invoice & AP/AR</span><b class="arrow">&rarr;</b><span>9. Closing</span>
+</div>
+<div class="info"><b>Prinsip kontrol:</b> setiap tahap menggunakan data dari tahap sebelumnya. Tarif dan item biaya berasal dari master data; invoice berasal dari FDA/actual cost; closing dilakukan setelah kewajiban operasional dan finansial selesai.</div>
+
+<h2>2. Role dan Ownership</h2>
+<table>
+<tr><th>Role</th><th>Fokus Utama</th><th>Output / Keputusan</th></tr>
+<tr><td><b>Admin</b></td><td>Konfigurasi sistem, user, master data, tarif, item biaya.</td><td>Data referensi siap dipakai seluruh workflow.</td></tr>
+<tr><td><b>Sales</b></td><td>Inquiry, customer request, vessel call, quotation.</td><td>Job ID, EPDA/PDA, dan data komersial.</td></tr>
+<tr><td><b>Manager Ops</b></td><td>Review quotation dan approval margin/komersial.</td><td>Approved atau rejected dengan catatan.</td></tr>
+<tr><td><b>FDA</b></td><td>Biaya aktual, crew change, disbursement, final disbursement account.</td><td>FDA final dan persetujuan biaya aktual.</td></tr>
+<tr><td><b>Finance</b></td><td>Invoice principal, AP/AR, penerimaan pembayaran, job closing.</td><td>Invoice, status pembayaran, laporan, dan job CLOSED.</td></tr>
+</table>
+
+<h2>3. Persiapan: Admin Master Data</h2>
+<table>
+<tr><th>Menu</th><th>Fungsi</th><th>Digunakan Oleh</th></tr>
+<tr><td>Dashboard</td><td>Ringkasan sistem dan akses cepat ke area admin.</td><td>Admin</td></tr>
+<tr><td>Users</td><td>Mengelola user, role, jabatan, branch, status aktif, dan password.</td><td>Admin / autentikasi</td></tr>
+<tr><td>Customers</td><td>Mengelola principal, charterer, shipowner, kontak, alamat, dan credit term.</td><td>Sales, Finance</td></tr>
+<tr><td>Vessels</td><td>Mengelola vessel name, IMO, call sign, flag, ukuran kapal, dan tipe vessel.</td><td>Sales, Ops, FDA</td></tr>
+<tr><td>Ports</td><td>Mengelola port, code, UN/LOCODE, kedalaman channel, tide restriction, jam operasi.</td><td>Sales, Ops</td></tr>
+<tr><td>Fix Tariff</td><td>Mengelola tarif layanan per port, kategori, rate, currency, tipe tarif, dan minimum charge.</td><td>Sales, FDA</td></tr>
+<tr><td>Expenses Item</td><td>Mengelola item biaya, kategori, unit, metode kalkulasi, currency, dan standard cost.</td><td>Sales, FDA, Finance</td></tr>
+<tr><td>Monitoring Vessel Calls</td><td>Melihat seluruh job dan tahap proses vessel call.</td><td>Admin</td></tr>
+</table>
+<p class="small">Kontrol Admin: master data harus tersedia sebelum Sales membuat inquiry agar pilihan port, vessel, customer, tariff, dan expense dapat digunakan secara konsisten.</p>
+
+<div class="page-break"></div>
+<h2>4. Flow Tahap 1-3: Inquiry dan Quotation</h2>
+<div class="stage"><strong>Tahap 1 - Inquiry | Owner: Sales</strong><br>Sales menerima permintaan principal, memilih customer, vessel, port, ETA/ETD, cargo, quantity, dan kebutuhan khusus. Sistem membuat atau mengikat data ke Job / Vessel Call ID.</div>
+<ul>
+<li>Menu <b>Dashboard</b>: melihat ringkasan pipeline dan pekerjaan.</li>
+<li>Menu <b>Inquiries</b>: membuat, mencari, dan membuka inquiry.</li>
+<li>Menu <b>Quotes</b>: melihat daftar quotation berdasarkan job.</li>
+<li>Menu <b>Monitoring Vessel Calls</b>: memantau tahap, ETA, vessel, principal, dan port.</li>
+</ul>
+<div class="stage"><strong>Tahap 2 - EPDA / Quotation | Owner: Sales</strong><br>Sales menyusun estimasi biaya dan harga jual menggunakan Fix Tariff serta Expenses Item. Quotation dapat memuat biaya port, clearance, crew, agency, owner matter, dan kategori lain yang relevan.</div>
+<ul>
+<li><b>EPDA</b>: estimasi awal untuk kebutuhan komersial dan perencanaan.</li>
+<li><b>PDA</b>: estimasi disbursement yang lebih lengkap sebagai dasar operasional dan penagihan.</li>
+<li><b>Crew Change</b>: jalur khusus untuk sign-on/sign-off, flight, hotel, transport, dan immigration.</li>
+<li>Data quotation mencakup quantity, basis, unit buy, unit sell, total buy, total sell, currency, dan margin.</li>
+</ul>
+<div class="stage"><strong>Tahap 3 - Review dan Approval | Owner: Manager Ops</strong><br>Manager Ops meninjau quotation, margin, rincian biaya, risiko operasional, dan kesesuaian dengan kebutuhan principal.</div>
+<ul>
+<li>Menu <b>Quotes Review</b>: membuka quotation dan melihat detail.</li>
+<li>Menu <b>Approval Center</b>: menyetujui atau menolak quotation.</li>
+<li>Approval dapat disertai catatan dan tolerance margin.</li>
+<li>Jika ditolak, Sales melakukan revisi lalu mengajukan kembali.</li>
+</ul>
+
+<h2>5. Flow Tahap 4-5: Job dan Operasional</h2>
+<div class="stage"><strong>Tahap 4 - Job / Vessel Call Registry | Owner: Sales dan Operations</strong><br>Job Entry dan Monitoring menjadi pusat daftar pekerjaan. Satu Job ID menampung informasi vessel call dan histori proses.</div>
+<table>
+<tr><th>Data Operasional</th><th>Contoh Isi</th><th>Tujuan</th></tr>
+<tr><td>Vessel call</td><td>Job ID, vessel, principal, port</td><td>Identitas pekerjaan.</td></tr>
+<tr><td>ETA / ETD</td><td>Rencana kedatangan dan keberangkatan</td><td>Perencanaan resource.</td></tr>
+<tr><td>Berthing / zone</td><td>Berth, anchorage, STS, inner road</td><td>Lokasi aktivitas kapal.</td></tr>
+<tr><td>Statement of Facts</td><td>Timestamp, event, remarks</td><td>Rekaman kronologi operasional.</td></tr>
+<tr><td>ATA / ATB / ATD</td><td>Actual time arrival, berthing, departure</td><td>Dasar evaluasi waktu dan biaya.</td></tr>
+</table>
+<div class="stage"><strong>Tahap 5 - Operational Execution | Owner: Operations / FDA</strong><br>Aktivitas kapal dijalankan dan dicatat. Data operasional menjadi bukti pekerjaan serta dasar rekonsiliasi actual cost.</div>
+
+<h2>6. Flow Tahap 6-7: Actual Cost dan FDA</h2>
+<div class="stage"><strong>Tahap 6 - Actual Cost | Owner: FDA</strong><br>FDA mencatat biaya aktual vendor, invoice/voucher, tanggal biaya, amount, currency, attachment, dan variance terhadap PDA.</div>
+<ul>
+<li>Menu <b>Inquiries</b>: menemukan job yang perlu diproses.</li>
+<li>Menu <b>Create FDA</b>: membuat Final Disbursement Account.</li>
+<li>Menu internal <b>Job ID</b>: memilih pekerjaan aktif.</li>
+<li>Menu internal <b>Actual Cost</b>: memasukkan dan memverifikasi biaya aktual.</li>
+<li>Menu internal <b>Crew Change</b>: mengelola biaya dan status crew change.</li>
+</ul>
+<div class="stage"><strong>Tahap 7 - Final Disbursement Account Approval | Owner: FDA / approval chain</strong><br>FDA melakukan rekonsiliasi estimated cost versus actual cost, menghitung variance, melampirkan dokumen, dan mengajukan final approval.</div>
+<ul>
+<li>FDA approved menjadi prasyarat Finance untuk proses invoice dan pembayaran vendor.</li>
+<li>Nilai final billed to principal menjadi dasar invoice principal.</li>
+<li>Setiap perubahan penting tersimpan melalui service database dan audit trail aplikasi.</li>
+</ul>
+
+<div class="page-break"></div>
+<h2>7. Flow Tahap 8-9: Finance, Invoice, dan Closing</h2>
+<div class="stage"><strong>Tahap 8 - Financial Processing | Owner: Finance</strong><br>Finance memproses kewajiban kepada vendor, piutang kepada principal, invoice final, dan penerimaan pembayaran.</div>
+<table>
+<tr><th>Menu Finance</th><th>Fungsi</th><th>Output</th></tr>
+<tr><td>Financial Overview</td><td>Ringkasan AP, AR, billed, received, outstanding, dan profit.</td><td>Monitoring posisi finansial.</td></tr>
+<tr><td>JOB Invoice</td><td>Membuka pekerjaan yang siap ditagihkan berdasarkan FDA.</td><td>Daftar job invoice-ready.</td></tr>
+<tr><td>Invoices</td><td>Membuat atau melihat invoice principal, due date, dan nilai tagihan.</td><td>Principal Invoice.</td></tr>
+<tr><td>AP</td><td>Mengelola voucher vendor, due date, status unpaid/partial/paid, payment reference.</td><td>Vendor payment control.</td></tr>
+<tr><td>AR</td><td>Mengelola piutang principal, requested amount, received amount, overdue.</td><td>Collection control.</td></tr>
+<tr><td>JOB Closing</td><td>Memeriksa kelengkapan job dan mengunci pekerjaan.</td><td>Status CLOSED dan margin final.</td></tr>
+<tr><td>Monitoring Vessel Calls</td><td>Melihat status lintas proses.</td><td>Single operational-financial view.</td></tr>
+</table>
+<div class="stage"><strong>Tahap 9 - Job Closing | Owner: Finance</strong><br>Job ditutup setelah FDA approved, invoice diterbitkan, AP/AR diperbarui, penerimaan dicatat, dan tidak ada kewajiban terbuka yang menghambat closing.</div>
+<ul>
+<li>Periksa nilai final actual cost dan final billed to principal.</li>
+<li>Periksa invoice number, invoice date, due date, dan status invoice.</li>
+<li>Catat principal receipt untuk advance payment atau invoice payment.</li>
+<li>Periksa AP vendor dan status pembayarannya.</li>
+<li>Review final gross margin dan post-voyage remarks.</li>
+<li>Set status job menjadi <b>CLOSED</b>.</li>
+</ul>
+
+<h2>8. Peta Menu per Role</h2>
+<table>
+<tr><th>Role</th><th>Menu</th><th>Tujuan Praktis</th></tr>
+<tr><td>Admin</td><td>Dashboard; Users; Customers; Vessels; Ports; Fix Tariff; Expenses Item; Monitoring Vessel Calls</td><td>Menyiapkan fondasi data dan memantau seluruh job.</td></tr>
+<tr><td>Sales</td><td>Dashboard; Inquiries; Quotes; Monitoring Vessel Calls</td><td>Mengubah request principal menjadi job dan quotation.</td></tr>
+<tr><td>Manager Ops</td><td>Dashboard; Quotes Review; Approval Center; Monitoring Vessel Calls</td><td>Menjaga kualitas komersial dan menyetujui quotation.</td></tr>
+<tr><td>FDA</td><td>Dashboard; Inquiries; Create FDA; Job ID; Actual Cost; Crew Change; Quotes View; Approval; Monitoring</td><td>Mencatat actual cost dan menghasilkan FDA final.</td></tr>
+<tr><td>Finance</td><td>Financial Overview; JOB Invoice; Invoices; AP; AR; JOB Closing; Monitoring</td><td>Menyelesaikan billing, collection, vendor payment, dan closing.</td></tr>
+</table>
+
+<h2>9. Titik Kontrol dan Risiko yang Dikendalikan</h2>
+<ul>
+<li><b>Master data control:</b> tarif, item expense, customer, vessel, dan port dikelola terpusat.</li>
+<li><b>Approval control:</b> quotation tidak langsung dianggap final sebelum Manager Ops menyetujui.</li>
+<li><b>Cost control:</b> actual cost dibandingkan dengan estimasi PDA dan variance dapat ditinjau.</li>
+<li><b>Document control:</b> invoice, voucher, attachment, receipt, dan remarks dapat dikaitkan dengan job.</li>
+<li><b>Financial control:</b> FDA approval menjadi gerbang sebelum proses final invoice dan pembayaran AP.</li>
+<li><b>Traceability:</b> satu Job ID menghubungkan seluruh tahapan dan perubahan.</li>
+</ul>
+
+<h2>10. Narasi Singkat untuk Presentasi</h2>
+<p>“MaritimPort menggunakan pendekatan single Job / Vessel Call ID. Proses dimulai dari Admin yang menyiapkan master data, kemudian Sales menerima inquiry dan menyusun EPDA atau PDA. Manager Ops melakukan review dan approval sebelum pekerjaan masuk ke tahap operasional. Setelah kapal selesai dilayani, FDA mencatat actual cost dan menyusun Final Disbursement Account. Finance kemudian memproses invoice principal, AP, AR, dan penerimaan pembayaran. Setelah seluruh data finansial dan operasional lengkap, Finance melakukan job closing sehingga status pekerjaan menjadi CLOSED dan margin final dapat dipantau.”</p>
+
+<p class="footer">MaritimPort - Business Process Overview | BPO End-to-End Vessel Call</p>
+</body>
+</html>

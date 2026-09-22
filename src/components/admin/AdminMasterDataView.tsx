@@ -15,6 +15,7 @@ import {
   Check,
   ShieldAlert,
   Upload,
+  Download,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
@@ -287,6 +288,16 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     return Number.isFinite(parsed) ? parsed : fallback;
   };
 
+  const downloadMasterDataTemplate = () => {
+    const headers = activeTab === 'FIX_TARIFF'
+      ? ['portId', 'portName', 'costCategory', 'tariffType', 'serviceName', 'rate', 'currency', 'minCharge']
+      : ['portId', 'portName', 'category', 'calculationType', 'name', 'unit', 'defaultCurrency', 'rate'];
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.aoa_to_sheet([headers]);
+    XLSX.utils.book_append_sheet(workbook, worksheet, activeTab === 'FIX_TARIFF' ? 'Fix Tariff' : 'Expenses Item');
+    XLSX.writeFile(workbook, activeTab === 'FIX_TARIFF' ? 'fix-tariff-template.xlsx' : 'expenses-item-template.xlsx');
+  };
+
   const sameUploadPort = (portId: string, portName: string, masterPortId?: string, masterPortName?: string) =>
     (!!portId && !!masterPortId && portId.toLowerCase() === masterPortId.toLowerCase())
     || (!!portName && !!masterPortName && portName.toLowerCase() === masterPortName.toLowerCase());
@@ -464,34 +475,28 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   };
 
   const formatCostCategory = (category?: string) => ({
-    PORT_EXPENSES: 'Port expenses',
-    CLEARANCE: 'Clearance',
-    GENERAL_EXPENSES: 'General expenses',
-    CREW_EXPENSES: 'Crew expenses',
-    AGENCY_FEE: 'Agency fee',
-    PORT_DUES: 'Port expenses',
-    PILOTAGE_TOWAGE: 'Pilotage & towage',
-    BERTHING: 'Berthing',
-    CREW_CHANGE: 'Crew change',
-    IMMIGRATION_CUSTOMS: 'Immigration & customs',
-    LOGISTICS_SUPPLIES: 'Logistics',
-    TAX_CONTINGENCY: 'Tax contingency',
-    SUNDRY: 'Sundry',
+    PORT_EXPENSES: 'PORT EXPENSES',
+    CLEARANCE: 'CLEARANCE IN/OUT',
+    GENERAL_EXPENSES: 'GENERAL EXPENSES',
+    CREW_EXPENSES: 'CREW EXPENSES',
+    OWNER_MATTER: 'OWNER MATTER',
+    AGENCY_FEE: 'AGENCY FEE',
   } as Record<string, string>)[category || ''] || category || '-';
 
   const formatExpenseCategory = (category?: string) => ({
-    PORT_EXPENSES: 'Port expenses',
-    CLEARANCE: 'Clearance',
-    GENERAL_EXPENSES: 'General expenses',
-    CREW_EXPENSES: 'Crew expenses',
-    AGENCY_FEE: 'Agency fee',
-    PORT_DUES: 'Port expenses',
-    PILOTAGE_TOWAGE: 'Clearance',
-    BERTHING: 'Port expenses',
-    CREW_CHANGE: 'Crew expenses',
-    IMMIGRATION_CUSTOMS: 'Clearance',
-    LOGISTICS_SUPPLIES: 'General expenses',
-    SUNDRY: 'General expenses',
+    PORT_EXPENSES: 'PORT EXPENSES',
+    CLEARANCE: 'CLEARANCE IN/OUT',
+    GENERAL_EXPENSES: 'GENERAL EXPENSES',
+    CREW_EXPENSES: 'CREW EXPENSES',
+    OWNER_MATTER: 'OWNER MATTER',
+    AGENCY_FEE: 'AGENCY FEE',
+    PORT_DUES: 'PORT EXPENSES',
+    PILOTAGE_TOWAGE: 'CLEARANCE IN/OUT',
+    BERTHING: 'PORT EXPENSES',
+    CREW_CHANGE: 'CREW EXPENSES',
+    IMMIGRATION_CUSTOMS: 'CLEARANCE IN/OUT',
+    LOGISTICS_SUPPLIES: 'GENERAL EXPENSES',
+    SUNDRY: 'GENERAL EXPENSES',
   } as Record<string, string>)[category || ''] || category || '-';
 
   return (
@@ -516,6 +521,14 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
             {(activeTab === 'FIX_TARIFF' || activeTab === 'EXPENSES_ITEM') && (
               <>
                 <input ref={uploadInputRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleMasterDataUpload} className="hidden" />
+                <button
+                  type="button"
+                  onClick={downloadMasterDataTemplate}
+                  className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download Template</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => uploadInputRef.current?.click()}
@@ -884,7 +897,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 <>
                   <div className="grid grid-cols-2 gap-3">
                     <label className="block"><span className="text-slate-500 font-semibold">Port</span><select value={editMasterForm.portId || ''} onChange={e=>setEditMasterForm({...editMasterForm,portId:e.target.value})} className="master-edit-input">{ports.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-                    <label className="block"><span className="text-slate-500 font-semibold">Category Cost</span><select value={editMasterForm.costCategory || 'PORT_EXPENSES'} onChange={e=>setEditMasterForm({...editMasterForm,costCategory:e.target.value})} className="master-edit-input"><option value="PORT_EXPENSES">Port expenses</option><option value="PILOTAGE_TOWAGE">Pilotage & towage</option><option value="BERTHING">Berthing</option><option value="PORT_DUES">Port dues</option><option value="AGENCY_FEE">Agency fee</option><option value="IMMIGRATION_CUSTOMS">Immigration & customs</option><option value="LOGISTICS_SUPPLIES">Logistics</option><option value="CREW_CHANGE">Crew change</option><option value="CLEARANCE">Clearance</option><option value="GENERAL_EXPENSES">General expenses</option><option value="CREW_EXPENSES">Crew expenses</option><option value="TAX_CONTINGENCY">Tax contingency</option><option value="SUNDRY">Sundry</option></select></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">Category Cost</span><select value={editMasterForm.costCategory || 'PORT_EXPENSES'} onChange={e=>setEditMasterForm({...editMasterForm,costCategory:e.target.value})} className="master-edit-input"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="AGENCY_FEE">AGENCY FEE</option></select></label>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <label className="block"><span className="text-slate-500 font-semibold">Type</span><select value={editMasterForm.tariffType || 'VARIABLE'} onChange={e=>setEditMasterForm({...editMasterForm,tariffType:e.target.value})} className="master-edit-input"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="RANGE">Range</option></select></label>
@@ -902,7 +915,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 <>
                   <div className="grid grid-cols-2 gap-3">
                     <label className="block"><span className="text-slate-500 font-semibold">Port</span><select value={editMasterForm.portId || ''} onChange={e=>setEditMasterForm({...editMasterForm,portId:e.target.value,portName: ports.find((p) => p.id === e.target.value)?.name || ''})} className="master-edit-input">{ports.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-                    <label className="block"><span className="text-slate-500 font-semibold">Category</span><select required value={editMasterForm.category || 'PORT_EXPENSES'} onChange={e=>setEditMasterForm({...editMasterForm,category:e.target.value})} className="master-edit-input"><option value="PORT_EXPENSES">Port expenses</option><option value="CLEARANCE">Clearance</option><option value="GENERAL_EXPENSES">General expenses</option><option value="CREW_EXPENSES">Crew expenses</option><option value="AGENCY_FEE">Agency fee</option></select></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">Category</span><select required value={editMasterForm.category || 'PORT_EXPENSES'} onChange={e=>setEditMasterForm({...editMasterForm,category:e.target.value})} className="master-edit-input"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="AGENCY_FEE">AGENCY FEE</option></select></label>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <label className="block"><span className="text-slate-500 font-semibold">Item Name</span><input required value={editMasterForm.name || ''} onChange={e=>setEditMasterForm({...editMasterForm,name:e.target.value})} className="master-edit-input" /></label>
@@ -1311,19 +1324,12 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                         onChange={(e) => setNewTariff({ ...newTariff, costCategory: e.target.value })}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
                       >
-                        <option value="PORT_EXPENSES">Port expenses</option>
-                        <option value="PILOTAGE_TOWAGE">Pilotage & towage</option>
-                        <option value="BERTHING">Berthing</option>
-                        <option value="PORT_DUES">Port dues</option>
-                        <option value="AGENCY_FEE">Agency fee</option>
-                        <option value="IMMIGRATION_CUSTOMS">Immigration & customs</option>
-                        <option value="LOGISTICS_SUPPLIES">Logistics</option>
-                        <option value="CREW_CHANGE">Crew change</option>
-                        <option value="CLEARANCE">Clearance</option>
-                        <option value="GENERAL_EXPENSES">General expenses</option>
-                        <option value="CREW_EXPENSES">Crew expenses</option>
-                        <option value="TAX_CONTINGENCY">Tax contingency</option>
-                        <option value="SUNDRY">Sundry</option>
+                        <option value="PORT_EXPENSES">PORT EXPENSES</option>
+                        <option value="CLEARANCE">CLEARANCE IN/OUT</option>
+                        <option value="GENERAL_EXPENSES">GENERAL EXPENSES</option>
+                        <option value="CREW_EXPENSES">CREW EXPENSES</option>
+                        <option value="OWNER_MATTER">OWNER MATTER</option>
+                        <option value="AGENCY_FEE">AGENCY FEE</option>
                       </select>
                     </div>
                   </div>
@@ -1419,11 +1425,12 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                         onChange={(e) => setNewExpense({ ...newExpense, category: e.target.value as any })}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
                       >
-                        <option value="PORT_EXPENSES">Port expenses</option>
-                        <option value="CLEARANCE">Clearance</option>
-                        <option value="GENERAL_EXPENSES">General expenses</option>
-                        <option value="CREW_EXPENSES">Crew expenses</option>
-                        <option value="AGENCY_FEE">Agency fee</option>
+                        <option value="PORT_EXPENSES">PORT EXPENSES</option>
+                        <option value="CLEARANCE">CLEARANCE IN/OUT</option>
+                        <option value="GENERAL_EXPENSES">GENERAL EXPENSES</option>
+                        <option value="CREW_EXPENSES">CREW EXPENSES</option>
+                        <option value="OWNER_MATTER">OWNER MATTER</option>
+                        <option value="AGENCY_FEE">AGENCY FEE</option>
                       </select>
                     </div>
                   </div>

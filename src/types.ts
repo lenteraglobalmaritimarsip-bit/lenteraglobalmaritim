@@ -116,6 +116,7 @@ export interface ExpensesItem {
     | 'CLEARANCE'
     | 'GENERAL_EXPENSES'
     | 'CREW_EXPENSES'
+    | 'OWNER_MATTER'
     | 'AGENCY_FEE'
     | 'TAX_CONTINGENCY'
     | 'PORT_DUES'
