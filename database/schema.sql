@@ -108,6 +108,23 @@ CREATE TABLE IF NOT EXISTS fix_tariffs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE fix_tariffs
+  ADD COLUMN IF NOT EXISTS port_id UUID REFERENCES ports(id),
+  ADD COLUMN IF NOT EXISTS port_name VARCHAR(150),
+  ADD COLUMN IF NOT EXISTS cost_category VARCHAR(80),
+  ADD COLUMN IF NOT EXISTS service_code VARCHAR(40),
+  ADD COLUMN IF NOT EXISTS service_name VARCHAR(180),
+  ADD COLUMN IF NOT EXISTS currency VARCHAR(3),
+  ADD COLUMN IF NOT EXISTS rate NUMERIC(18,4),
+  ADD COLUMN IF NOT EXISTS min_charge NUMERIC(18,2);
+
+ALTER TABLE expense_items
+  ADD COLUMN IF NOT EXISTS port_id UUID REFERENCES ports(id),
+  ADD COLUMN IF NOT EXISTS port_name VARCHAR(150),
+  ADD COLUMN IF NOT EXISTS category VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS name VARCHAR(180),
+  ADD COLUMN IF NOT EXISTS default_currency VARCHAR(3);
+
 CREATE UNIQUE INDEX IF NOT EXISTS uq_fix_tariffs_service_port_category_currency
   ON fix_tariffs (
     LOWER(TRIM(service_name)),
@@ -431,3 +448,35 @@ ALTER TABLE fix_tariffs
 
 CREATE INDEX IF NOT EXISTS idx_inquiries_created_by_branch ON inquiries(created_by_branch);
 CREATE INDEX IF NOT EXISTS idx_vessel_calls_created_by ON vessel_calls(created_by);
+
+-- The current application uses client-side login, so Supabase requests use anon.
+-- Replace this with role-aware Supabase Auth policies before production use.
+DO $$
+DECLARE
+  table_name TEXT;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY[
+    'app_users', 'customers', 'vessels', 'ports', 'zones', 'fix_tariffs', 'expense_items'
+  ] LOOP
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', table_name);
+    EXECUTE format(
+      'DROP POLICY IF EXISTS %I ON public.%I',
+      'client demo full access', table_name
+    );
+    EXECUTE format(
+      'DROP POLICY IF EXISTS %I ON public.%I',
+      'authenticated full access', table_name
+    );
+    EXECUTE format(
+      'DROP POLICY IF EXISTS %I ON public.%I',
+      'client demo full access', table_name
+    );
+    EXECUTE format(
+      'CREATE POLICY %I ON public.%I
+       FOR ALL TO anon, authenticated
+       USING (true)
+       WITH CHECK (true)',
+      'client demo full access', table_name
+    );
+  END LOOP;
+END $$;

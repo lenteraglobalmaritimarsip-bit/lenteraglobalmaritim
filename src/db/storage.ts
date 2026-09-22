@@ -430,6 +430,19 @@ class DatabaseService {
     }
   }
 
+  private async deleteSupabaseRow(table: string, id: string, key: string, keyValue?: string): Promise<void> {
+    if (!isSupabaseConfigured || !supabase) return;
+
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+    const query = supabase.from(table).delete();
+    const { error } = isUuid
+      ? await query.eq('id', id)
+      : keyValue
+        ? await query.eq(key, keyValue)
+        : { error: new Error(`Key ${key} tidak tersedia untuk ${table}.`) };
+    if (error) throw error;
+  }
+
   private async saveToStorage(): Promise<void> {
     if (!isSupabaseConfigured || !supabase) {
       try {
@@ -541,10 +554,8 @@ class DatabaseService {
   }
 
   public async deleteUser(id: string): Promise<void> {
-    if (isSupabaseConfigured && supabase) {
-      const { error } = await supabase.from('app_users').delete().eq('employee_code', id);
-      if (error) throw error;
-    }
+    const user = this.state.users.find((item) => item.id === id);
+    await this.deleteSupabaseRow('app_users', id, 'employee_code', user?.id || id);
     this.state.users = this.state.users.filter((u) => u.id !== id);
     this.audit('DELETE', 'USER', `Deleted user ${id}`, id);
     this.saveToStorage();
@@ -568,10 +579,8 @@ class DatabaseService {
   }
 
   public async deleteCustomer(id: string): Promise<void> {
-    if (isSupabaseConfigured && supabase) {
-      const { error } = await supabase.from('customers').delete().eq('id', id);
-      if (error) throw error;
-    }
+    const customer = this.state.customers.find((item) => item.id === id);
+    await this.deleteSupabaseRow('customers', id, 'code', customer?.code);
     this.state.customers = this.state.customers.filter((c) => c.id !== id);
     this.saveToStorage();
   }
@@ -594,10 +603,8 @@ class DatabaseService {
   }
 
   public async deleteVessel(id: string): Promise<void> {
-    if (isSupabaseConfigured && supabase) {
-      const { error } = await supabase.from('vessels').delete().eq('id', id);
-      if (error) throw error;
-    }
+    const vessel = this.state.vessels.find((item) => item.id === id);
+    await this.deleteSupabaseRow('vessels', id, vessel?.imoNumber ? 'imo_number' : 'name', vessel?.imoNumber || vessel?.name);
     this.state.vessels = this.state.vessels.filter((v) => v.id !== id);
     this.saveToStorage();
   }
@@ -620,10 +627,8 @@ class DatabaseService {
   }
 
   public async deletePort(id: string): Promise<void> {
-    if (isSupabaseConfigured && supabase) {
-      const { error } = await supabase.from('ports').delete().eq('id', id);
-      if (error) throw error;
-    }
+    const port = this.state.ports.find((item) => item.id === id);
+    await this.deleteSupabaseRow('ports', id, 'code', port?.code);
     this.state.ports = this.state.ports.filter((p) => p.id !== id);
     this.saveToStorage();
   }
@@ -646,10 +651,8 @@ class DatabaseService {
   }
 
   public async deleteZone(id: string): Promise<void> {
-    if (isSupabaseConfigured && supabase) {
-      const { error } = await supabase.from('zones').delete().eq('id', id);
-      if (error) throw error;
-    }
+    const zone = this.state.zones.find((item) => item.id === id);
+    await this.deleteSupabaseRow('zones', id, 'zone_code', zone?.zoneCode);
     this.state.zones = this.state.zones.filter((z) => z.id !== id);
     this.saveToStorage();
   }
@@ -672,11 +675,8 @@ class DatabaseService {
   }
 
   public async deleteFixTariff(id: string): Promise<void> {
-    if (isSupabaseConfigured && supabase) {
-      const { data, error } = await supabase.from('fix_tariffs').delete().eq('id', id).select('id');
-      if (error) throw error;
-      if (!data?.length) throw new Error('Fix tariff tidak terhapus. Periksa ID data atau policy DELETE Supabase.');
-    }
+    const tariff = this.state.fixTariffs.find((item) => item.id === id);
+    await this.deleteSupabaseRow('fix_tariffs', id, tariff?.serviceCode ? 'service_code' : 'service_name', tariff?.serviceCode || tariff?.serviceName);
     this.state.fixTariffs = this.state.fixTariffs.filter((t) => t.id !== id);
     this.saveToStorage();
   }
@@ -703,11 +703,8 @@ class DatabaseService {
   }
 
   public async deleteExpensesItem(id: string): Promise<void> {
-    if (isSupabaseConfigured && supabase) {
-      const { data, error } = await supabase.from('expense_items').delete().eq('id', id).select('id');
-      if (error) throw error;
-      if (!data?.length) throw new Error('Expense item tidak terhapus. Periksa ID data atau policy DELETE Supabase.');
-    }
+    const expense = this.state.expensesItems.find((item) => item.id === id);
+    await this.deleteSupabaseRow('expense_items', id, 'code', expense?.code);
     this.state.expensesItems = this.state.expensesItems.filter((e) => e.id !== id);
     this.saveToStorage();
   }

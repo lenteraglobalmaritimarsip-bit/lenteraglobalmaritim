@@ -314,6 +314,15 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     }
   };
 
+  const deleteMasterRecord = async (label: string, action: () => Promise<void>) => {
+    try {
+      await action();
+      setUploadMessage(`${label} berhasil dihapus.`);
+    } catch (error) {
+      setUploadMessage(error instanceof Error ? error.message : `${label} gagal dihapus.`);
+    }
+  };
+
   const downloadMasterDataTemplate = async () => {
     const headers = activeTab === 'FIX_TARIFF'
       ? ['portId', 'portName', 'costCategory', 'tariffType', 'serviceName', 'rate', 'currency', 'minCharge']
@@ -693,7 +702,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     <td className="p-3.5 text-slate-600">{u.email}</td>
                     <td className="p-3.5 text-slate-600">{u.branch || '-'}</td>
                     <td className="p-3.5"><button onClick={()=>db.updateUser(u.id,{status:u.status==='ACTIVE'?'INACTIVE':'ACTIVE'})} className={`px-2.5 py-1 rounded-md text-[10px] font-bold ${u.status==='ACTIVE'?'bg-emerald-50 text-emerald-600 hover:bg-emerald-100':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{u.status}</button></td>
-                    <td className="p-3.5 text-right"><div className="flex items-center justify-end gap-1.5"><button onClick={() => openUserEditor(u)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500 transition" title="Edit User"><Edit2 className="w-3.5 h-3.5" /></button><button onClick={() => db.deleteUser(u.id)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-500 transition" title="Hapus User"><Trash2 className="w-3.5 h-3.5" /></button></div></td>
+                    <td className="p-3.5 text-right"><div className="flex items-center justify-end gap-1.5"><button onClick={() => openUserEditor(u)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500 transition" title="Edit User"><Edit2 className="w-3.5 h-3.5" /></button><button onClick={() => void deleteMasterRecord('User', () => db.deleteUser(u.id))} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-500 transition" title="Hapus User"><Trash2 className="w-3.5 h-3.5" /></button></div></td>
                   </tr>
                 ))}
               </tbody>
@@ -705,7 +714,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         {activeTab === 'CUSTOMERS' && (
           <div className="overflow-x-auto"><table className="w-full text-left text-xs">
             <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-200"><tr><th className="p-3.5">No</th><th className="p-3.5">Code</th><th className="p-3.5">Nama Perusahaan</th><th className="p-3.5">Country</th><th className="p-3.5">Contact Person</th><th className="p-3.5">Email</th><th className="p-3.5 text-right">Aksi</th></tr></thead>
-            <tbody className="divide-y divide-slate-100">{customers.filter(c=>c.companyName.toLowerCase().includes(searchQuery.toLowerCase())).map(c=><tr key={c.id} className="hover:bg-slate-50"><td className="p-3.5 font-mono text-slate-500">{customers.indexOf(c)+1}</td><td className="p-3.5 font-mono font-bold text-cyan-600">{c.code}</td><td className="p-3.5 font-bold text-slate-900">{c.companyName}</td><td className="p-3.5 text-slate-600">{c.country}</td><td className="p-3.5 text-slate-600">{c.contactPerson}</td><td className="p-3.5 text-slate-600">{c.email}</td><td className="p-3.5 text-right"><div className="flex items-center justify-end gap-1.5"><button onClick={()=>openMasterEditor('CUSTOMERS', c)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500" title="Edit Customer"><Edit2 className="w-3.5 h-3.5"/></button><button onClick={()=>db.deleteCustomer(c.id)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-500" title="Hapus Customer"><Trash2 className="w-3.5 h-3.5"/></button></div></td></tr>)}</tbody>
+            <tbody className="divide-y divide-slate-100">{customers.filter(c=>c.companyName.toLowerCase().includes(searchQuery.toLowerCase())).map(c=><tr key={c.id} className="hover:bg-slate-50"><td className="p-3.5 font-mono text-slate-500">{customers.indexOf(c)+1}</td><td className="p-3.5 font-mono font-bold text-cyan-600">{c.code}</td><td className="p-3.5 font-bold text-slate-900">{c.companyName}</td><td className="p-3.5 text-slate-600">{c.country}</td><td className="p-3.5 text-slate-600">{c.contactPerson}</td><td className="p-3.5 text-slate-600">{c.email}</td><td className="p-3.5 text-right"><div className="flex items-center justify-end gap-1.5"><button onClick={()=>openMasterEditor('CUSTOMERS', c)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500" title="Edit Customer"><Edit2 className="w-3.5 h-3.5"/></button><button onClick={()=>void deleteMasterRecord('Customer', () => db.deleteCustomer(c.id))} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-500" title="Hapus Customer"><Trash2 className="w-3.5 h-3.5"/></button></div></td></tr>)}</tbody>
           </table></div>
         )}
 
@@ -756,7 +765,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                           <button onClick={() => openMasterEditor('VESSELS', v)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500 transition" title="Edit Vessel">
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
-                          <button onClick={() => db.deleteVessel(v.id)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-500 transition" title="Hapus Vessel">
+                          <button onClick={() => void deleteMasterRecord('Vessel', () => db.deleteVessel(v.id))} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-500 transition" title="Hapus Vessel">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -772,7 +781,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         {activeTab === 'PORTS' && (
           <div className="overflow-x-auto"><table className="w-full text-left text-xs">
             <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-200"><tr><th className="p-3.5">No</th><th className="p-3.5">Code</th><th className="p-3.5">Port</th><th className="p-3.5">Country</th><th className="p-3.5 text-right">Aksi</th></tr></thead>
-            <tbody className="divide-y divide-slate-100">{ports.filter(p=>p.name.toLowerCase().includes(searchQuery.toLowerCase())).map(p=><tr key={p.id} className="hover:bg-slate-50"><td className="p-3.5 font-mono text-slate-500">{ports.indexOf(p)+1}</td><td className="p-3.5 font-mono font-bold text-cyan-600">{p.code}</td><td className="p-3.5 font-bold text-slate-900">{p.name}</td><td className="p-3.5 text-slate-600">{p.country}</td><td className="p-3.5 text-right"><div className="flex items-center justify-end gap-1.5"><button onClick={()=>openMasterEditor('PORTS', p)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500" title="Edit Port"><Edit2 className="w-3.5 h-3.5"/></button><button onClick={()=>db.deletePort(p.id)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-500" title="Hapus Port"><Trash2 className="w-3.5 h-3.5"/></button></div></td></tr>)}</tbody>
+            <tbody className="divide-y divide-slate-100">{ports.filter(p=>p.name.toLowerCase().includes(searchQuery.toLowerCase())).map(p=><tr key={p.id} className="hover:bg-slate-50"><td className="p-3.5 font-mono text-slate-500">{ports.indexOf(p)+1}</td><td className="p-3.5 font-mono font-bold text-cyan-600">{p.code}</td><td className="p-3.5 font-bold text-slate-900">{p.name}</td><td className="p-3.5 text-slate-600">{p.country}</td><td className="p-3.5 text-right"><div className="flex items-center justify-end gap-1.5"><button onClick={()=>openMasterEditor('PORTS', p)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500" title="Edit Port"><Edit2 className="w-3.5 h-3.5"/></button><button onClick={()=>void deleteMasterRecord('Port', () => db.deletePort(p.id))} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-500" title="Hapus Port"><Trash2 className="w-3.5 h-3.5"/></button></div></td></tr>)}</tbody>
           </table></div>
         )}
 
@@ -809,8 +818,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                       <td className="p-3.5 font-mono text-slate-600">{z.maxDraftMeters}m</td>
                       <td className="p-3.5 text-slate-500">{z.description}</td>
                       <td className="p-3.5 text-right">
-                        <button
-                          onClick={() => db.deleteZone(z.id)}
+                          <button
+                            onClick={() => void deleteMasterRecord('Zone', () => db.deleteZone(z.id))}
                           className="p-1.5 rounded bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-500 transition"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
