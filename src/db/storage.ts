@@ -457,6 +457,17 @@ class DatabaseService {
     await this.saveToSupabase();
   }
 
+  private notifyAfterDelete(): void {
+    if (!isSupabaseConfigured || !supabase) {
+      try {
+        localStorage.setItem(LOCAL_DATABASE_KEY, JSON.stringify(this.state));
+      } catch (error) {
+        console.error('Failed to save local database:', error);
+      }
+    }
+    this.notify();
+  }
+
   public subscribe(listener: (state: DatabaseState) => void): () => void {
     this.listeners.push(listener);
     return () => {
@@ -558,7 +569,7 @@ class DatabaseService {
     await this.deleteSupabaseRow('app_users', id, 'employee_code', user?.id || id);
     this.state.users = this.state.users.filter((u) => u.id !== id);
     this.audit('DELETE', 'USER', `Deleted user ${id}`, id);
-    this.saveToStorage();
+    this.notifyAfterDelete();
   }
 
   // Customers
@@ -582,7 +593,7 @@ class DatabaseService {
     const customer = this.state.customers.find((item) => item.id === id);
     await this.deleteSupabaseRow('customers', id, 'code', customer?.code);
     this.state.customers = this.state.customers.filter((c) => c.id !== id);
-    this.saveToStorage();
+    this.notifyAfterDelete();
   }
 
   // Vessels
@@ -606,7 +617,7 @@ class DatabaseService {
     const vessel = this.state.vessels.find((item) => item.id === id);
     await this.deleteSupabaseRow('vessels', id, vessel?.imoNumber ? 'imo_number' : 'name', vessel?.imoNumber || vessel?.name);
     this.state.vessels = this.state.vessels.filter((v) => v.id !== id);
-    this.saveToStorage();
+    this.notifyAfterDelete();
   }
 
   // Ports
@@ -630,7 +641,7 @@ class DatabaseService {
     const port = this.state.ports.find((item) => item.id === id);
     await this.deleteSupabaseRow('ports', id, 'code', port?.code);
     this.state.ports = this.state.ports.filter((p) => p.id !== id);
-    this.saveToStorage();
+    this.notifyAfterDelete();
   }
 
   // Zones
@@ -654,7 +665,7 @@ class DatabaseService {
     const zone = this.state.zones.find((item) => item.id === id);
     await this.deleteSupabaseRow('zones', id, 'zone_code', zone?.zoneCode);
     this.state.zones = this.state.zones.filter((z) => z.id !== id);
-    this.saveToStorage();
+    this.notifyAfterDelete();
   }
 
   // Fix Tariff
@@ -678,7 +689,7 @@ class DatabaseService {
     const tariff = this.state.fixTariffs.find((item) => item.id === id);
     await this.deleteSupabaseRow('fix_tariffs', id, tariff?.serviceCode ? 'service_code' : 'service_name', tariff?.serviceCode || tariff?.serviceName);
     this.state.fixTariffs = this.state.fixTariffs.filter((t) => t.id !== id);
-    this.saveToStorage();
+    this.notifyAfterDelete();
   }
 
   // Expenses Items
@@ -706,7 +717,7 @@ class DatabaseService {
     const expense = this.state.expensesItems.find((item) => item.id === id);
     await this.deleteSupabaseRow('expense_items', id, 'code', expense?.code);
     this.state.expensesItems = this.state.expensesItems.filter((e) => e.id !== id);
-    this.saveToStorage();
+    this.notifyAfterDelete();
   }
 
   // --- JOB / VESSEL CALL LIFECYCLE ---
