@@ -37,8 +37,11 @@ export interface DatabaseState {
 }
 
 const LOCAL_DATABASE_KEY = 'lgm_database_state';
+const LOCAL_INITIAL_JOB_CALLS: JobCall[] = [];
+const DEMO_JOB_IDS = new Set(['VC-2026-0095', 'VC-2026-0098', 'VC-2026-0099']);
 
-const withoutRemovedJobCalls = (jobCalls: JobCall[]): JobCall[] => jobCalls;
+const withoutRemovedJobCalls = (jobCalls: JobCall[]): JobCall[] =>
+  jobCalls.filter((job) => !DEMO_JOB_IDS.has(job.jobId));
 
 const syncActualFDAInvoice = (job: JobCall): JobCall => {
   const actualTotal = (job.actualCosts || []).reduce((sum, item) => sum + (item.amount || 0), 0);
@@ -154,9 +157,9 @@ class DatabaseService {
       zones: INITIAL_ZONES,
       fixTariffs: INITIAL_FIX_TARIFFS,
       expensesItems: INITIAL_EXPENSES_ITEMS,
-      jobCalls: withoutRemovedJobCalls(INITIAL_JOB_CALLS),
+      jobCalls: withoutRemovedJobCalls(LOCAL_INITIAL_JOB_CALLS),
       currentRole: 'ADMIN',
-      selectedJobId: INITIAL_JOB_CALLS[0]?.jobId || '',
+      selectedJobId: LOCAL_INITIAL_JOB_CALLS[0]?.jobId || '',
       auditLogs: [],
     };
   }
@@ -243,7 +246,7 @@ class DatabaseService {
         standardCostSell: row.standard_cost_sell ?? row.standardCostSell,
         preferredVendor: row.preferred_vendor || row.preferredVendor,
       })),
-      this.loadTable<JobCall>('vessel_calls', INITIAL_JOB_CALLS, (row) => ({
+      this.loadTable<JobCall>('vessel_calls', LOCAL_INITIAL_JOB_CALLS, (row) => ({
         ...row,
         jobId: row.job_id || row.jobId,
         exchangeRateUSDToIDR: row.exchange_rate_usd_idr ?? row.exchangeRateUSDToIDR,
@@ -471,9 +474,9 @@ class DatabaseService {
       zones: INITIAL_ZONES,
       fixTariffs: INITIAL_FIX_TARIFFS,
       expensesItems: INITIAL_EXPENSES_ITEMS,
-      jobCalls: withoutRemovedJobCalls(INITIAL_JOB_CALLS),
+      jobCalls: withoutRemovedJobCalls(LOCAL_INITIAL_JOB_CALLS),
       currentRole: this.state.currentRole,
-      selectedJobId: INITIAL_JOB_CALLS[0]?.jobId || '',
+      selectedJobId: LOCAL_INITIAL_JOB_CALLS[0]?.jobId || '',
       auditLogs: [],
     };
     this.saveToStorage();
