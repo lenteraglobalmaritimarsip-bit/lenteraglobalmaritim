@@ -204,6 +204,29 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     const portId = (job.portId || job.inquiry?.portId || '').trim();
     const portName = (job.portName || job.inquiry?.portName || '').trim();
     const quickRate = rateValue || Number(newItem.amount) || 0;
+    const normalizedItemName = itemName.toLowerCase();
+    const isSamePort = (masterPortId?: string, masterPortName?: string) =>
+      (!!portId && !!masterPortId && masterPortId === portId)
+      || (!!portName && !!masterPortName && masterPortName.toLowerCase() === portName.toLowerCase());
+
+    const duplicateExists = newItem.category === 'PORT_EXPENSES'
+      ? fixTariffs.some((tariff) =>
+          tariff.serviceName.trim().toLowerCase() === normalizedItemName
+          && isSamePort(tariff.portId, tariff.portName)
+          && (tariff.costCategory || 'PORT_EXPENSES') === newItem.category
+          && tariff.currency === viewCurrency
+        )
+      : expensesItems.some((expense) =>
+          expense.name.trim().toLowerCase() === normalizedItemName
+          && isSamePort(expense.portId, expense.portName)
+          && expense.category === newItem.category
+          && expense.defaultCurrency === viewCurrency
+        );
+
+    if (duplicateExists) {
+      window.alert('Item service dengan Nama service, Port, Kategori, dan Currency yang sama sudah tersimpan di master data.');
+      return;
+    }
 
     const tariffPayload = {
       portId,
@@ -233,8 +256,11 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       calculationType: newItem.tariffType || 'FIXED',
     };
 
-    db.addFixTariff(tariffPayload);
-    db.addExpensesItem(expensePayload);
+    if (newItem.category === 'PORT_EXPENSES') {
+      db.addFixTariff(tariffPayload);
+    } else {
+      db.addExpensesItem(expensePayload);
+    }
     window.alert('Data master item berhasil ditambahkan. Item baru akan muncul di daftar otomatis.');
   };
 
@@ -494,7 +520,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
 
           <div className="flex items-center gap-2">
             {itemEntryMode === 'MANUAL' && (
-              <button type="button" onClick={handleQuickAddMasterData} className="flex items-center gap-1.5 rounded-xl border border-violet-500 bg-violet-600 px-3 py-2 text-[11px] font-bold text-white transition hover:bg-violet-500 shadow-sm">
+              <button type="button" onClick={handleQuickAddMasterData} className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-emerald-500 shadow-sm">
                 <Plus className="h-4 w-4" />
                 TAMBAH DATA MASTER
               </button>

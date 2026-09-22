@@ -95,6 +95,7 @@ CREATE TABLE IF NOT EXISTS expense_items (
 CREATE TABLE IF NOT EXISTS fix_tariffs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   port_id UUID REFERENCES ports(id),
+  port_name VARCHAR(150),
   cost_category VARCHAR(80),
   service_code VARCHAR(40),
   service_name VARCHAR(180),
@@ -106,6 +107,26 @@ CREATE TABLE IF NOT EXISTS fix_tariffs (
   description TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE fix_tariffs
+  ADD COLUMN IF NOT EXISTS port_name VARCHAR(150);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_fix_tariffs_service_port_category_currency
+  ON fix_tariffs (
+    LOWER(TRIM(service_name)),
+    COALESCE(port_id::TEXT, LOWER(TRIM(port_name))),
+    UPPER(COALESCE(cost_category, 'PORT_EXPENSES')),
+    UPPER(currency)
+  )
+  WHERE service_name IS NOT NULL AND currency IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_expense_items_name_port_category_currency
+  ON expense_items (
+    LOWER(TRIM(name)),
+    COALESCE(port_id::TEXT, LOWER(TRIM(port_name))),
+    UPPER(category),
+    UPPER(default_currency)
+  );
 
 -- One vessel call = one lifecycle job.
 CREATE TABLE IF NOT EXISTS vessel_calls (

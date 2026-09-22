@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Users,
   Building2,
@@ -14,7 +14,9 @@ import {
   X,
   Check,
   ShieldAlert,
+  Upload,
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import {
   User,
   Customer,
@@ -56,6 +58,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [addFormError, setAddFormError] = useState('');
+  const [uploadMessage, setUploadMessage] = useState('');
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editUserForm, setEditUserForm] = useState<Partial<User> & { newPassword?: string }>({});
   const [userEditError, setUserEditError] = useState('');
@@ -261,6 +265,133 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     calculationType: 'FIXED',
   });
 
+  const normalizeUploadHeader = (value: unknown) => String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
+
+  const readUploadValue = (row: Record<string, unknown>, ...headers: string[]) => {
+    const normalizedRow = Object.entries(row).reduce<Record<string, unknown>>((result, [key, value]) => {
+      result[normalizeUploadHeader(key)] = value;
+      return result;
+    }, {});
+    for (const header of headers) {
+      const value = normalizedRow[normalizeUploadHeader(header)];
+      if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+    }
+    return '';
+  };
+
+  const uploadNumber = (value: unknown, fallback = 0) => {
+    const parsed = Number(String(value ?? '').replace(/,/g, '').trim());
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+
+  const sameUploadPort = (portId: string, portName: string, masterPortId?: string, masterPortName?: string) =>
+    (!!portId && !!masterPortId && portId.toLowerCase() === masterPortId.toLowerCase())
+    || (!!portName && !!masterPortName && portName.toLowerCase() === masterPortName.toLowerCase());
+
+  const handleMasterDataUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || (activeTab !== 'FIX_TARIFF' && activeTab !== 'EXPENSES_ITEM')) return;
+
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(firstSheet, { defval: '' });
+      let imported = 0;
+      let duplicates = 0;
+      let invalid = 0;
+      const importedTariffs: FixTariff[] = [];
+      const importedExpenses: ExpensesItem[] = [];
+
+      rows.forEach((row, index) => {
+        const portId = String(readUploadValue(row, 'portId', 'port_id')).trim();
+        const portInput = String(readUploadValue(row, 'portName', 'port', 'port_name')).trim();
+        const selectedPort = ports.find((port) => port.id.toLowerCase() === portInput.toLowerCase() || port.name.toLowerCase() === portInput.toLowerCase());
+        const portName = selectedPort?.name || portInput;
+        const currency = String(readUploadValue(row, 'currency', 'defaultCurrency', 'default_currency')).trim().toUpperCase();
+        const category = String(readUploadValue(row, 'category', 'costCategory', 'cost_category')).trim().toUpperCase();
+
+        if (activeTab === 'FIX_TARIFF') {
+          const serviceName = String(readUploadValue(row, 'serviceName', 'service_name', 'itemService', 'item_service')).trim();
+          if (!serviceName || !['USD', 'IDR'].includes(currency) || !category) {
+            invalid += 1;
+            return;
+          }
+          const duplicate = [...fixTariffs, ...importedTariffs].some((tariff) =>
+            tariff.serviceName.trim().toLowerCase() === serviceName.toLowerCase()
+            && sameUploadPort(portId, portName, tariff.portId, tariff.portName)
+            && (tariff.costCategory || 'PORT_EXPENSES').toUpperCase() === category
+            && tariff.currency === currency
+          );
+          if (duplicate) {
+            duplicates += 1;
+            return;
+          }
+          const tariff: FixTariff = {
+            id: '',
+            portId: selectedPort?.id || portId,
+            portName,
+            costCategory: category,
+            serviceCode: String(readUploadValue(row, 'serviceCode', 'service_code')).trim(),
+            serviceName,
+            calculationBasis: String(readUploadValue(row, 'calculationBasis', 'calculation_basis', 'basis')).trim().toUpperCase() as FixTariff['calculationBasis'] || 'LUMP_SUM',
+            tariffType: String(readUploadValue(row, 'tariffType', 'tariff_type', 'type')).trim().toUpperCase() as FixTariff['tariffType'] || 'FIXED',
+            currency: currency as FixTariff['currency'],
+            rate: uploadNumber(readUploadValue(row, 'rate')),
+            minCharge: uploadNumber(readUploadValue(row, 'minCharge', 'min_charge')),
+            description: String(readUploadValue(row, 'description')).trim(),
+          };
+          importedTariffs.push(tariff);
+          db.addFixTariff(tariff);
+          imported += 1;
+          return;
+        }
+
+        const name = String(readUploadValue(row, 'name', 'itemName', 'item_name', 'serviceName', 'service_name')).trim();
+        if (!name || !['USD', 'IDR'].includes(currency) || !category) {
+          invalid += 1;
+          return;
+        }
+        const duplicate = [...expensesItems, ...importedExpenses].some((expense) =>
+          expense.name.trim().toLowerCase() === name.toLowerCase()
+          && sameUploadPort(portId, portName, expense.portId, expense.portName)
+          && expense.category.toUpperCase() === category
+          && expense.defaultCurrency === currency
+        );
+        if (duplicate) {
+          duplicates += 1;
+          return;
+        }
+        const standardCost = uploadNumber(readUploadValue(row, 'standardCostSell', 'standard_cost_sell', 'rate'));
+        const expense: ExpensesItem = {
+          id: '',
+          portId: selectedPort?.id || portId,
+          portName,
+          code: String(readUploadValue(row, 'code')).trim(),
+          category: category as ExpensesItem['category'],
+          name,
+          unit: String(readUploadValue(row, 'unit')).trim() || 'job',
+          defaultCurrency: currency as ExpensesItem['defaultCurrency'],
+          standardCostBuy: uploadNumber(readUploadValue(row, 'standardCostBuy', 'standard_cost_buy'), standardCost),
+          standardCostSell: standardCost,
+          preferredVendor: String(readUploadValue(row, 'preferredVendor', 'preferred_vendor')).trim(),
+          calculationType: String(readUploadValue(row, 'calculationType', 'calculation_type', 'type')).trim().toUpperCase() as ExpensesItem['calculationType'] || 'FIXED',
+        };
+        importedExpenses.push(expense);
+        db.addExpensesItem(expense);
+        imported += 1;
+      });
+
+      setUploadMessage(`Upload selesai: ${imported} tersimpan, ${duplicates} duplikat dilewati, ${invalid} baris tidak valid.`);
+      onDataSaved?.(activeTab);
+    } catch {
+      setUploadMessage('File gagal dibaca. Gunakan file Excel/CSV dengan header yang sesuai.');
+    }
+  };
+
   const handleSaveItem = (e: React.FormEvent) => {
     e.preventDefault();
     setAddFormError('');
@@ -381,13 +512,28 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
             </p>
           </div>
 
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 border border-slate-300 text-slate-700 text-xs font-bold shadow-sm transition self-start sm:self-auto"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Tambah Data {activeTab.replace('_', ' ')}</span>
-          </button>
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            {(activeTab === 'FIX_TARIFF' || activeTab === 'EXPENSES_ITEM') && (
+              <>
+                <input ref={uploadInputRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleMasterDataUpload} className="hidden" />
+                <button
+                  type="button"
+                  onClick={() => uploadInputRef.current?.click()}
+                  className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-bold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
+                >
+                  <Upload className="w-4 h-4" />
+                  <span>Upload Excel</span>
+                </button>
+              </>
+            )}
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-2 rounded-xl border border-slate-300 bg-slate-200 px-4 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-300"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Tambah Data {activeTab.replace('_', ' ')}</span>
+            </button>
+          </div>
         </div>
 
         <div className="mt-5 border-t border-slate-200" />
@@ -409,6 +555,12 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           Tersimpan di Relational Database Browser Storage
         </span>
       </div>
+
+      {uploadMessage && (activeTab === 'FIX_TARIFF' || activeTab === 'EXPENSES_ITEM') && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-700">
+          {uploadMessage}
+        </div>
+      )}
 
       {/* Tables for each Tab */}
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">

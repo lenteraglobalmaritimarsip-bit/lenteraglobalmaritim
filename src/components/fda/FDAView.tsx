@@ -375,34 +375,59 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
     const portId = (activeJob.portId || activeJob.inquiry?.portId || '').trim();
     const portName = (activeJob.portName || activeJob.inquiry?.portName || '').trim();
+    const normalizedItemName = itemName.toLowerCase();
+    const isSamePort = (masterPortId?: string, masterPortName?: string) =>
+      (!!portId && !!masterPortId && masterPortId === portId)
+      || (!!portName && !!masterPortName && masterPortName.toLowerCase() === portName.toLowerCase());
 
-    db.addFixTariff({
-      portId,
-      portName,
-      costCategory: newActual.category || 'PORT_EXPENSES',
-      serviceCode: '',
-      serviceName: itemName,
-      calculationBasis: newActual.calculationBasis || 'LUMP_SUM',
-      tariffType: newActual.tariffType || 'FIXED',
-      currency: viewCurrency,
-      rate: rateValue,
-      minCharge: Number(newActual.minCharge) || rateValue,
-      description: newActual.notes || 'Created from FDA manual entry',
-    });
+    const duplicateExists = newActual.category === 'PORT_EXPENSES'
+      ? fixTariffs.some((tariff) =>
+          tariff.serviceName.trim().toLowerCase() === normalizedItemName
+          && isSamePort(tariff.portId, tariff.portName)
+          && (tariff.costCategory || 'PORT_EXPENSES') === newActual.category
+          && tariff.currency === viewCurrency
+        )
+      : expensesItems.some((expense) =>
+          expense.name.trim().toLowerCase() === normalizedItemName
+          && isSamePort(expense.portId, expense.portName)
+          && expense.category === newActual.category
+          && expense.defaultCurrency === viewCurrency
+        );
 
-    db.addExpensesItem({
-      portId: portId || undefined,
-      portName: portName || undefined,
-      code: `FDA-${Date.now().toString().slice(-6)}`,
-      category: (newActual.category || 'PORT_EXPENSES') as any,
-      name: itemName,
-      unit: 'job',
-      defaultCurrency: viewCurrency,
-      standardCostBuy: rateValue,
-      standardCostSell: rateValue,
-      preferredVendor: newActual.vendorName || '',
-      calculationType: newActual.tariffType || 'FIXED',
-    });
+    if (duplicateExists) {
+      window.alert('Item service dengan Nama service, Port, Kategori, dan Currency yang sama sudah tersimpan di master data.');
+      return;
+    }
+
+    if (newActual.category === 'PORT_EXPENSES') {
+      db.addFixTariff({
+        portId,
+        portName,
+        costCategory: newActual.category,
+        serviceCode: '',
+        serviceName: itemName,
+        calculationBasis: newActual.calculationBasis || 'LUMP_SUM',
+        tariffType: newActual.tariffType || 'FIXED',
+        currency: viewCurrency,
+        rate: rateValue,
+        minCharge: Number(newActual.minCharge) || rateValue,
+        description: newActual.notes || 'Created from FDA manual entry',
+      });
+    } else {
+      db.addExpensesItem({
+        portId: portId || undefined,
+        portName: portName || undefined,
+        code: `FDA-${Date.now().toString().slice(-6)}`,
+        category: newActual.category as any,
+        name: itemName,
+        unit: 'job',
+        defaultCurrency: viewCurrency,
+        standardCostBuy: rateValue,
+        standardCostSell: rateValue,
+        preferredVendor: newActual.vendorName || '',
+        calculationType: newActual.tariffType || 'FIXED',
+      });
+    }
 
     window.alert('Data master item berhasil ditambahkan untuk FDA. Item baru siap dipakai di mode otomatis.');
   };
@@ -1363,7 +1388,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
               <div className="flex items-center gap-2">
                 {actualEntryMode === 'MANUAL' && (
-                  <button type="button" onClick={handleQuickAddMasterData} className="flex items-center gap-1.5 rounded-xl border border-violet-500 bg-violet-600 px-3 py-2 text-[11px] font-bold text-white transition hover:bg-violet-500 shadow-sm">
+                  <button type="button" onClick={handleQuickAddMasterData} className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-emerald-500 shadow-sm">
                     <Plus className="h-4 w-4" />
                     TAMBAH DATA MASTER
                   </button>
