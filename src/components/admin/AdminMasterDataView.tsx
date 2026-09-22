@@ -18,6 +18,7 @@ import {
   Download,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import {
   User,
   Customer,
@@ -288,14 +289,110 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     return Number.isFinite(parsed) ? parsed : fallback;
   };
 
-  const downloadMasterDataTemplate = () => {
+  const normalizeExpenseCategory = (value: unknown) => {
+    const normalized = String(value ?? '').trim().toUpperCase().replace(/[\s-]+/g, '_');
+    return normalized === 'CLEARANCE_IN/OUT' || normalized === 'CLEARANCE_IN_OUT'
+      ? 'CLEARANCE'
+      : normalized;
+  };
+
+  const deleteFixTariff = async (id: string) => {
+    try {
+      await db.deleteFixTariff(id);
+      setUploadMessage('Fix tariff berhasil dihapus.');
+    } catch (error) {
+      setUploadMessage(error instanceof Error ? error.message : 'Fix tariff gagal dihapus.');
+    }
+  };
+
+  const deleteExpensesItem = async (id: string) => {
+    try {
+      await db.deleteExpensesItem(id);
+      setUploadMessage('Expense item berhasil dihapus.');
+    } catch (error) {
+      setUploadMessage(error instanceof Error ? error.message : 'Expense item gagal dihapus.');
+    }
+  };
+
+  const downloadMasterDataTemplate = async () => {
     const headers = activeTab === 'FIX_TARIFF'
       ? ['portId', 'portName', 'costCategory', 'tariffType', 'serviceName', 'rate', 'currency', 'minCharge']
       : ['portId', 'portName', 'category', 'calculationType', 'name', 'unit', 'defaultCurrency', 'rate'];
-    const workbook = XLSX.utils.book_new();
-    const worksheet = XLSX.utils.aoa_to_sheet([headers]);
-    XLSX.utils.book_append_sheet(workbook, worksheet, activeTab === 'FIX_TARIFF' ? 'Fix Tariff' : 'Expenses Item');
-    XLSX.writeFile(workbook, activeTab === 'FIX_TARIFF' ? 'fix-tariff-template.xlsx' : 'expenses-item-template.xlsx');
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet(activeTab === 'FIX_TARIFF' ? 'Fix Tariff' : 'Expenses Item');
+    const lists = workbook.addWorksheet('Lists');
+    lists.state = 'veryHidden';
+
+    worksheet.addRow(headers);
+    worksheet.views = [{ state: 'frozen', ySplit: 1 }];
+    worksheet.autoFilter = { from: 'A1', to: `${String.fromCharCode(64 + headers.length)}1` };
+    worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    worksheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1E3A5F' } };
+
+    const portIds = ports.map((port) => port.id);
+    const portNames = ports.map((port) => port.name);
+    const categories = ['PORT_EXPENSES', 'CLEARANCE', 'GENERAL_EXPENSES', 'CREW_EXPENSES', 'OWNER_MATTER', 'AGENCY_FEE'];
+    const currencies = ['USD', 'IDR'];
+    const expenseCalculationTypes = ['FIXED', 'VARIABLE', 'QTY_RATE', 'PERCENTAGE', 'RANGE'];
+    const tariffTypes = ['FIXED', 'VARIABLE', 'RANGE'];
+    const tariffBases = ['PER_GRT', 'PER_DAY', 'LUMP_SUM', 'PER_HOUR', 'PER_MOVE'];
+    const listColumns = [portIds, portNames, categories, expenseCalculationTypes, currencies, tariffTypes, tariffBases];
+    listColumns.forEach((values, columnIndex) => {
+      values.forEach((value, rowIndex) => {
+        lists.getCell(rowIndex + 2, columnIndex + 1).value = value;
+      });
+    });
+
+    const listRange = (columnIndex: number, values: string[]) => `=Lists!$${String.fromCharCode(65 + columnIndex)}$2:$${String.fromCharCode(65 + columnIndex)}$${Math.max(values.length + 1, 2)}`;
+    const validationByHeader: Record<string, string> = activeTab === 'FIX_TARIFF'
+      ? {
+          portId: listRange(0, portIds),
+          portName: listRange(1, portNames),
+          costCategory: listRange(2, categories),
+          tariffType: listRange(5, tariffTypes),
+          currency: listRange(4, currencies),
+        }
+      : {
+          portId: listRange(0, portIds),
+          portName: listRange(1, portNames),
+          category: listRange(2, categories),
+          calculationType: listRange(3, expenseCalculationTypes),
+          defaultCurrency: listRange(4, currencies),
+        };
+
+    headers.forEach((header, columnIndex) => {
+      const column = worksheet.getColumn(columnIndex + 1);
+      column.width = Math.max(header.length + 4, 18);
+      const formulae = validationByHeader[header];
+      if (formulae) {
+        for (let row = 2; row <= 501; row += 1) {
+          worksheet.getCell(row, columnIndex + 1).dataValidation = {
+            type: 'list',
+            allowBlank: true,
+            formulae: [formulae],
+            showErrorMessage: true,
+            errorTitle: 'Nilai tidak valid',
+            error: 'Pilih nilai dari dropdown yang tersedia.',
+          };
+        }
+      }
+    });
+
+    if (activeTab === 'FIX_TARIFF') {
+      worksheet.getColumn('F').numFmt = '#,##0.00';
+      worksheet.getColumn('H').numFmt = '#,##0.00';
+    } else {
+      worksheet.getColumn('H').numFmt = '#,##0.00';
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = activeTab === 'FIX_TARIFF' ? 'fix-tariff-template.xlsx' : 'expenses-item-template.xlsx';
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   const sameUploadPort = (portId: string, portName: string, masterPortId?: string, masterPortName?: string) =>
@@ -323,7 +420,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         const selectedPort = ports.find((port) => port.id.toLowerCase() === portInput.toLowerCase() || port.name.toLowerCase() === portInput.toLowerCase());
         const portName = selectedPort?.name || portInput;
         const currency = String(readUploadValue(row, 'currency', 'defaultCurrency', 'default_currency')).trim().toUpperCase();
-        const category = String(readUploadValue(row, 'category', 'costCategory', 'cost_category')).trim().toUpperCase();
+        const category = normalizeExpenseCategory(readUploadValue(row, 'category', 'costCategory', 'cost_category'));
 
         if (activeTab === 'FIX_TARIFF') {
           const serviceName = String(readUploadValue(row, 'serviceName', 'service_name', 'itemService', 'item_service')).trim();
@@ -757,7 +854,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                           <button onClick={() => openMasterEditor('FIX_TARIFF', t)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500 transition" title="Edit Fix Tariff">
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
-                          <button onClick={() => db.deleteFixTariff(t.id)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-500 transition" title="Hapus Fix Tariff">
+                          <button onClick={() => void deleteFixTariff(t.id)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-500 transition" title="Hapus Fix Tariff">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -804,7 +901,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                       <td className="p-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button onClick={() => openMasterEditor('EXPENSES_ITEM', e)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500" title="Edit Expense Item"><Edit2 className="w-3.5 h-3.5"/></button>
-                          <button onClick={() => db.deleteExpensesItem(e.id)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-500" title="Hapus Expense Item"><Trash2 className="w-3.5 h-3.5"/></button>
+                          <button onClick={() => void deleteExpensesItem(e.id)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-500" title="Hapus Expense Item"><Trash2 className="w-3.5 h-3.5"/></button>
                         </div>
                       </td>
                     </tr>

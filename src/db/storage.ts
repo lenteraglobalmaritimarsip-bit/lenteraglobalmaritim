@@ -631,7 +631,12 @@ class DatabaseService {
     this.saveToStorage();
   }
 
-  public deleteFixTariff(id: string): void {
+  public async deleteFixTariff(id: string): Promise<void> {
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase.from('fix_tariffs').delete().eq('id', id).select('id');
+      if (error) throw error;
+      if (!data?.length) throw new Error('Fix tariff tidak terhapus. Periksa ID data atau policy DELETE Supabase.');
+    }
     this.state.fixTariffs = this.state.fixTariffs.filter((t) => t.id !== id);
     this.saveToStorage();
   }
@@ -657,7 +662,12 @@ class DatabaseService {
     this.saveToStorage();
   }
 
-  public deleteExpensesItem(id: string): void {
+  public async deleteExpensesItem(id: string): Promise<void> {
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase.from('expense_items').delete().eq('id', id).select('id');
+      if (error) throw error;
+      if (!data?.length) throw new Error('Expense item tidak terhapus. Periksa ID data atau policy DELETE Supabase.');
+    }
     this.state.expensesItems = this.state.expensesItems.filter((e) => e.id !== id);
     this.saveToStorage();
   }
