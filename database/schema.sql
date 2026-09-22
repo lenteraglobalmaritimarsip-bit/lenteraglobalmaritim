@@ -139,6 +139,7 @@ CREATE TABLE IF NOT EXISTS vessel_calls (
   exchange_rate_usd_idr NUMERIC(18,4),
   current_stage VARCHAR(40) NOT NULL DEFAULT 'INQUIRY',
   status VARCHAR(40) NOT NULL DEFAULT 'INQUIRY',
+  job_payload JSONB,
   created_by UUID REFERENCES app_users(id),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -394,7 +395,8 @@ ALTER TABLE vessel_calls
   ADD COLUMN IF NOT EXISTS berth_zone_name VARCHAR(120),
   ADD COLUMN IF NOT EXISTS cargo_quantity_metric_tons NUMERIC(14,3),
   ADD COLUMN IF NOT EXISTS cargo_commodity VARCHAR(180),
-  ADD COLUMN IF NOT EXISTS harbor_master_clearance_no VARCHAR(80);
+  ADD COLUMN IF NOT EXISTS harbor_master_clearance_no VARCHAR(80),
+  ADD COLUMN IF NOT EXISTS job_payload JSONB;
 
 ALTER TABLE inquiries
   ADD COLUMN IF NOT EXISTS eta_remarks TEXT,

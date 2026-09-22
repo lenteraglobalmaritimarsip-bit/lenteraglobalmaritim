@@ -246,14 +246,18 @@ class DatabaseService {
         standardCostSell: row.standard_cost_sell ?? row.standardCostSell,
         preferredVendor: row.preferred_vendor || row.preferredVendor,
       })),
-      this.loadTable<JobCall>('vessel_calls', LOCAL_INITIAL_JOB_CALLS, (row) => ({
-        ...row,
-        jobId: row.job_id || row.jobId,
-        exchangeRateUSDToIDR: row.exchange_rate_usd_idr ?? row.exchangeRateUSDToIDR,
-        currentStage: row.current_stage || row.currentStage,
-        createdAt: row.created_at || row.createdAt,
-        updatedAt: row.updated_at || row.updatedAt,
-      })),
+      this.loadTable<JobCall>('vessel_calls', LOCAL_INITIAL_JOB_CALLS, (row) => {
+        const payload = row.job_payload && typeof row.job_payload === 'object' ? row.job_payload : {};
+        return {
+          ...payload,
+          ...row,
+          jobId: row.job_id || payload.jobId || row.jobId,
+          exchangeRateUSDToIDR: row.exchange_rate_usd_idr ?? payload.exchangeRateUSDToIDR ?? row.exchangeRateUSDToIDR,
+          currentStage: row.current_stage || payload.currentStage || row.currentStage,
+          createdAt: row.created_at || payload.createdAt || row.createdAt,
+          updatedAt: row.updated_at || payload.updatedAt || row.updatedAt,
+        } as JobCall;
+      }),
       this.loadTable<AuditLog>('audit_logs', [], (row) => ({
         ...row,
         timestamp: row.created_at || row.timestamp,
@@ -380,7 +384,20 @@ class DatabaseService {
         standard_cost_sell: item.standardCostSell,
         preferred_vendor: item.preferredVendor,
       })), { onConflict: 'code' }),
-      this.saveRowsWithoutConflict('vessel_calls', 'job_id', this.state.jobCalls.map((job) => ({ job_id: job.jobId, eta: job.eta, etd: job.etd, purpose_of_call: job.purposeOfCall, currency: job.currency, exchange_rate_usd_idr: job.exchangeRateUSDToIDR, current_stage: job.currentStage, status: job.status }))),
+      this.saveRowsWithoutConflict('vessel_calls', 'job_id', this.state.jobCalls.map((job) => ({
+        job_id: job.jobId,
+        vessel_name: job.vesselName,
+        port_name: job.portName,
+        customer_name: job.customerName,
+        eta: job.eta,
+        etd: job.etd,
+        purpose_of_call: job.purposeOfCall,
+        currency: job.currency,
+        exchange_rate_usd_idr: job.exchangeRateUSDToIDR,
+        current_stage: job.currentStage,
+        status: job.status,
+        job_payload: job,
+      }))),
     ]);
     const failed = results.find((result) => result && 'error' in result && result.error);
     if (failed && 'error' in failed && failed.error) throw failed.error;
@@ -523,7 +540,11 @@ class DatabaseService {
     this.saveToStorage();
   }
 
-  public deleteUser(id: string): void {
+  public async deleteUser(id: string): Promise<void> {
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase.from('app_users').delete().eq('employee_code', id);
+      if (error) throw error;
+    }
     this.state.users = this.state.users.filter((u) => u.id !== id);
     this.audit('DELETE', 'USER', `Deleted user ${id}`, id);
     this.saveToStorage();
@@ -546,7 +567,11 @@ class DatabaseService {
     this.saveToStorage();
   }
 
-  public deleteCustomer(id: string): void {
+  public async deleteCustomer(id: string): Promise<void> {
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase.from('customers').delete().eq('id', id);
+      if (error) throw error;
+    }
     this.state.customers = this.state.customers.filter((c) => c.id !== id);
     this.saveToStorage();
   }
@@ -568,7 +593,11 @@ class DatabaseService {
     this.saveToStorage();
   }
 
-  public deleteVessel(id: string): void {
+  public async deleteVessel(id: string): Promise<void> {
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase.from('vessels').delete().eq('id', id);
+      if (error) throw error;
+    }
     this.state.vessels = this.state.vessels.filter((v) => v.id !== id);
     this.saveToStorage();
   }
@@ -590,7 +619,11 @@ class DatabaseService {
     this.saveToStorage();
   }
 
-  public deletePort(id: string): void {
+  public async deletePort(id: string): Promise<void> {
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase.from('ports').delete().eq('id', id);
+      if (error) throw error;
+    }
     this.state.ports = this.state.ports.filter((p) => p.id !== id);
     this.saveToStorage();
   }
@@ -612,7 +645,11 @@ class DatabaseService {
     this.saveToStorage();
   }
 
-  public deleteZone(id: string): void {
+  public async deleteZone(id: string): Promise<void> {
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase.from('zones').delete().eq('id', id);
+      if (error) throw error;
+    }
     this.state.zones = this.state.zones.filter((z) => z.id !== id);
     this.saveToStorage();
   }
