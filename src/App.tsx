@@ -66,6 +66,7 @@ const getDefaultTabForRole = (role: UserRole): ActiveTab => {
 };
 
 const ACTIVE_TAB_STORAGE_KEY = 'lgm_active_tab';
+let resetJobsPromise: Promise<void> | null = null;
 
 export default function App() {
   const [data, setData] = useState<DatabaseState>(db.getState());
@@ -193,12 +194,28 @@ export default function App() {
   // Subscribe to reactive database changes
   useEffect(() => {
     if (currentUser) db.setActor({ id: currentUser.id, name: currentUser.name, role: currentUser.role, branch: currentUser.branch });
-    void db.hydrate().catch((error) => console.error('Supabase hydrate failed:', error));
-    const unsubscribe = db.subscribe((newState) => {
+    let unsubscribe = () => {};
+    void (async () => {
+      try {
+        const resetJobs = new URLSearchParams(window.location.search).get('resetJobs') === '1';
+        if (resetJobs && currentUser?.role === 'ADMIN' && !resetJobsPromise) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+          resetJobsPromise = (async () => {
+            await db.hydrate();
+            await db.clearAllJobs();
+          })();
+        }
+        await (resetJobsPromise || db.hydrate());
+        setData({ ...db.getState() });
+      } catch (error) {
+        console.error('Supabase hydrate failed:', error);
+      }
+    })();
+    unsubscribe = db.subscribe((newState) => {
       setData({ ...newState });
     });
     return () => unsubscribe();
-  }, []);
+  }, [currentUser]);
 
   // When changing role, adapt active tab to sensible default for that role
   const handleRoleChange = (newRole: UserRole) => {

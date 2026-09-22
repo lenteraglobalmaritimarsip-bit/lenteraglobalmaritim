@@ -668,6 +668,18 @@ class DatabaseService {
     return this.state.jobCalls.find((j) => j.jobId === jobId);
   }
 
+  public async clearAllJobs(): Promise<void> {
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase.from('vessel_calls').delete().not('job_id', 'is', null);
+      if (error) throw error;
+    }
+
+    this.state.jobCalls = [];
+    this.state.selectedJobId = '';
+    this.state.auditLogs = this.state.auditLogs.filter((log) => log.entity !== 'VESSEL_CALL');
+    await this.saveToStorage();
+  }
+
   public updateJob(jobId: string, updates: Partial<JobCall>): void {
     const existingJob = this.getJob(jobId);
     if (
