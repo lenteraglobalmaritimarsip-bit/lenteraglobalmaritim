@@ -693,13 +693,14 @@ class DatabaseService {
   }
 
   // Expenses Items
-  public addExpensesItem(item: Omit<ExpensesItem, 'id'>): ExpensesItem {
+  public async addExpensesItem(item: Omit<ExpensesItem, 'id'>): Promise<ExpensesItem> {
     const id = `EXP-${String(this.state.expensesItems.length + 1).padStart(3, '0')}`;
     const portName = item.portName || this.state.ports.find((p) => p.id === item.portId)?.name || '';
-    const newItem: ExpensesItem = { ...item, portName, id };
+    const code = item.code?.trim() || id;
+    const newItem: ExpensesItem = { ...item, code, portName, id };
     this.state.expensesItems = [...this.state.expensesItems, newItem];
     this.audit('CREATE', 'EXPENSE_ITEM', `Created expense item ${newItem.name}`, newItem.id);
-    this.saveToStorage();
+    await this.saveToStorage();
     return newItem;
   }
 

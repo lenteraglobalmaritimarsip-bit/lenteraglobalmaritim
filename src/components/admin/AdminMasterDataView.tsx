@@ -509,7 +509,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     }
   };
 
-  const handleSaveItem = (e: React.FormEvent) => {
+  const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
     setAddFormError('');
     try {
@@ -558,7 +558,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           return;
         }
         const port = ports.find((p) => p.id === newExpense.portId);
-        db.addExpensesItem({
+        await db.addExpensesItem({
           ...newExpense,
           code: newExpense.code?.trim() || '',
           name: newExpense.name.trim(),
