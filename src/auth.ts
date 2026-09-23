@@ -118,6 +118,22 @@ export async function signOutSupabase(): Promise<void> {
   if (isSupabaseConfigured && supabase) await supabase.auth.signOut();
 }
 
+export async function sendSupabasePasswordReset(identifier: string): Promise<string | null> {
+  if (!isSupabaseConfigured || !supabase) return 'Supabase Auth belum dikonfigurasi.';
+  let email = identifier.trim();
+  if (!email.includes('@')) {
+    const { data: resolvedEmail } = await supabase.rpc('get_auth_email_by_username', {
+      input_username: email,
+    });
+    if (typeof resolvedEmail !== 'string' || !resolvedEmail) return 'Username tidak ditemukan.';
+    email = resolvedEmail;
+  }
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}${window.location.pathname}`,
+  });
+  return error?.message || null;
+}
+
 export function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
 }

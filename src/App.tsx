@@ -16,7 +16,7 @@ import { ManagerOpsView } from './components/manager/ManagerOpsView';
 import { FDAView } from './components/fda/FDAView';
 import { FinanceView } from './components/finance/FinanceView';
 import { AuthAccount, DEMO_ACCOUNTS, getStoredAccounts, getSupabaseAccount, saveStoredAccount, signOutSupabase } from './auth';
-import { LoginView } from './components/auth/LoginView';
+import { LoginView, PasswordRecoveryView } from './components/auth/LoginView';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
 
 const syncCurrentUserFromMaster = (account: AuthAccount | null): AuthAccount | null => {
@@ -111,6 +111,7 @@ export default function App() {
     data.jobCalls[0]?.jobId || ''
   );
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
   const [loginToast, setLoginToast] = useState<string | null>(null);
   const [saveToast, setSaveToast] = useState<string | null>(null);
 
@@ -215,7 +216,12 @@ export default function App() {
       }
     });
     const { data: authSubscription } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsPasswordRecovery(true);
+        return;
+      }
       if (event === 'SIGNED_OUT') {
+        setIsPasswordRecovery(false);
         setCurrentUser(null);
         return;
       }
@@ -299,6 +305,7 @@ export default function App() {
     data.jobCalls[0] ||
     ({} as JobCall);
 
+  if (isPasswordRecovery) return <PasswordRecoveryView onComplete={() => setIsPasswordRecovery(false)} />;
   if (!currentUser) return <LoginView onLogin={handleLogin} />;
 
   return (
