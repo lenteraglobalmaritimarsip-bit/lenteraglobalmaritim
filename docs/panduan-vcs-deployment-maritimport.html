@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>Panduan VCS dan Deployment MaritimPort</title>
+<style>
+@page { size: A4; margin: 18mm 16mm; }
+body { font-family: "Segoe UI", Arial, sans-serif; color: #172033; line-height: 1.5; font-size: 11pt; }
+h1 { color: #123b5d; font-size: 25pt; margin-bottom: 4px; }
+h2 { color: #176b78; border-bottom: 2px solid #d8e7e8; padding-bottom: 4px; margin-top: 24px; }
+h3 { color: #123b5d; margin-bottom: 4px; }
+.subtitle { color: #607080; font-size: 13pt; margin-top: 0; }
+.box { background: #eef7f7; border-left: 5px solid #1d8b8b; padding: 10px 14px; margin: 14px 0; }
+code, pre { font-family: Consolas, monospace; }
+pre { background: #f3f5f7; padding: 11px 13px; border-radius: 5px; white-space: pre-wrap; }
+table { width: 100%; border-collapse: collapse; margin: 10px 0 16px; }
+th, td { border: 1px solid #cbd5dc; padding: 7px; text-align: left; vertical-align: top; }
+th { background: #e8f0f3; color: #123b5d; }
+li { margin: 4px 0; }
+.footer { margin-top: 30px; color: #74818b; font-size: 9pt; border-top: 1px solid #d9e0e4; padding-top: 8px; }
+</style>
+</head>
+<body>
+<h1>Panduan VCS dan Deployment</h1>
+<p class="subtitle">MaritimPort Shipping Agency Work Portal</p>
+<div class="box"><strong>Tujuan:</strong> pengembangan aplikasi dapat berjalan tanpa mengubah aplikasi online yang sedang operasional.</div>
+
+<h2>1. Struktur Branch</h2>
+<table><tr><th>Branch</th><th>Fungsi</th><th>Deployment</th></tr>
+<tr><td><code>main</code></td><td>Versi stabil yang sudah disetujui</td><td>Production/online</td></tr>
+<tr><td><code>develop</code></td><td>Gabungan fitur untuk pengujian</td><td>Staging, bila tersedia</td></tr>
+<tr><td><code>feature/*</code></td><td>Satu fitur atau perbaikan tertentu</td><td>Tidak langsung online</td></tr></table>
+
+<h2>2. Alur Pengembangan</h2>
+<pre>feature/nama-fitur
+        |
+        v
+     develop  -- test/typecheck/build --> staging
+        |
+        v
+      main   -- approval/release ------> production</pre>
+<p>Jangan mengembangkan fitur langsung di <code>main</code>. Branch production hanya menerima perubahan yang sudah diuji.</p>
+
+<h2>3. Perintah Git</h2>
+<pre>git checkout main
+git pull origin main
+git checkout -b develop
+git push -u origin develop
+
+# Membuat fitur baru
+git checkout develop
+git pull origin develop
+git checkout -b feature/nama-fitur
+
+# Menyimpan pekerjaan
+git add .
+git commit -m "feat: deskripsi perubahan"
+git push -u origin feature/nama-fitur</pre>
+<p>Setelah pengujian selesai, lakukan Pull Request dari <code>feature/*</code> ke <code>develop</code>. Setelah staging disetujui, Pull Request dari <code>develop</code> ke <code>main</code>.</p>
+
+<h2>4. Pisahkan Environment</h2>
+<p>Production dan development sebaiknya menggunakan project Supabase yang berbeda.</p>
+<table><tr><th>Environment</th><th>Database</th><th>Branch</th></tr>
+<tr><td>Development</td><td>Supabase development/staging</td><td><code>feature/*</code>, <code>develop</code></td></tr>
+<tr><td>Production</td><td>Supabase production</td><td><code>main</code></td></tr></table>
+<pre># .env.development
+VITE_SUPABASE_URL=https://staging-project.supabase.co
+VITE_SUPABASE_ANON_KEY=staging-key
+
+# .env.production
+VITE_SUPABASE_URL=https://production-project.supabase.co
+VITE_SUPABASE_ANON_KEY=production-key</pre>
+<p>Jangan commit file environment yang berisi credential. Simpan credential pada Environment Variables di layanan deployment.</p>
+
+<h2>5. Perubahan Database</h2>
+<ol>
+<li>Uji perubahan schema di Supabase staging.</li>
+<li>Backup database production.</li>
+<li>Jalankan migration di production pada waktu yang disetujui.</li>
+<li>Verifikasi tabel, kolom, index, dan data.</li>
+<li>Deploy aplikasi setelah schema siap.</li>
+</ol>
+<p>Gunakan <code>database/schema.sql</code> sebagai sumber schema utama project. Jangan mengubah schema production secara manual tanpa mencatat perubahannya di Git.</p>
+
+<h2>6. Checklist Sebelum Production</h2>
+<ul>
+<li><code>npm run lint</code> berhasil.</li>
+<li><code>npm run build</code> berhasil.</li>
+<li>Login Admin dan role utama diuji.</li>
+<li>Fix Tariff dan Expenses Item diuji.</li>
+<li>Alur EPDA otomatis dan manual diuji.</li>
+<li>Alur FDA otomatis dan manual diuji.</li>
+<li>Supabase production sudah memiliki schema terbaru.</li>
+<li>Backup database tersedia.</li>
+<li>Perubahan sudah melalui Pull Request.</li>
+</ul>
+
+<h2>7. Rollback</h2>
+<p>Jika release bermasalah, kembalikan deployment ke commit stabil sebelumnya. Jangan langsung menghapus data database. Untuk perubahan schema, siapkan migration rollback atau perubahan kompatibel sebelum release.</p>
+<pre>git log --oneline -10
+git checkout main
+git revert &lt;commit-yang-bermasalah&gt;
+git push origin main</pre>
+
+<div class="footer">MaritimPort | Panduan internal VCS dan deployment | 23 September 2026</div>
+</body>
+</html>

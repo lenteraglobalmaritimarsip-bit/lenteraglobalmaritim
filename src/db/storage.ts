@@ -688,6 +688,36 @@ class DatabaseService {
     return newTariff;
   }
 
+  public async addFixTariffsBulk(tariffs: Array<Omit<FixTariff, 'id'>>): Promise<FixTariff[]> {
+    if (!tariffs.length) return [];
+    const previousTariffs = this.state.fixTariffs;
+    const startIndex = previousTariffs.length;
+    const newTariffs = tariffs.map((tariff, index) => ({
+      ...tariff,
+      id: `TAR-${String(startIndex + index + 1).padStart(4, '0')}`,
+    }));
+    this.state.fixTariffs = [...previousTariffs, ...newTariffs];
+
+    try {
+      if (isSupabaseConfigured && supabase) {
+        for (let index = 0; index < newTariffs.length; index += 250) {
+          const chunk = newTariffs.slice(index, index + 250);
+          const { error } = await supabase.from('fix_tariffs').insert(chunk.map((tariff) => this.toSupabaseRow('fix_tariffs', tariff)));
+          if (error) throw error;
+        }
+      } else {
+        await this.saveToStorage();
+      }
+      this.audit('CREATE_BULK', 'FIX_TARIFF', `Imported ${newTariffs.length} tariffs`);
+      this.notify();
+      return newTariffs;
+    } catch (error) {
+      this.state.fixTariffs = previousTariffs;
+      this.notify();
+      throw error;
+    }
+  }
+
   public updateFixTariff(id: string, updates: Partial<FixTariff>): void {
     this.state.fixTariffs = this.state.fixTariffs.map((t) =>
       t.id === id ? { ...t, ...updates } : t

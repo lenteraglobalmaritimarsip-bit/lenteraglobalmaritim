@@ -500,7 +500,6 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
             description: String(readUploadValue(row, 'description')).trim(),
           };
           importedTariffs.push(tariff);
-          db.addFixTariff(tariff);
           imported += 1;
           return;
         }
@@ -544,6 +543,10 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         db.addExpensesItem(expense);
         imported += 1;
       });
+
+      if (activeTab === 'FIX_TARIFF' && importedTariffs.length) {
+        await db.addFixTariffsBulk(importedTariffs.map(({ id: _id, ...tariff }) => tariff));
+      }
 
       setUploadMessage(`Upload selesai: ${imported} tersimpan, ${duplicates} duplikat dilewati, ${invalid} baris tidak valid.`);
       onDataSaved?.(activeTab);

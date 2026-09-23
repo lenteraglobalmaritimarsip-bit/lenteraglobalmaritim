@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS expense_items (
   port_id UUID REFERENCES ports(id),
   port_name VARCHAR(150),
   code VARCHAR(40) UNIQUE NOT NULL,
-  category VARCHAR(50) NOT NULL CHECK (category IN ('PORT_EXPENSES','CLEARANCE','GENERAL_EXPENSES','CREW_EXPENSES','OWNER_MATTER','AGENCY_FEE')),
+  category VARCHAR(50) NOT NULL CHECK (category IN ('PORT_EXPENSES','CLEARANCE','GENERAL_EXPENSES','CREW_EXPENSES','OWNER_MATTER','AGENCY_FEE','TAX_CONTINGENCY','PORT_DUES','PILOTAGE_TOWAGE','BERTHING','CREW_CHANGE','IMMIGRATION_CUSTOMS','LOGISTICS_SUPPLIES','SUNDRY')),
   name VARCHAR(180) NOT NULL,
   unit VARCHAR(50),
   default_currency VARCHAR(3) NOT NULL CHECK (default_currency IN ('USD','IDR')),
@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS fix_tariffs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   port_id UUID REFERENCES ports(id),
   port_name VARCHAR(150),
-  cost_category VARCHAR(80) CHECK (cost_category IS NULL OR cost_category IN ('PORT_EXPENSES','CLEARANCE','GENERAL_EXPENSES','CREW_EXPENSES','OWNER_MATTER','AGENCY_FEE')),
+  cost_category VARCHAR(80) CHECK (cost_category IS NULL OR cost_category IN ('PORT_EXPENSES','CLEARANCE','GENERAL_EXPENSES','CREW_EXPENSES','OWNER_MATTER','AGENCY_FEE','TAX_CONTINGENCY','PORT_DUES','PILOTAGE_TOWAGE','BERTHING','CREW_CHANGE','IMMIGRATION_CUSTOMS','LOGISTICS_SUPPLIES','SUNDRY')),
   service_code VARCHAR(40),
   service_name VARCHAR(180),
   grt NUMERIC(18,4),
@@ -122,18 +122,28 @@ ALTER TABLE fix_tariffs
   ADD COLUMN IF NOT EXISTS service_name VARCHAR(180),
   ADD COLUMN IF NOT EXISTS grt NUMERIC(18,4),
   ADD COLUMN IF NOT EXISTS dwt NUMERIC(18,4),
+  ADD COLUMN IF NOT EXISTS calculation_basis VARCHAR(30),
+  ADD COLUMN IF NOT EXISTS tariff_type VARCHAR(20),
   ADD COLUMN IF NOT EXISTS currency VARCHAR(3),
   ADD COLUMN IF NOT EXISTS rate NUMERIC(18,4),
   ADD COLUMN IF NOT EXISTS rate_idr NUMERIC(18,4),
   ADD COLUMN IF NOT EXISTS rate_usd NUMERIC(18,4),
-  ADD COLUMN IF NOT EXISTS min_charge NUMERIC(18,2);
+  ADD COLUMN IF NOT EXISTS min_charge NUMERIC(18,2),
+  ADD COLUMN IF NOT EXISTS description TEXT,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 ALTER TABLE expense_items
   ADD COLUMN IF NOT EXISTS port_id UUID REFERENCES ports(id),
   ADD COLUMN IF NOT EXISTS port_name VARCHAR(150),
   ADD COLUMN IF NOT EXISTS category VARCHAR(50),
   ADD COLUMN IF NOT EXISTS name VARCHAR(180),
+  ADD COLUMN IF NOT EXISTS unit VARCHAR(50),
   ADD COLUMN IF NOT EXISTS default_currency VARCHAR(3),
+  ADD COLUMN IF NOT EXISTS standard_cost_buy NUMERIC(18,2) DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS standard_cost_sell NUMERIC(18,2) DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS preferred_vendor VARCHAR(180),
+  ADD COLUMN IF NOT EXISTS calculation_type VARCHAR(20),
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   ADD COLUMN IF NOT EXISTS rate_idr NUMERIC(18,4),
   ADD COLUMN IF NOT EXISTS rate_usd NUMERIC(18,4);
 
@@ -447,7 +457,7 @@ ALTER TABLE app_users
 ALTER TABLE expense_items DROP CONSTRAINT IF EXISTS expense_items_category_check;
 ALTER TABLE expense_items
   ADD CONSTRAINT expense_items_category_check
-  CHECK (category IN ('PORT_EXPENSES','CLEARANCE','GENERAL_EXPENSES','CREW_EXPENSES','OWNER_MATTER','AGENCY_FEE'));
+  CHECK (category IN ('PORT_EXPENSES','CLEARANCE','GENERAL_EXPENSES','CREW_EXPENSES','OWNER_MATTER','AGENCY_FEE','TAX_CONTINGENCY','PORT_DUES','PILOTAGE_TOWAGE','BERTHING','CREW_CHANGE','IMMIGRATION_CUSTOMS','LOGISTICS_SUPPLIES','SUNDRY'));
 
 ALTER TABLE fix_tariffs
   ADD COLUMN IF NOT EXISTS cost_category VARCHAR(80),
@@ -456,7 +466,7 @@ ALTER TABLE fix_tariffs
 ALTER TABLE fix_tariffs DROP CONSTRAINT IF EXISTS fix_tariffs_cost_category_check;
 ALTER TABLE fix_tariffs
   ADD CONSTRAINT fix_tariffs_cost_category_check
-  CHECK (cost_category IS NULL OR cost_category IN ('PORT_EXPENSES','CLEARANCE','GENERAL_EXPENSES','CREW_EXPENSES','OWNER_MATTER','AGENCY_FEE'));
+  CHECK (cost_category IS NULL OR cost_category IN ('PORT_EXPENSES','CLEARANCE','GENERAL_EXPENSES','CREW_EXPENSES','OWNER_MATTER','AGENCY_FEE','TAX_CONTINGENCY','PORT_DUES','PILOTAGE_TOWAGE','BERTHING','CREW_CHANGE','IMMIGRATION_CUSTOMS','LOGISTICS_SUPPLIES','SUNDRY'));
 
 CREATE INDEX IF NOT EXISTS idx_inquiries_created_by_branch ON inquiries(created_by_branch);
 CREATE INDEX IF NOT EXISTS idx_vessel_calls_created_by ON vessel_calls(created_by);
@@ -492,3 +502,46 @@ BEGIN
     );
   END LOOP;
 END $$;
+
+-- Backfill aman untuk database lama yang masih menyimpan satu currency/rate.
+UPDATE expense_items
+SET rate_idr = COALESCE(rate_idr, standard_cost_sell, standard_cost_buy)
+WHERE UPPER(COALESCE(default_currency, '')) = 'IDR'
+  AND rate_idr IS NULL;
+
+UPDATE expense_items
+SET rate_usd = COALESCE(rate_usd, standard_cost_sell, standard_cost_buy)
+WHERE UPPER(COALESCE(default_currency, '')) = 'USD'
+  AND rate_usd IS NULL;
+
+UPDATE fix_tariffs
+SET rate_idr = COALESCE(rate_idr, rate)
+WHERE UPPER(COALESCE(currency, '')) = 'IDR'
+  AND rate_idr IS NULL;
+
+UPDATE fix_tariffs
+SET rate_usd = COALESCE(rate_usd, rate)
+WHERE UPPER(COALESCE(currency, '')) = 'USD'
+  AND rate_usd IS NULL;
+
+UPDATE expense_items
+SET calculation_type = 'FIXED'
+WHERE calculation_type IS NULL OR BTRIM(calculation_type) = '';
+
+-- Pastikan PostgREST membaca schema terbaru setelah migration dijalankan.
+NOTIFY pgrst, 'reload schema';
+
+-- Verifikasi akhir yang mudah dikenali di Supabase SQL Editor.
+SELECT
+  'SUCCESS' AS status,
+  'Complete MaritimPort schema is ready' AS message,
+  (SELECT COUNT(*) FROM expense_items) AS expense_items_rows,
+  (SELECT COUNT(*) FROM fix_tariffs) AS fix_tariffs_rows,
+  (SELECT COUNT(*) FROM information_schema.columns
+   WHERE table_schema = 'public'
+     AND table_name = 'expense_items'
+     AND column_name IN ('calculation_type', 'rate_idr', 'rate_usd')) AS expense_columns_ready,
+  (SELECT COUNT(*) FROM information_schema.columns
+   WHERE table_schema = 'public'
+     AND table_name = 'fix_tariffs'
+     AND column_name IN ('grt', 'dwt', 'rate_idr', 'rate_usd')) AS tariff_columns_ready;
