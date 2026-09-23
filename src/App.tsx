@@ -15,8 +15,9 @@ import { JobsEntryView } from './components/sales/JobsEntryView';
 import { ManagerOpsView } from './components/manager/ManagerOpsView';
 import { FDAView } from './components/fda/FDAView';
 import { FinanceView } from './components/finance/FinanceView';
-import { AuthAccount, DEMO_ACCOUNTS, getStoredAccounts, saveStoredAccount } from './auth';
+import { AuthAccount, DEMO_ACCOUNTS, getStoredAccounts, getSupabaseAccount, saveStoredAccount, signOutSupabase } from './auth';
 import { LoginView } from './components/auth/LoginView';
+import { isSupabaseConfigured, supabase } from './supabaseClient';
 
 const syncCurrentUserFromMaster = (account: AuthAccount | null): AuthAccount | null => {
   if (!account) return null;
@@ -74,6 +75,7 @@ export default function App() {
   const [data, setData] = useState<DatabaseState>(db.getState());
   const [currentRole, setCurrentRole] = useState<UserRole>('ADMIN');
   const [currentUser, setCurrentUser] = useState<AuthAccount | null>(() => {
+    if (isSupabaseConfigured) return null;
     try {
       const raw = localStorage.getItem('lgm_active_user');
       if (!raw) return null;
@@ -158,9 +160,9 @@ export default function App() {
     setCurrentUser(freshAccount);
     setCurrentRole(freshAccount.role);
     try {
-      if (rememberMe) {
+      if (rememberMe && !isSupabaseConfigured) {
         localStorage.setItem('lgm_active_user', JSON.stringify(freshAccount));
-      } else {
+      } else if (!isSupabaseConfigured) {
         localStorage.removeItem('lgm_active_user');
       }
     } catch {}
@@ -175,8 +177,17 @@ export default function App() {
     window.dispatchEvent(new CustomEvent('lgm:open-profile'));
   };
 
-  const handleChangePassword = (_oldPassword: string, newPassword: string) => {
+  const handleChangePassword = async (_oldPassword: string, newPassword: string) => {
     if (!currentUser) return;
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) {
+        window.alert(error.message);
+        return;
+      }
+      window.alert('Password berhasil diperbarui.');
+      return;
+    }
     const updated = { ...currentUser, password: newPassword };
     saveStoredAccount(updated);
     db.updateUser(currentUser.id, { password: newPassword });
@@ -186,12 +197,42 @@ export default function App() {
     window.alert('Password berhasil diperbarui.');
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     const userId = currentUser?.id;
+    await signOutSupabase();
     setCurrentUser(null);
     setLoginToast(null);
     clearStoredAuthSession(userId);
   };
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    let mounted = true;
+    void getSupabaseAccount().then((account) => {
+      if (mounted && account) {
+        setCurrentUser(account);
+        setCurrentRole(account.role);
+      }
+    });
+    const { data: authSubscription } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
+        setCurrentUser(null);
+        return;
+      }
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        void getSupabaseAccount().then((account) => {
+          if (mounted && account) {
+            setCurrentUser(account);
+            setCurrentRole(account.role);
+          }
+        });
+      }
+    });
+    return () => {
+      mounted = false;
+      authSubscription.subscription.unsubscribe();
+    };
+  }, []);
 
   // Subscribe to reactive database changes
   useEffect(() => {

@@ -376,7 +376,8 @@ class DatabaseService {
       return;
     }
 
-    const results = await Promise.all([
+    const masterWrites = this.actor.role === 'ADMIN'
+      ? [
       supabase.from('app_users').upsert(this.state.users.map((user) => ({ employee_code: user.id, name: user.name, email: user.email, username: user.username || user.email, password_hash: user.password || '', role: user.role, department: user.department, branch: user.branch, phone: user.phone, position: user.position, avatar: user.avatar, status: user.status })), { onConflict: 'employee_code' }),
       supabase.from('customers').upsert(this.state.customers.map((customer) => ({ code: customer.code, company_name: customer.companyName, country: customer.country, type: customer.type, contact_person: customer.contactPerson, email: customer.email, phone: customer.phone, address: customer.address, credit_term_days: customer.creditTermDays })), { onConflict: 'code' }),
       supabase.from('vessels').upsert(this.state.vessels.map((vessel) => ({ name: vessel.name, imo_number: vessel.imoNumber || null, call_sign: vessel.callSign, flag: vessel.flag, vessel_type: vessel.vesselType, grt: vessel.grt, nrt: vessel.nrt, dwt: vessel.dwt, loa: vessel.loa, beam: vessel.beam, year_built: vessel.yearBuilt })), { onConflict: 'imo_number' }),
@@ -398,6 +399,11 @@ class DatabaseService {
         standard_cost_sell: item.standardCostSell,
         preferred_vendor: item.preferredVendor,
       })), { onConflict: 'code' }),
+      ]
+      : [];
+
+    const results = await Promise.all([
+      ...masterWrites,
       this.saveRowsWithoutConflict('vessel_calls', 'job_id', this.state.jobCalls.map((job) => ({
         job_id: job.jobId,
         vessel_name: job.vesselName,

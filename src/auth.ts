@@ -1,4 +1,5 @@
 import { User, UserRole } from './types';
+import { isSupabaseConfigured, supabase } from './supabaseClient';
 
 export interface AuthAccount extends User {
   username: string;
@@ -51,6 +52,70 @@ export function authenticate(username: string, password: string): AuthAccount | 
   const normalized = username.trim().toLowerCase();
   const account = getStoredAccounts().find((item) => item?.username === normalized && item.password === password && item.status === 'ACTIVE');
   return account || null;
+}
+
+const mapSupabaseAccount = (row: Partial<User> & { id: string }, password = ''): AuthAccount => ({
+  id: row.id,
+  name: row.name || '',
+  email: row.email || '',
+  role: row.role || 'SALES',
+  department: row.department || '',
+  branch: row.branch || 'Head Office',
+  avatar: row.avatar,
+  status: row.status || 'ACTIVE',
+  phone: row.phone,
+  username: row.username || row.email || '',
+  password,
+  position: row.position,
+});
+
+export async function authenticateWithSupabase(email: string, password: string): Promise<AuthAccount | null> {
+  if (!isSupabaseConfigured || !supabase) return null;
+
+  let loginEmail = email.trim();
+  if (!loginEmail.includes('@')) {
+    const { data: resolvedEmail } = await supabase.rpc('get_auth_email_by_username', {
+      input_username: loginEmail,
+    });
+    if (typeof resolvedEmail === 'string' && resolvedEmail) loginEmail = resolvedEmail;
+  }
+
+  const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+    email: loginEmail,
+    password,
+  });
+  if (authError || !authData.user) return null;
+
+  const { data: profile, error: profileError } = await supabase
+    .from('app_users')
+    .select('id,name,email,username,role,department,branch,avatar,status,phone,position')
+    .eq('id', authData.user.id)
+    .single();
+
+  if (profileError || !profile) {
+    await supabase.auth.signOut();
+    return null;
+  }
+
+  return mapSupabaseAccount(profile as Partial<User> & { id: string });
+}
+
+export async function getSupabaseAccount(): Promise<AuthAccount | null> {
+  if (!isSupabaseConfigured || !supabase) return null;
+  const { data: sessionData } = await supabase.auth.getSession();
+  const user = sessionData.session?.user;
+  if (!user) return null;
+
+  const { data: profile } = await supabase
+    .from('app_users')
+    .select('id,name,email,username,role,department,branch,avatar,status,phone,position')
+    .eq('id', user.id)
+    .single();
+  return profile ? mapSupabaseAccount(profile as Partial<User> & { id: string }) : null;
+}
+
+export async function signOutSupabase(): Promise<void> {
+  if (isSupabaseConfigured && supabase) await supabase.auth.signOut();
 }
 
 export function initials(name: string): string {

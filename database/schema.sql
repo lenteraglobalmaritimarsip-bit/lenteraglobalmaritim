@@ -512,37 +512,76 @@ ALTER TABLE fix_tariffs
 CREATE INDEX IF NOT EXISTS idx_inquiries_created_by_branch ON inquiries(created_by_branch);
 CREATE INDEX IF NOT EXISTS idx_vessel_calls_created_by ON vessel_calls(created_by);
 
--- The current application uses client-side login, so Supabase requests use anon.
--- Replace this with role-aware Supabase Auth policies before production use.
+-- Production RLS: Supabase Auth identifies the user; app_users.role controls writes.
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.app_users
+    WHERE id = auth.uid()
+      AND role = 'ADMIN'
+      AND status = 'ACTIVE'
+  );
+$$;
+
+REVOKE ALL ON FUNCTION public.is_admin() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.get_auth_email_by_username(input_username TEXT)
+RETURNS TEXT
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT email
+  FROM public.app_users
+  WHERE LOWER(username) = LOWER(BTRIM(input_username))
+    AND status = 'ACTIVE'
+  LIMIT 1;
+$$;
+
+REVOKE ALL ON FUNCTION public.get_auth_email_by_username(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_auth_email_by_username(TEXT) TO anon, authenticated;
+
 DO $$
 DECLARE
   table_name TEXT;
 BEGIN
-  FOREACH table_name IN ARRAY ARRAY[
-    'app_users', 'customers', 'vessels', 'ports', 'zones', 'fix_tariffs', 'expense_items'
-  ] LOOP
+  FOREACH table_name IN ARRAY ARRAY['customers', 'vessels', 'ports', 'zones', 'fix_tariffs', 'expense_items'] LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', table_name);
-    EXECUTE format(
-      'DROP POLICY IF EXISTS %I ON public.%I',
-      'client demo full access', table_name
-    );
-    EXECUTE format(
-      'DROP POLICY IF EXISTS %I ON public.%I',
-      'authenticated full access', table_name
-    );
-    EXECUTE format(
-      'DROP POLICY IF EXISTS %I ON public.%I',
-      'client demo full access', table_name
-    );
-    EXECUTE format(
-      'CREATE POLICY %I ON public.%I
-       FOR ALL TO anon, authenticated
-       USING (true)
-       WITH CHECK (true)',
-      'client demo full access', table_name
-    );
+    EXECUTE format('DROP POLICY IF EXISTS master_read ON public.%I', table_name);
+    EXECUTE format('DROP POLICY IF EXISTS master_admin_insert ON public.%I', table_name);
+    EXECUTE format('DROP POLICY IF EXISTS master_admin_update ON public.%I', table_name);
+    EXECUTE format('DROP POLICY IF EXISTS master_admin_delete ON public.%I', table_name);
+    EXECUTE format('CREATE POLICY master_read ON public.%I FOR SELECT TO authenticated USING (true)', table_name);
+    EXECUTE format('CREATE POLICY master_admin_insert ON public.%I FOR INSERT TO authenticated WITH CHECK (public.is_admin())', table_name);
+    EXECUTE format('CREATE POLICY master_admin_update ON public.%I FOR UPDATE TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin())', table_name);
+    EXECUTE format('CREATE POLICY master_admin_delete ON public.%I FOR DELETE TO authenticated USING (public.is_admin())', table_name);
   END LOOP;
 END $$;
+
+ALTER TABLE public.app_users ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS app_users_read ON public.app_users;
+DROP POLICY IF EXISTS app_users_admin_insert ON public.app_users;
+DROP POLICY IF EXISTS app_users_admin_update ON public.app_users;
+DROP POLICY IF EXISTS app_users_admin_delete ON public.app_users;
+CREATE POLICY app_users_read ON public.app_users
+  FOR SELECT TO authenticated
+  USING (id = auth.uid() OR public.is_admin());
+CREATE POLICY app_users_admin_insert ON public.app_users
+  FOR INSERT TO authenticated
+  WITH CHECK (public.is_admin());
+CREATE POLICY app_users_admin_update ON public.app_users
+  FOR UPDATE TO authenticated
+  USING (public.is_admin())
+  WITH CHECK (public.is_admin());
+CREATE POLICY app_users_admin_delete ON public.app_users
+  FOR DELETE TO authenticated
+  USING (public.is_admin());
 
 -- Backfill aman untuk database lama yang masih menyimpan satu currency/rate.
 UPDATE expense_items

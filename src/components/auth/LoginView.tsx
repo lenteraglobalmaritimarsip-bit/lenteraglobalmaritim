@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowRight, Eye, EyeOff, LockKeyhole, UserRound } from 'lucide-react';
-import { AuthAccount, authenticate } from '../../auth';
+import { AuthAccount, authenticate, authenticateWithSupabase } from '../../auth';
 import { isSupabaseConfigured } from '../../supabaseClient';
 
 interface LoginViewProps { onLogin: (account: AuthAccount, rememberMe?: boolean) => void; }
@@ -28,14 +28,16 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
     year: 'numeric',
   }).format(new Date());
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
-    window.setTimeout(() => {
-      const account = authenticate(username, password);
+    window.setTimeout(async () => {
+      const account = isSupabaseConfigured
+        ? await authenticateWithSupabase(username, password)
+        : authenticate(username, password);
       if (!account) {
-        setError('Username atau password tidak valid.');
+        setError(isSupabaseConfigured ? 'Email atau password Supabase tidak valid.' : 'Username atau password tidak valid.');
         setLoading(false);
         return;
       }
@@ -119,8 +121,8 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                 autoFocus
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="Username"
-                aria-label="Username"
+                placeholder="Username atau email"
+                aria-label="Username atau email"
               />
             </label>
 
