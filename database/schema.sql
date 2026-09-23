@@ -4,6 +4,7 @@
 -- PERINGATAN: SCRIPT INI MENGHAPUS DATA APLIKASI LAMA SECARA PERMANEN.
 -- Jalankan hanya pada database yang memang akan di-reset.
 -- Setelah reset, seluruh tabel aplikasi dibuat ulang oleh script ini.
+-- Data app_users dipertahankan; tabel master data lainnya akan di-reset.
 
 DO $$
 DECLARE
@@ -31,8 +32,7 @@ BEGIN
     'zones',
     'ports',
     'vessels',
-    'customers',
-    'app_users'
+    'customers'
   ] LOOP
     EXECUTE format('DROP TABLE IF EXISTS public.%I CASCADE', table_name);
   END LOOP;
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS app_users (
   password_hash TEXT NOT NULL,
   role VARCHAR(30) NOT NULL CHECK (role IN ('ADMIN','SALES','MANAGER_OPS','FDA','FINANCE')),
   department VARCHAR(120),
-  branch VARCHAR(60) NOT NULL DEFAULT 'Head Office',
+  branch VARCHAR(60) NOT NULL DEFAULT '',
   phone VARCHAR(40),
   position VARCHAR(120),
   avatar TEXT,
@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS fix_tariffs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   port_id UUID REFERENCES ports(id),
   port_name VARCHAR(150),
-  cost_category VARCHAR(80) CHECK (cost_category IS NULL OR cost_category IN ('PORT_EXPENSES','CLEARANCE','GENERAL_EXPENSES','CREW_EXPENSES','OWNER_MATTER','AGENCY_FEE','TAX_CONTINGENCY','PORT_DUES','PILOTAGE_TOWAGE','BERTHING','CREW_CHANGE','IMMIGRATION_CUSTOMS','LOGISTICS_SUPPLIES','SUNDRY')),
+  cost_category VARCHAR(80) CHECK (cost_category IS NULL OR cost_category IN ('PORT_EXPENSES','CLEARANCE','GENERAL_EXPENSES','CREW_EXPENSES','OWNER_MATTER','AGENCY_FEE','TAX_CONTINGENCY')),
   service_code VARCHAR(40),
   service_name VARCHAR(180),
   grt NUMERIC(18,4),

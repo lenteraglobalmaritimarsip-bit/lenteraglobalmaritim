@@ -201,6 +201,7 @@ class DatabaseService {
         ...row,
         id: row.employee_code || row.id,
         branch: row.branch || row.branch_name || 'Head Office',
+        position: row.position || row.job_title,
       })),
       this.loadTable<Customer>('customers', INITIAL_CUSTOMERS, (row) => ({
         ...row,
@@ -223,6 +224,8 @@ class DatabaseService {
       })),
       this.loadTable<Zone>('zones', INITIAL_ZONES, (row) => ({
         ...row,
+        portId: row.port_id || row.portId,
+        portName: row.port_name || row.portName,
         zoneCode: row.zone_code || row.zoneCode,
         zoneName: row.zone_name || row.zoneName,
         type: row.zone_type || row.type,
@@ -230,6 +233,8 @@ class DatabaseService {
       })),
       this.loadTable<FixTariff>('fix_tariffs', INITIAL_FIX_TARIFFS, (row) => ({
         ...row,
+        portId: row.port_id || row.portId,
+        portName: row.port_name || row.portName,
         costCategory: row.cost_category || row.costCategory,
         serviceCode: row.service_code || row.serviceCode,
         serviceName: row.service_name || row.serviceName,
@@ -238,6 +243,7 @@ class DatabaseService {
         grtMax: row.grt_max ?? row.grtMax,
         dwt: row.dwt ?? row.DWT,
         calculationBasis: row.calculation_basis || row.calculationBasis,
+        tariffType: row.tariff_type || row.tariffType,
         rateIDR: row.rate_idr ?? row.rateIDR,
         rateUSD: row.rate_usd ?? row.rateUSD,
         minCharge: row.min_charge ?? row.minCharge,
@@ -308,7 +314,7 @@ class DatabaseService {
   private toSupabaseRow(table: string, value: any): Record<string, unknown> {
     switch (table) {
       case 'app_users':
-        return { employee_code: value.id, name: value.name, email: value.email, username: value.username || value.email, password_hash: value.password || '', role: value.role, department: value.department, phone: value.phone, status: value.status || 'ACTIVE' };
+        return { employee_code: value.id, name: value.name, email: value.email, username: value.username || value.email, password_hash: value.password || '', role: value.role, department: value.department, branch: value.branch, phone: value.phone, position: value.position, avatar: value.avatar, status: value.status || 'ACTIVE' };
       case 'customers':
         return { code: value.code, company_name: value.companyName, country: value.country, type: value.type, contact_person: value.contactPerson, email: value.email, phone: value.phone, address: value.address, credit_term_days: value.creditTermDays };
       case 'vessels':
@@ -316,9 +322,9 @@ class DatabaseService {
       case 'ports':
         return { code: value.code, name: value.name, country: value.country, unlocode: value.unlocode, channel_depth_m: value.channelDepthMeters, tide_restriction: value.tideRestriction, operating_hours: value.operatingHours };
       case 'zones':
-        return { zone_code: value.zoneCode, zone_name: value.zoneName, zone_type: value.type, max_draft_m: value.maxDraftMeters, description: value.description };
+        return { port_id: value.portId || null, zone_code: value.zoneCode, zone_name: value.zoneName, zone_type: value.type, max_draft_m: value.maxDraftMeters, description: value.description };
       case 'fix_tariffs':
-        return { service_code: value.serviceCode, service_name: value.serviceName, cost_category: value.costCategory, grt: value.grt, grt_min: value.grtMin, grt_max: value.grtMax, dwt: value.dwt, calculation_basis: value.calculationBasis, currency: value.currency, rate: value.rate, rate_idr: value.rateIDR, rate_usd: value.rateUSD, min_charge: value.minCharge, description: value.description };
+        return { port_id: value.portId || null, port_name: value.portName, service_code: value.serviceCode, service_name: value.serviceName, cost_category: value.costCategory, grt: value.grt, grt_min: value.grtMin, grt_max: value.grtMax, dwt: value.dwt, calculation_basis: value.calculationBasis, tariff_type: value.tariffType, currency: value.currency, rate: value.rate, rate_idr: value.rateIDR, rate_usd: value.rateUSD, min_charge: value.minCharge, description: value.description };
       case 'expense_items':
         return {
           port_id: value.portId,
@@ -371,12 +377,12 @@ class DatabaseService {
     }
 
     const results = await Promise.all([
-      supabase.from('app_users').upsert(this.state.users.map((user) => ({ employee_code: user.id, name: user.name, email: user.email, username: user.username || user.email, password_hash: user.password || '', role: user.role, department: user.department, branch: user.branch, phone: user.phone, status: user.status })), { onConflict: 'employee_code' }),
+      supabase.from('app_users').upsert(this.state.users.map((user) => ({ employee_code: user.id, name: user.name, email: user.email, username: user.username || user.email, password_hash: user.password || '', role: user.role, department: user.department, branch: user.branch, phone: user.phone, position: user.position, avatar: user.avatar, status: user.status })), { onConflict: 'employee_code' }),
       supabase.from('customers').upsert(this.state.customers.map((customer) => ({ code: customer.code, company_name: customer.companyName, country: customer.country, type: customer.type, contact_person: customer.contactPerson, email: customer.email, phone: customer.phone, address: customer.address, credit_term_days: customer.creditTermDays })), { onConflict: 'code' }),
       supabase.from('vessels').upsert(this.state.vessels.map((vessel) => ({ name: vessel.name, imo_number: vessel.imoNumber || null, call_sign: vessel.callSign, flag: vessel.flag, vessel_type: vessel.vesselType, grt: vessel.grt, nrt: vessel.nrt, dwt: vessel.dwt, loa: vessel.loa, beam: vessel.beam, year_built: vessel.yearBuilt })), { onConflict: 'imo_number' }),
       supabase.from('ports').upsert(this.state.ports.map((port) => ({ code: port.code, name: port.name, country: port.country, unlocode: port.unlocode, channel_depth_m: port.channelDepthMeters, tide_restriction: port.tideRestriction, operating_hours: port.operatingHours })), { onConflict: 'code' }),
-      this.saveRowsWithoutConflict('zones', 'zone_code', this.state.zones.map((zone) => ({ zone_code: zone.zoneCode, zone_name: zone.zoneName, zone_type: zone.type, max_draft_m: zone.maxDraftMeters, description: zone.description }))),
-      this.saveRowsWithoutConflict('fix_tariffs', 'service_code', this.state.fixTariffs.map((tariff) => ({ service_code: tariff.serviceCode, service_name: tariff.serviceName, cost_category: tariff.costCategory, grt: tariff.grt, grt_min: tariff.grtMin, grt_max: tariff.grtMax, dwt: tariff.dwt, calculation_basis: tariff.calculationBasis, currency: tariff.currency, rate: tariff.rate, rate_idr: tariff.rateIDR, rate_usd: tariff.rateUSD, min_charge: tariff.minCharge, description: tariff.description }))),
+      this.saveRowsWithoutConflict('zones', 'zone_code', this.state.zones.map((zone) => ({ port_id: zone.portId || null, zone_code: zone.zoneCode, zone_name: zone.zoneName, zone_type: zone.type, max_draft_m: zone.maxDraftMeters, description: zone.description }))),
+      this.saveRowsWithoutConflict('fix_tariffs', 'service_code', this.state.fixTariffs.map((tariff) => ({ port_id: tariff.portId || null, port_name: tariff.portName, service_code: tariff.serviceCode, service_name: tariff.serviceName, cost_category: tariff.costCategory, grt: tariff.grt, grt_min: tariff.grtMin, grt_max: tariff.grtMax, dwt: tariff.dwt, calculation_basis: tariff.calculationBasis, tariff_type: tariff.tariffType, currency: tariff.currency, rate: tariff.rate, rate_idr: tariff.rateIDR, rate_usd: tariff.rateUSD, min_charge: tariff.minCharge, description: tariff.description }))),
       supabase.from('expense_items').upsert(this.state.expensesItems.map((item) => ({
         port_id: item.portId,
         port_name: item.portName,
@@ -531,6 +537,19 @@ class DatabaseService {
     this.saveToStorage();
   }
 
+  public async resetMasterDataKeepUsers(): Promise<void> {
+    this.state = {
+      ...this.state,
+      customers: [],
+      vessels: [],
+      ports: [],
+      zones: [],
+      fixTariffs: [],
+      expensesItems: [],
+    };
+    await this.saveToStorage();
+  }
+
   public importDatabase(jsonString: string): boolean {
     try {
       const data = JSON.parse(jsonString);
@@ -555,21 +574,21 @@ class DatabaseService {
   // --- Master Data CRUD ---
 
   // Users
-  public addUser(user: Omit<User, 'id'>): User {
+  public async addUser(user: Omit<User, 'id'>): Promise<User> {
     const id = `USR-${String(this.state.users.length + 1).padStart(3, '0')}`;
     const newUser: User = { ...user, id };
     this.state.users = [...this.state.users, newUser];
     this.audit('CREATE', 'USER', `Created user ${newUser.name}`, newUser.id);
-    this.saveToStorage();
+    await this.saveToStorage();
     return newUser;
   }
 
-  public updateUser(id: string, updates: Partial<User>): void {
+  public async updateUser(id: string, updates: Partial<User>): Promise<void> {
     this.state.users = this.state.users.map((u) =>
       u.id === id ? { ...u, ...updates } : u
     );
     this.audit('UPDATE', 'USER', `Updated user ${id}`, id);
-    this.saveToStorage();
+    await this.saveToStorage();
   }
 
   public async deleteUser(id: string): Promise<void> {
@@ -581,20 +600,20 @@ class DatabaseService {
   }
 
   // Customers
-  public addCustomer(customer: Omit<Customer, 'id'>): Customer {
+  public async addCustomer(customer: Omit<Customer, 'id'>): Promise<Customer> {
     const id = `CUST-${String(this.state.customers.length + 1).padStart(3, '0')}`;
     const newCust: Customer = { ...customer, id };
     this.state.customers = [...this.state.customers, newCust];
     this.audit('CREATE', 'CUSTOMER', `Created customer ${newCust.companyName}`, newCust.id);
-    this.saveToStorage();
+    await this.saveToStorage();
     return newCust;
   }
 
-  public updateCustomer(id: string, updates: Partial<Customer>): void {
+  public async updateCustomer(id: string, updates: Partial<Customer>): Promise<void> {
     this.state.customers = this.state.customers.map((c) =>
       c.id === id ? { ...c, ...updates } : c
     );
-    this.saveToStorage();
+    await this.saveToStorage();
   }
 
   public async deleteCustomer(id: string): Promise<void> {
@@ -605,20 +624,20 @@ class DatabaseService {
   }
 
   // Vessels
-  public addVessel(vessel: Omit<Vessel, 'id'>): Vessel {
+  public async addVessel(vessel: Omit<Vessel, 'id'>): Promise<Vessel> {
     const id = `VES-${String(this.state.vessels.length + 1).padStart(3, '0')}`;
     const newVessel: Vessel = { ...vessel, id };
     this.state.vessels = [...this.state.vessels, newVessel];
     this.audit('CREATE', 'VESSEL', `Created vessel ${newVessel.name}`, newVessel.id);
-    this.saveToStorage();
+    await this.saveToStorage();
     return newVessel;
   }
 
-  public updateVessel(id: string, updates: Partial<Vessel>): void {
+  public async updateVessel(id: string, updates: Partial<Vessel>): Promise<void> {
     this.state.vessels = this.state.vessels.map((v) =>
       v.id === id ? { ...v, ...updates } : v
     );
-    this.saveToStorage();
+    await this.saveToStorage();
   }
 
   public async deleteVessel(id: string): Promise<void> {
@@ -629,20 +648,20 @@ class DatabaseService {
   }
 
   // Ports
-  public addPort(port: Omit<Port, 'id'>): Port {
+  public async addPort(port: Omit<Port, 'id'>): Promise<Port> {
     const id = `PRT-${String(this.state.ports.length + 1).padStart(3, '0')}`;
     const newPort: Port = { ...port, id };
     this.state.ports = [...this.state.ports, newPort];
     this.audit('CREATE', 'PORT', `Created port ${newPort.name}`, newPort.id);
-    this.saveToStorage();
+    await this.saveToStorage();
     return newPort;
   }
 
-  public updatePort(id: string, updates: Partial<Port>): void {
+  public async updatePort(id: string, updates: Partial<Port>): Promise<void> {
     this.state.ports = this.state.ports.map((p) =>
       p.id === id ? { ...p, ...updates } : p
     );
-    this.saveToStorage();
+    await this.saveToStorage();
   }
 
   public async deletePort(id: string): Promise<void> {
@@ -677,12 +696,12 @@ class DatabaseService {
   }
 
   // Fix Tariff
-  public addFixTariff(tariff: Omit<FixTariff, 'id'>): FixTariff {
+  public async addFixTariff(tariff: Omit<FixTariff, 'id'>): Promise<FixTariff> {
     const id = `TAR-${String(this.state.fixTariffs.length + 1).padStart(3, '0')}`;
     const newTariff: FixTariff = { ...tariff, id };
     this.state.fixTariffs = [...this.state.fixTariffs, newTariff];
     this.audit('CREATE', 'FIX_TARIFF', `Created tariff ${newTariff.id}`, newTariff.id);
-    this.saveToStorage();
+    await this.saveToStorage();
     return newTariff;
   }
 
@@ -716,11 +735,11 @@ class DatabaseService {
     }
   }
 
-  public updateFixTariff(id: string, updates: Partial<FixTariff>): void {
+  public async updateFixTariff(id: string, updates: Partial<FixTariff>): Promise<void> {
     this.state.fixTariffs = this.state.fixTariffs.map((t) =>
       t.id === id ? { ...t, ...updates } : t
     );
-    this.saveToStorage();
+    await this.saveToStorage();
   }
 
   public async deleteFixTariff(id: string): Promise<void> {
@@ -742,14 +761,14 @@ class DatabaseService {
     return newItem;
   }
 
-  public updateExpensesItem(id: string, updates: Partial<ExpensesItem>): void {
+  public async updateExpensesItem(id: string, updates: Partial<ExpensesItem>): Promise<void> {
     this.state.expensesItems = this.state.expensesItems.map((e) => {
       if (e.id !== id) return e;
       const resolvedPortId = updates.portId ?? e.portId;
       const resolvedPortName = updates.portName || e.portName || this.state.ports.find((p) => p.id === resolvedPortId)?.name || e.portName || '';
       return { ...e, ...updates, portId: resolvedPortId, portName: resolvedPortName };
     });
-    this.saveToStorage();
+    await this.saveToStorage();
   }
 
   public async deleteExpensesItem(id: string): Promise<void> {

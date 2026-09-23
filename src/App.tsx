@@ -66,7 +66,9 @@ const getDefaultTabForRole = (role: UserRole): ActiveTab => {
 };
 
 const ACTIVE_TAB_STORAGE_KEY = 'lgm_active_tab';
+const MASTER_DATA_RESET_KEY = 'lgm_master_data_reset_v1';
 let resetJobsPromise: Promise<void> | null = null;
+let resetMasterDataPromise: Promise<void> | null = null;
 
 export default function App() {
   const [data, setData] = useState<DatabaseState>(db.getState());
@@ -205,7 +207,16 @@ export default function App() {
             await db.clearAllJobs();
           })();
         }
-        await (resetJobsPromise || db.hydrate());
+        const masterDataReset = localStorage.getItem(MASTER_DATA_RESET_KEY) === '1';
+        if (!masterDataReset && !resetMasterDataPromise) {
+          resetMasterDataPromise = (async () => {
+            await db.resetMasterDataKeepUsers();
+            localStorage.setItem(MASTER_DATA_RESET_KEY, '1');
+          })();
+        }
+        await resetJobsPromise;
+        await resetMasterDataPromise;
+        await db.hydrate();
         setData({ ...db.getState() });
       } catch (error) {
         console.error('Supabase hydrate failed:', error);

@@ -83,18 +83,18 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     setEditMasterForm({});
   };
 
-  const saveMasterEditor = (e: React.FormEvent) => {
+  const saveMasterEditor = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingMaster) return;
     const { type, id } = editingMaster;
-    if (type === 'CUSTOMERS') db.updateCustomer(id, editMasterForm);
-    if (type === 'VESSELS') db.updateVessel(id, editMasterForm);
-    if (type === 'PORTS') db.updatePort(id, editMasterForm);
+    if (type === 'CUSTOMERS') await db.updateCustomer(id, editMasterForm);
+    if (type === 'VESSELS') await db.updateVessel(id, editMasterForm);
+    if (type === 'PORTS') await db.updatePort(id, editMasterForm);
     if (type === 'FIX_TARIFF') {
       const port = ports.find((p) => p.id === editMasterForm.portId);
       const rateIDR = Number(editMasterForm.rateIDR) || 0;
       const rateUSD = Number(editMasterForm.rateUSD) || 0;
-      db.updateFixTariff(id, {
+      await db.updateFixTariff(id, {
         ...editMasterForm,
         portName: port?.name || editMasterForm.portName || '',
         rateIDR,
@@ -107,7 +107,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       const rateIDR = Number(editMasterForm.rateIDR) || 0;
       const rateUSD = Number(editMasterForm.rateUSD) || 0;
       const selectedRate = rateUSD || rateIDR || Number(editMasterForm.standardCostSell) || Number(editMasterForm.standardCostBuy) || 0;
-      db.updateExpensesItem(id, {
+      await db.updateExpensesItem(id, {
         ...editMasterForm,
         rateIDR,
         rateUSD,
@@ -126,7 +126,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     setEditUserForm({ ...user, newPassword: '' });
   };
 
-  const saveUserEditor = (e: React.FormEvent) => {
+  const saveUserEditor = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
     if (!editUserForm.username || !editUserForm.name || !editUserForm.email || !editUserForm.position) {
@@ -149,7 +149,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       status: editUserForm.status as User['status'],
       ...(editUserForm.newPassword ? { password: editUserForm.newPassword } : {}),
     };
-    db.updateUser(editingUser.id, updates);
+    await db.updateUser(editingUser.id, updates);
     const updated = { ...editingUser, ...updates } as User;
     saveStoredAccount({ ...updated, username: updated.username || editingUser.username || '', password: updated.password || editingUser.password || '' });
     setEditingUser(null);
@@ -469,8 +469,21 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       rows.forEach((row, index) => {
         const portId = String(readUploadValue(row, 'portId', 'port_id')).trim();
         const portInput = String(readUploadValue(row, 'portName', 'port', 'port_name')).trim();
-        const selectedPort = ports.find((port) => port.id.toLowerCase() === portInput.toLowerCase() || port.name.toLowerCase() === portInput.toLowerCase());
-        const portName = selectedPort?.name || portInput;
+        const selectedPort = ports.find((port) =>
+          (!!portId && port.id.toLowerCase() === portId.toLowerCase())
+          || (!!portInput && (
+            port.id.toLowerCase() === portInput.toLowerCase()
+            || port.code.toLowerCase() === portInput.toLowerCase()
+            || port.name.toLowerCase() === portInput.toLowerCase()
+            || port.unlocode.toLowerCase() === portInput.toLowerCase()
+          ))
+        );
+        if (!selectedPort) {
+          invalid += 1;
+          return;
+        }
+        const resolvedPortId = selectedPort.id;
+        const portName = selectedPort.name;
         const currency = String(readUploadValue(row, 'currency', 'defaultCurrency', 'default_currency')).trim().toUpperCase();
         const category = normalizeExpenseCategory(readUploadValue(row, 'category', 'costCategory', 'categoryCost', 'cost_category', 'category_cost')) || 'PORT_EXPENSES';
 
@@ -487,7 +500,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           }
           const duplicate = [...fixTariffs, ...importedTariffs].some((tariff) =>
             tariff.serviceName.trim().toLowerCase() === serviceName.toLowerCase()
-            && sameUploadPort(portId, portName, tariff.portId, tariff.portName)
+            && sameUploadPort(resolvedPortId, portName, tariff.portId, tariff.portName)
             && (tariff.costCategory || 'PORT_EXPENSES').toUpperCase() === category
             && tariff.currency === resolvedCurrency
           );
@@ -497,7 +510,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           }
           const tariff: FixTariff = {
             id: '',
-            portId: selectedPort?.id || portId,
+            portId: resolvedPortId,
             portName,
             costCategory: category,
             serviceCode: String(readUploadValue(row, 'serviceCode', 'service_code')).trim(),
@@ -531,7 +544,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         }
         const duplicate = [...expensesItems, ...importedExpenses].some((expense) =>
           expense.name.trim().toLowerCase() === name.toLowerCase()
-          && sameUploadPort(portId, portName, expense.portId, expense.portName)
+          && sameUploadPort(resolvedPortId, portName, expense.portId, expense.portName)
           && expense.category.toUpperCase() === category
           && expense.defaultCurrency === resolvedExpenseCurrency
         );
@@ -541,7 +554,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         }
         const expense: ExpensesItem = {
           id: '',
-          portId: selectedPort?.id || portId,
+          portId: resolvedPortId,
           portName,
           code: String(readUploadValue(row, 'code')).trim(),
           category: category as ExpensesItem['category'],
@@ -580,26 +593,26 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           setAddFormError('Lengkapi User, Password, Nama, Jabatan, dan Email sebelum menyimpan.');
           return;
         }
-        const created = db.addUser(newUser as Omit<User, 'id'>);
+        const created = await db.addUser(newUser as Omit<User, 'id'>);
         saveStoredAccount({ ...created, username: newUser.username!, password: newUser.password! });
       } else if (activeTab === 'CUSTOMERS') {
         if (!newCustomer.companyName?.trim()) {
           setAddFormError('Nama perusahaan wajib diisi sebelum menyimpan.');
           return;
         }
-        db.addCustomer(newCustomer as Omit<Customer, 'id'>);
+        await db.addCustomer(newCustomer as Omit<Customer, 'id'>);
       } else if (activeTab === 'VESSELS') {
         if (!newVessel.name?.trim()) {
           setAddFormError('Nama kapal wajib diisi sebelum menyimpan.');
           return;
         }
-        db.addVessel(newVessel as Omit<Vessel, 'id'>);
+        await db.addVessel(newVessel as Omit<Vessel, 'id'>);
       } else if (activeTab === 'PORTS') {
         if (!newPort.code?.trim() || !newPort.name?.trim()) {
           setAddFormError('Kode dan nama pelabuhan wajib diisi sebelum menyimpan.');
           return;
         }
-        db.addPort(newPort as Omit<Port, 'id'>);
+        await db.addPort(newPort as Omit<Port, 'id'>);
       } else if (activeTab === 'ZONES') {
         if (!newZone.zoneName?.trim()) {
           setAddFormError('Nama zona wajib diisi sebelum menyimpan.');
@@ -615,7 +628,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         const port = ports.find((p) => p.id === newTariff.portId);
         const rateIDR = Number(newTariff.rateIDR) || 0;
         const rateUSD = Number(newTariff.rateUSD) || 0;
-        db.addFixTariff({
+        await db.addFixTariff({
           ...newTariff,
           portName: port?.name || '',
           rateIDR,
@@ -780,7 +793,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     <td className="p-3.5 text-slate-600">{u.position || u.department || '-'}</td>
                     <td className="p-3.5 text-slate-600">{u.email}</td>
                     <td className="p-3.5 text-slate-600">{u.branch || '-'}</td>
-                    <td className="p-3.5"><button onClick={()=>db.updateUser(u.id,{status:u.status==='ACTIVE'?'INACTIVE':'ACTIVE'})} className={`px-2.5 py-1 rounded-md text-[10px] font-bold ${u.status==='ACTIVE'?'bg-emerald-50 text-emerald-600 hover:bg-emerald-100':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{u.status}</button></td>
+                    <td className="p-3.5"><button onClick={()=>void db.updateUser(u.id,{status:u.status==='ACTIVE'?'INACTIVE':'ACTIVE'})} className={`px-2.5 py-1 rounded-md text-[10px] font-bold ${u.status==='ACTIVE'?'bg-emerald-50 text-emerald-600 hover:bg-emerald-100':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{u.status}</button></td>
                     <td className="p-3.5 text-right"><div className="flex items-center justify-end gap-1.5"><button onClick={() => openUserEditor(u)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500 transition" title="Edit User"><Edit2 className="w-3.5 h-3.5" /></button><button onClick={() => void deleteMasterRecord('User', () => db.deleteUser(u.id))} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-500 transition" title="Hapus User"><Trash2 className="w-3.5 h-3.5" /></button></div></td>
                   </tr>
                 ))}
