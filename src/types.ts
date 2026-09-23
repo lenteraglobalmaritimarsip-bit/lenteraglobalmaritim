@@ -97,11 +97,15 @@ export interface FixTariff {
   costCategory?: string;
   serviceCode: string;
   serviceName: string;
+  grt?: number;
+  dwt?: number;
   calculationBasis: 'PER_GRT' | 'PER_DAY' | 'LUMP_SUM' | 'PER_HOUR' | 'PER_MOVE';
   /** PDF master-data field: Fixed / Variabel / Range. Optional for legacy records. */
   tariffType?: 'FIXED' | 'VARIABLE' | 'RANGE';
   currency: Currency;
   rate: number;
+  rateIDR?: number;
+  rateUSD?: number;
   minCharge: number;
   description: string;
 }
@@ -131,6 +135,8 @@ export interface ExpensesItem {
   defaultCurrency: Currency;
   standardCostBuy: number;
   standardCostSell: number;
+  rateIDR?: number;
+  rateUSD?: number;
   preferredVendor?: string;
   /** PDF master-data field: Fixed / Variabel / Qty_rate / Percentage / Range. Optional for legacy records. */
   calculationType?: 'FIXED' | 'VARIABLE' | 'QTY_RATE' | 'PERCENTAGE' | 'RANGE';

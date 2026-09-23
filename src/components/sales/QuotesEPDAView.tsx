@@ -105,6 +105,11 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   const creatorName = job.inquiry.createdBy.split(' (')[0].trim().toLowerCase();
   const creator = users.find((user) => user.name.trim().toLowerCase() === creatorName);
   const vesselMaster = vessels.find((vessel) => vessel.id === job.vesselId);
+  const rateForCurrency = (currency: Currency, rateIDR: number | undefined, rateUSD: number | undefined, legacyRate: number, legacyCurrency?: Currency) => {
+    const explicitRate = currency === 'IDR' ? rateIDR : rateUSD;
+    if (explicitRate !== undefined && explicitRate > 0) return explicitRate;
+    return legacyCurrency === currency ? Number(legacyRate || 0) : 0;
+  };
   const activeBranchName = getCurrentBranchName();
   const epdaNo = buildBranchAwareEPDANumber(job.jobId, activeBranchName, documentDate);
   const portMatches = (portId?: string, portName?: string) => {
@@ -124,7 +129,10 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
         category: tariff.costCategory || 'PORT_EXPENSES',
         calculationBasis: tariff.calculationBasis,
         tariffType: tariff.tariffType || (tariff.calculationBasis === 'LUMP_SUM' ? 'FIXED' : 'VARIABLE'),
-        rate: tariff.rate,
+        rate: rateForCurrency(viewCurrency, tariff.rateIDR, tariff.rateUSD, tariff.rate, tariff.currency),
+        rateIDR: tariff.rateIDR,
+        rateUSD: tariff.rateUSD,
+        legacyRate: tariff.rate,
         minCharge: tariff.minCharge,
         currency: tariff.currency,
       })),
@@ -135,11 +143,21 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
         category: item.category,
         calculationBasis: 'PER_GRT' as CalculationBasis,
         tariffType: item.calculationType === 'FIXED' ? 'FIXED' : 'VARIABLE',
-        rate: item.standardCostSell || 0,
+        rate: rateForCurrency(viewCurrency, item.rateIDR, item.rateUSD, item.standardCostSell || 0, item.defaultCurrency),
+        rateIDR: item.rateIDR,
+        rateUSD: item.rateUSD,
+        legacyRate: item.standardCostSell || 0,
         minCharge: item.standardCostBuy || 0,
         currency: item.defaultCurrency,
       })),
   ].filter((option, index, arr) => option.name && arr.findIndex((item) => item.name === option.name && item.category === option.category) === index);
+
+  const handleViewCurrencyChange = (currency: Currency) => {
+    setViewCurrency(currency);
+    if (itemEntryMode !== 'AUTO') return;
+    const selected = autoServiceOptions.find((option) => option.name === newItem.name);
+    if (selected) setNewItem((current) => ({ ...current, rate: rateForCurrency(currency, selected.rateIDR, selected.rateUSD, selected.legacyRate, selected.currency) }));
+  };
 
   const applySelectedAutoService = (selectedName: string) => {
     const selected = autoServiceOptions.find((option) => option.name === selectedName);
@@ -214,13 +232,13 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
           tariff.serviceName.trim().toLowerCase() === normalizedItemName
           && isSamePort(tariff.portId, tariff.portName)
           && (tariff.costCategory || 'PORT_EXPENSES') === newItem.category
-          && tariff.currency === viewCurrency
+          && rateForCurrency(viewCurrency, tariff.rateIDR, tariff.rateUSD, tariff.rate, tariff.currency) > 0
         )
       : expensesItems.some((expense) =>
           expense.name.trim().toLowerCase() === normalizedItemName
           && isSamePort(expense.portId, expense.portName)
           && expense.category === newItem.category
-          && expense.defaultCurrency === viewCurrency
+          && rateForCurrency(viewCurrency, expense.rateIDR, expense.rateUSD, expense.standardCostSell, expense.defaultCurrency) > 0
         );
 
     if (duplicateExists) {
@@ -238,6 +256,8 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       tariffType: newItem.tariffType || 'FIXED',
       currency: viewCurrency,
       rate: quickRate,
+      rateIDR: viewCurrency === 'IDR' ? quickRate : 0,
+      rateUSD: viewCurrency === 'USD' ? quickRate : 0,
       minCharge: quickRate,
       description: newItem.remarks || 'Created from EPDA manual entry',
     };
@@ -252,6 +272,8 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       defaultCurrency: viewCurrency,
       standardCostBuy: quickRate,
       standardCostSell: quickRate,
+      rateIDR: viewCurrency === 'IDR' ? quickRate : 0,
+      rateUSD: viewCurrency === 'USD' ? quickRate : 0,
       preferredVendor: '',
       calculationType: newItem.tariffType || 'FIXED',
     };
@@ -439,7 +461,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
           <p className="text-xs text-slate-400">Estimate Port Disbursement of Account sesuai format dokumen PDF LGM.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800"><button onClick={() => setViewCurrency('IDR')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${viewCurrency==='IDR'?'bg-emerald-600 text-white':'text-slate-400'}`}>IDR (Rp)</button><button onClick={() => setViewCurrency('USD')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${viewCurrency==='USD'?'bg-emerald-600 text-white':'text-slate-400'}`}>USD ($)</button></div>
+          <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800"><button onClick={() => handleViewCurrencyChange('IDR')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${viewCurrency==='IDR'?'bg-emerald-600 text-white':'text-slate-400'}`}>IDR (Rp)</button><button onClick={() => handleViewCurrencyChange('USD')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${viewCurrency==='USD'?'bg-emerald-600 text-white':'text-slate-400'}`}>USD ($)</button></div>
           <div className="text-xs text-slate-400 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">Kurs USD <input value={exchangeRate} onChange={e=>setExchangeRate(Number(e.target.value)||0)} className="w-20 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-white text-right"/></div>
           {!isReviewOnly && <button onClick={handleSubmit} className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5"><Send className="w-4 h-4"/>Kirim ke Manager OPS</button>}
           {isReviewOnly && <span className="px-3.5 py-2 rounded-xl bg-slate-700 text-white text-xs font-bold">REVIEW ONLY · APPROVED</span>}

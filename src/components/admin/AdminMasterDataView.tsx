@@ -92,9 +92,30 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     if (type === 'PORTS') db.updatePort(id, editMasterForm);
     if (type === 'FIX_TARIFF') {
       const port = ports.find((p) => p.id === editMasterForm.portId);
-      db.updateFixTariff(id, { ...editMasterForm, portName: port?.name || editMasterForm.portName || '' });
+      const rateIDR = Number(editMasterForm.rateIDR) || 0;
+      const rateUSD = Number(editMasterForm.rateUSD) || 0;
+      db.updateFixTariff(id, {
+        ...editMasterForm,
+        portName: port?.name || editMasterForm.portName || '',
+        rateIDR,
+        rateUSD,
+        rate: rateUSD || rateIDR || Number(editMasterForm.rate) || 0,
+        currency: rateUSD ? 'USD' : 'IDR',
+      });
     }
-    if (type === 'EXPENSES_ITEM') db.updateExpensesItem(id, editMasterForm);
+    if (type === 'EXPENSES_ITEM') {
+      const rateIDR = Number(editMasterForm.rateIDR) || 0;
+      const rateUSD = Number(editMasterForm.rateUSD) || 0;
+      const selectedRate = rateUSD || rateIDR || Number(editMasterForm.standardCostSell) || Number(editMasterForm.standardCostBuy) || 0;
+      db.updateExpensesItem(id, {
+        ...editMasterForm,
+        rateIDR,
+        rateUSD,
+        defaultCurrency: rateUSD ? 'USD' : 'IDR',
+        standardCostBuy: selectedRate,
+        standardCostSell: selectedRate,
+      });
+    }
     closeMasterEditor();
     onDataSaved?.(activeTab);
   };
@@ -214,10 +235,14 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     costCategory: 'PORT_EXPENSES',
     serviceCode: '',
     serviceName: '',
+    grt: 0,
+    dwt: 0,
     calculationBasis: 'PER_GRT',
     tariffType: 'VARIABLE',
     currency: 'USD',
     rate: 0.05,
+    rateIDR: 0,
+    rateUSD: 0,
     minCharge: 500,
     description: '',
   });
@@ -263,6 +288,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     defaultCurrency: 'USD',
     standardCostBuy: 1000,
     standardCostSell: 1300,
+    rateIDR: 0,
+    rateUSD: 1300,
     preferredVendor: '',
     calculationType: 'FIXED',
   });
@@ -325,8 +352,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
 
   const downloadMasterDataTemplate = async () => {
     const headers = activeTab === 'FIX_TARIFF'
-      ? ['portId', 'portName', 'costCategory', 'tariffType', 'serviceName', 'rate', 'currency', 'minCharge']
-      : ['portId', 'portName', 'category', 'calculationType', 'name', 'unit', 'defaultCurrency', 'rate'];
+      ? ['portId', 'portName', 'serviceName', 'costCategory', 'grt', 'dwt', 'tariffType', 'rateIDR', 'rateUSD']
+      : ['portId', 'portName', 'category', 'calculationType', 'name', 'unit', 'rateIDR', 'rateUSD'];
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet(activeTab === 'FIX_TARIFF' ? 'Fix Tariff' : 'Expenses Item');
     const lists = workbook.addWorksheet('Lists');
@@ -357,8 +384,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       ? {
           portId: listRange(0, portIds),
           portName: listRange(1, portNames),
-          costCategory: listRange(2, categories),
-          tariffType: listRange(5, tariffTypes),
+          costCategory: listRange(3, categories),
+          tariffType: listRange(6, tariffTypes),
           currency: listRange(4, currencies),
         }
       : {
@@ -388,9 +415,12 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     });
 
     if (activeTab === 'FIX_TARIFF') {
+      worksheet.getColumn('E').numFmt = '#,##0.00';
       worksheet.getColumn('F').numFmt = '#,##0.00';
       worksheet.getColumn('H').numFmt = '#,##0.00';
+      worksheet.getColumn('I').numFmt = '#,##0.00';
     } else {
+      worksheet.getColumn('G').numFmt = '#,##0.00';
       worksheet.getColumn('H').numFmt = '#,##0.00';
     }
 
@@ -429,11 +459,15 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         const selectedPort = ports.find((port) => port.id.toLowerCase() === portInput.toLowerCase() || port.name.toLowerCase() === portInput.toLowerCase());
         const portName = selectedPort?.name || portInput;
         const currency = String(readUploadValue(row, 'currency', 'defaultCurrency', 'default_currency')).trim().toUpperCase();
-        const category = normalizeExpenseCategory(readUploadValue(row, 'category', 'costCategory', 'cost_category'));
+        const category = normalizeExpenseCategory(readUploadValue(row, 'category', 'costCategory', 'categoryCost', 'cost_category', 'category_cost')) || 'PORT_EXPENSES';
 
         if (activeTab === 'FIX_TARIFF') {
           const serviceName = String(readUploadValue(row, 'serviceName', 'service_name', 'itemService', 'item_service')).trim();
-          if (!serviceName || !['USD', 'IDR'].includes(currency) || !category) {
+          const rateIDR = uploadNumber(readUploadValue(row, 'rateIDR', 'rate_idr', 'idr'));
+          const rateUSD = uploadNumber(readUploadValue(row, 'rateUSD', 'rate_usd', 'usd'));
+          const resolvedCurrency = rateUSD > 0 ? 'USD' : rateIDR > 0 ? 'IDR' : currency;
+          const resolvedRate = rateUSD > 0 ? rateUSD : rateIDR > 0 ? rateIDR : uploadNumber(readUploadValue(row, 'rate'));
+          if (!serviceName || !['USD', 'IDR'].includes(resolvedCurrency) || resolvedRate < 0) {
             invalid += 1;
             return;
           }
@@ -441,7 +475,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
             tariff.serviceName.trim().toLowerCase() === serviceName.toLowerCase()
             && sameUploadPort(portId, portName, tariff.portId, tariff.portName)
             && (tariff.costCategory || 'PORT_EXPENSES').toUpperCase() === category
-            && tariff.currency === currency
+            && tariff.currency === resolvedCurrency
           );
           if (duplicate) {
             duplicates += 1;
@@ -454,10 +488,14 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
             costCategory: category,
             serviceCode: String(readUploadValue(row, 'serviceCode', 'service_code')).trim(),
             serviceName,
+            grt: uploadNumber(readUploadValue(row, 'grt', 'GRT')),
+            dwt: uploadNumber(readUploadValue(row, 'dwt', 'DWT')),
             calculationBasis: String(readUploadValue(row, 'calculationBasis', 'calculation_basis', 'basis')).trim().toUpperCase() as FixTariff['calculationBasis'] || 'LUMP_SUM',
             tariffType: String(readUploadValue(row, 'tariffType', 'tariff_type', 'type')).trim().toUpperCase() as FixTariff['tariffType'] || 'FIXED',
-            currency: currency as FixTariff['currency'],
-            rate: uploadNumber(readUploadValue(row, 'rate')),
+            currency: resolvedCurrency as FixTariff['currency'],
+            rate: resolvedRate,
+            rateIDR,
+            rateUSD,
             minCharge: uploadNumber(readUploadValue(row, 'minCharge', 'min_charge')),
             description: String(readUploadValue(row, 'description')).trim(),
           };
@@ -468,7 +506,11 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         }
 
         const name = String(readUploadValue(row, 'name', 'itemName', 'item_name', 'serviceName', 'service_name')).trim();
-        if (!name || !['USD', 'IDR'].includes(currency) || !category) {
+        const rateIDR = uploadNumber(readUploadValue(row, 'rateIDR', 'rate_idr', 'idr'));
+        const rateUSD = uploadNumber(readUploadValue(row, 'rateUSD', 'rate_usd', 'usd'));
+        const resolvedExpenseCurrency = rateUSD > 0 ? 'USD' : rateIDR > 0 ? 'IDR' : currency;
+        const resolvedExpenseRate = rateUSD > 0 ? rateUSD : rateIDR > 0 ? rateIDR : uploadNumber(readUploadValue(row, 'rate'));
+        if (!name || !['USD', 'IDR'].includes(resolvedExpenseCurrency) || resolvedExpenseRate < 0) {
           invalid += 1;
           return;
         }
@@ -476,13 +518,12 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           expense.name.trim().toLowerCase() === name.toLowerCase()
           && sameUploadPort(portId, portName, expense.portId, expense.portName)
           && expense.category.toUpperCase() === category
-          && expense.defaultCurrency === currency
+          && expense.defaultCurrency === resolvedExpenseCurrency
         );
         if (duplicate) {
           duplicates += 1;
           return;
         }
-        const standardCost = uploadNumber(readUploadValue(row, 'standardCostSell', 'standard_cost_sell', 'rate'));
         const expense: ExpensesItem = {
           id: '',
           portId: selectedPort?.id || portId,
@@ -491,9 +532,11 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           category: category as ExpensesItem['category'],
           name,
           unit: String(readUploadValue(row, 'unit')).trim() || 'job',
-          defaultCurrency: currency as ExpensesItem['defaultCurrency'],
-          standardCostBuy: uploadNumber(readUploadValue(row, 'standardCostBuy', 'standard_cost_buy'), standardCost),
-          standardCostSell: standardCost,
+          defaultCurrency: resolvedExpenseCurrency as ExpensesItem['defaultCurrency'],
+          standardCostBuy: uploadNumber(readUploadValue(row, 'standardCostBuy', 'standard_cost_buy'), resolvedExpenseRate),
+          standardCostSell: resolvedExpenseRate,
+          rateIDR,
+          rateUSD,
           preferredVendor: String(readUploadValue(row, 'preferredVendor', 'preferred_vendor')).trim(),
           calculationType: String(readUploadValue(row, 'calculationType', 'calculation_type', 'type')).trim().toUpperCase() as ExpensesItem['calculationType'] || 'FIXED',
         };
@@ -551,19 +594,36 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           return;
         }
         const port = ports.find((p) => p.id === newTariff.portId);
-        db.addFixTariff({ ...newTariff, portName: port?.name || '' } as Omit<FixTariff, 'id'>);
+        const rateIDR = Number(newTariff.rateIDR) || 0;
+        const rateUSD = Number(newTariff.rateUSD) || 0;
+        db.addFixTariff({
+          ...newTariff,
+          portName: port?.name || '',
+          rateIDR,
+          rateUSD,
+          rate: rateUSD || rateIDR || 0,
+          currency: rateUSD ? 'USD' : 'IDR',
+        } as Omit<FixTariff, 'id'>);
       } else if (activeTab === 'EXPENSES_ITEM') {
         if (!newExpense.name?.trim()) {
           setAddFormError('Nama item wajib diisi sebelum menyimpan.');
           return;
         }
         const port = ports.find((p) => p.id === newExpense.portId);
+        const rateIDR = Number(newExpense.rateIDR) || 0;
+        const rateUSD = Number(newExpense.rateUSD) || 0;
+        const selectedRate = rateUSD || rateIDR || 0;
         await db.addExpensesItem({
           ...newExpense,
           code: newExpense.code?.trim() || '',
           name: newExpense.name.trim(),
           portId: newExpense.portId || '',
           portName: port?.name || newExpense.portName || '',
+          rateIDR,
+          rateUSD,
+          defaultCurrency: rateUSD ? 'USD' : 'IDR',
+          standardCostBuy: selectedRate,
+          standardCostSell: selectedRate,
         } as Omit<ExpensesItem, 'id'>);
       } else {
         setAddFormError('Menu master data tidak dikenali.');
@@ -841,9 +901,12 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                   <th className="p-3.5">No</th>
                   <th className="p-3.5">Port</th>
                   <th className="p-3.5">Item Service</th>
+                  <th className="p-3.5">Category Cost</th>
+                  <th className="p-3.5 text-right">GRT</th>
+                  <th className="p-3.5 text-right">DWT</th>
                   <th className="p-3.5">Type</th>
-                  <th className="p-3.5">Currency</th>
-                  <th className="p-3.5 text-right">Rate</th>
+                  <th className="p-3.5 text-right">IDR</th>
+                  <th className="p-3.5 text-right">USD</th>
                   <th className="p-3.5 text-right">Action</th>
                 </tr>
               </thead>
@@ -855,9 +918,12 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                       <td className="p-3.5 font-mono text-slate-500">{fixTariffs.indexOf(t) + 1}</td>
                       <td className="p-3.5 font-semibold text-slate-700">{t.portName || ports.find((port) => port.id === t.portId)?.name || '-'}</td>
                       <td className="p-3.5 font-bold text-slate-900">{t.serviceName}</td>
+                      <td className="p-3.5 text-slate-600">{(t.costCategory || 'PORT_EXPENSES').replace(/_/g, ' ')}</td>
+                      <td className="p-3.5 text-right font-mono text-slate-600">{t.grt ? t.grt.toLocaleString() : '-'}</td>
+                      <td className="p-3.5 text-right font-mono text-slate-600">{t.dwt ? t.dwt.toLocaleString() : '-'}</td>
                       <td className="p-3.5"><span className="px-2 py-0.5 rounded text-[10px] font-bold bg-violet-50 text-violet-600">{t.tariffType || (t.calculationBasis === 'LUMP_SUM' ? 'FIXED' : 'VARIABLE')}</span></td>
-                      <td className="p-3.5 font-mono text-slate-600">{t.currency}</td>
-                      <td className="p-3.5 text-right font-mono font-bold text-slate-700">{t.rate.toLocaleString()}</td>
+                      <td className="p-3.5 text-right font-mono font-bold text-slate-700">{(t.rateIDR ?? (t.currency === 'IDR' ? t.rate : 0)) ? (t.rateIDR ?? t.rate).toLocaleString() : '-'}</td>
+                      <td className="p-3.5 text-right font-mono font-bold text-slate-700">{(t.rateUSD ?? (t.currency === 'USD' ? t.rate : 0)) ? (t.rateUSD ?? t.rate).toLocaleString() : '-'}</td>
                       <td className="p-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button onClick={() => openMasterEditor('FIX_TARIFF', t)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500 transition" title="Edit Fix Tariff">
@@ -886,8 +952,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                   <th className="p-3.5">Item Name</th>
                   <th className="p-3.5">Category</th>
                   <th className="p-3.5">Type</th>
-                  <th className="p-3.5">Currency</th>
-                  <th className="p-3.5 text-right">Rate</th>
+                  <th className="p-3.5 text-right">IDR</th>
+                  <th className="p-3.5 text-right">USD</th>
                   <th className="p-3.5 text-right">Action</th>
                 </tr>
               </thead>
@@ -905,8 +971,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                         </span>
                       </td>
                       <td className="p-3.5"><span className="px-2 py-0.5 rounded text-[10px] font-bold bg-violet-50 text-violet-600">{e.calculationType || 'FIXED'}</span></td>
-                      <td className="p-3.5 font-mono font-semibold text-slate-700">{e.defaultCurrency || 'USD'}</td>
-                      <td className="p-3.5 text-right font-mono font-bold text-slate-700">{Number(e.standardCostSell || e.standardCostBuy || 0).toLocaleString('en-US')}</td>
+                      <td className="p-3.5 text-right font-mono font-bold text-slate-700">{(e.rateIDR ?? (e.defaultCurrency === 'IDR' ? e.standardCostSell : 0)) ? (e.rateIDR ?? e.standardCostSell).toLocaleString('en-US') : '-'}</td>
+                      <td className="p-3.5 text-right font-mono font-bold text-slate-700">{(e.rateUSD ?? (e.defaultCurrency === 'USD' ? e.standardCostSell : 0)) ? (e.rateUSD ?? e.standardCostSell).toLocaleString('en-US') : '-'}</td>
                       <td className="p-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button onClick={() => openMasterEditor('EXPENSES_ITEM', e)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500" title="Edit Expense Item"><Edit2 className="w-3.5 h-3.5"/></button>
@@ -1010,9 +1076,13 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     <label className="block"><span className="text-slate-500 font-semibold">Item Service</span><input required value={editMasterForm.serviceName || ''} onChange={e=>setEditMasterForm({...editMasterForm,serviceName:e.target.value})} className="master-edit-input" /></label>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
-                    <label className="block"><span className="text-slate-500 font-semibold">Rate</span><input type="number" step="0.001" value={editMasterForm.rate ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,rate:Number(e.target.value)})} className="master-edit-input" /></label>
-                    <label className="block"><span className="text-slate-500 font-semibold">Currency</span><select value={editMasterForm.currency || 'USD'} onChange={e=>setEditMasterForm({...editMasterForm,currency:e.target.value})} className="master-edit-input"><option>USD</option><option>IDR</option></select></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">GRT</span><input type="number" step="0.01" value={editMasterForm.grt ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,grt:Number(e.target.value)})} className="master-edit-input" /></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">DWT</span><input type="number" step="0.01" value={editMasterForm.dwt ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,dwt:Number(e.target.value)})} className="master-edit-input" /></label>
                     <label className="block"><span className="text-slate-500 font-semibold">Minimum Charge</span><input type="number" value={editMasterForm.minCharge ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,minCharge:Number(e.target.value)})} className="master-edit-input" /></label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="block"><span className="text-slate-500 font-semibold">IDR</span><input type="number" step="0.0001" value={editMasterForm.rateIDR ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,rateIDR:Number(e.target.value)})} className="master-edit-input" /></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">USD</span><input type="number" step="0.0001" value={editMasterForm.rateUSD ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,rateUSD:Number(e.target.value)})} className="master-edit-input" /></label>
                   </div>
                 </>
               )}
@@ -1029,9 +1099,12 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <label className="block"><span className="text-slate-500 font-semibold">Calculation Type</span><select value={editMasterForm.calculationType || 'FIXED'} onChange={e=>setEditMasterForm({...editMasterForm,calculationType:e.target.value})} className="master-edit-input"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="QTY_RATE">Qty_rate</option><option value="PERCENTAGE">Percentage</option><option value="RANGE">Range</option></select></label>
-                    <label className="block"><span className="text-slate-500 font-semibold">Currency</span><select value={editMasterForm.defaultCurrency || 'USD'} onChange={e=>setEditMasterForm({...editMasterForm,defaultCurrency:e.target.value})} className="master-edit-input"><option>USD</option><option>IDR</option></select></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">Unit</span><select value={editMasterForm.unit || 'job'} onChange={e=>setEditMasterForm({...editMasterForm,unit:e.target.value})} className="master-edit-input"><option value="job">job</option><option value="hour">hour</option><option value="day">day</option><option value="qty">qty</option><option value="GRT">GRT</option></select></label>
                   </div>
-                  <label className="block"><span className="text-slate-500 font-semibold">Rate / Standard Cost</span><input type="number" value={editMasterForm.standardCostSell ?? editMasterForm.standardCostBuy ?? 0} onChange={e=>{ const value = Number(e.target.value); setEditMasterForm({...editMasterForm, standardCostBuy: value, standardCostSell: value}); }} className="master-edit-input" /></label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="block"><span className="text-slate-500 font-semibold">Rate IDR</span><input type="number" step="0.0001" value={editMasterForm.rateIDR ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,rateIDR:Number(e.target.value)})} className="master-edit-input" /></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">Rate USD</span><input type="number" step="0.0001" value={editMasterForm.rateUSD ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,rateUSD:Number(e.target.value)})} className="master-edit-input" /></label>
+                  </div>
                 </>
               )}
 
@@ -1471,25 +1544,47 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-slate-400 block mb-1">Rate Nominal:</label>
+                      <label className="text-slate-400 block mb-1">GRT:</label>
                       <input
                         type="number"
-                        step="0.001"
-                        value={newTariff.rate}
-                        onChange={(e) => setNewTariff({ ...newTariff, rate: Number(e.target.value) })}
+                        step="0.01"
+                        value={newTariff.grt}
+                        onChange={(e) => setNewTariff({ ...newTariff, grt: Number(e.target.value) })}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
                       />
                     </div>
                     <div>
-                      <label className="text-slate-400 block mb-1">Currency:</label>
-                      <select
-                        value={newTariff.currency}
-                        onChange={(e) => setNewTariff({ ...newTariff, currency: e.target.value as any })}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
-                      >
-                        <option value="USD">USD</option>
-                        <option value="IDR">IDR</option>
-                      </select>
+                      <label className="text-slate-400 block mb-1">DWT:</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={newTariff.dwt}
+                        onChange={(e) => setNewTariff({ ...newTariff, dwt: Number(e.target.value) })}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-slate-400 block mb-1">IDR:</label>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        value={newTariff.rateIDR}
+                        onChange={(e) => setNewTariff({ ...newTariff, rateIDR: Number(e.target.value) })}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-slate-400 block mb-1">USD:</label>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        value={newTariff.rateUSD}
+                        onChange={(e) => setNewTariff({ ...newTariff, rateUSD: Number(e.target.value) })}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
+                      />
                     </div>
                   </div>
 
@@ -1572,30 +1667,30 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                         <option value="GRT">GRT</option>
                       </select>
                     </div>
-                    <div>
-                      <label className="text-slate-400 block mb-1">Currency:</label>
-                      <select
-                        value={newExpense.defaultCurrency}
-                        onChange={(e) => setNewExpense({ ...newExpense, defaultCurrency: e.target.value as 'IDR' | 'USD' })}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
-                      >
-                        <option value="IDR">IDR</option>
-                        <option value="USD">USD</option>
-                      </select>
-                    </div>
+                    <div />
                   </div>
 
-                  <div>
-                    <label className="text-slate-400 block mb-1">Rate / Standard Cost:</label>
-                    <input
-                      type="number"
-                      value={newExpense.standardCostSell || newExpense.standardCostBuy || 0}
-                      onChange={(e) => {
-                        const value = Number(e.target.value);
-                        setNewExpense({ ...newExpense, standardCostBuy: value, standardCostSell: value });
-                      }}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
-                    />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-slate-400 block mb-1">Rate IDR:</label>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        value={newExpense.rateIDR}
+                        onChange={(e) => setNewExpense({ ...newExpense, rateIDR: Number(e.target.value) })}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-slate-400 block mb-1">Rate USD:</label>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        value={newExpense.rateUSD}
+                        onChange={(e) => setNewExpense({ ...newExpense, rateUSD: Number(e.target.value) })}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
+                      />
+                    </div>
                   </div>
                 </>
               )}

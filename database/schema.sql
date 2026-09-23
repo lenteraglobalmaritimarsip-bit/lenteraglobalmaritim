@@ -87,6 +87,8 @@ CREATE TABLE IF NOT EXISTS expense_items (
   default_currency VARCHAR(3) NOT NULL CHECK (default_currency IN ('USD','IDR')),
   standard_cost_buy NUMERIC(18,2) DEFAULT 0,
   standard_cost_sell NUMERIC(18,2) DEFAULT 0,
+  rate_idr NUMERIC(18,4),
+  rate_usd NUMERIC(18,4),
   preferred_vendor VARCHAR(180),
   calculation_type VARCHAR(20) CHECK (calculation_type IN ('FIXED','VARIABLE','QTY_RATE','PERCENTAGE','RANGE')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -99,10 +101,14 @@ CREATE TABLE IF NOT EXISTS fix_tariffs (
   cost_category VARCHAR(80) CHECK (cost_category IS NULL OR cost_category IN ('PORT_EXPENSES','CLEARANCE','GENERAL_EXPENSES','CREW_EXPENSES','OWNER_MATTER','AGENCY_FEE')),
   service_code VARCHAR(40),
   service_name VARCHAR(180),
+  grt NUMERIC(18,4),
+  dwt NUMERIC(18,4),
   calculation_basis VARCHAR(30) CHECK (calculation_basis IN ('PER_GRT','PER_DAY','LUMP_SUM','PER_HOUR','PER_MOVE')),
   tariff_type VARCHAR(20) CHECK (tariff_type IN ('FIXED','VARIABLE','RANGE')),
   currency VARCHAR(3) CHECK (currency IN ('USD','IDR')),
   rate NUMERIC(18,4),
+  rate_idr NUMERIC(18,4),
+  rate_usd NUMERIC(18,4),
   min_charge NUMERIC(18,2),
   description TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -114,8 +120,12 @@ ALTER TABLE fix_tariffs
   ADD COLUMN IF NOT EXISTS cost_category VARCHAR(80),
   ADD COLUMN IF NOT EXISTS service_code VARCHAR(40),
   ADD COLUMN IF NOT EXISTS service_name VARCHAR(180),
+  ADD COLUMN IF NOT EXISTS grt NUMERIC(18,4),
+  ADD COLUMN IF NOT EXISTS dwt NUMERIC(18,4),
   ADD COLUMN IF NOT EXISTS currency VARCHAR(3),
   ADD COLUMN IF NOT EXISTS rate NUMERIC(18,4),
+  ADD COLUMN IF NOT EXISTS rate_idr NUMERIC(18,4),
+  ADD COLUMN IF NOT EXISTS rate_usd NUMERIC(18,4),
   ADD COLUMN IF NOT EXISTS min_charge NUMERIC(18,2);
 
 ALTER TABLE expense_items
@@ -123,7 +133,9 @@ ALTER TABLE expense_items
   ADD COLUMN IF NOT EXISTS port_name VARCHAR(150),
   ADD COLUMN IF NOT EXISTS category VARCHAR(50),
   ADD COLUMN IF NOT EXISTS name VARCHAR(180),
-  ADD COLUMN IF NOT EXISTS default_currency VARCHAR(3);
+  ADD COLUMN IF NOT EXISTS default_currency VARCHAR(3),
+  ADD COLUMN IF NOT EXISTS rate_idr NUMERIC(18,4),
+  ADD COLUMN IF NOT EXISTS rate_usd NUMERIC(18,4);
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_fix_tariffs_service_port_category_currency
   ON fix_tariffs (

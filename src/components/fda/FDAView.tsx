@@ -114,6 +114,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const handleViewCurrencyChange = (currency: 'USD' | 'IDR') => {
     setViewCurrency(currency);
     db.updateJob(activeJob.jobId, { fda: { ...activeJob.fda, currency } });
+    if (actualEntryMode !== 'AUTO') return;
+    const selected = autoServiceOptions.find((option) => option.name === newActual.description);
+    if (selected) setNewActual((current) => ({ ...current, rate: rateForCurrency(currency, selected.rateIDR, selected.rateUSD, selected.legacyRate, selected.currency) }));
   };
 
   useEffect(() => {
@@ -190,6 +193,11 @@ export const FDAView: React.FC<FDAViewProps> = ({
     new Date(activeJob.quotation?.epda?.date || activeJob.inquiry?.date || activeJob.createdAt)
   );
   const vesselMaster = vessels.find((vessel) => vessel.id === activeJob.vesselId);
+  const rateForCurrency = (currency: 'IDR' | 'USD', rateIDR: number | undefined, rateUSD: number | undefined, legacyRate: number, legacyCurrency?: 'IDR' | 'USD') => {
+    const explicitRate = currency === 'IDR' ? rateIDR : rateUSD;
+    if (explicitRate !== undefined && explicitRate > 0) return explicitRate;
+    return legacyCurrency === currency ? Number(legacyRate || 0) : 0;
+  };
   const portMatches = (portId?: string, portName?: string) => {
     const currentPortId = (activeJob.portId || activeJob.inquiry?.portId || '').trim();
     const currentPortName = (activeJob.portName || activeJob.inquiry?.portName || '').trim();
@@ -207,7 +215,10 @@ export const FDAView: React.FC<FDAViewProps> = ({
         category: tariff.costCategory || 'PORT_EXPENSES',
         calculationBasis: tariff.calculationBasis,
         tariffType: tariff.tariffType || (tariff.calculationBasis === 'LUMP_SUM' ? 'FIXED' : 'VARIABLE'),
-        rate: tariff.rate,
+        rate: rateForCurrency(viewCurrency, tariff.rateIDR, tariff.rateUSD, tariff.rate, tariff.currency),
+        rateIDR: tariff.rateIDR,
+        rateUSD: tariff.rateUSD,
+        legacyRate: tariff.rate,
         minCharge: tariff.minCharge,
         currency: tariff.currency,
       })),
@@ -218,7 +229,10 @@ export const FDAView: React.FC<FDAViewProps> = ({
         category: item.category,
         calculationBasis: 'PER_GRT' as CalculationBasis,
         tariffType: item.calculationType === 'FIXED' ? 'FIXED' : 'VARIABLE',
-        rate: item.standardCostSell || 0,
+        rate: rateForCurrency(viewCurrency, item.rateIDR, item.rateUSD, item.standardCostSell || 0, item.defaultCurrency),
+        rateIDR: item.rateIDR,
+        rateUSD: item.rateUSD,
+        legacyRate: item.standardCostSell || 0,
         minCharge: item.standardCostBuy || 0,
         currency: item.defaultCurrency,
       })),
@@ -385,13 +399,13 @@ export const FDAView: React.FC<FDAViewProps> = ({
           tariff.serviceName.trim().toLowerCase() === normalizedItemName
           && isSamePort(tariff.portId, tariff.portName)
           && (tariff.costCategory || 'PORT_EXPENSES') === newActual.category
-          && tariff.currency === viewCurrency
+          && rateForCurrency(viewCurrency, tariff.rateIDR, tariff.rateUSD, tariff.rate, tariff.currency) > 0
         )
       : expensesItems.some((expense) =>
           expense.name.trim().toLowerCase() === normalizedItemName
           && isSamePort(expense.portId, expense.portName)
           && expense.category === newActual.category
-          && expense.defaultCurrency === viewCurrency
+          && rateForCurrency(viewCurrency, expense.rateIDR, expense.rateUSD, expense.standardCostSell, expense.defaultCurrency) > 0
         );
 
     if (duplicateExists) {
@@ -410,6 +424,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
         tariffType: newActual.tariffType || 'FIXED',
         currency: viewCurrency,
         rate: rateValue,
+        rateIDR: viewCurrency === 'IDR' ? rateValue : 0,
+        rateUSD: viewCurrency === 'USD' ? rateValue : 0,
         minCharge: Number(newActual.minCharge) || rateValue,
         description: newActual.notes || 'Created from FDA manual entry',
       });
@@ -424,6 +440,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
         defaultCurrency: viewCurrency,
         standardCostBuy: rateValue,
         standardCostSell: rateValue,
+        rateIDR: viewCurrency === 'IDR' ? rateValue : 0,
+        rateUSD: viewCurrency === 'USD' ? rateValue : 0,
         preferredVendor: newActual.vendorName || '',
         calculationType: newActual.tariffType || 'FIXED',
       });

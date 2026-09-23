@@ -233,7 +233,11 @@ class DatabaseService {
         costCategory: row.cost_category || row.costCategory,
         serviceCode: row.service_code || row.serviceCode,
         serviceName: row.service_name || row.serviceName,
+        grt: row.grt ?? row.GRT,
+        dwt: row.dwt ?? row.DWT,
         calculationBasis: row.calculation_basis || row.calculationBasis,
+        rateIDR: row.rate_idr ?? row.rateIDR,
+        rateUSD: row.rate_usd ?? row.rateUSD,
         minCharge: row.min_charge ?? row.minCharge,
       })),
       this.loadTable<ExpensesItem>('expense_items', INITIAL_EXPENSES_ITEMS, (row) => ({
@@ -244,6 +248,8 @@ class DatabaseService {
         calculationType: row.calculation_type || row.calculationType,
         standardCostBuy: row.standard_cost_buy ?? row.standardCostBuy,
         standardCostSell: row.standard_cost_sell ?? row.standardCostSell,
+        rateIDR: row.rate_idr ?? row.rateIDR ?? (String(row.default_currency || row.defaultCurrency).toUpperCase() === 'IDR' ? (row.standard_cost_sell ?? row.standardCostSell) : undefined),
+        rateUSD: row.rate_usd ?? row.rateUSD ?? (String(row.default_currency || row.defaultCurrency).toUpperCase() === 'USD' ? (row.standard_cost_sell ?? row.standardCostSell) : undefined),
         preferredVendor: row.preferred_vendor || row.preferredVendor,
       })),
       this.loadTable<JobCall>('vessel_calls', LOCAL_INITIAL_JOB_CALLS, (row) => {
@@ -314,7 +320,7 @@ class DatabaseService {
       case 'zones':
         return { zone_code: value.zoneCode, zone_name: value.zoneName, zone_type: value.type, max_draft_m: value.maxDraftMeters, description: value.description };
       case 'fix_tariffs':
-        return { service_code: value.serviceCode, service_name: value.serviceName, cost_category: value.costCategory, calculation_basis: value.calculationBasis, currency: value.currency, rate: value.rate, min_charge: value.minCharge, description: value.description };
+        return { service_code: value.serviceCode, service_name: value.serviceName, cost_category: value.costCategory, grt: value.grt, dwt: value.dwt, calculation_basis: value.calculationBasis, currency: value.currency, rate: value.rate, rate_idr: value.rateIDR, rate_usd: value.rateUSD, min_charge: value.minCharge, description: value.description };
       case 'expense_items':
         return {
           port_id: value.portId,
@@ -324,6 +330,8 @@ class DatabaseService {
           name: value.name,
           unit: value.unit,
           default_currency: value.defaultCurrency,
+          rate_idr: value.rateIDR,
+          rate_usd: value.rateUSD,
           calculation_type: value.calculationType ?? null,
           standard_cost_buy: value.standardCostBuy,
           standard_cost_sell: value.standardCostSell,
@@ -370,7 +378,7 @@ class DatabaseService {
       supabase.from('vessels').upsert(this.state.vessels.map((vessel) => ({ name: vessel.name, imo_number: vessel.imoNumber || null, call_sign: vessel.callSign, flag: vessel.flag, vessel_type: vessel.vesselType, grt: vessel.grt, nrt: vessel.nrt, dwt: vessel.dwt, loa: vessel.loa, beam: vessel.beam, year_built: vessel.yearBuilt })), { onConflict: 'imo_number' }),
       supabase.from('ports').upsert(this.state.ports.map((port) => ({ code: port.code, name: port.name, country: port.country, unlocode: port.unlocode, channel_depth_m: port.channelDepthMeters, tide_restriction: port.tideRestriction, operating_hours: port.operatingHours })), { onConflict: 'code' }),
       this.saveRowsWithoutConflict('zones', 'zone_code', this.state.zones.map((zone) => ({ zone_code: zone.zoneCode, zone_name: zone.zoneName, zone_type: zone.type, max_draft_m: zone.maxDraftMeters, description: zone.description }))),
-      this.saveRowsWithoutConflict('fix_tariffs', 'service_code', this.state.fixTariffs.map((tariff) => ({ service_code: tariff.serviceCode, service_name: tariff.serviceName, cost_category: tariff.costCategory, calculation_basis: tariff.calculationBasis, currency: tariff.currency, rate: tariff.rate, min_charge: tariff.minCharge, description: tariff.description }))),
+      this.saveRowsWithoutConflict('fix_tariffs', 'service_code', this.state.fixTariffs.map((tariff) => ({ service_code: tariff.serviceCode, service_name: tariff.serviceName, cost_category: tariff.costCategory, grt: tariff.grt, dwt: tariff.dwt, calculation_basis: tariff.calculationBasis, currency: tariff.currency, rate: tariff.rate, rate_idr: tariff.rateIDR, rate_usd: tariff.rateUSD, min_charge: tariff.minCharge, description: tariff.description }))),
       supabase.from('expense_items').upsert(this.state.expensesItems.map((item) => ({
         port_id: item.portId,
         port_name: item.portName,
@@ -379,6 +387,8 @@ class DatabaseService {
         name: item.name,
         unit: item.unit,
         default_currency: item.defaultCurrency,
+        rate_idr: item.rateIDR,
+        rate_usd: item.rateUSD,
         calculation_type: item.calculationType ?? null,
         standard_cost_buy: item.standardCostBuy,
         standard_cost_sell: item.standardCostSell,
