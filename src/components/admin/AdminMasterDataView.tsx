@@ -702,14 +702,14 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-2 self-start sm:self-auto">
+          <div className="admin-master-actions flex flex-wrap items-center justify-end gap-2 self-start sm:self-auto">
             {(activeTab === 'FIX_TARIFF' || activeTab === 'EXPENSES_ITEM') && (
               <>
                 <input ref={uploadInputRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleMasterDataUpload} className="hidden" />
                 <button
                   type="button"
                   onClick={downloadMasterDataTemplate}
-                  className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
+                  className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-[11px] font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
                 >
                   <Download className="w-4 h-4" />
                   <span>Download Template</span>
@@ -717,7 +717,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 <button
                   type="button"
                   onClick={() => uploadInputRef.current?.click()}
-                  className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-bold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
+                  className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-[11px] font-bold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
                 >
                   <Upload className="w-4 h-4" />
                   <span>Upload Excel</span>
@@ -726,7 +726,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
             )}
             <button
               onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-2 rounded-xl border border-slate-300 bg-slate-200 px-4 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-300"
+              className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-slate-300 bg-slate-200 px-3.5 py-2 text-[11px] font-bold text-slate-700 shadow-sm transition hover:bg-slate-300"
             >
               <Plus className="w-4 h-4" />
               <span>Tambah Data {activeTab.replace('_', ' ')}</span>
@@ -1008,8 +1008,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
 
       {/* Generic Master Data Edit Modal */}
       {editingMaster && (
-        <div className="fixed inset-0 z-[60] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) closeMasterEditor(); }}>
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-2xl p-6">
+        <div className="fixed inset-0 z-[60] flex min-h-screen !items-start !justify-center overflow-y-auto bg-slate-950/70 p-4 pt-4 backdrop-blur-sm" onMouseDown={(e) => { if (e.target === e.currentTarget) closeMasterEditor(); }}>
+          <div className="admin-modal-panel admin-add-modal !m-0 max-h-[calc(100dvh-2rem)] w-full max-w-[500px] overflow-y-auto rounded-2xl border border-slate-300 bg-slate-50 p-6 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3 mb-5">
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-widest text-violet-600">Master Data</div>
@@ -1021,7 +1021,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
               <button type="button" onClick={closeMasterEditor} className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500"><X className="w-5 h-5" /></button>
             </div>
 
-            <form onSubmit={saveMasterEditor} className="space-y-4 text-xs">
+            <form onSubmit={saveMasterEditor} className="admin-modal-form space-y-4 text-xs">
               {editingMaster.type === 'CUSTOMERS' && (
                 <>
                   <div className="grid grid-cols-2 gap-3">
@@ -1131,7 +1131,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
               {addFormError && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{addFormError}</div>}
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
                 <button type="button" onClick={closeMasterEditor} className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 font-semibold">Batal</button>
-                <button type="submit" className="px-5 py-2 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-bold">Simpan Perubahan</button>
+                <button type="submit" className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-600 text-xs font-semibold">Simpan Perubahan</button>
               </div>
             </form>
           </div>
@@ -1140,13 +1140,13 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
 
       {/* Edit User Modal */}
       {editingUser && (
-        <div className="fixed inset-0 z-[60] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) setEditingUser(null); }}>
-          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-2xl shadow-2xl p-6">
+        <div className="fixed inset-0 z-[60] flex min-h-screen !items-start !justify-center overflow-y-auto bg-slate-950/70 p-4 pt-4 backdrop-blur-sm" onMouseDown={(e) => { if (e.target === e.currentTarget) setEditingUser(null); }}>
+          <div className="admin-modal-panel admin-add-modal !m-0 max-h-[calc(100dvh-2rem)] w-full max-w-[500px] overflow-y-auto rounded-2xl border border-slate-300 bg-slate-50 p-6 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3 mb-5">
               <div><div className="text-[10px] font-bold uppercase tracking-widest text-violet-600">User Management</div><h3 className="text-lg font-black text-slate-900">Edit Data User</h3><p className="text-xs text-slate-500">Perubahan disimpan ke database browser dan akun login.</p></div>
               <button type="button" onClick={() => setEditingUser(null)} className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500"><X className="w-5 h-5" /></button>
             </div>
-            <form onSubmit={saveUserEditor} className="space-y-4 text-xs">
+            <form onSubmit={saveUserEditor} className="admin-modal-form space-y-4 text-xs text-slate-700">
               <div className="grid grid-cols-2 gap-3">
                 <label className="block"><span className="text-slate-500 font-semibold">User / Username</span><input value={editUserForm.username || ''} onChange={e => setEditUserForm({...editUserForm, username:e.target.value})} className="mt-1 w-full border border-slate-200 rounded-lg p-2.5 text-slate-800" /></label>
                 <label className="block"><span className="text-slate-500 font-semibold">Nama Pemegang User</span><input value={editUserForm.name || ''} onChange={e => setEditUserForm({...editUserForm, name:e.target.value})} className="mt-1 w-full border border-slate-200 rounded-lg p-2.5 text-slate-800" /></label>
@@ -1168,7 +1168,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 <label className="block"><span className="text-slate-500 font-semibold">Password Baru</span><input type="password" placeholder="Kosongkan jika tidak diubah" value={editUserForm.newPassword || ''} onChange={e => setEditUserForm({...editUserForm, newPassword:e.target.value})} className="mt-1 w-full border border-slate-200 rounded-lg p-2.5 text-slate-800" /></label>
               </div>
               {userEditError && <div className="rounded-lg bg-rose-50 border border-rose-200 text-rose-600 px-3 py-2">{userEditError}</div>}
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200"><button type="button" onClick={() => setEditingUser(null)} className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600">Batal</button><button type="submit" className="px-4 py-2 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-bold">Simpan Perubahan</button></div>
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200"><button type="button" onClick={() => setEditingUser(null)} className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600">Batal</button><button type="submit" className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-600 text-xs font-semibold">Simpan Perubahan</button></div>
             </form>
           </div>
         </div>
@@ -1176,9 +1176,9 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
 
       {/* Add Item Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="admin-add-modal bg-slate-50 border border-slate-300 rounded-2xl w-full max-w-lg shadow-2xl p-6">
-            <div className="flex items-center justify-between border-b border-slate-300 pb-3 mb-4">
+        <div className="fixed inset-0 z-50 flex min-h-screen !items-start !justify-center overflow-y-auto bg-slate-900/40 p-4 pt-4 backdrop-blur-sm">
+          <div className="admin-modal-panel admin-add-modal !m-0 max-h-[calc(100dvh-2rem)] w-full max-w-[500px] overflow-y-auto rounded-2xl border border-slate-300 bg-slate-50 p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-300 pb-2 mb-3">
               <h3 className="text-base font-bold text-slate-900">
                 Tambah Master: {activeTab.replace('_', ' ')}
               </h3>
@@ -1190,7 +1190,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
               </button>
             </div>
 
-            <form noValidate onSubmit={handleSaveItem} className="space-y-3.5 text-xs text-slate-700">
+            <form noValidate onSubmit={handleSaveItem} className="admin-modal-form space-y-2.5 text-xs text-slate-700">
               {activeTab === 'USERS' && (
                 <>
                   <div className="grid grid-cols-2 gap-3">

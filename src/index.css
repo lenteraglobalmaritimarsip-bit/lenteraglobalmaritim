@@ -88,6 +88,11 @@ button{ cursor:pointer; }
 .fixed.z-50 .admin-add-modal input,.fixed.z-50 .admin-add-modal select,.fixed.z-50 .admin-add-modal textarea{background:#fff!important;color:#1e293b!important;border-color:#fff!important}
 .admin-add-modal input::placeholder,.admin-add-modal textarea::placeholder{color:#9aa8b8!important}
 .admin-add-modal select option{background:#fff;color:#1e293b}
+.admin-modal-panel{max-height:calc(100vh - 6rem);overflow:hidden;display:flex;flex-direction:column}
+.admin-modal-form{min-height:0;flex:1 1 auto;overflow-y:auto;scrollbar-width:none;padding-right:2px}
+.admin-modal-form::-webkit-scrollbar{display:none}
+.admin-modal-form>div:last-child{position:sticky;bottom:0;background:inherit;padding-top:10px}
+@media(max-width:680px){.admin-modal-panel{max-height:calc(100vh - 2rem);padding:16px!important}.admin-modal-form{padding-right:0}}
 .inquiry-entry-modal label{color:#52637a!important}
 .inquiry-entry-modal input,.inquiry-entry-modal select,.inquiry-entry-modal textarea{background:#f5f7fa!important;color:#26364d!important;border-color:#d1dae5!important;box-shadow:inset 0 1px 2px rgba(49,72,101,.04)}
 .inquiry-entry-modal input::placeholder,.inquiry-entry-modal textarea::placeholder{color:#52637a!important;opacity:1}
@@ -139,6 +144,11 @@ button{ cursor:pointer; }
 
 .maritim-main{flex:1;min-width:0;overflow:auto;padding:22px;background:#eef4fb}
 .maritim-content{max-width:1260px;margin:0 auto}
+.admin-master-actions{max-width:100%;}
+@media(max-width:900px){
+  .admin-master-actions{width:100%;justify-content:flex-start;}
+  .admin-master-actions button{min-height:38px;}
+}
 .maritim-page-card{
   background:rgba(255,255,255,.92);
   border:1px solid #dce5f0;
