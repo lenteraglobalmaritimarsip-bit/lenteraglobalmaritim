@@ -242,6 +242,7 @@ export default function App() {
 
   // Subscribe to reactive database changes
   useEffect(() => {
+    if (isSupabaseConfigured && !currentUser) return;
     if (currentUser) db.setActor({ id: currentUser.id, name: currentUser.name, role: currentUser.role, branch: currentUser.branch });
     let unsubscribe = () => {};
     void (async () => {
