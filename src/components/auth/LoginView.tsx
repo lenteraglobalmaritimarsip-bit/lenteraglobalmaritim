@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowRight, Eye, EyeOff, LockKeyhole, UserRound } from 'lucide-react';
 import { AuthAccount, authenticate } from '../../auth';
+import { isSupabaseConfigured } from '../../supabaseClient';
 
 interface LoginViewProps { onLogin: (account: AuthAccount, rememberMe?: boolean) => void; }
 
@@ -89,25 +90,27 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
               <h2>Login ke Portal</h2>
               <p>Silakan masuk menggunakan akun sesuai role pekerjaan Anda.</p>
             </div>
-            <span className="lgm-demo-mode">Mode Demo Lokal</span>
+            <span className="lgm-demo-mode">{isSupabaseConfigured ? 'System Online' : 'Mode Demo Lokal'}</span>
           </div>
 
-          <div className="lgm-demo-quicklist" aria-label="Demo login presets">
-            {DEMO_LOGIN_PRESETS.map((preset) => (
-              <button
-                key={preset.username}
-                type="button"
-                className="lgm-demo-preset"
-                onClick={() => {
-                  setUsername(preset.username);
-                  setPassword(preset.password);
-                  setError('');
-                }}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
+          {!isSupabaseConfigured && (
+            <div className="lgm-demo-quicklist" aria-label="Demo login presets">
+              {DEMO_LOGIN_PRESETS.map((preset) => (
+                <button
+                  key={preset.username}
+                  type="button"
+                  className="lgm-demo-preset"
+                  onClick={() => {
+                    setUsername(preset.username);
+                    setPassword(preset.password);
+                    setError('');
+                  }}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          )}
 
           <form onSubmit={submit}>
             <label className="lgm-field">
