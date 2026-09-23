@@ -236,6 +236,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     serviceCode: '',
     serviceName: '',
     grt: 0,
+    grtMin: 0,
+    grtMax: 0,
     dwt: 0,
     calculationBasis: 'PER_GRT',
     tariffType: 'VARIABLE',
@@ -316,6 +318,16 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     return Number.isFinite(parsed) ? parsed : fallback;
   };
 
+  const uploadGRTRange = (row: Record<string, unknown>) => {
+    const minimum = uploadNumber(readUploadValue(row, 'grtMin', 'grt_min', 'grtFrom', 'grt_from'));
+    const maximum = uploadNumber(readUploadValue(row, 'grtMax', 'grt_max', 'grtTo', 'grt_to'));
+    const raw = String(readUploadValue(row, 'grt', 'GRT')).trim();
+    const parts = raw.split(/\s*(?:-|–|to)\s*/i).filter(Boolean);
+    const legacyMinimum = parts.length > 1 ? uploadNumber(parts[0]) : uploadNumber(raw);
+    const legacyMaximum = parts.length > 1 ? uploadNumber(parts[1]) : uploadNumber(raw);
+    return { grtMin: minimum || legacyMinimum, grtMax: maximum || legacyMaximum };
+  };
+
   const normalizeExpenseCategory = (value: unknown) => {
     const normalized = String(value ?? '').trim().toUpperCase().replace(/[\s-]+/g, '_');
     return normalized === 'CLEARANCE_IN/OUT' || normalized === 'CLEARANCE_IN_OUT'
@@ -352,7 +364,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
 
   const downloadMasterDataTemplate = async () => {
     const headers = activeTab === 'FIX_TARIFF'
-      ? ['portId', 'portName', 'serviceName', 'costCategory', 'grt', 'dwt', 'tariffType', 'rateIDR', 'rateUSD']
+      ? ['portId', 'portName', 'serviceName', 'costCategory', 'grtMin', 'grtMax', 'dwt', 'tariffType', 'rateIDR', 'rateUSD']
       : ['portId', 'portName', 'category', 'calculationType', 'name', 'unit', 'rateIDR', 'rateUSD'];
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet(activeTab === 'FIX_TARIFF' ? 'Fix Tariff' : 'Expenses Item');
@@ -385,7 +397,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           portId: listRange(0, portIds),
           portName: listRange(1, portNames),
           costCategory: listRange(3, categories),
-          tariffType: listRange(6, tariffTypes),
+          tariffType: listRange(7, tariffTypes),
           currency: listRange(4, currencies),
         }
       : {
@@ -415,10 +427,11 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     });
 
     if (activeTab === 'FIX_TARIFF') {
-      worksheet.getColumn('E').numFmt = '#,##0.00';
       worksheet.getColumn('F').numFmt = '#,##0.00';
-      worksheet.getColumn('H').numFmt = '#,##0.00';
+      worksheet.getColumn('E').numFmt = '#,##0.00';
+      worksheet.getColumn('G').numFmt = '#,##0.00';
       worksheet.getColumn('I').numFmt = '#,##0.00';
+      worksheet.getColumn('J').numFmt = '#,##0.00';
     } else {
       worksheet.getColumn('G').numFmt = '#,##0.00';
       worksheet.getColumn('H').numFmt = '#,##0.00';
@@ -467,6 +480,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           const rateUSD = uploadNumber(readUploadValue(row, 'rateUSD', 'rate_usd', 'usd'));
           const resolvedCurrency = rateUSD > 0 ? 'USD' : rateIDR > 0 ? 'IDR' : currency;
           const resolvedRate = rateUSD > 0 ? rateUSD : rateIDR > 0 ? rateIDR : uploadNumber(readUploadValue(row, 'rate'));
+          const grtRange = uploadGRTRange(row);
           if (!serviceName || !['USD', 'IDR'].includes(resolvedCurrency) || resolvedRate < 0) {
             invalid += 1;
             return;
@@ -488,7 +502,9 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
             costCategory: category,
             serviceCode: String(readUploadValue(row, 'serviceCode', 'service_code')).trim(),
             serviceName,
-            grt: uploadNumber(readUploadValue(row, 'grt', 'GRT')),
+            grt: grtRange.grtMin === grtRange.grtMax ? grtRange.grtMin : undefined,
+            grtMin: grtRange.grtMin,
+            grtMax: grtRange.grtMax,
             dwt: uploadNumber(readUploadValue(row, 'dwt', 'DWT')),
             calculationBasis: String(readUploadValue(row, 'calculationBasis', 'calculation_basis', 'basis')).trim().toUpperCase() as FixTariff['calculationBasis'] || 'LUMP_SUM',
             tariffType: String(readUploadValue(row, 'tariffType', 'tariff_type', 'type')).trim().toUpperCase() as FixTariff['tariffType'] || 'FIXED',
@@ -922,7 +938,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                       <td className="p-3.5 font-semibold text-slate-700">{t.portName || ports.find((port) => port.id === t.portId)?.name || '-'}</td>
                       <td className="p-3.5 font-bold text-slate-900">{t.serviceName}</td>
                       <td className="p-3.5 text-slate-600">{(t.costCategory || 'PORT_EXPENSES').replace(/_/g, ' ')}</td>
-                      <td className="p-3.5 text-right font-mono text-slate-600">{t.grt ? t.grt.toLocaleString() : '-'}</td>
+                      <td className="p-3.5 text-right font-mono text-slate-600">{t.grtMin || t.grtMax || t.grt ? `${(t.grtMin ?? t.grt ?? 0).toLocaleString()} - ${(t.grtMax ?? t.grt ?? 0).toLocaleString()}` : '-'}</td>
                       <td className="p-3.5 text-right font-mono text-slate-600">{t.dwt ? t.dwt.toLocaleString() : '-'}</td>
                       <td className="p-3.5"><span className="px-2 py-0.5 rounded text-[10px] font-bold bg-violet-50 text-violet-600">{t.tariffType || (t.calculationBasis === 'LUMP_SUM' ? 'FIXED' : 'VARIABLE')}</span></td>
                       <td className="p-3.5 text-right font-mono font-bold text-slate-700">{(t.rateIDR ?? (t.currency === 'IDR' ? t.rate : 0)) ? (t.rateIDR ?? t.rate).toLocaleString() : '-'}</td>
@@ -1079,7 +1095,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     <label className="block"><span className="text-slate-500 font-semibold">Item Service</span><input required value={editMasterForm.serviceName || ''} onChange={e=>setEditMasterForm({...editMasterForm,serviceName:e.target.value})} className="master-edit-input" /></label>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
-                    <label className="block"><span className="text-slate-500 font-semibold">GRT</span><input type="number" step="0.01" value={editMasterForm.grt ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,grt:Number(e.target.value)})} className="master-edit-input" /></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">GRT Minimum</span><input type="number" step="0.01" value={editMasterForm.grtMin ?? editMasterForm.grt ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,grtMin:Number(e.target.value)})} className="master-edit-input" /></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">GRT Maximum</span><input type="number" step="0.01" value={editMasterForm.grtMax ?? editMasterForm.grt ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,grtMax:Number(e.target.value)})} className="master-edit-input" /></label>
                     <label className="block"><span className="text-slate-500 font-semibold">DWT</span><input type="number" step="0.01" value={editMasterForm.dwt ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,dwt:Number(e.target.value)})} className="master-edit-input" /></label>
                     <label className="block"><span className="text-slate-500 font-semibold">Minimum Charge</span><input type="number" value={editMasterForm.minCharge ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,minCharge:Number(e.target.value)})} className="master-edit-input" /></label>
                   </div>
@@ -1551,21 +1568,26 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                       <input
                         type="number"
                         step="0.01"
-                        value={newTariff.grt}
-                        onChange={(e) => setNewTariff({ ...newTariff, grt: Number(e.target.value) })}
+                        value={newTariff.grtMin}
+                        onChange={(e) => setNewTariff({ ...newTariff, grtMin: Number(e.target.value) })}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
                       />
                     </div>
                     <div>
-                      <label className="text-slate-400 block mb-1">DWT:</label>
+                      <label className="text-slate-400 block mb-1">GRT Maximum:</label>
                       <input
                         type="number"
                         step="0.01"
-                        value={newTariff.dwt}
-                        onChange={(e) => setNewTariff({ ...newTariff, dwt: Number(e.target.value) })}
+                        value={newTariff.grtMax}
+                        onChange={(e) => setNewTariff({ ...newTariff, grtMax: Number(e.target.value) })}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
                       />
                     </div>
+                  </div>
+
+                  <div>
+                    <label className="text-slate-400 block mb-1">DWT:</label>
+                    <input type="number" step="0.01" value={newTariff.dwt} onChange={(e) => setNewTariff({ ...newTariff, dwt: Number(e.target.value) })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono" />
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">

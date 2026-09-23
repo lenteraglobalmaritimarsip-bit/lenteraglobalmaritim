@@ -234,6 +234,8 @@ class DatabaseService {
         serviceCode: row.service_code || row.serviceCode,
         serviceName: row.service_name || row.serviceName,
         grt: row.grt ?? row.GRT,
+        grtMin: row.grt_min ?? row.grtMin,
+        grtMax: row.grt_max ?? row.grtMax,
         dwt: row.dwt ?? row.DWT,
         calculationBasis: row.calculation_basis || row.calculationBasis,
         rateIDR: row.rate_idr ?? row.rateIDR,
@@ -298,13 +300,9 @@ class DatabaseService {
     if (error) throw error;
     if (data && data.length > 0) return data.map(mapRow);
 
-    if (!seeds.length) return [];
-    const { data: inserted, error: insertError } = await supabase
-      .from(table)
-      .insert(seeds.map((seed) => this.toSupabaseRow(table, seed)))
-      .select('*');
-    if (insertError) throw insertError;
-    return (inserted || seeds).map(mapRow);
+    // Production Supabase must remain empty after an intentional reset.
+    // Seed data is used only by the local-storage demo mode above.
+    return [];
   }
 
   private toSupabaseRow(table: string, value: any): Record<string, unknown> {
@@ -320,7 +318,7 @@ class DatabaseService {
       case 'zones':
         return { zone_code: value.zoneCode, zone_name: value.zoneName, zone_type: value.type, max_draft_m: value.maxDraftMeters, description: value.description };
       case 'fix_tariffs':
-        return { service_code: value.serviceCode, service_name: value.serviceName, cost_category: value.costCategory, grt: value.grt, dwt: value.dwt, calculation_basis: value.calculationBasis, currency: value.currency, rate: value.rate, rate_idr: value.rateIDR, rate_usd: value.rateUSD, min_charge: value.minCharge, description: value.description };
+        return { service_code: value.serviceCode, service_name: value.serviceName, cost_category: value.costCategory, grt: value.grt, grt_min: value.grtMin, grt_max: value.grtMax, dwt: value.dwt, calculation_basis: value.calculationBasis, currency: value.currency, rate: value.rate, rate_idr: value.rateIDR, rate_usd: value.rateUSD, min_charge: value.minCharge, description: value.description };
       case 'expense_items':
         return {
           port_id: value.portId,
@@ -378,7 +376,7 @@ class DatabaseService {
       supabase.from('vessels').upsert(this.state.vessels.map((vessel) => ({ name: vessel.name, imo_number: vessel.imoNumber || null, call_sign: vessel.callSign, flag: vessel.flag, vessel_type: vessel.vesselType, grt: vessel.grt, nrt: vessel.nrt, dwt: vessel.dwt, loa: vessel.loa, beam: vessel.beam, year_built: vessel.yearBuilt })), { onConflict: 'imo_number' }),
       supabase.from('ports').upsert(this.state.ports.map((port) => ({ code: port.code, name: port.name, country: port.country, unlocode: port.unlocode, channel_depth_m: port.channelDepthMeters, tide_restriction: port.tideRestriction, operating_hours: port.operatingHours })), { onConflict: 'code' }),
       this.saveRowsWithoutConflict('zones', 'zone_code', this.state.zones.map((zone) => ({ zone_code: zone.zoneCode, zone_name: zone.zoneName, zone_type: zone.type, max_draft_m: zone.maxDraftMeters, description: zone.description }))),
-      this.saveRowsWithoutConflict('fix_tariffs', 'service_code', this.state.fixTariffs.map((tariff) => ({ service_code: tariff.serviceCode, service_name: tariff.serviceName, cost_category: tariff.costCategory, grt: tariff.grt, dwt: tariff.dwt, calculation_basis: tariff.calculationBasis, currency: tariff.currency, rate: tariff.rate, rate_idr: tariff.rateIDR, rate_usd: tariff.rateUSD, min_charge: tariff.minCharge, description: tariff.description }))),
+      this.saveRowsWithoutConflict('fix_tariffs', 'service_code', this.state.fixTariffs.map((tariff) => ({ service_code: tariff.serviceCode, service_name: tariff.serviceName, cost_category: tariff.costCategory, grt: tariff.grt, grt_min: tariff.grtMin, grt_max: tariff.grtMax, dwt: tariff.dwt, calculation_basis: tariff.calculationBasis, currency: tariff.currency, rate: tariff.rate, rate_idr: tariff.rateIDR, rate_usd: tariff.rateUSD, min_charge: tariff.minCharge, description: tariff.description }))),
       supabase.from('expense_items').upsert(this.state.expensesItems.map((item) => ({
         port_id: item.portId,
         port_name: item.portName,

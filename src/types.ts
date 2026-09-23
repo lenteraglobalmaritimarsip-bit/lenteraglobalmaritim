@@ -98,6 +98,8 @@ export interface FixTariff {
   serviceCode: string;
   serviceName: string;
   grt?: number;
+  grtMin?: number;
+  grtMax?: number;
   dwt?: number;
   calculationBasis: 'PER_GRT' | 'PER_DAY' | 'LUMP_SUM' | 'PER_HOUR' | 'PER_MOVE';
   /** PDF master-data field: Fixed / Variabel / Range. Optional for legacy records. */

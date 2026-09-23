@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { FileSpreadsheet, Plus, Trash2, Save, Ship, Building, CheckCircle2, Download, Printer, Eye, Send } from 'lucide-react';
 import { JobCall, DisbursementItem, Currency, User, Vessel, FixTariff, ExpensesItem } from '../../types';
 import { db, getCurrentBranchName, buildBranchAwareEPDANumber } from '../../db/storage';
-import { calculateTariffForJob, CalculationBasis } from '../../utils/tariff';
+import { calculateTariffForJob, CalculationBasis, matchesTariffGRT } from '../../utils/tariff';
 
 interface QuotesEPDAViewProps {
   job?: JobCall;
@@ -123,7 +123,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   };
   const autoServiceOptions = [
     ...fixTariffs
-      .filter((tariff) => portMatches(tariff.portId, tariff.portName))
+      .filter((tariff) => portMatches(tariff.portId, tariff.portName) && matchesTariffGRT(vesselMaster?.grt, tariff.grt, tariff.grtMin, tariff.grtMax))
       .map((tariff) => ({
         name: tariff.serviceName,
         category: tariff.costCategory || 'PORT_EXPENSES',

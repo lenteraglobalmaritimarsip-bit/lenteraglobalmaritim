@@ -12,6 +12,19 @@ export interface TariffCalculationInput {
   tariffType?: TariffType;
 }
 
+export function matchesTariffGRT(vesselGRT: number | undefined, tariffGRT?: number, grtMin?: number, grtMax?: number): boolean {
+  const value = Number(vesselGRT || 0);
+  if (!Number.isFinite(value) || value <= 0) return !grtMin && !grtMax && !tariffGRT;
+
+  const minimum = Number(grtMin ?? tariffGRT ?? 0);
+  const maximum = Number(grtMax ?? tariffGRT ?? 0);
+  if (minimum <= 0 && maximum <= 0) return true;
+  if (grtMin !== undefined || grtMax !== undefined) {
+    return (minimum <= 0 || value >= minimum) && (maximum <= 0 || value <= maximum);
+  }
+  return value === maximum;
+}
+
 export function getTariffBasisValue({
   vesselGRT = 0,
   estimatedDays = 0,

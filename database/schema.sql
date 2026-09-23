@@ -1,5 +1,42 @@
--- LGM Keagenan / MaritimPort production database blueprint
+-- LGM Keagenan / MaritimPort fresh database schema
 -- Target: PostgreSQL 15+
+--
+-- PERINGATAN: SCRIPT INI MENGHAPUS DATA APLIKASI LAMA SECARA PERMANEN.
+-- Jalankan hanya pada database yang memang akan di-reset.
+-- Setelah reset, seluruh tabel aplikasi dibuat ulang oleh script ini.
+
+DO $$
+DECLARE
+  table_name TEXT;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY[
+    'audit_logs',
+    'job_closings',
+    'principal_invoices',
+    'principal_receipts',
+    'ar_items',
+    'ap_items',
+    'fda_records',
+    'actual_costs',
+    'statement_of_facts',
+    'manager_approvals',
+    'crew_change_members',
+    'crew_change_records',
+    'quotation_items',
+    'quotations',
+    'inquiries',
+    'vessel_calls',
+    'fix_tariffs',
+    'expense_items',
+    'zones',
+    'ports',
+    'vessels',
+    'customers',
+    'app_users'
+  ] LOOP
+    EXECUTE format('DROP TABLE IF EXISTS public.%I CASCADE', table_name);
+  END LOOP;
+END $$;
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
@@ -102,6 +139,8 @@ CREATE TABLE IF NOT EXISTS fix_tariffs (
   service_code VARCHAR(40),
   service_name VARCHAR(180),
   grt NUMERIC(18,4),
+  grt_min NUMERIC(18,4),
+  grt_max NUMERIC(18,4),
   dwt NUMERIC(18,4),
   calculation_basis VARCHAR(30) CHECK (calculation_basis IN ('PER_GRT','PER_DAY','LUMP_SUM','PER_HOUR','PER_MOVE')),
   tariff_type VARCHAR(20) CHECK (tariff_type IN ('FIXED','VARIABLE','RANGE')),
@@ -121,6 +160,8 @@ ALTER TABLE fix_tariffs
   ADD COLUMN IF NOT EXISTS service_code VARCHAR(40),
   ADD COLUMN IF NOT EXISTS service_name VARCHAR(180),
   ADD COLUMN IF NOT EXISTS grt NUMERIC(18,4),
+  ADD COLUMN IF NOT EXISTS grt_min NUMERIC(18,4),
+  ADD COLUMN IF NOT EXISTS grt_max NUMERIC(18,4),
   ADD COLUMN IF NOT EXISTS dwt NUMERIC(18,4),
   ADD COLUMN IF NOT EXISTS calculation_basis VARCHAR(30),
   ADD COLUMN IF NOT EXISTS tariff_type VARCHAR(20),
@@ -523,6 +564,12 @@ UPDATE fix_tariffs
 SET rate_usd = COALESCE(rate_usd, rate)
 WHERE UPPER(COALESCE(currency, '')) = 'USD'
   AND rate_usd IS NULL;
+
+UPDATE fix_tariffs
+SET grt_min = COALESCE(grt_min, grt),
+    grt_max = COALESCE(grt_max, grt)
+WHERE grt IS NOT NULL
+  AND (grt_min IS NULL OR grt_max IS NULL);
 
 UPDATE expense_items
 SET calculation_type = 'FIXED'

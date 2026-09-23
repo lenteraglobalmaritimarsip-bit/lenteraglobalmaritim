@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { JobCall, ActualCostItem, ActiveTab, Vessel, FixTariff, ExpensesItem } from '../../types';
 import { db, buildBranchAwareFDANumber, buildBranchAwareInvoiceNumber, getCurrentBranchName, formatEPDAQuoteNoForDisplay } from '../../db/storage';
-import { calculateTariffForJob, CalculationBasis } from '../../utils/tariff';
+import { calculateTariffForJob, CalculationBasis, matchesTariffGRT } from '../../utils/tariff';
 
 interface FDAViewProps {
   initialTab?: 'DASHBOARD' | 'JOB_ID' | 'ACTUAL_COST' | 'QUOTES_VIEW' | 'APPROVAL';
@@ -209,7 +209,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   };
   const autoServiceOptions = [
     ...fixTariffs
-      .filter((tariff) => portMatches(tariff.portId, tariff.portName))
+      .filter((tariff) => portMatches(tariff.portId, tariff.portName) && matchesTariffGRT(vesselMaster?.grt, tariff.grt, tariff.grtMin, tariff.grtMax))
       .map((tariff) => ({
         name: tariff.serviceName,
         category: tariff.costCategory || 'PORT_EXPENSES',
