@@ -176,6 +176,7 @@ ALTER TABLE fix_tariffs
 ALTER TABLE expense_items
   ADD COLUMN IF NOT EXISTS port_id UUID REFERENCES ports(id),
   ADD COLUMN IF NOT EXISTS port_name VARCHAR(150),
+  ADD COLUMN IF NOT EXISTS code VARCHAR(40),
   ADD COLUMN IF NOT EXISTS category VARCHAR(50),
   ADD COLUMN IF NOT EXISTS name VARCHAR(180),
   ADD COLUMN IF NOT EXISTS unit VARCHAR(50),
@@ -187,6 +188,17 @@ ALTER TABLE expense_items
   ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   ADD COLUMN IF NOT EXISTS rate_idr NUMERIC(18,4),
   ADD COLUMN IF NOT EXISTS rate_usd NUMERIC(18,4);
+
+-- Backfill legacy expense rows before enforcing the application key.
+UPDATE expense_items
+SET code = 'EXP-' || LEFT(REPLACE(id::TEXT, '-', ''), 12)
+WHERE code IS NULL OR BTRIM(code) = '';
+
+ALTER TABLE expense_items
+  ALTER COLUMN code SET NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_expense_items_code
+  ON expense_items (code);
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_fix_tariffs_service_port_category_currency
   ON fix_tariffs (
@@ -547,6 +559,100 @@ $$;
 REVOKE ALL ON FUNCTION public.get_auth_email_by_username(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_auth_email_by_username(TEXT) TO anon, authenticated;
 
+-- PostgREST requires table grants in addition to RLS policies.
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authenticated;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.handle_new_auth_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  requested_username TEXT;
+  existing_user_id UUID;
+BEGIN
+  requested_username := NULLIF(BTRIM(COALESCE(NEW.raw_user_meta_data ->> 'username', '')), '');
+
+  SELECT id INTO existing_user_id
+  FROM public.app_users
+  WHERE LOWER(email) = LOWER(NEW.email)
+  LIMIT 1;
+
+  IF existing_user_id IS NOT NULL AND existing_user_id <> NEW.id THEN
+    UPDATE public.app_users
+    SET id = NEW.id, updated_at = NOW()
+    WHERE id = existing_user_id;
+    RETURN NEW;
+  END IF;
+
+  INSERT INTO public.app_users (
+    id, employee_code, name, email, username, password_hash, role, department, branch, status
+  ) VALUES (
+    NEW.id,
+    COALESCE(NULLIF(NEW.raw_user_meta_data ->> 'employee_code', ''), 'EMP-' || LEFT(REPLACE(NEW.id::TEXT, '-', ''), 12)),
+    COALESCE(NULLIF(NEW.raw_user_meta_data ->> 'name', ''), COALESCE(NEW.email, 'New User')),
+    NEW.email,
+    COALESCE(requested_username, split_part(COALESCE(NEW.email, NEW.id::TEXT), '@', 1)),
+    '',
+    COALESCE(NULLIF(NEW.raw_user_meta_data ->> 'role', ''), 'SALES'),
+    COALESCE(NEW.raw_user_meta_data ->> 'department', ''),
+    COALESCE(NEW.raw_user_meta_data ->> 'branch', 'JKT'),
+    'ACTIVE'
+  )
+  ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, updated_at = NOW();
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_auth_user();
+GRANT EXECUTE ON FUNCTION public.handle_new_auth_user() TO supabase_auth_admin;
+
+-- Link Auth users that existed before the trigger was installed.
+DO $$
+DECLARE
+  auth_user RECORD;
+  existing_user_id UUID;
+BEGIN
+  FOR auth_user IN
+    SELECT id, email
+    FROM auth.users
+    WHERE email IS NOT NULL
+  LOOP
+    SELECT id INTO existing_user_id
+    FROM public.app_users
+    WHERE LOWER(email) = LOWER(auth_user.email)
+    LIMIT 1;
+
+    IF existing_user_id IS NOT NULL AND existing_user_id <> auth_user.id THEN
+      UPDATE public.app_users
+      SET id = auth_user.id, updated_at = NOW()
+      WHERE id = existing_user_id;
+    ELSIF existing_user_id IS NULL THEN
+      INSERT INTO public.app_users (
+        id, employee_code, name, email, username, password_hash, role, department, branch, status
+      ) VALUES (
+        auth_user.id,
+        'EMP-' || LEFT(REPLACE(auth_user.id::TEXT, '-', ''), 12),
+        COALESCE(auth_user.email, 'New User'),
+        auth_user.email,
+        split_part(auth_user.email, '@', 1),
+        '',
+        'SALES',
+        '',
+        'JKT',
+        'ACTIVE'
+      )
+      ON CONFLICT (id) DO NOTHING;
+    END IF;
+  END LOOP;
+END $$;
+
 DO $$
 DECLARE
   table_name TEXT;
@@ -561,6 +667,31 @@ BEGIN
     EXECUTE format('CREATE POLICY master_admin_insert ON public.%I FOR INSERT TO authenticated WITH CHECK (public.is_admin())', table_name);
     EXECUTE format('CREATE POLICY master_admin_update ON public.%I FOR UPDATE TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin())', table_name);
     EXECUTE format('CREATE POLICY master_admin_delete ON public.%I FOR DELETE TO authenticated USING (public.is_admin())', table_name);
+  END LOOP;
+END $$;
+
+-- Workflow data is available to authenticated roles; role-specific transitions
+-- remain enforced by the application workflow guards.
+DO $$
+DECLARE
+  table_name TEXT;
+BEGIN
+  FOREACH table_name IN ARRAY ARRAY[
+    'vessel_calls', 'inquiries', 'quotations', 'quotation_items',
+    'manager_approvals', 'crew_change_records', 'crew_change_members',
+    'actual_costs', 'fda_records', 'ap_items', 'ar_items',
+    'principal_receipts', 'principal_invoices', 'job_closings',
+    'statement_of_facts', 'audit_logs'
+  ] LOOP
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', table_name);
+    EXECUTE format('DROP POLICY IF EXISTS workflow_read ON public.%I', table_name);
+    EXECUTE format('DROP POLICY IF EXISTS workflow_insert ON public.%I', table_name);
+    EXECUTE format('DROP POLICY IF EXISTS workflow_update ON public.%I', table_name);
+    EXECUTE format('DROP POLICY IF EXISTS workflow_delete ON public.%I', table_name);
+    EXECUTE format('CREATE POLICY workflow_read ON public.%I FOR SELECT TO authenticated USING (true)', table_name);
+    EXECUTE format('CREATE POLICY workflow_insert ON public.%I FOR INSERT TO authenticated WITH CHECK (true)', table_name);
+    EXECUTE format('CREATE POLICY workflow_update ON public.%I FOR UPDATE TO authenticated USING (true) WITH CHECK (true)', table_name);
+    EXECUTE format('CREATE POLICY workflow_delete ON public.%I FOR DELETE TO authenticated USING (true)', table_name);
   END LOOP;
 END $$;
 
