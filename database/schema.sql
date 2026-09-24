@@ -41,6 +41,8 @@ END $$;
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+-- Core identity/profile table. Supabase Auth owns the password; this table
+-- stores the application profile and role used by the portal.
 CREATE TABLE IF NOT EXISTS app_users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   employee_code VARCHAR(30) UNIQUE NOT NULL,
@@ -51,6 +53,7 @@ CREATE TABLE IF NOT EXISTS app_users (
   role VARCHAR(30) NOT NULL CHECK (role IN ('ADMIN','SALES','MANAGER_OPS','FDA','FINANCE')),
   department VARCHAR(120),
   branch VARCHAR(60) NOT NULL DEFAULT '',
+  branch_code VARCHAR(20),
   phone VARCHAR(40),
   position VARCHAR(120),
   avatar TEXT,
@@ -60,18 +63,24 @@ CREATE TABLE IF NOT EXISTS app_users (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Compatibility for app_users tables created by an older deployment.
+-- Legacy compatibility: complete columns that may be missing in an older DB.
 ALTER TABLE app_users
   ADD COLUMN IF NOT EXISTS username VARCHAR(80),
-  ADD COLUMN IF NOT EXISTS password_hash TEXT;
+  ADD COLUMN IF NOT EXISTS password_hash TEXT,
+  ADD COLUMN IF NOT EXISTS branch_code VARCHAR(20);
 
 UPDATE app_users
 SET username = COALESCE(NULLIF(BTRIM(username), ''), split_part(LOWER(email), '@', 1))
 WHERE username IS NULL OR BTRIM(username) = '';
 
+UPDATE app_users
+SET password_hash = ''
+WHERE password_hash IS NULL;
+
 ALTER TABLE app_users
   ALTER COLUMN username SET NOT NULL,
-  ALTER COLUMN password_hash SET DEFAULT '';
+  ALTER COLUMN password_hash SET DEFAULT '',
+  ALTER COLUMN password_hash SET NOT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS app_users_username_key ON app_users(username);
 
@@ -151,7 +160,7 @@ CREATE TABLE IF NOT EXISTS fix_tariffs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   port_id UUID REFERENCES ports(id),
   port_name VARCHAR(150),
-  cost_category VARCHAR(80) CHECK (cost_category IS NULL OR cost_category IN ('PORT_EXPENSES','CLEARANCE','GENERAL_EXPENSES','CREW_EXPENSES','OWNER_MATTER','AGENCY_FEE','TAX_CONTINGENCY')),
+  cost_category VARCHAR(80) CHECK (cost_category IS NULL OR cost_category IN ('PORT_EXPENSES','CLEARANCE','GENERAL_EXPENSES','CREW_EXPENSES','OWNER_MATTER','AGENCY_FEE','TAX_CONTINGENCY','PORT_DUES','PILOTAGE_TOWAGE','BERTHING','CREW_CHANGE','IMMIGRATION_CUSTOMS','LOGISTICS_SUPPLIES','SUNDRY')),
   service_code VARCHAR(40),
   service_name VARCHAR(180),
   grt NUMERIC(18,4),
