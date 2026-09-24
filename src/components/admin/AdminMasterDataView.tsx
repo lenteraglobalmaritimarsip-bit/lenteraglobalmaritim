@@ -485,9 +485,18 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     if (!file || (activeTab !== 'FIX_TARIFF' && activeTab !== 'EXPENSES_ITEM')) return;
 
     try {
-      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
-      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
+      const firstSheetName = workbook.SheetNames[0];
+      const firstSheet = firstSheetName ? workbook.Sheets[firstSheetName] : undefined;
+      if (!firstSheet) {
+        setUploadMessage('File tidak memiliki sheet Excel yang dapat dibaca. Buka file, isi data pada sheet pertama, lalu simpan ulang sebagai .xlsx atau .csv.');
+        return;
+      }
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(firstSheet, { defval: '' });
+      if (!rows.length) {
+        setUploadMessage('Sheet pertama kosong atau header tidak terbaca. Pastikan header berada di baris pertama dan gunakan template dari tombol Download Template.');
+        return;
+      }
       let imported = 0;
       let duplicates = 0;
       let invalid = 0;
@@ -608,9 +617,12 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           calculationType: String(readUploadValue(row, 'calculationType', 'calculation_type', 'type')).trim().toUpperCase() as ExpensesItem['calculationType'] || 'FIXED',
         };
         importedExpenses.push(expense);
-        db.addExpensesItem(expense);
         imported += 1;
       });
+
+      if (activeTab === 'EXPENSES_ITEM' && importedExpenses.length) {
+        await Promise.all(importedExpenses.map((expense) => db.addExpensesItem(expense)));
+      }
 
       if (activeTab === 'FIX_TARIFF' && importedTariffs.length) {
         await db.addFixTariffsBulk(importedTariffs.map(({ id: _id, ...tariff }) => tariff));
@@ -620,8 +632,9 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       const detailedReason = topInvalidReason ? ` Kemungkinan utama: ${topInvalidReason[0]}.` : '';
       setUploadMessage(`Upload selesai: ${imported} tersimpan, ${duplicates} duplikat dilewati, ${invalid} baris tidak valid.${detailedReason}`);
       onDataSaved?.(activeTab);
-    } catch {
-      setUploadMessage('File gagal dibaca. Gunakan file Excel/CSV dengan header yang sesuai.');
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'format file tidak dikenali';
+      setUploadMessage(`File gagal dibaca atau diproses: ${detail}. Gunakan file Excel/CSV dengan header yang sesuai.`);
     }
   };
 
