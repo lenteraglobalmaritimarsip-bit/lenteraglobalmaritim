@@ -489,7 +489,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       const firstSheetName = workbook.SheetNames[0];
       const firstSheet = firstSheetName ? workbook.Sheets[firstSheetName] : undefined;
       if (!firstSheet) {
-        setUploadMessage('File tidak memiliki sheet Excel yang dapat dibaca. Buka file, isi data pada sheet pertama, lalu simpan ulang sebagai .xlsx atau .csv.');
+        setUploadMessage('File gagal dibaca. Gunakan file Excel/CSV dengan header yang sesuai.');
         return;
       }
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(firstSheet, { defval: '' });
@@ -633,8 +633,9 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       setUploadMessage(`Upload selesai: ${imported} tersimpan, ${duplicates} duplikat dilewati, ${invalid} baris tidak valid.${detailedReason}`);
       onDataSaved?.(activeTab);
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'format file tidak dikenali';
-      setUploadMessage(`File gagal dibaca atau diproses: ${detail}. Gunakan file Excel/CSV dengan header yang sesuai.`);
+      console.error('Master data upload failed:', error);
+      const detail = error instanceof Error ? error.message : 'kesalahan tidak dikenal';
+      setUploadMessage(`Upload Fix Tariff gagal diproses: ${detail}`);
     }
   };
 
