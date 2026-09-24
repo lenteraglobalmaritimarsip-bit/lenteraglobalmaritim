@@ -1020,12 +1020,13 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                   <th className="p-3.5">Port</th>
                   <th className="p-3.5">Item Service</th>
                   <th className="p-3.5">Category Cost</th>
-                  <th className="p-3.5 text-right">GRT</th>
+                  <th className="p-3.5 text-right">GRT Min</th>
+                  <th className="p-3.5 text-right">GRT Max</th>
                   <th className="p-3.5 text-right">DWT</th>
-                  <th className="p-3.5">Type</th>
-                  <th className="p-3.5 text-right">IDR</th>
-                  <th className="p-3.5 text-right">USD</th>
-                  <th className="p-3.5 text-right">Action</th>
+                  <th className="p-3.5">Tariff Type</th>
+                  <th className="p-3.5 text-right">Rate IDR</th>
+                  <th className="p-3.5 text-right">Rate USD</th>
+                  <th className="p-3.5 text-right">action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -1037,7 +1038,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                       <td className="p-3.5 font-semibold text-slate-700">{t.portName || ports.find((port) => port.id === t.portId)?.name || '-'}</td>
                       <td className="p-3.5 font-bold text-slate-900">{t.serviceName}</td>
                       <td className="p-3.5 text-slate-600">{(t.costCategory || 'PORT_EXPENSES').replace(/_/g, ' ')}</td>
-                      <td className="p-3.5 text-right font-mono text-slate-600">{t.grtMin || t.grtMax || t.grt ? `${(t.grtMin ?? t.grt ?? 0).toLocaleString()} - ${(t.grtMax ?? t.grt ?? 0).toLocaleString()}` : '-'}</td>
+                      <td className="p-3.5 text-right font-mono text-slate-600">{(t.grtMin ?? t.grt) !== undefined ? (t.grtMin ?? t.grt)!.toLocaleString() : '-'}</td>
+                      <td className="p-3.5 text-right font-mono text-slate-600">{(t.grtMax ?? t.grt) !== undefined ? (t.grtMax ?? t.grt)!.toLocaleString() : '-'}</td>
                       <td className="p-3.5 text-right font-mono text-slate-600">{t.dwt ? t.dwt.toLocaleString() : '-'}</td>
                       <td className="p-3.5"><span className="px-2 py-0.5 rounded text-[10px] font-bold bg-violet-50 text-violet-600">{t.tariffType || (t.calculationBasis === 'LUMP_SUM' ? 'FIXED' : 'VARIABLE')}</span></td>
                       <td className="p-3.5 text-right font-mono font-bold text-slate-700">{(t.rateIDR ?? (t.currency === 'IDR' ? t.rate : 0)) ? (t.rateIDR ?? t.rate).toLocaleString() : '-'}</td>
