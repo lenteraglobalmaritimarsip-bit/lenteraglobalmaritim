@@ -1439,7 +1439,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                       <input value={newVessel.flag} onChange={(e) => setNewVessel({ ...newVessel, flag: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" />
                     </div>
                     <div>
-                      <label className="text-slate-400 block mb-1">GRT Min:</label>
+                      <label className="text-slate-400 block mb-1">GRT:</label>
                       <input
                         type="number"
                         value={newVessel.grt}
@@ -1665,7 +1665,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-slate-400 block mb-1">GRT:</label>
+                      <label className="text-slate-400 block mb-1">GRT Min:</label>
                       <input
                         type="number"
                         step="0.01"
