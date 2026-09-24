@@ -1065,12 +1065,12 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                       <td className="p-3.5 font-semibold text-slate-700">{t.portName || ports.find((port) => port.id === t.portId)?.name || '-'}</td>
                       <td className="p-3.5 font-bold text-slate-900">{t.serviceName}</td>
                       <td className="p-3.5 text-slate-600">{(t.costCategory || 'PORT_EXPENSES').replace(/_/g, ' ')}</td>
-                      <td className="p-3.5 text-right font-mono text-slate-600">{(t.grtMin ?? t.grt) !== undefined ? (t.grtMin ?? t.grt)!.toLocaleString() : '-'}</td>
-                      <td className="p-3.5 text-right font-mono text-slate-600">{(t.grtMax ?? t.grt) !== undefined ? (t.grtMax ?? t.grt)!.toLocaleString() : '-'}</td>
-                      <td className="p-3.5 text-right font-mono text-slate-600">{t.dwt ? t.dwt.toLocaleString() : '-'}</td>
+                      <td className="p-3.5 text-right font-mono text-slate-600">{(t.grtMin ?? t.grt) !== undefined ? (t.grtMin ?? t.grt)!.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
+                      <td className="p-3.5 text-right font-mono text-slate-600">{(t.grtMax ?? t.grt) !== undefined ? (t.grtMax ?? t.grt)!.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
+                      <td className="p-3.5 text-right font-mono text-slate-600">{t.dwt !== undefined ? t.dwt.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
                       <td className="p-3.5"><span className="px-2 py-0.5 rounded text-[10px] font-bold bg-violet-50 text-violet-600">{t.tariffType || (t.calculationBasis === 'LUMP_SUM' ? 'FIXED' : 'VARIABLE')}</span></td>
-                      <td className="p-3.5 text-right font-mono font-bold text-slate-700">{(t.rateIDR ?? (t.currency === 'IDR' ? t.rate : 0)) ? (t.rateIDR ?? t.rate).toLocaleString() : '-'}</td>
-                      <td className="p-3.5 text-right font-mono font-bold text-slate-700">{(t.rateUSD ?? (t.currency === 'USD' ? t.rate : 0)) ? (t.rateUSD ?? t.rate).toLocaleString() : '-'}</td>
+                      <td className="p-3.5 text-right font-mono font-bold text-slate-700">{(t.rateIDR ?? (t.currency === 'IDR' ? t.rate : 0)) ? (t.rateIDR ?? t.rate).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
+                      <td className="p-3.5 text-right font-mono font-bold text-slate-700">{(t.rateUSD ?? (t.currency === 'USD' ? t.rate : 0)) ? (t.rateUSD ?? t.rate).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
                       <td className="p-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button onClick={() => openMasterEditor('FIX_TARIFF', t)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500 transition" title="Edit Fix Tariff">

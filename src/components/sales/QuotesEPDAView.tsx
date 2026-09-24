@@ -64,8 +64,8 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   });
 
   const formatAmount = (value: number) => viewCurrency === 'IDR'
-    ? new Intl.NumberFormat('id-ID', { maximumFractionDigits: 4 }).format(value)
-    : new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(value);
+    ? new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
+    : new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 
   const formatDate = (value: string) => {
     const datePart = value?.split('T')[0] || '';
@@ -76,7 +76,8 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   const formatEntryAmount = (value: number | '') => {
     if (value === '') return '';
     return new Intl.NumberFormat(viewCurrency === 'IDR' ? 'id-ID' : 'en-US', {
-      maximumFractionDigits: 4,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(value);
   };
 
@@ -442,7 +443,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   };
 
   const downloadExcel = () => {
-    const amountValue = (value: number) => viewCurrency === 'IDR' ? value.toLocaleString('id-ID', { maximumFractionDigits: 0 }) : value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const amountValue = (value: number) => value.toLocaleString(viewCurrency === 'IDR' ? 'id-ID' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const rows = groupedItems.map((group) => {
       const groupRows = group.items.map((it, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(it.name)}</td><td>${escapeHtml(it.currency || viewCurrency)}</td><td class="amount">${amountValue(it.totalSellRate)}</td><td>${escapeHtml(it.remarks || '')}</td></tr>`).join('');
       const subtotal = group.items.reduce((sum, item) => sum + item.totalSellRate, 0);
