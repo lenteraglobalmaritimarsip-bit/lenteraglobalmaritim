@@ -143,6 +143,7 @@ class DatabaseService {
   private state: DatabaseState;
   private listeners: Array<(state: DatabaseState) => void> = [];
   private actor: { id?: string; name: string; role: UserRole; branch?: string } = { name: 'System', role: 'ADMIN' };
+  private supabaseHydrated = !isSupabaseConfigured;
 
   constructor() {
     this.state = this.loadLocalState();
@@ -191,10 +192,13 @@ class DatabaseService {
 
   public async hydrate(): Promise<void> {
     if (!isSupabaseConfigured || !supabase) {
+      this.supabaseHydrated = true;
       this.state = this.loadLocalState();
       this.notify();
       return;
     }
+
+    this.supabaseHydrated = false;
 
     const [users, customers, vessels, ports, zones, fixTariffs, expensesItems, jobCalls, auditLogs] = await Promise.all([
       this.loadTable<User>('app_users', INITIAL_USERS, (row) => ({
@@ -294,6 +298,7 @@ class DatabaseService {
       auditLogs,
       selectedJobId: jobCalls[0]?.jobId || this.state.selectedJobId,
     };
+    this.supabaseHydrated = true;
     this.notify();
   }
 
@@ -374,6 +379,9 @@ class DatabaseService {
     if (!isSupabaseConfigured || !supabase) {
       this.notify();
       return;
+    }
+    if (!this.supabaseHydrated) {
+      throw new Error('Data Supabase belum berhasil dimuat. Perubahan dibatalkan agar data demo tidak menimpa data live.');
     }
 
     const masterWrites = this.actor.role === 'ADMIN'
