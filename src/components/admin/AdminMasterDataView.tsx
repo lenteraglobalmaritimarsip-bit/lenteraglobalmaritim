@@ -1714,15 +1714,6 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     </div>
                   </div>
 
-                  <div>
-                    <label className="text-slate-400 block mb-1">Minimum Charge:</label>
-                    <input
-                      type="number"
-                      value={newTariff.minCharge}
-                      onChange={(e) => setNewTariff({ ...newTariff, minCharge: Number(e.target.value) })}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
-                    />
-                  </div>
                 </>
               )}
 
