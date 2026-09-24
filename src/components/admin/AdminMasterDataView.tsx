@@ -344,10 +344,24 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
 
   const normalizeExpenseCategory = (value: unknown) => {
     const normalized = String(value ?? '').trim().toUpperCase().replace(/[\s-]+/g, '_');
-    return normalized === 'CLEARANCE_IN/OUT' || normalized === 'CLEARANCE_IN_OUT'
-      ? 'CLEARANCE'
-      : normalized;
+    const aliases: Record<string, string> = {
+      'CLEARANCE_IN/OUT': 'CLEARANCE',
+      CLEARANCE_IN_OUT: 'CLEARANCE',
+      PORT_TARIFF: 'PORT_EXPENSES',
+      PORT_TARIFFS: 'PORT_EXPENSES',
+      PORT_CHARGE: 'PORT_EXPENSES',
+      PORT_CHARGES: 'PORT_EXPENSES',
+      PILOT_TOWAGE: 'PILOTAGE_TOWAGE',
+    };
+    return aliases[normalized] || normalized;
   };
+
+  const uploadTariffCategories = new Set([
+    'PORT_EXPENSES', 'CLEARANCE', 'GENERAL_EXPENSES', 'CREW_EXPENSES',
+    'OWNER_MATTER', 'AGENCY_FEE', 'TAX_CONTINGENCY', 'PORT_DUES',
+    'PILOTAGE_TOWAGE', 'BERTHING', 'CREW_CHANGE', 'IMMIGRATION_CUSTOMS',
+    'LOGISTICS_SUPPLIES', 'SUNDRY',
+  ]);
 
   const deleteFixTariff = async (id: string) => {
     try {
@@ -544,6 +558,10 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           const grtRange = uploadGRTRange(row);
           if (!serviceName || !['USD', 'IDR'].includes(resolvedCurrency) || resolvedRate < 0) {
             markInvalid('serviceName / currency / rate tidak valid');
+            return;
+          }
+          if (!uploadTariffCategories.has(category)) {
+            markInvalid(`kategori tidak didukung: ${category}`);
             return;
           }
           const duplicate = [...fixTariffs, ...importedTariffs].some((tariff) =>
