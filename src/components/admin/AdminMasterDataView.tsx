@@ -578,6 +578,9 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           const resolvedRate = rateUSD > 0 ? rateUSD : rateIDR > 0 ? rateIDR : uploadNumber(readUploadValue(row, 'rate'));
           const grtRange = uploadGRTRange(row);
           const dwt = uploadNumber(readUploadValue(row, 'dwt', 'DWT'));
+          const uploadedTariffType = String(readUploadValue(row, 'tariffType', 'tariff_type', 'type')).trim().toUpperCase() as FixTariff['tariffType'] || 'FIXED';
+          const uploadedCalculationBasis = String(readUploadValue(row, 'calculationBasis', 'calculation_basis', 'basis')).trim().toUpperCase() as FixTariff['calculationBasis']
+            || (uploadedTariffType === 'VARIABLE' || uploadedTariffType === 'RANGE' ? 'PER_GRT' : 'LUMP_SUM');
           if (!serviceName || !['USD', 'IDR'].includes(resolvedCurrency) || resolvedRate < 0) {
             markInvalid('serviceName / currency / rate tidak valid');
             return;
@@ -610,8 +613,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
             grtMin: grtRange.grtMin,
             grtMax: grtRange.grtMax,
             dwt,
-            calculationBasis: String(readUploadValue(row, 'calculationBasis', 'calculation_basis', 'basis')).trim().toUpperCase() as FixTariff['calculationBasis'] || 'LUMP_SUM',
-            tariffType: String(readUploadValue(row, 'tariffType', 'tariff_type', 'type')).trim().toUpperCase() as FixTariff['tariffType'] || 'FIXED',
+            calculationBasis: uploadedCalculationBasis,
+            tariffType: uploadedTariffType,
             currency: resolvedCurrency as FixTariff['currency'],
             rate: resolvedRate,
             rateIDR,

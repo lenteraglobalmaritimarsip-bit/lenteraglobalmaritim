@@ -127,8 +127,10 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       .map((tariff) => ({
         name: tariff.serviceName,
         category: tariff.costCategory || 'PORT_EXPENSES',
-        calculationBasis: tariff.calculationBasis,
         tariffType: tariff.tariffType || (tariff.calculationBasis === 'LUMP_SUM' ? 'FIXED' : 'VARIABLE'),
+        calculationBasis: tariff.calculationBasis === 'LUMP_SUM' && (tariff.tariffType === 'VARIABLE' || tariff.tariffType === 'RANGE')
+          ? 'PER_GRT'
+          : tariff.calculationBasis,
         rate: rateForCurrency(viewCurrency, tariff.rateIDR, tariff.rateUSD, tariff.rate, tariff.currency),
         rateIDR: tariff.rateIDR,
         rateUSD: tariff.rateUSD,
