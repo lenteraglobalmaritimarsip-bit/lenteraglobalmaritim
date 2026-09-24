@@ -74,9 +74,11 @@ export async function authenticateWithSupabase(email: string, password: string):
 
   let loginEmail = email.trim();
   if (!loginEmail.includes('@')) {
-    const { data: resolvedEmail } = await supabase.rpc('get_auth_email_by_username', {
+    const { data: resolvedEmail, error: resolveError } = await supabase.rpc('get_auth_email_by_username', {
       input_username: loginEmail,
     });
+    if (resolveError) throw new Error(`Username tidak dapat dicari: ${resolveError.message}`);
+    if (!resolvedEmail) return null;
     if (typeof resolvedEmail === 'string' && resolvedEmail) loginEmail = resolvedEmail;
   }
 
@@ -84,7 +86,8 @@ export async function authenticateWithSupabase(email: string, password: string):
     email: loginEmail,
     password,
   });
-  if (authError || !authData.user) return null;
+  if (authError) throw new Error(authError.message);
+  if (!authData.user) return null;
 
   const { data: profile, error: profileError } = await supabase
     .from('app_users')
@@ -94,7 +97,7 @@ export async function authenticateWithSupabase(email: string, password: string):
 
   if (profileError || !profile) {
     await supabase.auth.signOut();
-    return null;
+    throw new Error(profileError?.message || 'Profil app_users untuk akun ini belum tersedia.');
   }
 
   return mapSupabaseAccount(profile as Partial<User> & { id: string });

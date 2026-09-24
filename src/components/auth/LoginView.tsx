@@ -34,15 +34,20 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
     setError('');
     setLoading(true);
     window.setTimeout(async () => {
-      const account = isSupabaseConfigured
-        ? await authenticateWithSupabase(username, password)
-        : authenticate(username, password);
-      if (!account) {
-        setError(isSupabaseConfigured ? 'Email atau password Supabase tidak valid.' : 'Username atau password tidak valid.');
+      try {
+        const account = isSupabaseConfigured
+          ? await authenticateWithSupabase(username, password)
+          : authenticate(username, password);
+        if (!account) {
+          setError(isSupabaseConfigured ? 'Username tidak ditemukan atau akun belum aktif.' : 'Username atau password tidak valid.');
+          setLoading(false);
+          return;
+        }
+        onLogin(account, rememberMe);
+      } catch (loginError) {
+        setError(loginError instanceof Error ? loginError.message : 'Login Supabase gagal.');
         setLoading(false);
-        return;
       }
-      onLogin(account, rememberMe);
     }, 280);
   };
 
