@@ -83,41 +83,48 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     setEditMasterForm({});
   };
 
-  const saveMasterEditor = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const saveMasterEditor = async (e: React.FormEvent | null) => {
+    e?.preventDefault();
     if (!editingMaster) return;
-    const { type, id } = editingMaster;
-    if (type === 'CUSTOMERS') await db.updateCustomer(id, editMasterForm);
-    if (type === 'VESSELS') await db.updateVessel(id, editMasterForm);
-    if (type === 'PORTS') await db.updatePort(id, editMasterForm);
-    if (type === 'FIX_TARIFF') {
-      const port = ports.find((p) => p.id === editMasterForm.portId);
-      const rateIDR = Number(editMasterForm.rateIDR) || 0;
-      const rateUSD = Number(editMasterForm.rateUSD) || 0;
-      await db.updateFixTariff(id, {
-        ...editMasterForm,
-        portName: port?.name || editMasterForm.portName || '',
-        rateIDR,
-        rateUSD,
-        rate: rateUSD || rateIDR || Number(editMasterForm.rate) || 0,
-        currency: rateUSD ? 'USD' : 'IDR',
-      });
+
+    try {
+      const { type, id } = editingMaster;
+      if (type === 'CUSTOMERS') await db.updateCustomer(id, editMasterForm);
+      if (type === 'VESSELS') await db.updateVessel(id, editMasterForm);
+      if (type === 'PORTS') await db.updatePort(id, editMasterForm);
+      if (type === 'FIX_TARIFF') {
+        const port = ports.find((p) => p.id === editMasterForm.portId);
+        const rateIDR = Number(editMasterForm.rateIDR) || 0;
+        const rateUSD = Number(editMasterForm.rateUSD) || 0;
+        await db.updateFixTariff(id, {
+          ...editMasterForm,
+          portName: port?.name || editMasterForm.portName || '',
+          rateIDR,
+          rateUSD,
+          rate: rateUSD || rateIDR || Number(editMasterForm.rate) || 0,
+          currency: rateUSD ? 'USD' : 'IDR',
+        });
+      }
+      if (type === 'EXPENSES_ITEM') {
+        const rateIDR = Number(editMasterForm.rateIDR) || 0;
+        const rateUSD = Number(editMasterForm.rateUSD) || 0;
+        const selectedRate = rateUSD || rateIDR || Number(editMasterForm.standardCostSell) || Number(editMasterForm.standardCostBuy) || 0;
+        await db.updateExpensesItem(id, {
+          ...editMasterForm,
+          rateIDR,
+          rateUSD,
+          defaultCurrency: rateUSD ? 'USD' : 'IDR',
+          standardCostBuy: selectedRate,
+          standardCostSell: selectedRate,
+        });
+      }
+
+      closeMasterEditor();
+      onDataSaved?.(activeTab);
+    } catch (error) {
+      console.error('Master data save failed:', error);
+      setAddFormError(error instanceof Error ? error.message : 'Perubahan master data gagal disimpan.');
     }
-    if (type === 'EXPENSES_ITEM') {
-      const rateIDR = Number(editMasterForm.rateIDR) || 0;
-      const rateUSD = Number(editMasterForm.rateUSD) || 0;
-      const selectedRate = rateUSD || rateIDR || Number(editMasterForm.standardCostSell) || Number(editMasterForm.standardCostBuy) || 0;
-      await db.updateExpensesItem(id, {
-        ...editMasterForm,
-        rateIDR,
-        rateUSD,
-        defaultCurrency: rateUSD ? 'USD' : 'IDR',
-        standardCostBuy: selectedRate,
-        standardCostSell: selectedRate,
-      });
-    }
-    closeMasterEditor();
-    onDataSaved?.(activeTab);
   };
 
   const openUserEditor = (user: User) => {
@@ -126,9 +133,10 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     setEditUserForm({ ...user, newPassword: '' });
   };
 
-  const saveUserEditor = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const saveUserEditor = async (e: React.FormEvent | null) => {
+    e?.preventDefault();
     if (!editingUser) return;
+
     if (!editUserForm.username || !editUserForm.name || !editUserForm.email || !editUserForm.position) {
       setUserEditError('User, nama, jabatan, dan email wajib diisi.');
       return;
@@ -137,24 +145,30 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       setUserEditError('Password baru minimal 6 karakter.');
       return;
     }
-    const updates: Partial<User> = {
-      username: editUserForm.username,
-      name: editUserForm.name,
-      role: editUserForm.role as UserRole,
-      position: editUserForm.position,
-      department: editUserForm.department || editingUser.department,
-      branch: editUserForm.branch || editingUser.branch,
-      email: editUserForm.email,
-      phone: editUserForm.phone,
-      status: editUserForm.status as User['status'],
-      ...(editUserForm.newPassword ? { password: editUserForm.newPassword } : {}),
-    };
-    await db.updateUser(editingUser.id, updates);
-    const updated = { ...editingUser, ...updates } as User;
-    saveStoredAccount({ ...updated, username: updated.username || editingUser.username || '', password: updated.password || editingUser.password || '' });
-    setEditingUser(null);
-    setEditUserForm({});
-    onDataSaved?.(activeTab);
+
+    try {
+      const updates: Partial<User> = {
+        username: editUserForm.username,
+        name: editUserForm.name,
+        role: editUserForm.role as UserRole,
+        position: editUserForm.position,
+        department: editUserForm.department || editingUser.department,
+        branch: editUserForm.branch || editingUser.branch,
+        email: editUserForm.email,
+        phone: editUserForm.phone,
+        status: editUserForm.status as User['status'],
+        ...(editUserForm.newPassword ? { password: editUserForm.newPassword } : {}),
+      };
+      await db.updateUser(editingUser.id, updates);
+      const updated = { ...editingUser, ...updates } as User;
+      saveStoredAccount({ ...updated, username: updated.username || editingUser.username || '', password: updated.password || editingUser.password || '' });
+      setEditingUser(null);
+      setEditUserForm({});
+      onDataSaved?.(activeTab);
+    } catch (error) {
+      console.error('User edit save failed:', error);
+      setUserEditError(error instanceof Error ? error.message : 'Perubahan user gagal disimpan.');
+    }
   };
 
   // Keep the content synchronized with the sidebar selection.
@@ -1144,7 +1158,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
               {addFormError && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{addFormError}</div>}
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
                 <button type="button" onClick={closeMasterEditor} className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 font-semibold">Batal</button>
-                <button type="submit" className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-600 text-xs font-semibold">Simpan Perubahan</button>
+                <button type="submit" className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold">Simpan Perubahan</button>
               </div>
             </form>
           </div>
@@ -1181,7 +1195,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 <label className="block"><span className="text-slate-500 font-semibold">Password Baru</span><input type="password" placeholder="Kosongkan jika tidak diubah" value={editUserForm.newPassword || ''} onChange={e => setEditUserForm({...editUserForm, newPassword:e.target.value})} className="mt-1 w-full border border-slate-200 rounded-lg p-2.5 text-slate-800" /></label>
               </div>
               {userEditError && <div className="rounded-lg bg-rose-50 border border-rose-200 text-rose-600 px-3 py-2">{userEditError}</div>}
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200"><button type="button" onClick={() => setEditingUser(null)} className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600">Batal</button><button type="submit" className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-600 text-xs font-semibold">Simpan Perubahan</button></div>
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200"><button type="button" onClick={() => setEditingUser(null)} className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600">Batal</button><button type="submit" className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold">Simpan Perubahan</button></div>
             </form>
           </div>
         </div>
