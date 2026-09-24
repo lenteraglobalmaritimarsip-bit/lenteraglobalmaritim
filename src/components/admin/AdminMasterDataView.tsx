@@ -557,6 +557,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           const resolvedCurrency = rateUSD > 0 ? 'USD' : rateIDR > 0 ? 'IDR' : currency;
           const resolvedRate = rateUSD > 0 ? rateUSD : rateIDR > 0 ? rateIDR : uploadNumber(readUploadValue(row, 'rate'));
           const grtRange = uploadGRTRange(row);
+          const dwt = uploadNumber(readUploadValue(row, 'dwt', 'DWT'));
           if (!serviceName || !['USD', 'IDR'].includes(resolvedCurrency) || resolvedRate < 0) {
             markInvalid('serviceName / currency / rate tidak valid');
             return;
@@ -570,6 +571,9 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
             && sameUploadPort(resolvedPortId, portName, tariff.portId, tariff.portName)
             && (tariff.costCategory || 'PORT_EXPENSES').toUpperCase() === category
             && tariff.currency === resolvedCurrency
+            && Number(tariff.grtMin ?? tariff.grt ?? 0) === grtRange.grtMin
+            && Number(tariff.grtMax ?? tariff.grt ?? 0) === grtRange.grtMax
+            && Number(tariff.dwt ?? 0) === dwt
           );
           if (duplicate) {
             duplicates += 1;
@@ -585,7 +589,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
             grt: grtRange.grtMin === grtRange.grtMax ? grtRange.grtMin : undefined,
             grtMin: grtRange.grtMin,
             grtMax: grtRange.grtMax,
-            dwt: uploadNumber(readUploadValue(row, 'dwt', 'DWT')),
+            dwt,
             calculationBasis: String(readUploadValue(row, 'calculationBasis', 'calculation_basis', 'basis')).trim().toUpperCase() as FixTariff['calculationBasis'] || 'LUMP_SUM',
             tariffType: String(readUploadValue(row, 'tariffType', 'tariff_type', 'type')).trim().toUpperCase() as FixTariff['tariffType'] || 'FIXED',
             currency: resolvedCurrency as FixTariff['currency'],
