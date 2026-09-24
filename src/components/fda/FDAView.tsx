@@ -148,7 +148,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
 
   const formatUSD = (val: number) =>
-    new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(val);
+    new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val);
 
   const formatInquiryDate = (value?: string) => {
     if (!value) return '-';
@@ -158,9 +158,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   const formatAccountingNumber = (value: number, currency: 'USD' | 'IDR') => {
     const normalized = Number(value || 0);
-    const fractionDigits = currency === 'USD' ? 4 : 0;
-    return new Intl.NumberFormat('en-US', {
-      minimumFractionDigits: 0,
+    const fractionDigits = 2;
+    return new Intl.NumberFormat(currency === 'IDR' ? 'id-ID' : 'en-US', {
+      minimumFractionDigits: 2,
       maximumFractionDigits: fractionDigits,
       useGrouping: true,
     }).format(normalized);
@@ -168,7 +168,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   const formatTariffInput = (value: number) => value > 0
     ? new Intl.NumberFormat(viewCurrency === 'IDR' ? 'id-ID' : 'en-US', {
-      maximumFractionDigits: viewCurrency === 'IDR' ? 4 : 4,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(value)
     : '';
 
@@ -213,8 +214,10 @@ export const FDAView: React.FC<FDAViewProps> = ({
       .map((tariff) => ({
         name: tariff.serviceName,
         category: tariff.costCategory || 'PORT_EXPENSES',
-        calculationBasis: tariff.calculationBasis,
         tariffType: tariff.tariffType || (tariff.calculationBasis === 'LUMP_SUM' ? 'FIXED' : 'VARIABLE'),
+        calculationBasis: tariff.calculationBasis === 'LUMP_SUM' && (tariff.tariffType === 'VARIABLE' || tariff.tariffType === 'RANGE')
+          ? 'PER_GRT'
+          : tariff.calculationBasis,
         rate: rateForCurrency(viewCurrency, tariff.rateIDR, tariff.rateUSD, tariff.rate, tariff.currency),
         rateIDR: tariff.rateIDR,
         rateUSD: tariff.rateUSD,
@@ -601,9 +604,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       AGENCY_FEE: 5,
     };
     const categoryLabel = (category: string) => category.replaceAll('_', ' ');
-    const amount = (value: number) => epda.currency === 'IDR'
-      ? new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(value)
-      : new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+    const amount = (value: number) => new Intl.NumberFormat(epda.currency === 'IDR' ? 'id-ID' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
     const escapeHtml = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     const sortedItems = [...epdaItems].sort((left, right) => {
       const rankDifference = (categoryRank[left.category] || 99) - (categoryRank[right.category] || 99);
@@ -645,9 +646,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const buildFDAHtml = () => {
     const formatMoney = (value: number, currency: 'USD' | 'IDR' = 'USD') => {
       if (currency === 'IDR') {
-        return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(value);
+        return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
       }
-      return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value);
+      return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
     };
 
     const categoryOrder = Array.from(new Set(actualList.map((it) => it.category || 'UNKNOWN')));
@@ -681,7 +682,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     const categories = Array.from(new Set(orderedActualList.map((item) => item.category || 'UNKNOWN')));
     const groups = categories.map((category) => ({ category, items: orderedActualList.filter((item) => (item.category || 'UNKNOWN') === category) }));
     const money = (value: number, currency: 'USD' | 'IDR') => currency === 'IDR'
-      ? new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(value)
+      ? new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
       : new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
     const rows = groups.map((group) => {
       const subtotal = group.items.reduce((sum, item) => sum + (item.amount || 0), 0);
@@ -698,7 +699,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   const buildFDAResultDocument = () => {
     const escape = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    const money = (value: number, code: 'USD' | 'IDR') => code === 'IDR' ? new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(value) : new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+    const money = (value: number, code: 'USD' | 'IDR') => code === 'IDR' ? new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value) : new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
     const categories = Array.from(new Set(actualList.map((item) => item.category || 'UNKNOWN')));
     const rows = categories.map((category) => {
       const items = actualList.filter((item) => (item.category || 'UNKNOWN') === category);
