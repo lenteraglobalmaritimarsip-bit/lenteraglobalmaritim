@@ -1192,7 +1192,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     <label className="block"><span className="text-slate-500 font-semibold">Category Cost</span><select value={editMasterForm.costCategory || 'PORT_EXPENSES'} onChange={e=>setEditMasterForm({...editMasterForm,costCategory:e.target.value})} className="master-edit-input"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="AGENCY_FEE">AGENCY FEE</option></select></label>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <label className="block"><span className="text-slate-500 font-semibold">Type</span><select value={editMasterForm.tariffType || 'VARIABLE'} onChange={e=>setEditMasterForm({...editMasterForm,tariffType:e.target.value})} className="master-edit-input"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="RANGE">Range</option></select></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">Tariff Type</span><select value={editMasterForm.tariffType || 'VARIABLE'} onChange={e=>setEditMasterForm({...editMasterForm,tariffType:e.target.value})} className="master-edit-input"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="RANGE">Range</option></select></label>
                     <label className="block"><span className="text-slate-500 font-semibold">Item Service</span><input required value={editMasterForm.serviceName || ''} onChange={e=>setEditMasterForm({...editMasterForm,serviceName:e.target.value})} className="master-edit-input" /></label>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
@@ -1635,7 +1635,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                   </div>
 
                   <div>
-                    <label className="text-slate-400 block mb-1">Type:</label>
+                    <label className="text-slate-400 block mb-1">Tariff Type:</label>
                     <select
                       value={newTariff.tariffType}
                       onChange={(e) => setNewTariff({ ...newTariff, tariffType: e.target.value as any })}
