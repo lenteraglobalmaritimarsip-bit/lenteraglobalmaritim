@@ -596,7 +596,7 @@ BEGIN
     NEW.email,
     COALESCE(requested_username, split_part(COALESCE(NEW.email, NEW.id::TEXT), '@', 1)),
     '',
-    COALESCE(NULLIF(NEW.raw_user_meta_data ->> 'role', ''), 'SALES'),
+    COALESCE(NULLIF(NEW.raw_user_meta_data ->> 'role', ''), CASE WHEN NOT EXISTS (SELECT 1 FROM public.app_users) THEN 'ADMIN' ELSE 'SALES' END),
     COALESCE(NEW.raw_user_meta_data ->> 'department', ''),
     COALESCE(NEW.raw_user_meta_data ->> 'branch', 'JKT'),
     'ACTIVE'
@@ -643,7 +643,7 @@ BEGIN
         auth_user.email,
         split_part(auth_user.email, '@', 1),
         '',
-        'SALES',
+        CASE WHEN NOT EXISTS (SELECT 1 FROM public.app_users) THEN 'ADMIN' ELSE 'SALES' END,
         '',
         'JKT',
         'ACTIVE'
