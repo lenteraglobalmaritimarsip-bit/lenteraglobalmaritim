@@ -1,5 +1,6 @@
--- LGM Keagenan / MaritimPort fresh database schema
+-- LGM Keagenan / MaritimPort canonical database schema
 -- Target: PostgreSQL 15+
+-- This is the only database schema reference for the project.
 --
 -- PERINGATAN: SCRIPT INI MENGHAPUS DATA APLIKASI LAMA SECARA PERMANEN.
 -- Jalankan hanya pada database yang memang akan di-reset.
