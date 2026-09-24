@@ -1196,8 +1196,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     <label className="block"><span className="text-slate-500 font-semibold">Item Service</span><input required value={editMasterForm.serviceName || ''} onChange={e=>setEditMasterForm({...editMasterForm,serviceName:e.target.value})} className="master-edit-input" /></label>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
-                    <label className="block"><span className="text-slate-500 font-semibold">GRT Minimum</span><input type="number" step="0.01" value={editMasterForm.grtMin ?? editMasterForm.grt ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,grtMin:Number(e.target.value)})} className="master-edit-input" /></label>
-                    <label className="block"><span className="text-slate-500 font-semibold">GRT Maximum</span><input type="number" step="0.01" value={editMasterForm.grtMax ?? editMasterForm.grt ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,grtMax:Number(e.target.value)})} className="master-edit-input" /></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">GRT Min</span><input type="number" step="0.01" value={editMasterForm.grtMin ?? editMasterForm.grt ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,grtMin:Number(e.target.value)})} className="master-edit-input" /></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">GRT Max</span><input type="number" step="0.01" value={editMasterForm.grtMax ?? editMasterForm.grt ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,grtMax:Number(e.target.value)})} className="master-edit-input" /></label>
                     <label className="block"><span className="text-slate-500 font-semibold">DWT</span><input type="number" step="0.01" value={editMasterForm.dwt ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,dwt:Number(e.target.value)})} className="master-edit-input" /></label>
                     <label className="block"><span className="text-slate-500 font-semibold">Minimum Charge</span><input type="number" value={editMasterForm.minCharge ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,minCharge:Number(e.target.value)})} className="master-edit-input" /></label>
                   </div>
@@ -1439,7 +1439,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                       <input value={newVessel.flag} onChange={(e) => setNewVessel({ ...newVessel, flag: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" />
                     </div>
                     <div>
-                      <label className="text-slate-400 block mb-1">GRT:</label>
+                      <label className="text-slate-400 block mb-1">GRT Min:</label>
                       <input
                         type="number"
                         value={newVessel.grt}
@@ -1675,7 +1675,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                       />
                     </div>
                     <div>
-                      <label className="text-slate-400 block mb-1">GRT Maximum:</label>
+                      <label className="text-slate-400 block mb-1">GRT Max:</label>
                       <input
                         type="number"
                         step="0.01"
