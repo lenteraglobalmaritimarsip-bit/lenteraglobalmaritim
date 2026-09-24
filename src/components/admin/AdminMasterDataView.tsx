@@ -634,7 +634,16 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       onDataSaved?.(activeTab);
     } catch (error) {
       console.error('Master data upload failed:', error);
-      const detail = error instanceof Error ? error.message : 'kesalahan tidak dikenal';
+      const detail = error instanceof Error
+        ? error.message
+        : error && typeof error === 'object'
+          ? [
+              'message' in error ? error.message : '',
+              'details' in error ? error.details : '',
+              'hint' in error ? error.hint : '',
+              'code' in error ? `kode ${error.code}` : '',
+            ].filter(Boolean).join(' | ') || JSON.stringify(error)
+          : String(error || 'kesalahan tidak dikenal');
       setUploadMessage(`Upload Fix Tariff gagal diproses: ${detail}`);
     }
   };
