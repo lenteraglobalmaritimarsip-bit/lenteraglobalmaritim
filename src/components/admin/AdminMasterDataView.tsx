@@ -347,6 +347,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     const aliases: Record<string, string> = {
       'CLEARANCE_IN/OUT': 'CLEARANCE',
       CLEARANCE_IN_OUT: 'CLEARANCE',
+      POST_EXPENSES: 'PORT_EXPENSES',
       PORT_TARIFF: 'PORT_EXPENSES',
       PORT_TARIFFS: 'PORT_EXPENSES',
       PORT_CHARGE: 'PORT_EXPENSES',
@@ -646,8 +647,11 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         await db.addFixTariffsBulk(importedTariffs.map(({ id: _id, ...tariff }) => tariff));
       }
 
-      const topInvalidReason = Object.entries(invalidReasons).sort(([, a], [, b]) => b - a)[0];
-      const detailedReason = topInvalidReason ? ` Kemungkinan utama: ${topInvalidReason[0]}.` : '';
+      const invalidReasonSummary = Object.entries(invalidReasons)
+        .sort(([, a], [, b]) => b - a)
+        .map(([reason, count]) => `${reason} (${count})`)
+        .join('; ');
+      const detailedReason = invalidReasonSummary ? ` Alasan: ${invalidReasonSummary}.` : '';
       setUploadMessage(`Upload selesai: ${imported} tersimpan, ${duplicates} duplikat dilewati, ${invalid} baris tidak valid.${detailedReason}`);
       onDataSaved?.(activeTab);
     } catch (error) {
