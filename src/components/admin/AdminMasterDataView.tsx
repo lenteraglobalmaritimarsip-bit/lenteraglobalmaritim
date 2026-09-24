@@ -465,6 +465,20 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     (!!portId && !!masterPortId && portId.toLowerCase() === masterPortId.toLowerCase())
     || (!!portName && !!masterPortName && portName.toLowerCase() === masterPortName.toLowerCase());
 
+  const normalizeUploadMatch = (value: unknown) => String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const matchesUploadPort = (rawInput: unknown, candidate: unknown) => {
+    const input = normalizeUploadMatch(rawInput);
+    const actual = normalizeUploadMatch(candidate);
+    if (!input || !actual) return false;
+    return input === actual || input.includes(actual) || actual.includes(input);
+  };
+
   const handleMasterDataUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -477,23 +491,34 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       let imported = 0;
       let duplicates = 0;
       let invalid = 0;
+      const invalidReasons: Record<string, number> = {};
+      const markInvalid = (reason: string) => {
+        invalid += 1;
+        invalidReasons[reason] = (invalidReasons[reason] || 0) + 1;
+      };
       const importedTariffs: FixTariff[] = [];
       const importedExpenses: ExpensesItem[] = [];
 
       rows.forEach((row, index) => {
+        if (Object.values(row).every((value) => String(value ?? '').trim() === '')) {
+          return;
+        }
+
         const portId = String(readUploadValue(row, 'portId', 'port_id')).trim();
-        const portInput = String(readUploadValue(row, 'portName', 'port', 'port_name')).trim();
+        const portInput = String(readUploadValue(row, 'portName', 'portName', 'port', 'port_name', 'namaPelabuhan', 'pelabuhan', 'portNameValue')).trim();
         const selectedPort = ports.find((port) =>
-          (!!portId && port.id.toLowerCase() === portId.toLowerCase())
+          (!!portId && matchesUploadPort(portId, port.id))
+          || (!!portId && matchesUploadPort(portId, port.code))
+          || (!!portId && matchesUploadPort(portId, port.unlocode))
           || (!!portInput && (
-            port.id.toLowerCase() === portInput.toLowerCase()
-            || port.code.toLowerCase() === portInput.toLowerCase()
-            || port.name.toLowerCase() === portInput.toLowerCase()
-            || port.unlocode.toLowerCase() === portInput.toLowerCase()
+            matchesUploadPort(portInput, port.id)
+            || matchesUploadPort(portInput, port.code)
+            || matchesUploadPort(portInput, port.name)
+            || matchesUploadPort(portInput, port.unlocode)
           ))
         );
         if (!selectedPort) {
-          invalid += 1;
+          markInvalid('port tidak cocok dengan master data / header port tidak terbaca');
           return;
         }
         const resolvedPortId = selectedPort.id;
@@ -509,7 +534,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           const resolvedRate = rateUSD > 0 ? rateUSD : rateIDR > 0 ? rateIDR : uploadNumber(readUploadValue(row, 'rate'));
           const grtRange = uploadGRTRange(row);
           if (!serviceName || !['USD', 'IDR'].includes(resolvedCurrency) || resolvedRate < 0) {
-            invalid += 1;
+            markInvalid('serviceName / currency / rate tidak valid');
             return;
           }
           const duplicate = [...fixTariffs, ...importedTariffs].some((tariff) =>
@@ -553,7 +578,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         const resolvedExpenseCurrency = rateUSD > 0 ? 'USD' : rateIDR > 0 ? 'IDR' : currency;
         const resolvedExpenseRate = rateUSD > 0 ? rateUSD : rateIDR > 0 ? rateIDR : uploadNumber(readUploadValue(row, 'rate'));
         if (!name || !['USD', 'IDR'].includes(resolvedExpenseCurrency) || resolvedExpenseRate < 0) {
-          invalid += 1;
+          markInvalid('name / currency / rate tidak valid');
           return;
         }
         const duplicate = [...expensesItems, ...importedExpenses].some((expense) =>
@@ -591,7 +616,9 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         await db.addFixTariffsBulk(importedTariffs.map(({ id: _id, ...tariff }) => tariff));
       }
 
-      setUploadMessage(`Upload selesai: ${imported} tersimpan, ${duplicates} duplikat dilewati, ${invalid} baris tidak valid.`);
+      const topInvalidReason = Object.entries(invalidReasons).sort(([, a], [, b]) => b - a)[0];
+      const detailedReason = topInvalidReason ? ` Kemungkinan utama: ${topInvalidReason[0]}.` : '';
+      setUploadMessage(`Upload selesai: ${imported} tersimpan, ${duplicates} duplikat dilewati, ${invalid} baris tidak valid.${detailedReason}`);
       onDataSaved?.(activeTab);
     } catch {
       setUploadMessage('File gagal dibaca. Gunakan file Excel/CSV dengan header yang sesuai.');
