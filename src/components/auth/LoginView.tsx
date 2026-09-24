@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowRight, Eye, EyeOff, LockKeyhole, UserRound } from 'lucide-react';
-import { AuthAccount, authenticate, authenticateWithSupabase, sendSupabasePasswordReset } from '../../auth';
-import { isSupabaseConfigured, supabase } from '../../supabaseClient';
+import { AuthAccount, authenticate } from '../../auth';
 
 interface LoginViewProps { onLogin: (account: AuthAccount, rememberMe?: boolean) => void; }
 
@@ -19,7 +18,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
-  const [resetMessage, setResetMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
 
@@ -35,39 +33,19 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
     setLoading(true);
     window.setTimeout(async () => {
       try {
-        const account = isSupabaseConfigured
-          ? await authenticateWithSupabase(username, password)
-          : authenticate(username, password);
+        const account = authenticate(username, password);
         if (!account) {
-          setError(isSupabaseConfigured ? 'Username tidak ditemukan atau akun belum aktif.' : 'Username atau password tidak valid.');
+          setError('Username atau password tidak valid.');
           setLoading(false);
           return;
         }
         onLogin(account, rememberMe);
       } catch (loginError) {
-        setError(loginError instanceof Error ? loginError.message : 'Login Supabase gagal.');
+        setError(loginError instanceof Error ? loginError.message : 'Login gagal.');
         setLoading(false);
       }
     }, 280);
   };
-
-  const requestPasswordReset = async () => {
-    setError('');
-    setResetMessage('');
-    if (!isSupabaseConfigured) {
-      setError('Silakan hubungi administrator untuk reset password.');
-      return;
-    }
-    setLoading(true);
-    const resetError = await sendSupabasePasswordReset(username);
-    setLoading(false);
-    if (resetError) {
-      setError(resetError);
-      return;
-    }
-    setResetMessage('Link reset password sudah dikirim ke email akun.');
-  };
-
 
   return (
     <div className="lgm-login-shell">
@@ -115,11 +93,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
               <h2>Login ke Portal</h2>
               <p>Silakan masuk menggunakan akun sesuai role pekerjaan Anda.</p>
             </div>
-            <span className="lgm-demo-mode">{isSupabaseConfigured ? 'System Online' : 'Mode Demo Lokal'}</span>
+            <span className="lgm-demo-mode">Mode Lokal</span>
           </div>
 
-          {!isSupabaseConfigured && (
-            <div className="lgm-demo-quicklist" aria-label="Demo login presets">
+          <div className="lgm-demo-quicklist" aria-label="Local login presets">
               {DEMO_LOGIN_PRESETS.map((preset) => (
                 <button
                   key={preset.username}
@@ -135,7 +112,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                 </button>
               ))}
             </div>
-          )}
 
           <form onSubmit={submit}>
             <label className="lgm-field">
@@ -178,20 +154,17 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                 />
                 <span>Ingat saya</span>
               </label>
-              <button type="button" className="lgm-forgot" onClick={() => void requestPasswordReset()}>
+              <button type="button" className="lgm-forgot" onClick={() => setError('Silakan hubungi administrator untuk reset password.')}>
                 Lupa password?
               </button>
             </div>
 
             {error && <div className="lgm-login-error">{error}</div>}
-            {resetMessage && <div className="lgm-login-success">{resetMessage}</div>}
-
             <button className="lgm-login-submit" disabled={loading}>
               {loading ? 'Memverifikasi...' : 'Login ke Portal'}
               <ArrowRight size={18} />
             </button>
           </form>
-
 
           <div className="lgm-login-footer">
             © 2026 PT. Lentera Global Maritim. All rights reserved.
@@ -202,60 +175,3 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
   );
 };
 
-interface PasswordRecoveryViewProps { onComplete: () => void; }
-
-export const PasswordRecoveryView: React.FC<PasswordRecoveryViewProps> = ({ onComplete }) => {
-  const [password, setPassword] = useState('');
-  const [confirmation, setConfirmation] = useState('');
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setError('');
-    setMessage('');
-    if (password.length < 6) {
-      setError('Password minimal 6 karakter.');
-      return;
-    }
-    if (password !== confirmation) {
-      setError('Konfirmasi password tidak sama.');
-      return;
-    }
-    setLoading(true);
-    const { error: updateError } = await supabase!.auth.updateUser({ password });
-    setLoading(false);
-    if (updateError) {
-      setError(updateError.message);
-      return;
-    }
-    setMessage('Password berhasil diperbarui. Silakan login kembali.');
-    await supabase!.auth.signOut();
-    window.setTimeout(onComplete, 700);
-  };
-
-  return (
-    <div className="lgm-login-shell">
-      <div className="lgm-login-backdrop" />
-      <div className="lgm-login-overlay" />
-      <main className="lgm-login-body">
-        <section className="lgm-login-card">
-          <div className="lgm-login-card-head">
-            <div>
-              <h2>Password Baru</h2>
-              <p>Buat password baru untuk akun Anda.</p>
-            </div>
-          </div>
-          <form onSubmit={submit}>
-            <label className="lgm-field"><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password baru" /></label>
-            <label className="lgm-field"><input type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder="Konfirmasi password" /></label>
-            {error && <div className="lgm-login-error">{error}</div>}
-            {message && <div className="lgm-login-success">{message}</div>}
-            <button className="lgm-login-submit" disabled={loading}>{loading ? 'Menyimpan...' : 'Simpan Password'} <ArrowRight size={18} /></button>
-          </form>
-        </section>
-      </main>
-    </div>
-  );
-};

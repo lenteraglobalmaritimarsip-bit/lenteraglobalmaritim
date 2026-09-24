@@ -1,5 +1,4 @@
 import { User, UserRole } from './types';
-import { isSupabaseConfigured, supabase } from './supabaseClient';
 
 export interface AuthAccount extends User {
   username: string;
@@ -52,89 +51,6 @@ export function authenticate(username: string, password: string): AuthAccount | 
   const normalized = username.trim().toLowerCase();
   const account = getStoredAccounts().find((item) => item?.username === normalized && item.password === password && item.status === 'ACTIVE');
   return account || null;
-}
-
-const mapSupabaseAccount = (row: Partial<User> & { id: string }, password = ''): AuthAccount => ({
-  id: row.id,
-  name: row.name || '',
-  email: row.email || '',
-  role: row.role || 'SALES',
-  department: row.department || '',
-  branch: row.branch || 'Head Office',
-  avatar: row.avatar,
-  status: row.status || 'ACTIVE',
-  phone: row.phone,
-  username: row.username || row.email || '',
-  password,
-  position: row.position,
-});
-
-export async function authenticateWithSupabase(email: string, password: string): Promise<AuthAccount | null> {
-  if (!isSupabaseConfigured || !supabase) return null;
-
-  let loginEmail = email.trim();
-  if (!loginEmail.includes('@')) {
-    const { data: resolvedEmail, error: resolveError } = await supabase.rpc('get_auth_email_by_username', {
-      input_username: loginEmail,
-    });
-    if (resolveError) throw new Error(`Username tidak dapat dicari: ${resolveError.message}`);
-    if (!resolvedEmail) return null;
-    if (typeof resolvedEmail === 'string' && resolvedEmail) loginEmail = resolvedEmail;
-  }
-
-  const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-    email: loginEmail,
-    password,
-  });
-  if (authError) throw new Error(authError.message);
-  if (!authData.user) return null;
-
-  const { data: profile, error: profileError } = await supabase
-    .from('app_users')
-    .select('id,name,email,username,role,department,branch,avatar,status,phone,position')
-    .eq('id', authData.user.id)
-    .single();
-
-  if (profileError || !profile) {
-    await supabase.auth.signOut();
-    throw new Error(profileError?.message || 'Profil app_users untuk akun ini belum tersedia.');
-  }
-
-  return mapSupabaseAccount(profile as Partial<User> & { id: string });
-}
-
-export async function getSupabaseAccount(): Promise<AuthAccount | null> {
-  if (!isSupabaseConfigured || !supabase) return null;
-  const { data: sessionData } = await supabase.auth.getSession();
-  const user = sessionData.session?.user;
-  if (!user) return null;
-
-  const { data: profile } = await supabase
-    .from('app_users')
-    .select('id,name,email,username,role,department,branch,avatar,status,phone,position')
-    .eq('id', user.id)
-    .single();
-  return profile ? mapSupabaseAccount(profile as Partial<User> & { id: string }) : null;
-}
-
-export async function signOutSupabase(): Promise<void> {
-  if (isSupabaseConfigured && supabase) await supabase.auth.signOut();
-}
-
-export async function sendSupabasePasswordReset(identifier: string): Promise<string | null> {
-  if (!isSupabaseConfigured || !supabase) return 'Supabase Auth belum dikonfigurasi.';
-  let email = identifier.trim();
-  if (!email.includes('@')) {
-    const { data: resolvedEmail } = await supabase.rpc('get_auth_email_by_username', {
-      input_username: email,
-    });
-    if (typeof resolvedEmail !== 'string' || !resolvedEmail) return 'Username tidak ditemukan.';
-    email = resolvedEmail;
-  }
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${window.location.origin}${window.location.pathname}`,
-  });
-  return error?.message || null;
 }
 
 export function initials(name: string): string {

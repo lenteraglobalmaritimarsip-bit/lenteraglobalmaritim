@@ -29,4 +29,4 @@
 
 - Start with [README.md](README.md) for the main workflow overview.
 - Check [REVISION_NOTES_V10_1.md](REVISION_NOTES_V10_1.md), [REVISION_NOTES_V10_1_LOGIN.md](REVISION_NOTES_V10_1_LOGIN.md), and [REVISION_NOTES_V10_1_LOGIN_FINAL.md](REVISION_NOTES_V10_1_LOGIN_FINAL.md) before changing branding, login, or recently revised master-data behavior.
-- Use [database/schema.sql](database/schema.sql) as the database-shape reference, while remembering that the current runtime persistence is browser `localStorage`.
+- Runtime persistence is browser `localStorage`; there is no external database dependency.

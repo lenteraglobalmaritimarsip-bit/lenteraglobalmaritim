@@ -20,7 +20,6 @@ import {
   INITIAL_EXPENSES_ITEMS,
   INITIAL_JOB_CALLS,
 } from './initialData';
-import { supabase, isSupabaseConfigured } from '@/supabaseClient';
 
 export interface DatabaseState {
   users: User[];
@@ -143,7 +142,6 @@ class DatabaseService {
   private state: DatabaseState;
   private listeners: Array<(state: DatabaseState) => void> = [];
   private actor: { id?: string; name: string; role: UserRole; branch?: string } = { name: 'System', role: 'ADMIN' };
-  private supabaseHydrated = !isSupabaseConfigured;
 
   constructor() {
     this.state = this.loadLocalState();
@@ -191,168 +189,8 @@ class DatabaseService {
   }
 
   public async hydrate(): Promise<void> {
-    if (!isSupabaseConfigured || !supabase) {
-      this.supabaseHydrated = true;
-      this.state = this.loadLocalState();
-      this.notify();
-      return;
-    }
-
-    this.supabaseHydrated = false;
-
-    const [users, customers, vessels, ports, zones, fixTariffs, expensesItems, jobCalls, auditLogs] = await Promise.all([
-      this.loadTable<User>('app_users', INITIAL_USERS, (row) => ({
-        ...row,
-        id: row.employee_code || row.id,
-        branch: row.branch || row.branch_name || 'Head Office',
-        position: row.position || row.job_title,
-      })),
-      this.loadTable<Customer>('customers', INITIAL_CUSTOMERS, (row) => ({
-        ...row,
-        companyName: row.company_name || row.companyName,
-        creditTermDays: row.credit_term_days ?? row.creditTermDays,
-      })),
-      this.loadTable<Vessel>('vessels', INITIAL_VESSELS, (row) => ({
-        ...row,
-        imoNumber: row.imo_number || row.imoNumber,
-        callSign: row.call_sign || row.callSign,
-        vesselType: row.vessel_type || row.vesselType,
-        yearBuilt: row.year_built ?? row.yearBuilt,
-      })),
-      this.loadTable<Port>('ports', INITIAL_PORTS, (row) => ({
-        ...row,
-        unlocode: row.unlocode,
-        channelDepthMeters: row.channel_depth_m ?? row.channelDepthMeters,
-        tideRestriction: row.tide_restriction || row.tideRestriction,
-        operatingHours: row.operating_hours || row.operatingHours,
-      })),
-      this.loadTable<Zone>('zones', INITIAL_ZONES, (row) => ({
-        ...row,
-        portId: row.port_id || row.portId,
-        portName: row.port_name || row.portName,
-        zoneCode: row.zone_code || row.zoneCode,
-        zoneName: row.zone_name || row.zoneName,
-        type: row.zone_type || row.type,
-        maxDraftMeters: row.max_draft_m ?? row.maxDraftMeters,
-      })),
-      this.loadTable<FixTariff>('fix_tariffs', INITIAL_FIX_TARIFFS, (row) => ({
-        ...row,
-        portId: row.port_id || row.portId,
-        portName: row.port_name || row.portName,
-        costCategory: row.cost_category || row.costCategory,
-        serviceCode: row.service_code || row.serviceCode,
-        serviceName: row.service_name || row.serviceName,
-        grt: row.grt ?? row.GRT,
-        grtMin: row.grt_min ?? row.grtMin,
-        grtMax: row.grt_max ?? row.grtMax,
-        dwt: row.dwt ?? row.DWT,
-        calculationBasis: row.calculation_basis || row.calculationBasis,
-        tariffType: row.tariff_type || row.tariffType,
-        rateIDR: row.rate_idr ?? row.rateIDR,
-        rateUSD: row.rate_usd ?? row.rateUSD,
-        minCharge: row.min_charge ?? row.minCharge,
-      })),
-      this.loadTable<ExpensesItem>('expense_items', INITIAL_EXPENSES_ITEMS, (row) => ({
-        ...row,
-        portId: row.port_id || row.portId,
-        portName: row.port_name || row.portName,
-        defaultCurrency: row.default_currency || row.defaultCurrency,
-        calculationType: row.calculation_type || row.calculationType,
-        standardCostBuy: row.standard_cost_buy ?? row.standardCostBuy,
-        standardCostSell: row.standard_cost_sell ?? row.standardCostSell,
-        rateIDR: row.rate_idr ?? row.rateIDR ?? (String(row.default_currency || row.defaultCurrency).toUpperCase() === 'IDR' ? (row.standard_cost_sell ?? row.standardCostSell) : undefined),
-        rateUSD: row.rate_usd ?? row.rateUSD ?? (String(row.default_currency || row.defaultCurrency).toUpperCase() === 'USD' ? (row.standard_cost_sell ?? row.standardCostSell) : undefined),
-        preferredVendor: row.preferred_vendor || row.preferredVendor,
-      })),
-      this.loadTable<JobCall>('vessel_calls', LOCAL_INITIAL_JOB_CALLS, (row) => {
-        const payload = row.job_payload && typeof row.job_payload === 'object' ? row.job_payload : {};
-        return {
-          ...payload,
-          ...row,
-          jobId: row.job_id || payload.jobId || row.jobId,
-          exchangeRateUSDToIDR: row.exchange_rate_usd_idr ?? payload.exchangeRateUSDToIDR ?? row.exchangeRateUSDToIDR,
-          currentStage: row.current_stage || payload.currentStage || row.currentStage,
-          createdAt: row.created_at || payload.createdAt || row.createdAt,
-          updatedAt: row.updated_at || payload.updatedAt || row.updatedAt,
-        } as JobCall;
-      }),
-      this.loadTable<AuditLog>('audit_logs', [], (row) => ({
-        ...row,
-        timestamp: row.created_at || row.timestamp,
-        actorId: row.user_id || row.actorId,
-        entity: row.entity_type || row.entity,
-        entityId: row.entity_id || row.entityId,
-      })),
-    ]);
-
-    this.state = {
-      ...this.state,
-      users,
-      customers,
-      vessels,
-      ports,
-      zones,
-      fixTariffs,
-      expensesItems,
-      jobCalls: withoutRemovedJobCalls(jobCalls).map(syncActualFDAInvoice),
-      auditLogs,
-      selectedJobId: jobCalls[0]?.jobId || this.state.selectedJobId,
-    };
-    this.supabaseHydrated = true;
+    this.state = this.loadLocalState();
     this.notify();
-  }
-
-  private async loadTable<T>(table: string, seeds: T[], mapRow: (row: any) => T): Promise<T[]> {
-    if (!isSupabaseConfigured || !supabase) {
-      return seeds;
-    }
-
-    const { data, error } = await supabase.from(table).select('*');
-    if (error) throw error;
-    if (data && data.length > 0) return data.map(mapRow);
-
-    // Production Supabase must remain empty after an intentional reset.
-    // Seed data is used only by the local-storage demo mode above.
-    return [];
-  }
-
-  private toSupabaseRow(table: string, value: any): Record<string, unknown> {
-    switch (table) {
-      case 'app_users':
-        return { employee_code: value.id, name: value.name, email: value.email, username: value.username || value.email, password_hash: value.password || '', role: value.role, department: value.department, branch: value.branch, phone: value.phone, position: value.position, avatar: value.avatar, status: value.status || 'ACTIVE' };
-      case 'customers':
-        return { code: value.code, company_name: value.companyName, country: value.country, type: value.type, contact_person: value.contactPerson, email: value.email, phone: value.phone, address: value.address, credit_term_days: value.creditTermDays };
-      case 'vessels':
-        return { name: value.name, imo_number: value.imoNumber || null, call_sign: value.callSign, flag: value.flag, vessel_type: value.vesselType, grt: value.grt, nrt: value.nrt, dwt: value.dwt, loa: value.loa, beam: value.beam, year_built: value.yearBuilt };
-      case 'ports':
-        return { code: value.code, name: value.name, country: value.country, unlocode: value.unlocode, channel_depth_m: value.channelDepthMeters, tide_restriction: value.tideRestriction, operating_hours: value.operatingHours };
-      case 'zones':
-        return { port_id: value.portId || null, zone_code: value.zoneCode, zone_name: value.zoneName, zone_type: value.type, max_draft_m: value.maxDraftMeters, description: value.description };
-      case 'fix_tariffs':
-        return { port_id: value.portId || null, port_name: value.portName, service_code: value.serviceCode, service_name: value.serviceName, cost_category: value.costCategory, grt: value.grt, grt_min: value.grtMin, grt_max: value.grtMax, dwt: value.dwt, calculation_basis: value.calculationBasis, tariff_type: value.tariffType, currency: value.currency, rate: value.rate, rate_idr: value.rateIDR, rate_usd: value.rateUSD, min_charge: value.minCharge, description: value.description };
-      case 'expense_items':
-        return {
-          port_id: value.portId,
-          port_name: value.portName,
-          code: value.code,
-          category: value.category,
-          name: value.name,
-          unit: value.unit,
-          default_currency: value.defaultCurrency,
-          rate_idr: value.rateIDR,
-          rate_usd: value.rateUSD,
-          calculation_type: value.calculationType ?? null,
-          standard_cost_buy: value.standardCostBuy,
-          standard_cost_sell: value.standardCostSell,
-          preferred_vendor: value.preferredVendor,
-        };
-      case 'vessel_calls':
-        return { job_id: value.jobId, eta: value.eta, etd: value.etd, purpose_of_call: value.purposeOfCall, currency: value.currency, exchange_rate_usd_idr: value.exchangeRateUSDToIDR, current_stage: value.currentStage, status: value.status };
-      case 'audit_logs':
-        return { action: value.action, entity_type: value.entity, entity_id: value.entityId, metadata: { description: value.description, actor_name: value.actorName, role: value.role }, created_at: value.timestamp };
-      default:
-        return value;
-    }
   }
 
   private audit(action: string, entity: string, description: string, entityId?: string): void {
@@ -375,123 +213,20 @@ class DatabaseService {
     return this.actor.branch?.trim() || 'Head Office';
   }
 
-  private async saveToSupabase(): Promise<void> {
-    if (!isSupabaseConfigured || !supabase) {
-      this.notify();
-      return;
+  private async saveToStorage(): Promise<void> {
+    try {
+      localStorage.setItem(LOCAL_DATABASE_KEY, JSON.stringify(this.state));
+    } catch (error) {
+      console.error('Failed to save local database:', error);
     }
-    if (!this.supabaseHydrated) {
-      throw new Error('Data Supabase belum berhasil dimuat. Perubahan dibatalkan agar data demo tidak menimpa data live.');
-    }
-
-    const masterWrites = this.actor.role === 'ADMIN'
-      ? [
-      supabase.from('app_users').upsert(this.state.users.map((user) => ({ employee_code: user.id, name: user.name, email: user.email, username: user.username || user.email, password_hash: user.password || '', role: user.role, department: user.department, branch: user.branch, phone: user.phone, position: user.position, avatar: user.avatar, status: user.status })), { onConflict: 'employee_code' }),
-      supabase.from('customers').upsert(this.state.customers.map((customer) => ({ code: customer.code, company_name: customer.companyName, country: customer.country, type: customer.type, contact_person: customer.contactPerson, email: customer.email, phone: customer.phone, address: customer.address, credit_term_days: customer.creditTermDays })), { onConflict: 'code' }),
-      supabase.from('vessels').upsert(this.state.vessels.map((vessel) => ({ name: vessel.name, imo_number: vessel.imoNumber || null, call_sign: vessel.callSign, flag: vessel.flag, vessel_type: vessel.vesselType, grt: vessel.grt, nrt: vessel.nrt, dwt: vessel.dwt, loa: vessel.loa, beam: vessel.beam, year_built: vessel.yearBuilt })), { onConflict: 'imo_number' }),
-      supabase.from('ports').upsert(this.state.ports.map((port) => ({ code: port.code, name: port.name, country: port.country, unlocode: port.unlocode, channel_depth_m: port.channelDepthMeters, tide_restriction: port.tideRestriction, operating_hours: port.operatingHours })), { onConflict: 'code' }),
-      this.saveRowsWithoutConflict('zones', 'zone_code', this.state.zones.map((zone) => ({ port_id: zone.portId || null, zone_code: zone.zoneCode, zone_name: zone.zoneName, zone_type: zone.type, max_draft_m: zone.maxDraftMeters, description: zone.description }))),
-      this.saveRowsWithoutConflict('fix_tariffs', 'service_code', this.state.fixTariffs.map((tariff) => ({ port_id: tariff.portId || null, port_name: tariff.portName, service_code: tariff.serviceCode, service_name: tariff.serviceName, cost_category: tariff.costCategory, grt: tariff.grt, grt_min: tariff.grtMin, grt_max: tariff.grtMax, dwt: tariff.dwt, calculation_basis: tariff.calculationBasis, tariff_type: tariff.tariffType, currency: tariff.currency, rate: tariff.rate, rate_idr: tariff.rateIDR, rate_usd: tariff.rateUSD, min_charge: tariff.minCharge, description: tariff.description }))),
-      supabase.from('expense_items').upsert(this.state.expensesItems.map((item) => ({
-        port_id: item.portId,
-        port_name: item.portName,
-        code: item.code,
-        category: item.category,
-        name: item.name,
-        unit: item.unit,
-        default_currency: item.defaultCurrency,
-        rate_idr: item.rateIDR,
-        rate_usd: item.rateUSD,
-        calculation_type: item.calculationType ?? null,
-        standard_cost_buy: item.standardCostBuy,
-        standard_cost_sell: item.standardCostSell,
-        preferred_vendor: item.preferredVendor,
-      })), { onConflict: 'code' }),
-      ]
-      : [];
-
-    const results = await Promise.all([
-      ...masterWrites,
-      this.saveRowsWithoutConflict('vessel_calls', 'job_id', this.state.jobCalls.map((job) => ({
-        job_id: job.jobId,
-        vessel_name: job.vesselName,
-        port_name: job.portName,
-        customer_name: job.customerName,
-        eta: job.eta,
-        etd: job.etd,
-        purpose_of_call: job.purposeOfCall,
-        currency: job.currency,
-        exchange_rate_usd_idr: job.exchangeRateUSDToIDR,
-        current_stage: job.currentStage,
-        status: job.status,
-        job_payload: job,
-      }))),
-    ]);
-    const failed = results.find((result) => result && 'error' in result && result.error);
-    if (failed && 'error' in failed && failed.error) throw failed.error;
     this.notify();
   }
 
-  private async saveRowsWithoutConflict(table: string, key: string, rows: Record<string, unknown>[]): Promise<void> {
-    for (const row of rows) {
-      const keyValue = row[key];
-      if (!keyValue) {
-        const { error } = await supabase.from(table).insert(row);
-        if (error) throw error;
-        continue;
-      }
-
-      const { data: existing, error: lookupError } = await supabase
-        .from(table)
-        .select('id')
-        .eq(key, keyValue)
-        .limit(1);
-      if (lookupError) throw lookupError;
-
-      if (existing?.[0]?.id) {
-        const { error } = await supabase.from(table).update(row).eq('id', existing[0].id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from(table).insert(row);
-        if (error) throw error;
-      }
-    }
-  }
-
-  private async deleteSupabaseRow(table: string, id: string, key: string, keyValue?: string): Promise<void> {
-    if (!isSupabaseConfigured || !supabase) return;
-
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
-    const query = supabase.from(table).delete();
-    const { error } = isUuid
-      ? await query.eq('id', id)
-      : keyValue
-        ? await query.eq(key, keyValue)
-        : { error: new Error(`Key ${key} tidak tersedia untuk ${table}.`) };
-    if (error) throw error;
-  }
-
-  private async saveToStorage(): Promise<void> {
-    if (!isSupabaseConfigured || !supabase) {
-      try {
-        localStorage.setItem(LOCAL_DATABASE_KEY, JSON.stringify(this.state));
-      } catch (error) {
-        console.error('Failed to save local database:', error);
-      }
-      this.notify();
-      return;
-    }
-
-    await this.saveToSupabase();
-  }
-
   private notifyAfterDelete(): void {
-    if (!isSupabaseConfigured || !supabase) {
-      try {
-        localStorage.setItem(LOCAL_DATABASE_KEY, JSON.stringify(this.state));
-      } catch (error) {
-        console.error('Failed to save local database:', error);
-      }
+    try {
+      localStorage.setItem(LOCAL_DATABASE_KEY, JSON.stringify(this.state));
+    } catch (error) {
+      console.error('Failed to save local database:', error);
     }
     this.notify();
   }
@@ -516,7 +251,7 @@ class DatabaseService {
   public async resetToInitial(): Promise<void> {
     const fresh = this.getDefaultState();
     this.state = fresh;
-    await this.saveToSupabase();
+    await this.saveToStorage();
     this.notify();
   }
 
@@ -526,12 +261,12 @@ class DatabaseService {
 
   public async setRole(role: UserRole): Promise<void> {
     this.state.currentRole = role;
-    await this.saveToSupabase();
+    await this.saveToStorage();
   }
 
   public async setSelectedJobId(jobId: string): Promise<void> {
     this.state.selectedJobId = jobId;
-    await this.saveToSupabase();
+    await this.saveToStorage();
   }
 
   public resetToSeeds(): void {
@@ -606,8 +341,6 @@ class DatabaseService {
   }
 
   public async deleteUser(id: string): Promise<void> {
-    const user = this.state.users.find((item) => item.id === id);
-    await this.deleteSupabaseRow('app_users', id, 'employee_code', user?.id || id);
     this.state.users = this.state.users.filter((u) => u.id !== id);
     this.audit('DELETE', 'USER', `Deleted user ${id}`, id);
     this.notifyAfterDelete();
@@ -631,8 +364,6 @@ class DatabaseService {
   }
 
   public async deleteCustomer(id: string): Promise<void> {
-    const customer = this.state.customers.find((item) => item.id === id);
-    await this.deleteSupabaseRow('customers', id, 'code', customer?.code);
     this.state.customers = this.state.customers.filter((c) => c.id !== id);
     this.notifyAfterDelete();
   }
@@ -655,8 +386,6 @@ class DatabaseService {
   }
 
   public async deleteVessel(id: string): Promise<void> {
-    const vessel = this.state.vessels.find((item) => item.id === id);
-    await this.deleteSupabaseRow('vessels', id, vessel?.imoNumber ? 'imo_number' : 'name', vessel?.imoNumber || vessel?.name);
     this.state.vessels = this.state.vessels.filter((v) => v.id !== id);
     this.notifyAfterDelete();
   }
@@ -679,8 +408,6 @@ class DatabaseService {
   }
 
   public async deletePort(id: string): Promise<void> {
-    const port = this.state.ports.find((item) => item.id === id);
-    await this.deleteSupabaseRow('ports', id, 'code', port?.code);
     this.state.ports = this.state.ports.filter((p) => p.id !== id);
     this.notifyAfterDelete();
   }
@@ -703,8 +430,6 @@ class DatabaseService {
   }
 
   public async deleteZone(id: string): Promise<void> {
-    const zone = this.state.zones.find((item) => item.id === id);
-    await this.deleteSupabaseRow('zones', id, 'zone_code', zone?.zoneCode);
     this.state.zones = this.state.zones.filter((z) => z.id !== id);
     this.notifyAfterDelete();
   }
@@ -730,15 +455,7 @@ class DatabaseService {
     this.state.fixTariffs = [...previousTariffs, ...newTariffs];
 
     try {
-      if (isSupabaseConfigured && supabase) {
-        for (let index = 0; index < newTariffs.length; index += 250) {
-          const chunk = newTariffs.slice(index, index + 250);
-          const { error } = await supabase.from('fix_tariffs').insert(chunk.map((tariff) => this.toSupabaseRow('fix_tariffs', tariff)));
-          if (error) throw error;
-        }
-      } else {
-        await this.saveToStorage();
-      }
+      await this.saveToStorage();
       this.audit('CREATE_BULK', 'FIX_TARIFF', `Imported ${newTariffs.length} tariffs`);
       this.notify();
       return newTariffs;
@@ -757,8 +474,6 @@ class DatabaseService {
   }
 
   public async deleteFixTariff(id: string): Promise<void> {
-    const tariff = this.state.fixTariffs.find((item) => item.id === id);
-    await this.deleteSupabaseRow('fix_tariffs', id, tariff?.serviceCode ? 'service_code' : 'service_name', tariff?.serviceCode || tariff?.serviceName);
     this.state.fixTariffs = this.state.fixTariffs.filter((t) => t.id !== id);
     this.notifyAfterDelete();
   }
@@ -786,8 +501,6 @@ class DatabaseService {
   }
 
   public async deleteExpensesItem(id: string): Promise<void> {
-    const expense = this.state.expensesItems.find((item) => item.id === id);
-    await this.deleteSupabaseRow('expense_items', id, 'code', expense?.code);
     this.state.expensesItems = this.state.expensesItems.filter((e) => e.id !== id);
     this.notifyAfterDelete();
   }
@@ -799,11 +512,6 @@ class DatabaseService {
   }
 
   public async clearAllJobs(): Promise<void> {
-    if (isSupabaseConfigured && supabase) {
-      const { error } = await supabase.from('vessel_calls').delete().not('job_id', 'is', null);
-      if (error) throw error;
-    }
-
     this.state.jobCalls = [];
     this.state.selectedJobId = '';
     this.state.auditLogs = this.state.auditLogs.filter((log) => log.entity !== 'VESSEL_CALL');

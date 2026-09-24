@@ -58,29 +58,21 @@ git commit -m "feat: deskripsi perubahan"
 git push -u origin feature/nama-fitur</pre>
 <p>Setelah pengujian selesai, lakukan Pull Request dari <code>feature/*</code> ke <code>develop</code>. Setelah staging disetujui, Pull Request dari <code>develop</code> ke <code>main</code>.</p>
 
-<h2>4. Pisahkan Environment</h2>
-<p>Production dan development sebaiknya menggunakan project Supabase yang berbeda.</p>
-<table><tr><th>Environment</th><th>Database</th><th>Branch</th></tr>
-<tr><td>Development</td><td>Supabase development/staging</td><td><code>feature/*</code>, <code>develop</code></td></tr>
-<tr><td>Production</td><td>Supabase production</td><td><code>main</code></td></tr></table>
-<pre># .env.development
-VITE_SUPABASE_URL=https://staging-project.supabase.co
-VITE_SUPABASE_ANON_KEY=staging-key
+<h2>4. Environment Lokal</h2>
+<p>Aplikasi berjalan sebagai browser app dengan penyimpanan <code>localStorage</code>. Development dan production tidak membutuhkan database atau secret eksternal.</p>
+<p>Untuk memulai lokal:</p>
+<pre>npm install
+npm run dev</pre>
+<p>Data tersimpan pada browser dan tidak otomatis dibagikan antar perangkat atau browser.</p>
 
-# .env.production
-VITE_SUPABASE_URL=https://production-project.supabase.co
-VITE_SUPABASE_ANON_KEY=production-key</pre>
-<p>Jangan commit file environment yang berisi credential. Simpan credential pada Environment Variables di layanan deployment.</p>
-
-<h2>5. Perubahan Database</h2>
+<h2>5. Perubahan Data Lokal</h2>
 <ol>
-<li>Uji perubahan schema di Supabase staging.</li>
-<li>Backup database production.</li>
-<li>Jalankan migration di production pada waktu yang disetujui.</li>
-<li>Verifikasi tabel, kolom, index, dan data.</li>
-<li>Deploy aplikasi setelah schema siap.</li>
+<li>Uji perubahan pada browser lokal.</li>
+<li>Gunakan fitur export database untuk membuat backup JSON.</li>
+<li>Uji login Admin dan seluruh master data.</li>
+<li>Deploy aplikasi setelah lint dan build berhasil.</li>
 </ol>
-<p>Gunakan <code>database/schema.sql</code> sebagai sumber schema utama project. Jangan mengubah schema production secara manual tanpa mencatat perubahannya di Git.</p>
+<p>Data aplikasi adalah data lokal browser. Backup dan import harus dilakukan melalui fitur aplikasi.</p>
 
 <h2>6. Checklist Sebelum Production</h2>
 <ul>
@@ -90,8 +82,7 @@ VITE_SUPABASE_ANON_KEY=production-key</pre>
 <li>Fix Tariff dan Expenses Item diuji.</li>
 <li>Alur EPDA otomatis dan manual diuji.</li>
 <li>Alur FDA otomatis dan manual diuji.</li>
-<li>Supabase production sudah memiliki schema terbaru.</li>
-<li>Backup database tersedia.</li>
+<li>Backup JSON lokal tersedia jika diperlukan.</li>
 <li>Perubahan sudah melalui Pull Request.</li>
 </ul>
 
