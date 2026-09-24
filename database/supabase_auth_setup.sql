@@ -17,6 +17,17 @@ ALTER TABLE public.app_users
 
 CREATE UNIQUE INDEX IF NOT EXISTS app_users_username_key ON public.app_users(username);
 
+-- Keep live Fix Tariff categories aligned with the application and schema.
+ALTER TABLE public.fix_tariffs DROP CONSTRAINT IF EXISTS fix_tariffs_cost_category_check;
+ALTER TABLE public.fix_tariffs
+  ADD CONSTRAINT fix_tariffs_cost_category_check
+  CHECK (cost_category IS NULL OR cost_category IN (
+    'PORT_EXPENSES', 'CLEARANCE', 'GENERAL_EXPENSES', 'CREW_EXPENSES',
+    'OWNER_MATTER', 'AGENCY_FEE', 'TAX_CONTINGENCY', 'PORT_DUES',
+    'PILOTAGE_TOWAGE', 'BERTHING', 'CREW_CHANGE', 'IMMIGRATION_CUSTOMS',
+    'LOGISTICS_SUPPLIES', 'SUNDRY'
+  ));
+
 CREATE OR REPLACE FUNCTION public.get_auth_email_by_username(input_username TEXT)
 RETURNS TEXT
 LANGUAGE sql
