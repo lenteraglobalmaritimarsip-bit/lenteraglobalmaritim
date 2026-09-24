@@ -59,6 +59,21 @@ CREATE TABLE IF NOT EXISTS app_users (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Compatibility for app_users tables created by an older deployment.
+ALTER TABLE app_users
+  ADD COLUMN IF NOT EXISTS username VARCHAR(80),
+  ADD COLUMN IF NOT EXISTS password_hash TEXT;
+
+UPDATE app_users
+SET username = COALESCE(NULLIF(BTRIM(username), ''), split_part(LOWER(email), '@', 1))
+WHERE username IS NULL OR BTRIM(username) = '';
+
+ALTER TABLE app_users
+  ALTER COLUMN username SET NOT NULL,
+  ALTER COLUMN password_hash SET DEFAULT '';
+
+CREATE UNIQUE INDEX IF NOT EXISTS app_users_username_key ON app_users(username);
+
 CREATE TABLE IF NOT EXISTS customers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   code VARCHAR(30) UNIQUE NOT NULL,

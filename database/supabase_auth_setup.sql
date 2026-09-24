@@ -1,5 +1,37 @@
--- Run this once in the Supabase SQL Editor.
--- Supabase Auth owns passwords. public.app_users stores the application profile.
+-- Auth migration for an existing database.
+-- Run database/schema.sql first for a new database. This file is non-destructive:
+-- it does not drop application tables or replace existing user profiles.
+-- Supabase Auth owns passwords; public.app_users stores the application profile.
+
+ALTER TABLE public.app_users
+  ADD COLUMN IF NOT EXISTS username VARCHAR(80),
+  ADD COLUMN IF NOT EXISTS password_hash TEXT;
+
+UPDATE public.app_users
+SET username = COALESCE(NULLIF(BTRIM(username), ''), split_part(LOWER(email), '@', 1))
+WHERE username IS NULL OR BTRIM(username) = '';
+
+ALTER TABLE public.app_users
+  ALTER COLUMN username SET NOT NULL,
+  ALTER COLUMN password_hash SET DEFAULT '';
+
+CREATE UNIQUE INDEX IF NOT EXISTS app_users_username_key ON public.app_users(username);
+
+CREATE OR REPLACE FUNCTION public.get_auth_email_by_username(input_username TEXT)
+RETURNS TEXT
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT email
+  FROM public.app_users
+  WHERE LOWER(username) = LOWER(BTRIM(input_username))
+    AND status = 'ACTIVE'
+  LIMIT 1;
+$$;
+
+REVOKE ALL ON FUNCTION public.get_auth_email_by_username(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_auth_email_by_username(TEXT) TO anon, authenticated;
 
 CREATE OR REPLACE FUNCTION public.handle_new_auth_user()
 RETURNS TRIGGER
@@ -20,8 +52,7 @@ BEGIN
 
   IF existing_user_id IS NOT NULL AND existing_user_id <> NEW.id THEN
     UPDATE public.app_users
-    SET id = NEW.id,
-        updated_at = NOW()
+    SET id = NEW.id, updated_at = NOW()
     WHERE id = existing_user_id;
     RETURN NEW;
   END IF;
@@ -35,14 +66,12 @@ BEGIN
     NEW.email,
     COALESCE(requested_username, split_part(COALESCE(NEW.email, NEW.id::TEXT), '@', 1)),
     '',
-    COALESCE(NULLIF(NEW.raw_user_meta_data ->> 'role', ''), 'SALES'),
+    COALESCE(NULLIF(NEW.raw_user_meta_data ->> 'role', ''), CASE WHEN NOT EXISTS (SELECT 1 FROM public.app_users) THEN 'ADMIN' ELSE 'SALES' END),
     COALESCE(NEW.raw_user_meta_data ->> 'department', ''),
     COALESCE(NEW.raw_user_meta_data ->> 'branch', 'JKT'),
     'ACTIVE'
   )
-  ON CONFLICT (id) DO UPDATE SET
-    email = EXCLUDED.email,
-    updated_at = NOW();
+  ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, updated_at = NOW();
 
   RETURN NEW;
 END;
@@ -53,7 +82,5 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_auth_user();
 
--- Username lookup is intentionally callable before authentication.
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
 GRANT SELECT ON TABLE public.app_users TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_auth_email_by_username(TEXT) TO anon, authenticated;

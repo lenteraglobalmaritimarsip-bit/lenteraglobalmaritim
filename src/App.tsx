@@ -112,6 +112,8 @@ export default function App() {
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
   const [loginToast, setLoginToast] = useState<string | null>(null);
   const [saveToast, setSaveToast] = useState<string | null>(null);
+  const [isDataHydrated, setIsDataHydrated] = useState(!isSupabaseConfigured);
+  const [dataLoadError, setDataLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     try { sessionStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab); } catch {}
@@ -241,6 +243,8 @@ export default function App() {
   // Subscribe to reactive database changes
   useEffect(() => {
     if (isSupabaseConfigured && !currentUser) return;
+    setIsDataHydrated(!isSupabaseConfigured);
+    setDataLoadError(null);
     if (currentUser) db.setActor({ id: currentUser.id, name: currentUser.name, role: currentUser.role, branch: currentUser.branch });
     let unsubscribe = () => {};
     void (async () => {
@@ -256,8 +260,11 @@ export default function App() {
         await resetJobsPromise;
         await db.hydrate();
         setData({ ...db.getState() });
+        setIsDataHydrated(true);
       } catch (error) {
         console.error('Supabase hydrate failed:', error);
+        setDataLoadError(error instanceof Error ? error.message : 'Data Supabase tidak dapat dimuat.');
+        setIsDataHydrated(false);
       }
     })();
     unsubscribe = db.subscribe((newState) => {
@@ -298,6 +305,22 @@ export default function App() {
 
   if (isPasswordRecovery) return <PasswordRecoveryView onComplete={() => setIsPasswordRecovery(false)} />;
   if (!currentUser) return <LoginView onLogin={handleLogin} />;
+  if (isSupabaseConfigured && !isDataHydrated) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-center text-white">
+        <div className="max-w-lg rounded-2xl border border-rose-400/30 bg-slate-900 p-8 shadow-2xl">
+          <h1 className="text-xl font-bold text-rose-300">Data live belum berhasil dimuat</h1>
+          <p className="mt-3 text-sm leading-6 text-slate-300">
+            Aplikasi dihentikan sementara agar data demo tidak tampil atau menimpa data produksi.
+          </p>
+          {dataLoadError && <p className="mt-4 break-words text-xs text-rose-200">{dataLoadError}</p>}
+          <button type="button" onClick={() => window.location.reload()} className="mt-6 rounded-lg bg-rose-400 px-4 py-2 text-sm font-bold text-slate-950">
+            Muat ulang
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="maritim-app flex flex-col font-sans">
