@@ -597,16 +597,6 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-slate-600">Basis</label>
-              <select value={newItem.calculationBasis} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500">
-                <option value="PER_GRT">Per GRT</option>
-                <option value="PER_DAY">Per Day</option>
-                <option value="LUMP_SUM">Lump Sum</option>
-                <option value="PER_HOUR">Per Hour</option>
-                <option value="PER_MOVE">Per Move</option>
-              </select>
-            </div>
-            <div>
               <label className="mb-1 block text-slate-600">Type</label>
               <select value={newItem.tariffType} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500">
                 <option value="FIXED">Fixed</option>
@@ -627,10 +617,6 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
               <input type="number" min="1" step="1" value={newItem.quantity} onChange={e => setNewItem({ ...newItem, quantity: Math.max(1, Number(e.target.value) || 1) })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"/>
             </div>
             <div className="lg:col-span-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-              <div>
-                <label className="mb-1 block text-slate-600">Basis Value</label>
-                <input readOnly value={newItem.calculationBasis === 'PER_GRT' ? `${vesselMaster?.grt?.toLocaleString('id-ID') || 0} GRT` : newItem.calculationBasis === 'PER_DAY' ? `${job.inquiry?.estimatedDays || 0} hari` : '1 lump sum'} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"/>
-              </div>
               <div>
                 <label className="mb-1 block text-slate-600">Tarif ({viewCurrency})</label>
                 <input readOnly value={formatEntryAmount(calculateTariffForJob({ vesselGRT: vesselMaster?.grt || 0, estimatedDays: Number(job.inquiry?.estimatedDays || 0), hours: 1, moveCount: 1, rate: Number(newItem.rate) || 0, minCharge: Number(newItem.minCharge) || 0, calculationBasis: newItem.calculationBasis }))} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"/>
