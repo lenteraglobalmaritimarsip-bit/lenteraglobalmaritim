@@ -328,7 +328,27 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   };
 
   const uploadNumber = (value: unknown, fallback = 0) => {
-    const parsed = Number(String(value ?? '').replace(/,/g, '').trim());
+    if (typeof value === 'number') return Number.isFinite(value) ? value : fallback;
+
+    let normalized = String(value ?? '').trim().replace(/\s/g, '');
+    if (!normalized) return fallback;
+    normalized = normalized.replace(/[^0-9,.-]/g, '');
+
+    const lastComma = normalized.lastIndexOf(',');
+    const lastDot = normalized.lastIndexOf('.');
+    if (lastComma >= 0 && lastDot >= 0) {
+      normalized = lastComma > lastDot
+        ? normalized.replace(/\./g, '').replace(',', '.')
+        : normalized.replace(/,/g, '');
+    } else if (lastComma >= 0) {
+      normalized = /,\d{1,2}$/.test(normalized)
+        ? normalized.replace(',', '.')
+        : normalized.replace(/,/g, '');
+    } else if (lastDot >= 0 && /\.\d{3}$/.test(normalized)) {
+      normalized = normalized.replace('.', '');
+    }
+
+    const parsed = Number(normalized);
     return Number.isFinite(parsed) ? parsed : fallback;
   };
 
