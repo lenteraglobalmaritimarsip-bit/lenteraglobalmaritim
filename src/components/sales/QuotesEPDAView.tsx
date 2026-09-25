@@ -123,8 +123,10 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       || (!!currentPortName && !!targetPortName && currentPortName.toLowerCase() === targetPortName.toLowerCase());
   };
   const autoServiceOptions = [
-    ...fixTariffs
-      .filter((tariff) => portMatches(tariff.portId, tariff.portName) && matchesTariffGRT(vesselMaster?.grt, tariff.grt, tariff.grtMin, tariff.grtMax))
+    ...[
+      ...fixTariffs.filter((tariff) => portMatches(tariff.portId, tariff.portName) && matchesTariffGRT(vesselMaster?.grt, tariff.grt, tariff.grtMin, tariff.grtMax)),
+      ...fixTariffs,
+    ]
       .map((tariff) => ({
         name: tariff.serviceName,
         category: tariff.costCategory || 'PORT_EXPENSES',
@@ -139,8 +141,10 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
         minCharge: tariff.minCharge,
         currency: tariff.currency,
       })),
-    ...expensesItems
-      .filter((item) => portMatches(item.portId, item.portName))
+    ...[
+      ...expensesItems.filter((item) => portMatches(item.portId, item.portName)),
+      ...expensesItems,
+    ]
       .map((item) => ({
         name: item.name,
         category: item.category,

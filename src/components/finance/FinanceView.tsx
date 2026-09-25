@@ -287,10 +287,15 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
   const handleAddPrincipalReceipt = (event: React.FormEvent) => {
     event.preventDefault();
-    const amount = Number(receiptAmount);
+    const enteredAmount = Number(receiptAmount);
+    const normalizeReceiptAmount = (value: number) => jobCurrency === 'IDR'
+      ? Math.round(value)
+      : Math.round((value + Number.EPSILON) * 100) / 100;
+    const amount = normalizeReceiptAmount(enteredAmount);
     const outstandingBeforeReceipt = jobAROutstanding;
-    const isWholeIDR = jobCurrency !== 'IDR' || Number.isInteger(amount);
-    if (!activeJob.fda?.fdaApproved || !receiptDate || !Number.isFinite(amount) || amount <= 0 || !receiptBankRemark.trim()) {
+    const normalizedOutstanding = normalizeReceiptAmount(outstandingBeforeReceipt);
+    const isWholeIDR = jobCurrency !== 'IDR' || Number.isInteger(enteredAmount);
+    if (!activeJob.fda?.fdaApproved || !receiptDate || !Number.isFinite(enteredAmount) || enteredAmount <= 0 || !receiptBankRemark.trim()) {
       setReceiptAmountError('Lengkapi tanggal, nominal penerimaan, dan remark bank. FDA harus Approved.');
       setMsg('Data penerimaan belum lengkap.');
       setTimeout(() => setMsg(null), 4000);
@@ -300,7 +305,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       setReceiptAmountError('Nominal IDR harus berupa angka bulat tanpa desimal.');
       return;
     }
-    if (amount > outstandingBeforeReceipt) {
+    if (amount > normalizedOutstanding) {
       setReceiptAmountError(`Nominal tidak boleh melebihi sisa tagihan ${formatJobCurrency(outstandingBeforeReceipt)}.`);
       return;
     }
