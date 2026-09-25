@@ -1,6 +1,79 @@
 export type CalculationBasis = 'PER_GRT' | 'PER_DAY' | 'LUMP_SUM' | 'PER_HOUR' | 'PER_MOVE';
 export type TariffType = 'FIXED' | 'VARIABLE' | 'RANGE';
 
+export interface TariffFormulaDescriptionInput {
+  description?: string;
+  category?: string;
+  basis?: string;
+  quantity?: number;
+  absoluteValue?: number;
+  rate?: number;
+  tariffType?: TariffType;
+}
+
+export function describeTariffService(description: string): string | undefined {
+  const source = description.toUpperCase().replace(/[_-]+/g, ' ');
+  const isFixed = source.includes('FIXED') || source.includes('FIX');
+  const isVariable = source.includes('VARIABLE') || source.includes('VAR');
+  const mode = isFixed ? 'Fixed' : isVariable ? 'Variable' : '';
+
+  if (source.includes('SHIFTING') && source.includes('PILOT')) return `Shifting Pilotage${mode ? ` ${mode}` : ''}`;
+  if (source.includes('PILOT')) return `Pilotage${mode ? ` ${mode}` : ''}`;
+  if (source.includes('TUG') || source.includes('TOW')) return `Tuggage${mode ? ` ${mode}` : ''}`;
+  if (source.includes('HARBOUR') || source.includes('HARBOR')) return 'Harbour Dues';
+  if (source.includes('LIGHT DUE') || source.includes('LIGHT')) return 'Light Dues';
+  return undefined;
+}
+
+export function describeTariffQuantityUnit(description: string): string | undefined {
+  const source = description.toUpperCase().replace(/[_-]+/g, ' ');
+  if (source.includes('SHIFTING') && source.includes('PILOT')) return 'IN/OUT';
+  if (source.includes('PILOT')) return 'IN/OUT';
+  if (source.includes('TUG') || source.includes('TOW')) return 'HRS';
+  if (source.includes('HARBOUR') || source.includes('HARBOR')) return 'Periode';
+  if (source.includes('LIGHT DUE') || source.includes('LIGHT')) return 'Periode';
+  return undefined;
+}
+
+export function describeTariffFormula({ description = '', category = '', basis = '', quantity = 1, absoluteValue, rate = 0, tariffType }: TariffFormulaDescriptionInput): string {
+  const source = `${basis} ${category} ${description}`.toUpperCase();
+  const normalizedBasis = basis.toUpperCase();
+  const normalizedCategory = category.toUpperCase().replaceAll(' ', '_');
+  const formatNumber = (value: number) => Number(value || 0).toLocaleString('id-ID', { maximumFractionDigits: 2 });
+  const quantityUnit = describeTariffQuantityUnit(description);
+  const quantityLabel = `${formatNumber(quantity)}${quantityUnit ? ` ${quantityUnit}` : ''}`;
+  const isFixed = tariffType === 'FIXED' || normalizedBasis.includes('LUMP_SUM') || source.includes('FIXED');
+  const rateLabel = Number(rate || 0).toLocaleString('id-ID', { maximumFractionDigits: 6 });
+
+  if (isFixed) {
+    return `${rateLabel} x ${quantityLabel}`;
+  }
+
+  if (normalizedCategory === 'PORT_EXPENSES') {
+    const absoluteGRT = Number(absoluteValue || 0);
+    return absoluteGRT > 0
+      ? `${formatNumber(absoluteGRT)} x ${rateLabel} x ${quantityLabel}`
+      : `- x ${rateLabel} x ${quantityLabel}`;
+  }
+
+  if (normalizedBasis.includes('PER_GRT') || source.includes('GRT') || source.includes('PORT DUES') || source.includes('BERTHING')) {
+    return `GRT x ${rateLabel} x ${quantityLabel} (minimum charge applies)`;
+  }
+  if (normalizedBasis.includes('PER_DAY') || source.includes('PER DAY') || source.includes('DAY') || source.includes('HARI')) {
+    return `Days x ${rateLabel} x ${quantityLabel} (minimum charge applies)`;
+  }
+  if (normalizedBasis.includes('PER_HOUR') || source.includes('PER HOUR') || source.includes('HOUR') || source.includes('JAM')) {
+    return `Hours x ${rateLabel} x ${quantityLabel} (minimum charge applies)`;
+  }
+  if (normalizedBasis.includes('PER_MOVE') || source.includes('PER MOVE') || source.includes('MOVE') || source.includes('SHIFT') || source.includes('PILOTAGE') || source.includes('TOWAGE')) {
+    return `Moves x ${rateLabel} x ${quantityLabel} (minimum charge applies)`;
+  }
+  if (normalizedBasis.includes('LUMP_SUM') || source.includes('LUMP') || source.includes('FIXED') || source.includes('CLEARANCE') || source.includes('AGENCY FEE')) {
+    return `Lump sum / ${rateLabel} x ${quantityLabel}`;
+  }
+  return `${rateLabel} x ${quantityLabel}`;
+}
+
 export interface TariffCalculationInput {
   vesselGRT?: number;
   estimatedDays?: number;

@@ -56,6 +56,10 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   expensesItems,
   onDataSaved,
 }) => {
+  const formatMasterRate = (value: number | undefined) => {
+    if (value === undefined || value === null || value === 0) return '-';
+    return String(value);
+  };
   const [activeTab, setActiveTab] = useState(initialTab);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -1069,8 +1073,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                       <td className="p-3.5 text-right font-mono text-slate-600">{(t.grtMax ?? t.grt) !== undefined ? (t.grtMax ?? t.grt)!.toLocaleString() : '-'}</td>
                       <td className="p-3.5 text-right font-mono text-slate-600">{t.dwt !== undefined ? t.dwt.toLocaleString() : '-'}</td>
                       <td className="p-3.5"><span className="px-2 py-0.5 rounded text-[10px] font-bold bg-violet-50 text-violet-600">{t.tariffType || (t.calculationBasis === 'LUMP_SUM' ? 'FIXED' : 'VARIABLE')}</span></td>
-                      <td className="p-3.5 text-right font-mono font-bold text-slate-700">{(t.rateIDR ?? (t.currency === 'IDR' ? t.rate : 0)) ? (t.rateIDR ?? t.rate).toLocaleString() : '-'}</td>
-                      <td className="p-3.5 text-right font-mono font-bold text-slate-700">{(t.rateUSD ?? (t.currency === 'USD' ? t.rate : 0)) ? (t.rateUSD ?? t.rate).toLocaleString() : '-'}</td>
+                      <td className="p-3.5 text-right font-mono font-bold text-slate-700">{formatMasterRate(t.rateIDR ?? (t.currency === 'IDR' ? t.rate : 0))}</td>
+                      <td className="p-3.5 text-right font-mono font-bold text-slate-700">{formatMasterRate(t.rateUSD ?? (t.currency === 'USD' ? t.rate : 0))}</td>
                       <td className="p-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button onClick={() => openMasterEditor('FIX_TARIFF', t)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500 transition" title="Edit Fix Tariff">
@@ -1118,8 +1122,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                         </span>
                       </td>
                       <td className="p-3.5"><span className="px-2 py-0.5 rounded text-[10px] font-bold bg-violet-50 text-violet-600">{e.calculationType || 'FIXED'}</span></td>
-                      <td className="p-3.5 text-right font-mono font-bold text-slate-700">{(e.rateIDR ?? (e.defaultCurrency === 'IDR' ? e.standardCostSell : 0)) ? (e.rateIDR ?? e.standardCostSell).toLocaleString('en-US') : '-'}</td>
-                      <td className="p-3.5 text-right font-mono font-bold text-slate-700">{(e.rateUSD ?? (e.defaultCurrency === 'USD' ? e.standardCostSell : 0)) ? (e.rateUSD ?? e.standardCostSell).toLocaleString('en-US') : '-'}</td>
+                      <td className="p-3.5 text-right font-mono font-bold text-slate-700">{formatMasterRate(e.rateIDR ?? (e.defaultCurrency === 'IDR' ? e.standardCostSell : 0))}</td>
+                      <td className="p-3.5 text-right font-mono font-bold text-slate-700">{formatMasterRate(e.rateUSD ?? (e.defaultCurrency === 'USD' ? e.standardCostSell : 0))}</td>
                       <td className="p-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button onClick={() => openMasterEditor('EXPENSES_ITEM', e)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500" title="Edit Expense Item"><Edit2 className="w-3.5 h-3.5"/></button>

@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { JobCall, ActualCostItem, ActiveTab, Vessel, FixTariff, ExpensesItem } from '../../types';
 import { db, buildBranchAwareFDANumber, buildBranchAwareInvoiceNumber, getCurrentBranchName, formatEPDAQuoteNoForDisplay } from '../../db/storage';
-import { calculateTariffForJob, CalculationBasis, matchesTariffGRT } from '../../utils/tariff';
+import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT } from '../../utils/tariff';
 
 interface FDAViewProps {
   initialTab?: 'DASHBOARD' | 'JOB_ID' | 'ACTUAL_COST' | 'QUOTES_VIEW' | 'APPROVAL';
@@ -297,12 +297,38 @@ export const FDAView: React.FC<FDAViewProps> = ({
   });
 
   const totalActualBuy = actualList.reduce((s, i) => s + (i.amount || 0), 0);
+  const getActualTariff = (item: ActualCostItem) => {
+    const serviceDescription = describeTariffService(item.description);
+    const normalizedName = item.description.trim().toLowerCase();
+    const masterTariff = item.category === 'PORT_EXPENSES'
+      ? fixTariffs.find((tariff) => tariff.serviceName.trim().toLowerCase() === normalizedName)
+      : undefined;
+    const masterExpense = item.category !== 'PORT_EXPENSES'
+      ? expensesItems.find((expense) => expense.name.trim().toLowerCase() === normalizedName && expense.category === item.category)
+      : undefined;
+    const masterRate = masterTariff
+      ? rateForCurrency(viewCurrency, masterTariff.rateIDR, masterTariff.rateUSD, masterTariff.rate, masterTariff.currency)
+      : masterExpense
+        ? rateForCurrency(viewCurrency, masterExpense.rateIDR, masterExpense.rateUSD, masterExpense.standardCostSell, masterExpense.defaultCurrency)
+        : undefined;
+    if (!serviceDescription) return '';
+    return describeTariffFormula({
+      description: item.description,
+      category: item.category,
+      basis: masterTariff?.calculationBasis || masterExpense?.calculationType || item.calculationBasis,
+      quantity: item.quantity,
+      absoluteValue: vesselMaster?.grt,
+      rate: masterRate ?? item.tariffRate ?? (item.quantity ? item.amount / item.quantity : item.amount),
+      tariffType: masterTariff?.tariffType || item.tariffType,
+    });
+  };
   const fdaResultRows = actualList.map((item) => ({
     id: item.id,
     category: item.category,
     description: item.description,
     amount: item.amount || 0,
     currency: item.currency || viewCurrency,
+    tariff: getActualTariff(item),
     remarks: item.remarks || '-',
   }));
   const categoryRank: Record<string, number> = {
@@ -321,11 +347,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
     OWNER_MATTER: 6,
     TAX_CONTINGENCY: 7,
   };
-  const sortedFDAResultRows = [...fdaResultRows].sort((left, right) => {
-    const rankDifference = (categoryRank[left.category] || 99) - (categoryRank[right.category] || 99);
-    return rankDifference || left.description.localeCompare(right.description);
-  });
-  const fdaResultCategories: string[] = Array.from(new Set<string>(sortedFDAResultRows.map((item) => item.category)));
+  const orderedFDAResultRows = [...fdaResultRows];
+  const fdaResultCategories: string[] = Array.from(new Set<string>(orderedFDAResultRows.map((item) => item.category)));
   const formatCategoryCost = (category: string) => {
     const labelMap: Record<string, string> = {
       PORT_EXPENSES: 'PORT EXPENSES',
@@ -487,7 +510,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
         ...it, description: normalizedDescription, category: newActual.category, vendorName: newActual.vendorName || 'Vendor / Pelindo',
         invoiceOrVoucherNo: newActual.vendorInvoiceNo || `AUTO-${Date.now()}`, quantity: quantity,
         amount: calculatedAmount, pdaAmountEstimated: quotedReferenceValue,
-        varianceAmount: calculatedAmount - quotedReferenceValue, remarks: newActual.notes,
+        varianceAmount: calculatedAmount - quotedReferenceValue, remarks: newActual.notes, tariffType: currentTariffType, calculationBasis: newActual.calculationBasis, tariffRate: actualEntryMode === 'AUTO' ? Number(newActual.rate) || 0 : actualTariff,
         attachmentName: newActual.attachmentName || it.attachmentName, status: 'APPROVED_BY_FDA' as const,
       } : it);
       setActualList(updated);
@@ -499,7 +522,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
         description: normalizedDescription, category: newActual.category, vendorName: newActual.vendorName || 'Vendor / Pelindo',
         invoiceOrVoucherNo: newActual.vendorInvoiceNo || `AUTO-${Date.now()}`, date: new Date().toISOString().slice(0, 10), quantity,
         amount: calculatedAmount, currency: viewCurrency, pdaAmountEstimated: quotedReferenceValue,
-        varianceAmount: calculatedAmount - quotedReferenceValue, remarks: newActual.notes,
+        varianceAmount: calculatedAmount - quotedReferenceValue, remarks: newActual.notes, tariffType: currentTariffType, calculationBasis: newActual.calculationBasis, tariffRate: actualEntryMode === 'AUTO' ? Number(newActual.rate) || 0 : actualTariff,
         status: 'APPROVED_BY_FDA', attachmentName: newActual.attachmentName || undefined,
       };
       const next = [...actualList, item];
@@ -566,6 +589,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
       date: new Date().toISOString().slice(0, 10),
       amount: it.totalBuyRate,
       currency: it.currency,
+      tariffType: it.tariffType,
+      calculationBasis: it.calculationBasis,
+      tariffRate: it.tariffRate ?? it.unitBuyRate,
       pdaAmountEstimated: it.totalBuyRate,
       varianceAmount: 0,
       status: 'APPROVED_BY_FDA' as const,
@@ -606,11 +632,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
     const categoryLabel = (category: string) => category.replaceAll('_', ' ');
     const amount = (value: number) => new Intl.NumberFormat(epda.currency === 'IDR' ? 'id-ID' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
     const escapeHtml = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    const sortedItems = [...epdaItems].sort((left, right) => {
-      const rankDifference = (categoryRank[left.category] || 99) - (categoryRank[right.category] || 99);
-      return rankDifference || (left.name || '').localeCompare(right.name || '');
-    });
-    const groupedItems = sortedItems.reduce<Array<{ category: string; items: any[] }>>((groups, item) => {
+    const amountHeaderLabel = `AMOUNT ${epda.currency || 'USD'}`;
+    const orderedItems = [...epdaItems];
+    const groupedItems = orderedItems.reduce<Array<{ category: string; items: any[] }>>((groups, item) => {
       const existing = groups.find((group) => group.category === item.category);
       if (existing) existing.items.push(item);
       else groups.push({ category: item.category, items: [item] });
@@ -618,21 +642,23 @@ export const FDAView: React.FC<FDAViewProps> = ({
     }, []);
 
     const rows = groupedItems.map((group) => {
-      const groupRows = group.items.map((it, idx) => `<tr class="item-row"><td>${idx + 1}</td><td>${escapeHtml(it.name || '')}</td><td style="text-align:center">${escapeHtml(it.currency || epda.currency)}</td><td style="text-align:right">${amount(it.totalSellRate || 0)}</td><td>${escapeHtml(it.remarks || '')}</td></tr>`).join('');
+      const groupRows = group.items.map((it, idx) => `<tr class="item-row"><td>${idx + 1}</td><td>${escapeHtml(it.name || '')}</td><td style="text-align:center">${escapeHtml(describeTariffFormula({ description: it.name, category: it.category, basis: it.calculationBasis || it.basis, quantity: it.quantity, absoluteValue: vesselMaster?.grt, rate: it.tariffRate ?? it.unitSellRate, tariffType: it.tariffType }))}</td><td style="text-align:right">${amount(it.totalSellRate || 0)}</td><td>${escapeHtml(it.remarks || '')}</td></tr>`).join('');
       const subtotal = group.items.reduce((sum, item) => sum + (item.totalSellRate || 0), 0);
       return `<tr style="background:#808080;color:#fff;font-weight:700;text-transform:uppercase"><td colspan="5" style="text-align:left;padding-left:0">${escapeHtml(categoryLabel(group.category))}</td></tr>${groupRows}<tr class="subtotal" style="background:#dbe8f2;font-weight:700"><td colspan="3" style="text-align:right">SUB TOTAL</td><td class="amount" style="text-align:right">${amount(subtotal)}</td><td></td></tr>`;
     }).join('');
 
     const total = groupedItems.reduce((sum, group) => sum + group.items.reduce((inner, item) => inner + (item.totalSellRate || 0), 0), 0);
+    const dynamicTableHeader = `<th style="width:5%">NO.</th><th style="width:20%">DESCRIPTION</th><th style="width:35%">TARIFF</th><th style="width:12%">${amountHeaderLabel}</th><th style="width:28%">REMARKS</th>`;
 
     return `<!doctype html><html><head><meta charset="utf-8"><title>${epdaNo}</title><style>@page{size:A4;margin:14mm}body{font-family:Arial,sans-serif;color:#172033;font-size:11px}.brand-row{text-align:center;margin-bottom:10px}.brand-wrap{display:inline-flex;align-items:center;gap:14px;text-align:left}.logo{width:76px;height:58px;object-fit:contain}.brand{font-weight:700;font-size:21px;line-height:1.15}.tag{color:#666;font-size:13px;margin-top:5px}h2{text-align:center;background:#182a50;color:white;padding:8px;font-size:13px;margin:18px 0 12px}.meta{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px 34px;margin-bottom:12px}.meta-col{display:flex;flex-direction:column;gap:4px}.meta-col.right{justify-self:stretch}.meta-row{display:grid;grid-template-columns:125px 10px minmax(0,1fr);line-height:1.35}.meta-row .label{font-weight:700}.meta-row .colon{text-align:center}.meta-col.right .meta-row{grid-template-columns:85px 10px minmax(0,1fr)}table{width:100%;border-collapse:collapse}th,td{border:1px solid #777;padding:6px 7px}th{background:#e8ecf2;text-align:left}.grand{font-weight:700}.sign{margin-top:34px;text-align:right}.footer{position:fixed;bottom:0;width:100%;text-align:center;font-size:8px;color:#666}</style></head><body><div class="brand-row"><div class="brand-wrap"><img class="logo" src="/lenteraglobalmaritim/lgm-logo.png" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div><h2>ESTIMATE PORT DISBURSEMENT OF ACCOUNT</h2><div class="meta"><div class="meta-col"><div class="meta-row"><span class="label">No.</span><span class="colon">:</span><span>${epdaNo}</span></div><div class="meta-row"><span class="label">Date Inquiry</span><span class="colon">:</span><span>${new Date(activeJob.inquiry?.date || activeJob.createdAt).toLocaleDateString('id-ID')}</span></div><div class="meta-row"><span class="label">Principal</span><span class="colon">:</span><span>${escapeHtml(activeJob.customerName)}</span></div><div class="meta-row"><span class="label">Job/Vessel Call ID</span><span class="colon">:</span><span>${activeJob.jobId}</span></div></div><div class="meta-col right"><div class="meta-row"><span class="label">Port</span><span class="colon">:</span><span>${escapeHtml(activeJob.portName)}</span></div><div class="meta-row"><span class="label">Vessel</span><span class="colon">:</span><span>${escapeHtml(activeJob.vesselName)}</span></div><div class="meta-row"><span class="label">ETA</span><span class="colon">:</span><span>${escapeHtml(activeJob.eta || '')}</span></div><div class="meta-row"><span class="label">GRT</span><span class="colon">:</span><span>${escapeHtml(activeJob.grt || activeJob.inquiry?.quantity || '')}</span></div></div></div><table><thead><tr><th style="width:7%">NO.</th><th>DESCRIPTION</th><th style="width:20%">AMOUNT IDR</th><th style="width:20%">REMARKS</th></tr></thead><tbody>${rows}<tr class="grand"><td colspan="2" style="text-align:right">GRAND TOTAL</td><td style="text-align:right">${amount(total)}</td><td></td></tr></tbody></table><div class="sign"><div>Banjarjarmasin, ${new Date().toLocaleDateString('id-ID')}</div><div style="margin-top:16px">PT. Lentera Global Maritim</div></div><div class="footer">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span class="contact" style="color:#dc2626;text-decoration:underline">email : <a style="color:#dc2626" href="mailto:maritim@lentera-global.com">maritim@lentera-global.com</a> / web : <span style="color:#dc2626">www.lentera-global.com</span></span></div></body></html>`;
   };
 
   const previewEPDA = () => {
     const vessel = vessels.find((item) => item.id === activeJob.vesselId);
+    const dynamicTableHeader = `<th style="width:5%">NO.</th><th style="width:20%">DESCRIPTION</th><th style="width:35%">TARIFF</th><th style="width:12%">AMOUNT ${viewCurrency}</th><th style="width:28%">REMARKS</th>`;
     const inquiryMeta = `<div class="meta"><div class="meta-col"><div class="meta-row"><span class="label">No EPDA</span><span class="colon">:</span><span>${fdaEpdaDisplayNo}</span></div><div class="meta-row"><span class="label">Date Inquiry</span><span class="colon">:</span><span>${new Date(activeJob.inquiry?.date || activeJob.createdAt).toLocaleDateString('id-ID')}</span></div><div class="meta-row"><span class="label">Principal</span><span class="colon">:</span><span>${activeJob.customerName}</span></div><div class="meta-row"><span class="label">GRT</span><span class="colon">:</span><span>${vessel?.grt?.toLocaleString('id-ID') || '-'}</span></div><div class="meta-row"><span class="label">Port</span><span class="colon">:</span><span>${activeJob.portName}</span></div><div class="meta-row"><span class="label">ETA</span><span class="colon">:</span><span>${activeJob.eta || '-'}</span></div></div><div class="meta-col right"><div class="meta-row"><span class="label">Vessel</span><span class="colon">:</span><span>${activeJob.vesselName}</span></div><div class="meta-row"><span class="label">Estimated Day</span><span class="colon">:</span><span>${activeJob.inquiry?.estimatedDays || '-'}</span></div><div class="meta-row"><span class="label">Flag</span><span class="colon">:</span><span>${vessel?.flag || '-'}</span></div><div class="meta-row"><span class="label">Cargo Details</span><span class="colon">:</span><span>${activeJob.inquiry?.cargoDetails || '-'}</span></div><div class="meta-row"><span class="label">IMO</span><span class="colon">:</span><span>${vessel?.imoNumber || '-'}</span></div></div></div>`;
-    const compactHtml = buildEPDAHtml().replace('</style>', '@page{size:A4;margin:7mm}body{font-size:9px}.brand-row{margin-bottom:5px}.brand-wrap{min-height:55px;gap:10px}.logo{width:70px;height:52px}.brand{font-size:17px}.tag{font-size:10px;margin-top:2px}h2{font-size:10px;padding:4px;margin:5px 0 7px}.meta{gap:1px 20px;margin-bottom:6px}.meta-col{gap:1px}.meta-row{line-height:1.15}.meta-row .label{font-size:9px}table{page-break-inside:avoid;table-layout:fixed}table th:first-child,table td:first-child{width:5%}table th:nth-child(2),table td:nth-child(2){width:38%}table th:nth-child(3),table td:nth-child(3){width:12%}table th:nth-child(4),table td:nth-child(4){width:17%}table th:nth-child(5),table td:nth-child(5){width:28%}tr{page-break-inside:avoid}th,td{padding:3px 4px;font-size:8px}.bank{margin-top:10px;padding:5px;font-size:7px;line-height:1.2}.footer{margin-top:7px;font-size:8px;line-height:1.2}</style>')
-      .replace('<th style="width:7%">NO.</th><th>DESCRIPTION</th><th style="width:20%">AMOUNT IDR</th><th style="width:20%">REMARKS</th>', '<th style="width:5%">NO.</th><th>DESCRIPTION</th><th style="width:8%">CURRENCY</th><th style="width:17%">AMOUNT</th><th style="width:28%">REMARKS</th>')
+    const compactHtml = buildEPDAHtml().replaceAll('>CURRENCY<', '>TARIFF<').replace('</style>', '@page{size:A4;margin:7mm}body{font-size:9px}.brand-row{margin-bottom:5px}.brand-wrap{min-height:55px;gap:10px}.logo{width:70px;height:52px}.brand{font-size:17px}.tag{font-size:10px;margin-top:2px}h2{font-size:10px;padding:4px;margin:5px 0 7px}.meta{gap:1px 20px;margin-bottom:6px}.meta-col{gap:1px}.meta-row{line-height:1.15}.meta-row .label{font-size:9px}table{page-break-inside:avoid;table-layout:fixed}table th:first-child,table td:first-child{width:5%}table th:nth-child(2),table td:nth-child(2){width:38%}table th:nth-child(3),table td:nth-child(3){width:12%}table th:nth-child(4),table td:nth-child(4){width:17%}table th:nth-child(5),table td:nth-child(5){width:28%}tr{page-break-inside:avoid}th,td{padding:3px 4px;font-size:8px}.bank{margin-top:10px;padding:5px;font-size:7px;line-height:1.2}.footer{margin-top:7px;font-size:8px;line-height:1.2}</style>')
+      .replace('<th style="width:7%">NO.</th><th>DESCRIPTION</th><th style="width:20%">AMOUNT IDR</th><th style="width:20%">REMARKS</th>', dynamicTableHeader)
       .replace('<tr class="grand"><td colspan="2" style="text-align:right">GRAND TOTAL</td><td style="text-align:right">', '<tr class="grand"><td colspan="3" style="text-align:right">GRAND TOTAL</td><td style="text-align:right">')
       .replace(/<div class="sign">[\s\S]*?<\/div>/, '')
       .replace(/<div class="meta">[\s\S]*?(?=<table(?:\s|>))/i, inquiryMeta)
@@ -659,13 +685,14 @@ export const FDAView: React.FC<FDAViewProps> = ({
       return acc;
     }, {});
     const grandCurrency = actualList[0]?.currency || viewCurrency || 'USD';
+    const amountHeaderLabel = `AMOUNT ${grandCurrency}`;
 
     const groupHtml = categoryOrder.map((category) => {
       const rows = groups[category] || [];
       const subtotal = rows.reduce((sum, it) => sum + (it.amount || 0), 0);
       const currency = rows[0]?.currency || 'USD';
       const safeCategory = String(category ?? 'UNKNOWN');
-      return `<tr class="section"><td colspan="5">${safeCategory.replace(/_/g, ' ')}</td></tr>${rows.map((it, i) => `<tr class="item-row"><td style="text-align:center">${i + 1}</td><td>${it.description}</td><td style="text-align:center">${it.currency || grandCurrency}</td><td style="text-align:right">${formatMoney(it.amount, it.currency || 'USD')}</td><td>${it.remarks || ''}</td></tr>`).join('')}<tr class="subtotal"><td colspan="3" style="text-align:right">SUB TOTAL</td><td class="amount" style="text-align:right">${formatMoney(subtotal, currency)}</td><td></td></tr>`;
+      return `<tr class="section"><td colspan="5">${safeCategory.replace(/_/g, ' ')}</td></tr>${rows.map((it, i) => `<tr class="item-row"><td style="text-align:center">${i + 1}</td><td>${it.description}</td><td style="text-align:center">${getActualTariff(it)}</td><td style="text-align:right">${formatMoney(it.amount, it.currency || 'USD')}</td><td>${it.remarks || ''}</td></tr>`).join('')}<tr class="subtotal"><td colspan="3" style="text-align:right">SUB TOTAL</td><td class="amount" style="text-align:right">${formatMoney(subtotal, currency)}</td><td></td></tr>`;
     }).join('');
 
     const rowMeta = `<div><b>Date</b> : ${activeJob.fda?.date || new Date().toLocaleDateString('id-ID')}</div><div><b>Number</b> : ${fdaNo}</div><div><b>To</b> : ${activeJob.customerName}</div><div><b>Vessel</b> : ${activeJob.vesselName}</div><div><b>TA / TD</b> : ${activeJob.eta}</div><div><b>Port</b> : ${activeJob.portName}</div><div><b>Job ID</b> : ${activeJob.jobId}</div><div><b>Next Port</b> : -</div>`;
@@ -675,10 +702,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   const buildFDAHtmlSalesTemplate = (print: boolean) => {
     const escape = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    const orderedActualList = [...actualList].sort((left, right) => {
-      const rankDifference = (categoryRank[left.category || 'UNKNOWN'] || 99) - (categoryRank[right.category || 'UNKNOWN'] || 99);
-      return rankDifference || left.description.localeCompare(right.description);
-    });
+    const orderedActualList = [...actualList];
     const categories = Array.from(new Set(orderedActualList.map((item) => item.category || 'UNKNOWN')));
     const groups = categories.map((category) => ({ category, items: orderedActualList.filter((item) => (item.category || 'UNKNOWN') === category) }));
     const money = (value: number, currency: 'USD' | 'IDR') => currency === 'IDR'
@@ -686,7 +710,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       : new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
     const rows = groups.map((group) => {
       const subtotal = group.items.reduce((sum, item) => sum + (item.amount || 0), 0);
-      return `<tr class="section"><td colspan="5">${escape(formatCategoryCost(String(group.category)))}</td></tr>${group.items.map((item, index) => { const currency = (item.currency || viewCurrency) as 'USD' | 'IDR'; return `<tr class="item-row"><td>${index + 1}</td><td>${escape(item.description)}</td><td>${escape(currency)}</td><td class="amount">${money(item.amount || 0, currency)}</td><td>${escape(item.remarks || '')}</td></tr>`; }).join('')}<tr class="subtotal"><td colspan="3">SUBTOTAL</td><td class="amount">${money(subtotal, (group.items[0]?.currency || viewCurrency) as 'USD' | 'IDR')}</td><td></td></tr>`;
+      return `<tr class="section"><td colspan="5">${escape(formatCategoryCost(String(group.category)))}</td></tr>${group.items.map((item, index) => { const currency = (item.currency || viewCurrency) as 'USD' | 'IDR'; return `<tr class="item-row"><td>${index + 1}</td><td>${escape(item.description)}</td><td>${escape(getActualTariff(item))}</td><td class="amount">${money(item.amount || 0, currency)}</td><td>${escape(item.remarks || '')}</td></tr>`; }).join('')}<tr class="subtotal"><td colspan="3">SUBTOTAL</td><td class="amount">${money(subtotal, (group.items[0]?.currency || viewCurrency) as 'USD' | 'IDR')}</td><td></td></tr>`;
     }).join('');
     const total = actualList.reduce((sum, item) => sum + (item.amount || 0), 0);
     const vessel = vessels.find((item) => item.id === activeJob.vesselId);
@@ -712,7 +736,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     return `<!doctype html><html><head><meta charset="utf-8"><title>${fdaNo}</title><style>@page{size:A4;margin:10mm}body{font-family:Arial,sans-serif;color:#172033;font-size:10px}.brand{text-align:center;margin-bottom:8px}.brand-wrap{display:inline-flex;align-items:center;gap:12px;text-align:left}.logo{width:78px;height:58px;object-fit:contain}.brand-name{font-size:20px;font-weight:700;color:#3562a8}.tagline{font-size:11px;color:#3562a8;margin-top:3px}.divider{border-bottom:2px solid #315db2;margin:6px 0 10px}.title-block{margin:0 0 8px}.title-block h2{margin:0;background:#214f84;color:#fff;text-align:center;padding:5px;font-size:12px}.meta{display:grid;grid-template-columns:1fr 1fr;gap:2px 28px;margin-bottom:9px}.meta-col{display:flex;flex-direction:column;gap:2px}.meta-row{display:grid;grid-template-columns:105px 8px minmax(0,1fr);line-height:1.25}.right .meta-row{grid-template-columns:82px 8px minmax(0,1fr)}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #9ca3af;padding:4px 5px}th{background:#dbe8f2;text-align:center;font-size:9px}th:nth-child(1),td:nth-child(1){width:5%;text-align:center}th:nth-child(2),td:nth-child(2){width:42%;text-align:left}th:nth-child(3),td:nth-child(3){width:8%;text-align:center}th:nth-child(4),td:nth-child(4){width:17%;text-align:right;white-space:nowrap}th:nth-child(5),td:nth-child(5){width:28%;text-align:left}.section td{background:#808080;color:#fff;font-weight:700;text-align:left;text-transform:uppercase}.subtotal{background:#dbe8f2;font-weight:700}.grand{background:#dbe8f2;color:#f00;font-weight:800}.amount{text-align:right;white-space:nowrap}.bank{display:inline-block;width:42%;margin-top:16px;border:1px solid #777;padding:8px;font-size:8px;line-height:1.3;vertical-align:top}.signature{display:inline-block;width:42%;margin:16px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.footer{margin-top:16px;text-align:center;font-size:9px;line-height:1.35;font-weight:600}.footer span{color:#e11d48;text-decoration:underline}</style></head><body><div class="brand"><div class="brand-wrap"><img class="logo" src="/lenteraglobalmaritim/lgm-logo.png"><div><div class="brand-name">PT Lentera Global Maritim</div><div class="tagline">Seamless Agent, Global Reach</div></div></div></div><h2>FINAL DISBURSEMENT ACCOUNT</h2><div class="meta"><div class="meta-col"><div class="meta-row"><b>No FDA</b><span>:</span><span>${escape(fdaNo)}</span></div><div class="meta-row"><b>Date Inquiry</b><span>:</span><span>${escape(activeJob.inquiry?.date || '-')}</span></div><div class="meta-row"><b>Principal</b><span>:</span><span>${escape(activeJob.customerName)}</span></div><div class="meta-row"><b>GRT</b><span>:</span><span>${vessel?.grt?.toLocaleString('id-ID') || '-'}</span></div><div class="meta-row"><b>Port</b><span>:</span><span>${escape(activeJob.portName)}</span></div><div class="meta-row"><b>ETA</b><span>:</span><span>${escape(activeJob.eta || '-')}</span></div></div><div class="meta-col right"><div class="meta-row"><b>Vessel</b><span>:</span><span>${escape(activeJob.vesselName)}</span></div><div class="meta-row"><b>Estimated Day</b><span>:</span><span>${activeJob.inquiry?.estimatedDays || '-'}</span></div><div class="meta-row"><b>Flag</b><span>:</span><span>${escape(vessel?.flag || '-')}</span></div><div class="meta-row"><b>Cargo Details</b><span>:</span><span>${escape(activeJob.inquiry?.cargoDetails || '-')}</span></div><div class="meta-row"><b>IMO</b><span>:</span><span>${escape(vessel?.imoNumber || '-')}</span></div></div></div><table><thead><tr><th>NO.</th><th>DESCRIPTION</th><th>CURRENCY</th><th>AMOUNT</th><th>REMARKS</th></tr></thead><tbody>${rows}<tr class="grand"><td colspan="3">GRAND TOTAL</td><td class="amount">${money(total, viewCurrency)}</td><td></td></tr></tbody></table><div class="bank">Please kindly remit to our Bank Account<br>Bank Account Detail of PT. Lentera Global Maritim asf:<br><br><b>BANK NEGARA INDONESIA (Persero) Tbk</b><br>Address: BNI Bidakara<br>Jl. Gatot Subroto Kav 71-73, RT.12/RW.5, Tebet Timur,<br>Kec. Tebet, Kota Jakarta Selatan, DKI Jakarta 12820<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number : 2824-1212-69</b><br><b>Swift Code Bank : BNIIDNAXXX</b></div><div class="signature">Sincerely,<br>PT. Lentera Global Maritim<br><br><br>Finance</div><div class="footer">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span>email : maritim@lentera-global.com / web : www.lentera-global.com</span></div></body></html>`;
   };
 
-  const normalizeFDAExportLayout = (html: string) => html.replace('</style>', 'h2{background:#28598e!important;color:#fff!important;text-align:center!important}.section td{background:#566270!important;color:#fff!important}.subtotal,.grand{background:#dbe8f2!important}.grand{color:#f00!important}.bank,.signature{box-sizing:border-box}</style>');
+  const normalizeFDAExportLayout = (html: string) => html.replaceAll('>CURRENCY<', '>TARIFF<').replace('</style>', 'h2{background:#28598e!important;color:#fff!important;text-align:center!important}.section td{background:#566270!important;color:#fff!important}.subtotal,.grand{background:#dbe8f2!important}.grand{color:#f00!important}.bank,.signature{box-sizing:border-box}table th:nth-child(2),table td:nth-child(2){width:20%!important}table th:nth-child(3),table td:nth-child(3){width:35%!important;text-align:left!important;white-space:nowrap}table th:nth-child(4),table td:nth-child(4){width:12%!important;white-space:nowrap}</style>');
 
   const openFDAWindow = (print = false) => {
     const onePageHtml = buildFDAHtmlSalesTemplate(false).replace('</style>', '@page{size:A4;margin:14mm}body{font-size:9px}.brand-row{margin:0 0 2px}.brand-wrap{min-height:48px;gap:10px}.logo{width:70px;height:52px}.brand{font-size:17px}.tag{font-size:10px;margin-top:2px}h2{font-size:10px;padding:4px;margin:2px 0 4px}.meta{gap:1px 20px;margin-bottom:3px}.meta-col{gap:1px}.meta-row{line-height:1.15}.meta-row .label{font-size:9px}table{page-break-inside:avoid;table-layout:fixed}table th:first-child,table td:first-child{width:5%}table th:nth-child(2),table td:nth-child(2){width:42%}table th:nth-child(3),table td:nth-child(3){width:8%}table th:nth-child(4),table td:nth-child(4){width:17%}table th:nth-child(5),table td:nth-child(5){width:28%}tr{page-break-inside:avoid}th,td{padding:3px 4px;font-size:8px}.subtotal td:first-child,.grand td:first-child{font-weight:700;text-align:right!important}.subtotal td.amount,.grand td.amount,.subtotal td:nth-child(2),.grand td:nth-child(2){font-variant-numeric:tabular-nums;text-align:right!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}.section td{padding-left:0!important}.bank{display:inline-block;width:42%;margin-top:24px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.office-footer{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center;font-size:8px;line-height:1.2;font-weight:600;color:#111;z-index:3}.office-footer span{color:#e11d48;text-decoration:underline}</style>');
@@ -766,8 +790,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
   };
 
   const downloadFDAExcel = () => {
-    const rows = actualList.map((it,i)=>[i+1,it.description,it.currency || viewCurrency,it.amount,it.vendorName || '']);
-    const text = [['NO','DESCRIPTION','CURRENCY','AMOUNT','REMARKS'],...rows,['','','GRAND TOTAL',totalActualBuy,'']].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join('\t')).join('\n');
+    const rows = actualList.map((it, i) => [i + 1, it.description, getActualTariff(it), it.amount, it.vendorName || '']);
+    const text = [['NO','DESCRIPTION','TARIFF','AMOUNT','REMARKS'],...rows,['','','GRAND TOTAL',totalActualBuy,'']].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join('\t')).join('\n');
     const blob=new Blob([text],{type:'application/vnd.ms-excel;charset=utf-8'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`${fdaNo.replaceAll('/','-')}.xls`; a.click(); URL.revokeObjectURL(url);
   };
 
@@ -1320,8 +1344,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
                   <tr>
                     <th className="p-3.5 border-l border-slate-700">No</th>
                     <th className="p-3.5 border-l border-slate-700">Description</th>
-                    <th className="p-3.5 border-l border-slate-700">Currency</th>
-                    <th className="p-3.5 text-right border-l border-slate-700">Amount</th>
+                    <th className="p-3.5 border-l border-slate-700">Tariff</th>
+                    <th className="p-3.5 text-right border-l border-slate-700">Amount ({viewCurrency})</th>
                     <th className="p-3 border-l border-slate-700 text-center">Remark</th>
                   </tr>
                 </thead>
@@ -1331,7 +1355,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                       <td colSpan={5} className="p-5 text-center text-slate-400">Belum ada item biaya final FDA.</td>
                     </tr>
                   ) : fdaResultCategories.map((category) => {
-                    const categoryRows = sortedFDAResultRows.filter((item) => item.category === category);
+                    const categoryRows = orderedFDAResultRows.filter((item) => item.category === category);
                     const categoryAmountTotal = categoryRows.reduce((sum, item) => sum + item.amount, 0);
                     const categoryCurrency = categoryRows[0]?.currency || viewCurrency;
                     return (
@@ -1345,7 +1369,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                           <tr key={it.id} className="transition-colors hover:bg-slate-700/40">
                             <td className="border-l border-slate-800 p-3.5 font-mono text-slate-300">{idx + 1}</td>
                             <td className="border-l border-slate-800 p-3.5 font-bold text-white">{it.description}</td>
-                            <td className="border-l border-slate-800 p-3.5 font-mono uppercase text-cyan-300">{it.currency}</td>
+                            <td className="border-l border-slate-800 p-3.5 font-mono text-cyan-300">{it.tariff}</td>
                             <td className="border-l border-slate-800 p-3.5 text-right font-mono font-bold text-white">
                               {it.currency === 'IDR'
                                 ? formatAccountingNumber(it.amount, 'IDR')
@@ -1435,7 +1459,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                 <div><label className="mb-1 block text-slate-600">QTY</label><input type="number" min="1" value={actualQuantity} onChange={(e) => setActualQuantity(Math.max(1, Number(e.target.value) || 1))} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>
                 <div className="lg:col-span-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                   <div><label className="mb-1 block text-slate-600">Tarif ({viewCurrency})</label><input readOnly value={formatAccountingNumber(autoTariffPreview, viewCurrency)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
-                  <div><label className="mb-1 block text-slate-600">Amount</label><input readOnly value={formatAccountingNumber(actualAmount, viewCurrency)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
+                  <div><label className="mb-1 block text-slate-600">Amount ({viewCurrency})</label><input readOnly value={formatAccountingNumber(actualAmount, viewCurrency)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
                 </div>
                 <div className="lg:col-span-6"><label className="mb-1 block text-slate-600">Remark</label><input value={newActual.notes} onChange={(e) => setNewActual({ ...newActual, notes: e.target.value })} placeholder="Keterangan tambahan" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none" /></div>
               </div>
@@ -1446,7 +1470,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                 <div><label className="mb-1 block text-slate-600">Type</label><select value={newActual.tariffType} onChange={(e) => setNewActual({ ...newActual, tariffType: e.target.value as 'FIXED' | 'VARIABLE' | 'RANGE' })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="RANGE">Range</option></select></div>
                 <div><label className="mb-1 block text-slate-600">QTY</label><input type="number" min="1" value={actualQuantity} onChange={(e) => setActualQuantity(Math.max(1, Number(e.target.value) || 1))} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>
                 <div><label className="mb-1 block text-slate-600">Tarif ({viewCurrency})</label><input type="text" inputMode="decimal" value={formatTariffInput(newActual.amountBuy)} onChange={(e) => setNewActual({ ...newActual, amountBuy: parseTariffInput(e.target.value) })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>
-                <div><label className="mb-1 block text-slate-600">Amount</label><input readOnly value={formatAccountingNumber(actualAmount, viewCurrency)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
+                <div><label className="mb-1 block text-slate-600">Amount ({viewCurrency})</label><input readOnly value={formatAccountingNumber(actualAmount, viewCurrency)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
                 <div className="lg:col-span-6"><label className="mb-1 block text-slate-600">Remark</label><input value={newActual.notes} onChange={(e) => setNewActual({ ...newActual, notes: e.target.value })} placeholder="Keterangan tambahan" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none" /></div>
               </div>
             )}

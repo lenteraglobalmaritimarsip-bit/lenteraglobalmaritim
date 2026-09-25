@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { FileSpreadsheet, Plus, Trash2, Save, Ship, Building, CheckCircle2, Download, Printer, Eye, Send } from 'lucide-react';
 import { JobCall, DisbursementItem, Currency, User, Vessel, FixTariff, ExpensesItem } from '../../types';
 import { db, getCurrentBranchName, buildBranchAwareEPDANumber } from '../../db/storage';
-import { calculateTariffForJob, CalculationBasis, matchesTariffGRT } from '../../utils/tariff';
+import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT } from '../../utils/tariff';
 
 interface QuotesEPDAViewProps {
   job?: JobCall;
@@ -325,6 +325,9 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       totalBuyRate: calculatedAmount,
       totalSellRate: calculatedAmount,
       currency: viewCurrency,
+      tariffType: selectedType,
+      calculationBasis: selectedBasis,
+      tariffRate: itemEntryMode === 'AUTO' ? autoRate : manualRate,
       remarks: newItem.remarks,
     };
 
@@ -353,26 +356,6 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     setTimeout(() => setIsSaved(false), 3500);
   };
 
-  const categoryRank: Record<string, number> = {
-    PORT_EXPENSES: 1,
-    PORT_DUES: 1,
-    BERTHING: 1,
-    PILOTAGE_TOWAGE: 1,
-    CLEARANCE: 2,
-    IMMIGRATION_CUSTOMS: 2,
-    GENERAL_EXPENSES: 3,
-    LOGISTICS_SUPPLIES: 3,
-    SUNDRY: 3,
-    CREW_EXPENSES: 4,
-    CREW_CHANGE: 4,
-    AGENCY_FEE: 5,
-    TAX_CONTINGENCY: 6,
-    OWNER_MATTER: 7,
-  };
-  const sortedItems = [...items].sort((left, right) => {
-    const rankDifference = (categoryRank[left.category] || 99) - (categoryRank[right.category] || 99);
-    return rankDifference || left.name.localeCompare(right.name);
-  });
   const categoryLabel = (category: string) => {
     const map: Record<string, string> = {
       PORT_EXPENSES: 'PORT EXPENSES',
@@ -388,12 +371,37 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     return map[category] || category.replaceAll('_', ' ');
   };
   const categoryTone = { screen: 'bg-slate-600 text-white', background: '#4b5563' };
-  const groupedItems = sortedItems.reduce<Array<{ category: string; items: DisbursementItem[] }>>((groups, item) => {
+  const groupedItems = items.reduce<Array<{ category: string; items: DisbursementItem[] }>>((groups, item) => {
     const existing = groups.find((group) => group.category === item.category);
     if (existing) existing.items.push(item);
     else groups.push({ category: item.category, items: [item] });
     return groups;
   }, []);
+  const getItemTariff = (item: DisbursementItem) => {
+    const serviceDescription = describeTariffService(item.name);
+    const normalizedName = item.name.trim().toLowerCase();
+    const masterTariff = item.category === 'PORT_EXPENSES'
+      ? fixTariffs.find((tariff) => tariff.serviceName.trim().toLowerCase() === normalizedName)
+      : undefined;
+    const masterExpense = item.category !== 'PORT_EXPENSES'
+      ? expensesItems.find((expense) => expense.name.trim().toLowerCase() === normalizedName && expense.category === item.category)
+      : undefined;
+    const masterRate = masterTariff
+      ? rateForCurrency(viewCurrency, masterTariff.rateIDR, masterTariff.rateUSD, masterTariff.rate, masterTariff.currency)
+      : masterExpense
+        ? rateForCurrency(viewCurrency, masterExpense.rateIDR, masterExpense.rateUSD, masterExpense.standardCostSell, masterExpense.defaultCurrency)
+        : undefined;
+    if (!serviceDescription) return '';
+    return describeTariffFormula({
+      description: item.name,
+      category: item.category,
+      basis: masterTariff?.calculationBasis || item.calculationBasis || item.basis,
+      quantity: item.quantity,
+      absoluteValue: vesselMaster?.grt,
+      rate: masterRate ?? item.tariffRate ?? item.unitSellRate,
+      tariffType: masterTariff?.tariffType || item.tariffType,
+    });
+  };
   const escapeHtml = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const getBankFooterByCurrency = (currency: Currency) => currency === 'USD'
     ? '<div class="bank"><div>Please kindly remit to our Bank Account</div><div>Bank Account Detail of PT. Lentera Global Maritim asf:</div><br><b>BANK MANDIRI (Persero) Tbk</b><br>Address:<br>BANK MANDIRI TEBET SUPOMO<br>Jl. Prof. Dr.Supomo SH No 43, Tebet, RT.04/RW.03<br>Tebet barat , Kec. Tebet, Kota Jakarta Selatan,<br>Daerah Khusus Ibukota Jakarta 12810<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number (USD) : 120-00-5575599-0</b><br><b>Swift Code Bank : BMRIIDJAXXX</b></div><div class="signature">Sincerely,<br>PT. Lentera Global Maritim<br><br><br>Finance</div>'
@@ -413,18 +421,19 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     .replace(/<\/body>/i, `${printFooter}${officeFooter}</body>`);
 
   const formatExportTable = (html: string) => html
-    .replace(/<thead><tr>[\s\S]*?<\/tr><\/thead>/g, '<thead><tr><th>NO.</th><th>DESCRIPTION</th><th>CURRENCY</th><th>AMOUNT</th><th>REMARKS</th></tr></thead>')
+    .replace(/<thead><tr>[\s\S]*?<\/tr><\/thead>/g, `<thead><tr><th>NO.</th><th>DESCRIPTION</th><th>TARIFF</th><th>AMOUNT ${viewCurrency}</th><th>REMARKS</th></tr></thead>`)
     .replaceAll('<table>', '<table style="width:100%;table-layout:fixed">')
     .replaceAll('<tr class="grand"><td colspan="2"', '<tr class="grand"><td colspan="3"')
-    .replaceAll('</style>', 'table{table-layout:fixed!important}table th,table td{box-sizing:border-box!important}table th:nth-child(1),table td:nth-child(1){width:5%!important}table th:nth-child(2),table td:nth-child(2){width:42%!important}table th:nth-child(3),table td:nth-child(3){width:8%!important}table th:nth-child(4),table td:nth-child(4){width:17%!important}table th:nth-child(5),table td:nth-child(5){width:28%!important}table th{text-align:center!important}table td:nth-child(1),table td:nth-child(3){text-align:center!important}table td:nth-child(2),table td:nth-child(5){text-align:left!important}table td:nth-child(4){text-align:right!important;white-space:nowrap}table tr[style*="background:#4b5563"] td:first-child{padding-left:0!important;text-align:left!important}table tr.subtotal td:first-child,table tr.grand td:first-child{font-weight:700;text-align:right!important}table tr.subtotal td.amount,table tr.grand td.amount,table tr.subtotal td:nth-child(2),table tr.grand td:nth-child(2){font-variant-numeric:tabular-nums;text-align:right!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}.sign{display:none!important}</style>')
+    .replaceAll('</style>', 'table{table-layout:fixed!important}table th,table td{box-sizing:border-box!important}table th:nth-child(1),table td:nth-child(1){width:5%!important}table th:nth-child(2),table td:nth-child(2){width:20%!important}table th:nth-child(3),table td:nth-child(3){width:35%!important}table th:nth-child(4),table td:nth-child(4){width:12%!important}table th:nth-child(5),table td:nth-child(5){width:28%!important}table th{text-align:center!important}table th:nth-child(3),table td:nth-child(3){text-align:left!important;white-space:nowrap}table td:nth-child(1){text-align:center!important}table td:nth-child(2),table td:nth-child(5){text-align:left!important}table td:nth-child(4){text-align:right!important;white-space:nowrap}table tr[style*="background:#4b5563"] td:first-child{padding-left:0!important;text-align:left!important}table tr.subtotal td:first-child,table tr.grand td:first-child{font-weight:700;text-align:right!important}table tr.subtotal td.amount,table tr.grand td.amount,table tr.subtotal td:nth-child(2),table tr.grand td:nth-child(2){font-variant-numeric:tabular-nums;text-align:right!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}.sign{display:none!important}</style>')
     .replace(/<div class="sign">[\s\S]*?<\/div>/, '');
 
   const buildDocument = () => {
     const amount = (value: number) => viewCurrency === 'IDR'
       ? new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(value)
       : new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+    const amountHeaderLabel = `AMOUNT ${viewCurrency}`;
     const rows = groupedItems.map((group) => {
-      const groupRows = group.items.map((it, index) => `<tr class="item-row"><td>${index + 1}</td><td>${escapeHtml(it.name)}</td><td>${escapeHtml(it.currency || viewCurrency)}</td><td style="text-align:right">${amount(it.totalSellRate)}</td><td>${escapeHtml(it.remarks || '')}</td></tr>`).join('');
+      const groupRows = group.items.map((it, index) => `<tr class="item-row"><td>${index + 1}</td><td>${escapeHtml(it.name)}</td><td>${escapeHtml(getItemTariff(it))}</td><td style="text-align:right">${amount(it.totalSellRate)}</td><td>${escapeHtml(it.remarks || '')}</td></tr>`).join('');
       const subtotal = group.items.reduce((sum, item) => sum + item.totalSellRate, 0);
       return `<tr style="background:${categoryTone.background};color:#fff;font-weight:700;text-transform:uppercase"><td colspan="5" style="text-align:left;padding-left:0">${escapeHtml(categoryLabel(group.category))}</td></tr>${groupRows}<tr class="subtotal" style="background:#f1f3f6;font-weight:700"><td colspan="3" style="text-align:right">SUBTOTAL</td><td class="amount" style="text-align:right">${amount(subtotal)}</td><td></td></tr>`;
     }).join('');
@@ -437,7 +446,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     const inquiryMeta = `<div class="meta"><div class="meta-col"><div class="meta-row"><span class="label">No EPDA</span><span class="colon">:</span><span>${epdaNo}</span></div><div class="meta-row"><span class="label">Date Inquiry</span><span class="colon">:</span><span>${formatDate(job.inquiry.date)}</span></div><div class="meta-row"><span class="label">Principal</span><span class="colon">:</span><span>${escapeHtml(job.customerName)}</span></div><div class="meta-row"><span class="label">GRT</span><span class="colon">:</span><span>${vesselMaster?.grt?.toLocaleString('id-ID') || '-'}</span></div><div class="meta-row"><span class="label">Port</span><span class="colon">:</span><span>${escapeHtml(job.portName)}</span></div><div class="meta-row"><span class="label">ETA</span><span class="colon">:</span><span>${escapeHtml(job.eta || '-')}</span></div></div><div class="meta-col right"><div class="meta-row"><span class="label">Vessel</span><span class="colon">:</span><span>${escapeHtml(job.vesselName)}</span></div><div class="meta-row"><span class="label">Estimated Day</span><span class="colon">:</span><span>${job.inquiry.estimatedDays || '-'}</span></div><div class="meta-row"><span class="label">Flag</span><span class="colon">:</span><span>${escapeHtml(vesselMaster?.flag || '-')}</span></div><div class="meta-row"><span class="label">Cargo Details</span><span class="colon">:</span><span>${escapeHtml(job.inquiry.cargoDetails || '-')}</span></div><div class="meta-row"><span class="label">IMO</span><span class="colon">:</span><span>${escapeHtml(vesselMaster?.imoNumber || '-')}</span></div></div></div>`;
     const html = formatExportTable(enhanceExportHeader(buildDocument())).replace(/<div class="footer">PT Lentera Global Maritim • Shipping Agency • [^<]*<\/div>/, '').replaceAll('class="meta-col right"', 'class="meta-col right" style="padding-right:18px"').replaceAll('>No.</span>', '>No EPDA</span>');
     const onePageHtml = html.replace('</style>', '@page{size:A4;margin:10mm}body{font-family:Arial,sans-serif;font-size:10px;color:#172033}.brand-row{margin-bottom:8px}.brand-wrap{min-height:58px;gap:12px}.logo{width:78px;height:58px}.brand{font-size:20px;color:#3562a8}.tag{font-size:11px;color:#3562a8;margin-top:3px}h2{background:#214f84;font-size:12px;padding:5px;margin:8px 0 9px}.meta{gap:2px 28px;margin-bottom:9px}.meta-col{gap:2px}.meta-row{line-height:1.25}.meta-row .label{font-size:10px}table{page-break-inside:avoid;table-layout:fixed;border:1px solid #9ca3af;border-collapse:collapse}tr{page-break-inside:avoid}th,td{padding:4px 5px;font-size:9px;border:1px solid #9ca3af!important}thead th,table thead th{background:#dbe8f2!important;text-align:center!important;border-bottom:1px solid #9ca3af!important}table th:nth-child(1),table td:nth-child(1){width:5%!important;text-align:center!important}table th:nth-child(2),table td:nth-child(2){width:42%!important;text-align:left!important}table th:nth-child(3),table td:nth-child(3){width:8%!important;text-align:center!important}table th:nth-child(4),table td:nth-child(4){width:17%!important;text-align:right!important;white-space:nowrap}table th:nth-child(5),table td:nth-child(5){width:28%!important;text-align:left!important}thead th:nth-child(1),thead th:nth-child(2),thead th:nth-child(3),thead th:nth-child(4),thead th:nth-child(5){text-align:center!important}.item-row td{background:#fff!important;border:1px solid #9ca3af!important}.subtotal{background:#dbe8f2!important;font-weight:700}.subtotal td{border-top:1px solid #9ca3af!important}.grand{background:#dbe8f2!important;color:#f00;font-weight:800}.grand td{border-top:1px solid #9ca3af!important}.subtotal td:first-child,.grand td:first-child{text-align:right!important}.subtotal td.amount,.grand td.amount{padding-left:0!important;padding-right:4px!important;text-align:right!important;white-space:nowrap}.bank{display:inline-block;width:42%;margin-top:16px;border:1px solid #777;padding:8px;font-size:8px;line-height:1.3;vertical-align:top}.signature{display:inline-block;width:42%;margin:16px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.footer{margin-top:16px;text-align:center;font-size:9px;line-height:1.35;font-weight:600}.footer .contact{color:#e11d48;text-decoration:underline}</style>');
-    w.document.write(onePageHtml.replace(/<div class="meta">[\s\S]*?(?=<table(?:\s|>))/i, inquiryMeta));
+    w.document.write(onePageHtml.replace(/<div class="meta">[\s\S]*?(?=<table(?:\s|>))/i, inquiryMeta).replaceAll('width:42%!important', 'width:20%!important').replaceAll('width:8%!important', 'width:35%!important').replaceAll('width:17%!important', 'width:12%!important').replaceAll('text-align:center!important}table th:nth-child(3)', 'text-align:left!important;white-space:nowrap}table th:nth-child(3)'));
     w.document.close();
     if (print) w.onload = () => { w.focus(); w.print(); };
   };
@@ -445,7 +454,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   const downloadExcel = () => {
     const amountValue = (value: number) => value.toLocaleString(viewCurrency === 'IDR' ? 'id-ID' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const rows = groupedItems.map((group) => {
-      const groupRows = group.items.map((it, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(it.name)}</td><td>${escapeHtml(it.currency || viewCurrency)}</td><td class="amount">${amountValue(it.totalSellRate)}</td><td>${escapeHtml(it.remarks || '')}</td></tr>`).join('');
+      const groupRows = group.items.map((it, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(it.name)}</td><td>${escapeHtml(getItemTariff(it))}</td><td class="amount">${amountValue(it.totalSellRate)}</td><td>${escapeHtml(it.remarks || '')}</td></tr>`).join('');
       const subtotal = group.items.reduce((sum, item) => sum + item.totalSellRate, 0);
       return `<tr style="background:${categoryTone.background};color:#fff;font-weight:700;text-transform:uppercase"><td colspan="5" style="text-align:left;padding-left:0">${escapeHtml(categoryLabel(group.category))}</td></tr>${groupRows}<tr class="subtotal" style="background:#f1f3f6;font-weight:700"><td colspan="3">SUBTOTAL</td><td class="amount">${amountValue(subtotal)}</td><td></td></tr>`;
     }).join('');
@@ -522,7 +531,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
 
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4"><div><h2 className="text-base font-bold text-white uppercase tracking-wider">Hasil Quotes EPDA</h2><span className="text-xs text-slate-400">Hasil entry data manual Estimasi Biaya</span></div><div className="flex flex-wrap gap-2"><button onClick={()=>openPreview(false)} className="px-3 py-2 rounded-lg bg-slate-800 text-slate-200 text-xs font-bold flex items-center gap-1.5"><Eye className="w-3.5 h-3.5"/>Lihat Hasil EPDA</button><button onClick={downloadExcel} className="px-3 py-2 rounded-lg bg-emerald-600/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold flex items-center gap-1.5"><Download className="w-3.5 h-3.5"/>Download Excel</button><button onClick={()=>openPreview(true)} className="px-3 py-2 rounded-lg bg-white text-slate-900 text-xs font-bold flex items-center gap-1.5"><Printer className="w-3.5 h-3.5"/>Cetak / PDF</button></div></div>
-        <div className="overflow-x-auto"><table className="w-full text-left text-xs border-separate border-spacing-0"><thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider"><tr><th className="p-3.5 border-l border-slate-700">No</th><th className="p-3.5 border-l border-slate-700">Description</th><th className="p-3.5 border-l border-slate-700">Currency</th><th className="p-3.5 text-right border-l border-slate-700">Amount</th><th className="p-3.5 border-l border-slate-700">Remark</th></tr></thead><tbody className="divide-y divide-slate-800">{groupedItems.map((group) => <React.Fragment key={group.category}><tr className={`${categoryTone.screen} font-bold`}><td colSpan={5} style={{ color: '#fff', backgroundColor: '#4b5563' }} className="p-2.5 font-black uppercase tracking-[0.16em] border-l border-slate-700">{categoryLabel(group.category)}</td></tr>{group.items.map((it, index) => <tr key={it.id} className="transition-colors hover:bg-slate-700/40"><td className="p-3.5 font-mono text-slate-300 border-l border-slate-800">{index + 1}</td><td className="p-3.5 font-bold text-white border-l border-slate-800">{it.name}</td><td className="p-3.5 font-mono text-cyan-300 uppercase border-l border-slate-800">{it.currency || viewCurrency}</td><td className="p-3.5 text-right font-mono font-bold text-white border-l border-slate-800">{formatAmount(it.totalSellRate)}</td><td className="p-3.5 text-slate-300 border-l border-slate-800"><div className="flex items-center justify-between gap-3"><span>{it.remarks || '-'}</span><button type="button" onClick={() => autosaveItems(items.filter((item) => item.id !== it.id))} className="p-1.5 rounded-md text-rose-300 hover:bg-rose-500/20 hover:text-rose-200" title="Hapus item EPDA" aria-label={`Hapus ${it.name}`}><Trash2 className="w-3.5 h-3.5" /></button></div></td></tr>)}<tr className="bg-slate-950/70"><td colSpan={3} className="p-2.5 text-right font-bold uppercase tracking-wider text-slate-200 border-l border-slate-800">SUB TOTAL</td><td className="p-2.5 text-right font-mono font-bold text-white border-l border-slate-800">{formatAmount(group.items.reduce((sum, item) => sum + item.totalSellRate, 0))}</td><td className="border-l border-slate-800" /></tr></React.Fragment>)}</tbody><tfoot className="bg-slate-950"><tr><td colSpan={3} className="p-3.5 text-right font-black uppercase tracking-wider text-white border-l border-slate-800">GRAND TOTAL</td><td className="p-3.5 text-right font-mono text-lg font-black text-white border-l border-slate-800">{formatAmount(totalSellUSD)}</td><td className="border-l border-slate-800"/></tr></tfoot></table></div>
+        <div className="overflow-x-auto"><table className="w-full text-left text-xs border-separate border-spacing-0"><thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider"><tr><th className="p-3.5 border-l border-slate-700">No</th><th className="p-3.5 border-l border-slate-700">Description</th><th className="p-3.5 border-l border-slate-700">Tariff</th><th className="p-3.5 text-right border-l border-slate-700">Amount ({viewCurrency})</th><th className="p-3.5 border-l border-slate-700">Remark</th></tr></thead><tbody className="divide-y divide-slate-800">{groupedItems.map((group) => <React.Fragment key={group.category}><tr className={`${categoryTone.screen} font-bold`}><td colSpan={5} style={{ color: '#fff', backgroundColor: '#4b5563' }} className="p-2.5 font-black uppercase tracking-[0.16em] border-l border-slate-700">{categoryLabel(group.category)}</td></tr>{group.items.map((it, index) => <tr key={it.id} className="transition-colors hover:bg-slate-700/40"><td className="p-3.5 font-mono text-slate-300 border-l border-slate-800">{index + 1}</td><td className="p-3.5 font-bold text-white border-l border-slate-800">{it.name}</td><td className="p-3.5 font-mono text-cyan-300 border-l border-slate-800">{getItemTariff(it)}</td><td className="p-3.5 text-right font-mono font-bold text-white border-l border-slate-800">{formatAmount(it.totalSellRate)}</td><td className="p-3.5 text-slate-300 border-l border-slate-800"><div className="flex items-center justify-between gap-3"><span>{it.remarks || '-'}</span><button type="button" onClick={() => autosaveItems(items.filter((item) => item.id !== it.id))} className="p-1.5 rounded-md text-rose-300 hover:bg-rose-500/20 hover:text-rose-200" title="Hapus item EPDA" aria-label={`Hapus ${it.name}`}><Trash2 className="w-3.5 h-3.5" /></button></div></td></tr>)}<tr className="bg-slate-950/70"><td colSpan={3} className="p-2.5 text-right font-bold uppercase tracking-wider text-slate-200 border-l border-slate-800">SUB TOTAL</td><td className="p-2.5 text-right font-mono font-bold text-white border-l border-slate-800">{formatAmount(group.items.reduce((sum, item) => sum + item.totalSellRate, 0))}</td><td className="border-l border-slate-800" /></tr></React.Fragment>)}</tbody><tfoot className="bg-slate-950"><tr><td colSpan={3} className="p-3.5 text-right font-black uppercase tracking-wider text-white border-l border-slate-800">GRAND TOTAL</td><td className="p-3.5 text-right font-mono text-lg font-black text-white border-l border-slate-800">{formatAmount(totalSellUSD)}</td><td className="border-l border-slate-800"/></tr></tfoot></table></div>
       </div>
 
       {!isReviewOnly && <div className="rounded-2xl border border-slate-300 bg-[#edf2f4] p-5 shadow-sm">
@@ -622,7 +631,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
                 <input readOnly value={formatEntryAmount(calculateTariffForJob({ vesselGRT: vesselMaster?.grt || 0, estimatedDays: Number(job.inquiry?.estimatedDays || 0), hours: 1, moveCount: 1, rate: Number(newItem.rate) || 0, minCharge: Number(newItem.minCharge) || 0, calculationBasis: newItem.calculationBasis }))} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"/>
               </div>
               <div>
-                <label className="mb-1 block text-slate-600">Amount</label>
+                <label className="mb-1 block text-slate-600">Amount ({viewCurrency})</label>
                 <input readOnly value={formatEntryAmount((Number(newItem.quantity) || 1) * calculateTariffForJob({ vesselGRT: vesselMaster?.grt || 0, estimatedDays: Number(job.inquiry?.estimatedDays || 0), hours: 1, moveCount: 1, rate: Number(newItem.rate) || 0, minCharge: Number(newItem.minCharge) || 0, calculationBasis: newItem.calculationBasis }))} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"/>
               </div>
             </div>
@@ -668,7 +677,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
               <input type="text" inputMode="decimal" value={formatEntryAmount(newItem.unitBuyRate)} onChange={e => setNewItem({ ...newItem, unitBuyRate: parseEntryAmount(e.target.value) as number })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"/>
             </div>
             <div>
-              <label className="mb-1 block text-slate-600">Amount</label>
+              <label className="mb-1 block text-slate-600">Amount ({viewCurrency})</label>
               <input type="text" value={formatEntryAmount((Number(newItem.quantity) || 1) * (Number(newItem.unitBuyRate) || 0))} readOnly className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"/>
             </div>
             <div className="lg:col-span-6">

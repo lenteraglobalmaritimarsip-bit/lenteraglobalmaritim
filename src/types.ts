@@ -156,6 +156,9 @@ export interface DisbursementItem {
   totalBuyRate: number;
   totalSellRate: number;
   currency: Currency;
+  tariffType?: 'FIXED' | 'VARIABLE' | 'RANGE';
+  calculationBasis?: 'PER_GRT' | 'PER_DAY' | 'LUMP_SUM' | 'PER_HOUR' | 'PER_MOVE';
+  tariffRate?: number;
   remarks?: string;
 }
 
@@ -192,7 +195,10 @@ export interface ActualCostItem {
   quantity?: number;
   amount: number;
   currency: Currency;
+  tariffType?: 'FIXED' | 'VARIABLE' | 'RANGE';
   pdaAmountEstimated: number;
+  calculationBasis?: 'PER_GRT' | 'PER_DAY' | 'LUMP_SUM' | 'PER_HOUR' | 'PER_MOVE';
+  tariffRate?: number;
   varianceAmount: number; // actual - estimated
   status: 'PENDING_VERIFICATION' | 'VERIFIED' | 'APPROVED_BY_FDA';
   attachmentName?: string;
