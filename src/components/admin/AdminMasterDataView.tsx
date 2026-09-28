@@ -383,9 +383,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
 
   const uploadTariffCategories = new Set([
     'PORT_EXPENSES', 'CLEARANCE', 'GENERAL_EXPENSES', 'CREW_EXPENSES',
-    'OWNER_MATTER', 'AGENCY_FEE', 'TAX_CONTINGENCY', 'PORT_DUES',
-    'PILOTAGE_TOWAGE', 'BERTHING', 'CREW_CHANGE', 'IMMIGRATION_CUSTOMS',
-    'LOGISTICS_SUPPLIES', 'SUNDRY',
+    'AGENCY_FEE', 'TAX_CONTINGENCY', 'OWNER_MATTER', 'VAT_11',
+    'PPH_INCOME_TAX',
   ]);
 
   const deleteFixTariff = async (id: string) => {
@@ -432,7 +431,11 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
 
     const portIds = ports.map((port) => port.id);
     const portNames = ports.map((port) => port.name);
-    const categories = ['PORT_EXPENSES', 'CLEARANCE', 'GENERAL_EXPENSES', 'CREW_EXPENSES', 'OWNER_MATTER', 'AGENCY_FEE'];
+    const categories = [
+      'PORT_EXPENSES', 'CLEARANCE', 'GENERAL_EXPENSES', 'CREW_EXPENSES',
+      'AGENCY_FEE', 'TAX_CONTINGENCY', 'OWNER_MATTER', 'VAT_11',
+      'PPH_INCOME_TAX',
+    ];
     const currencies = ['USD', 'IDR'];
     const expenseCalculationTypes = ['FIXED', 'VARIABLE', 'QTY_RATE', 'PERCENTAGE', 'RANGE'];
     const tariffTypes = ['FIXED', 'VARIABLE', 'RANGE'];
@@ -449,7 +452,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       ? {
           portId: listRange(0, portIds),
           portName: listRange(1, portNames),
-          costCategory: listRange(3, categories),
+          costCategory: listRange(2, categories),
           tariffType: listRange(7, tariffTypes),
           currency: listRange(4, currencies),
         }

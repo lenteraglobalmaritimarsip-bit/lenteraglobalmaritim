@@ -301,10 +301,34 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,onSelec
         <button className="print" onClick={printTable}><FileText size={16}/> Print</button>
       </div>
     </section>
-    <section className="vessel-filter-card">
-      <div className="filter-field"><CalendarDays size={17}/><select value={month} onChange={e=>setMonth(e.target.value)}><option value="">Semua bulan pembuatan</option>{months.map(m=><option key={m} value={m}>{new Intl.DateTimeFormat('id-ID',{month:'long',year:'numeric'}).format(new Date(`${m}-01T00:00:00`))}</option>)}</select></div>
-      <div className="filter-field search"><Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Cari nomor Vessel Call, kapal, customer, port..."/></div>
-      <div className="result-count">{rows.length} Vessel Call</div>
+    <section className="flex items-center justify-between gap-4 rounded-xl border border-slate-700 bg-slate-900 p-3">
+      <div className="relative flex-1 max-w-[760px]">
+        <Search size={17} className="absolute left-3 top-2.5 text-slate-400" />
+        <input
+          value={query}
+          onChange={e=>setQuery(e.target.value)}
+          placeholder="Cari nomor Vessel Call, kapal, customer, port..."
+          className="w-full rounded-lg border border-slate-800 bg-slate-950 py-2 pl-9 pr-3 text-xs text-slate-200 placeholder:text-slate-500 focus:border-cyan-500 focus:outline-none"
+        />
+      </div>
+
+      <div className="flex items-center gap-2">
+        <div className="relative">
+          <select
+            value={month}
+            onChange={e=>setMonth(e.target.value)}
+            className="sales-filter-control"
+          >
+            <option value="">Semua Bulan Pembuatan</option>
+            {months.map(m => (
+              <option key={m} value={m}>{new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date(`${m}-01T00:00:00`))}</option>
+            ))}
+          </select>
+        </div>
+        <div className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200">
+          {rows.length} Vessel Call
+        </div>
+      </div>
     </section>
     <section className="vessel-table-card"><table><thead><tr><th>NO</th><th>VESSEL CALL</th><th>VESSEL</th><th>CUSTOMER</th><th>PORT</th><th>BRANCH</th><th>CREATED BY</th><th>ETA</th><th>ETD</th><th>STATUS</th><th>AKSI</th></tr></thead><tbody>{rows.map((j,index)=><tr key={j.jobId}><td>{index + 1}</td><td><span className="job-number">{j.jobId}</span><small>{j.createdAt ? formatDateDisplay(j.createdAt) : ''}</small></td><td><b>{j.vesselName}</b></td><td>{j.customerName}</td><td>{j.portName}</td><td>{resolveInquiryOwner(j).branch}</td><td>{resolveInquiryOwner(j).createdBy}</td><td>{formatDateDisplay(j.eta, true)}</td><td>{formatDateDisplay(j.etd, true)}</td><td><span className={`status status-${j.status.toLowerCase()}`}>{statusLabel[j.status]||j.status}</span></td><td><button className="open-job" onClick={()=>openStatus(j.jobId)} title="Lihat informasi status">Status <ChevronRight size={14}/></button></td></tr>)}{!rows.length&&<tr><td colSpan={11} className="empty">Tidak ada Vessel Call untuk filter yang dipilih.</td></tr>}</tbody></table></section>
   </div>;

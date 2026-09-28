@@ -371,6 +371,16 @@ button{ cursor:pointer; }
 @media(max-width:850px){.lgm-login-topbar{padding:0 22px}.lgm-login-brand-text{padding-left:12px}.lgm-login-brand b{font-size:13px}.lgm-login-brand small{font-size:8px}.lgm-login-body{grid-template-columns:1fr;max-width:650px;padding:36px 20px}.lgm-login-copy{padding:0}.lgm-login-copy h1{font-size:38px}.lgm-login-date{margin-top:45px}.lgm-login-card{width:100%}}
 @media(max-width:560px){.lgm-login-topbar{height:66px}.lgm-login-logo{width:52px}.lgm-login-logo img{width:50px;height:46px}.lgm-login-brand{gap:8px}.lgm-login-brand-text{display:none}.lgm-secure-badge{font-size:9px}.lgm-login-body{padding:26px 14px}.lgm-login-copy h1{font-size:32px}.lgm-login-copy>p{font-size:13px}.lgm-login-date{margin-top:35px}.lgm-login-card{padding:22px 18px;border-radius:14px}.lgm-card-brand b{font-size:14px}.lgm-login-card h2{font-size:26px}.lgm-account-grid{grid-template-columns:1fr}.lgm-login-options{margin-bottom:16px}}
 
+.lgm-login-principles{display:grid;gap:22px;max-width:650px;margin-top:30px;padding:18px 20px;border:1px solid rgba(222,239,255,.12);border-radius:8px;background:rgba(6,43,78,.34);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px)}
+.lgm-login-principle{border-left:2px solid rgba(160,207,235,.52);padding-left:16px}
+.lgm-login-principle--vision{padding-left:10px}
+.lgm-login-principle h2{margin:0 0 7px;color:#d2e5f1;font-size:11px;font-weight:800;line-height:1.2;letter-spacing:0}
+.lgm-login-principle p{margin:0;color:rgba(255,255,255,.88);font-size:14px;font-weight:500;line-height:1.65;letter-spacing:0}
+.lgm-login-date{margin-top:clamp(32px,7vh,80px)}
+@media(max-width:1050px){.lgm-login-date{margin-top:clamp(28px,5vh,60px)}}
+@media(max-width:850px){.lgm-login-date{margin-top:38px}}
+@media(max-width:560px){.lgm-login-principles{gap:18px;margin-top:24px;padding:15px 14px}.lgm-login-principle{padding-left:13px}.lgm-login-principle--vision{padding-left:7px}.lgm-login-principle p{font-size:13px;line-height:1.6}.lgm-login-date{margin-top:30px}}
+
 /* Active Vessel Calls */
 .vessel-calls-page{display:flex;flex-direction:column;gap:18px}
 .vessel-calls-hero{background:linear-gradient(135deg,#fff 0%,#f4f7fc 100%);border:1px solid #dbe4ef;border-radius:20px;padding:26px;display:flex;align-items:center;justify-content:space-between;gap:24px;box-shadow:0 10px 30px rgba(23,50,90,.06)}
@@ -481,4 +491,9 @@ button{ cursor:pointer; }
 .epda-form-root table thead th,
 .fda-form-root table thead th {
   text-align: center !important;
+}
+
+.epda-form-root table tbody td.text-right,
+.epda-form-root table tfoot td.text-right {
+  text-align: right !important;
 }

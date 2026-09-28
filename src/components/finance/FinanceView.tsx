@@ -40,6 +40,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 }) => {
   const [subTab, setSubTab] = useState<'DASHBOARD' | 'JOB_INVOICE_OPEN' | 'INVOICES' | 'AP' | 'AR' | 'REPORTS'>(initialTab);
   const [invoiceSearch, setInvoiceSearch] = useState('');
+  const [invoiceMonth, setInvoiceMonth] = useState('ALL');
   const [closingDetailJobId, setClosingDetailJobId] = useState<string | null>(null);
   const [receiptDate, setReceiptDate] = useState(new Date().toISOString().slice(0, 10));
   const [receiptType, setReceiptType] = useState<'ADVANCE_PAYMENT' | 'INVOICE'>('INVOICE');
@@ -397,11 +398,28 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
   const closingJobs = openInvoiceJobs.filter((job) => job.closing?.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED');
 
-  const filteredInvoiceJobs = openInvoiceJobs.filter((job) => {
-    const keyword = invoiceSearch.trim().toLowerCase();
-    if (!keyword) return true;
+  const monthOptions = Array.from(new Set(
+    openInvoiceJobs.map((job) => {
+      const source = job.inquiry?.date || job.createdAt || job.eta || job.etd || '';
+      if (!source) return '';
+      const date = new Date(source);
+      if (Number.isNaN(date.getTime())) return '';
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    }).filter(Boolean)
+  )).sort().reverse();
 
-    return [
+  const filteredInvoiceJobs = openInvoiceJobs.filter((job) => {
+    const monthKey = (() => {
+      const source = job.inquiry?.date || job.createdAt || job.eta || job.etd || '';
+      if (!source) return '';
+      const date = new Date(source);
+      if (Number.isNaN(date.getTime())) return '';
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    })();
+
+    const matchesMonth = invoiceMonth === 'ALL' || monthKey === invoiceMonth;
+    const keyword = invoiceSearch.trim().toLowerCase();
+    const matchesSearch = !keyword || [
       job.jobId,
       job.vesselName,
       job.customerName,
@@ -409,6 +427,8 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       job.principalInvoice?.invoiceNo || `INV-${job.jobId}`,
       job.fda?.fdaNo || '',
     ].some((value) => value && value.toLowerCase().includes(keyword));
+
+    return matchesMonth && matchesSearch;
   });
 
   const openPdfInNewTab = (dataUrl: string) => {
@@ -673,26 +693,31 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
               </div>
             </div>
 
-            <div className="mb-4 flex items-center justify-between gap-4 rounded-2xl border border-slate-700 bg-slate-950/80 px-3 py-3 shadow-inner shadow-slate-950/30">
-              <div className="flex min-w-0 flex-1 items-center gap-3 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5">
-                <SearchIcon className="h-4 w-4 text-slate-400" />
+            <div className="mb-4 flex items-center justify-between gap-4 rounded-xl border border-slate-700 bg-slate-900 p-3">
+              <div className="relative flex-1 max-w-[760px]">
+                <SearchIcon className="h-4 w-4 text-slate-400 absolute left-3 top-2.5" />
                 <input
                   value={invoiceSearch}
                   onChange={(e) => setInvoiceSearch(e.target.value)}
                   placeholder="Cari inquiry berdasarkan Kapal, No. Inquiry, Pelabuhan..."
-                  className="w-full bg-transparent text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-cyan-500"
                 />
               </div>
 
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm text-slate-200">
-                  <span className="text-slate-400">Semua Bulan Inquiry</span>
-                  <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 text-slate-400">
-                    <path d="M5.25 7.5 10 12.25 14.75 7.5H5.25Z" />
-                  </svg>
-                </div>
-
-                <div className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm font-semibold text-slate-200">
+              <div className="flex items-center gap-2">
+                <select
+                  value={invoiceMonth}
+                  onChange={(e) => setInvoiceMonth(e.target.value)}
+                  className="sales-filter-control"
+                >
+                  <option value="ALL">Semua Bulan Inquiry</option>
+                  {monthOptions.map((monthKey) => (
+                    <option key={monthKey} value={monthKey}>
+                      {new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date(`${monthKey}-01T00:00:00`))}
+                    </option>
+                  ))}
+                </select>
+                <div className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200">
                   Total: <span className="text-cyan-300">{filteredInvoiceJobs.length}</span>
                 </div>
               </div>
