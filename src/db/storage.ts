@@ -171,17 +171,29 @@ class DatabaseService {
       const stored = JSON.parse(localStorage.getItem(LOCAL_DATABASE_KEY) || 'null') as Partial<DatabaseState> | null;
       if (!stored || typeof stored !== 'object') return defaults;
       const storedJobCalls = Array.isArray(stored.jobCalls) ? stored.jobCalls : defaults.jobCalls;
-      let repairedApprovedEPDA = false;
+      let repairedWorkflowState = false;
       const jobCalls = storedJobCalls.map((job) => {
-        if (job.managerApproval?.status !== 'APPROVED' || job.quotation?.epda?.status === 'APPROVED') return job;
-        repairedApprovedEPDA = true;
+        const isClosed = job.closing?.isClosed || job.status === 'CLOSED' || job.currentStage === 'CLOSED';
+        const managerApproved = job.managerApproval?.status === 'APPROVED';
+        const needsEPDARepair = managerApproved && job.quotation?.epda?.status !== 'APPROVED';
+        const normalizedStage = isClosed
+          ? 'CLOSED'
+          : managerApproved && job.currentStage === 'QUOTATION'
+            ? 'OPERATIONAL'
+            : job.currentStage;
+        const needsStageRepair = normalizedStage !== job.currentStage;
+        const needsStatusRepair = isClosed && job.status !== 'CLOSED';
+        if (!needsEPDARepair && !needsStageRepair && !needsStatusRepair) return job;
+        repairedWorkflowState = true;
         return {
           ...job,
-          quotation: {
+          currentStage: normalizedStage,
+          status: isClosed ? 'CLOSED' as const : job.status,
+          quotation: needsEPDARepair ? {
             ...job.quotation,
             epda: { ...job.quotation.epda, status: 'APPROVED' as const },
             pda: { ...job.quotation.pda, status: 'APPROVED' as const },
-          },
+          } : job.quotation,
         };
       });
       const state: DatabaseState = {
@@ -197,11 +209,11 @@ class DatabaseService {
         jobCalls,
         auditLogs: Array.isArray(stored.auditLogs) ? stored.auditLogs : defaults.auditLogs,
       };
-      if (repairedApprovedEPDA) {
+      if (repairedWorkflowState) {
         try {
           localStorage.setItem(LOCAL_DATABASE_KEY, JSON.stringify(state));
         } catch (error) {
-          console.error('Failed to repair approved EPDA status:', error);
+          console.error('Failed to repair workflow state:', error);
         }
       }
       return state;

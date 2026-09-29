@@ -37,6 +37,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
     setSubTab(initialTab);
   }, [initialTab]);
   const [search, setSearch] = useState('');
+  const [reviewMonth, setReviewMonth] = useState('ALL');
   const [approvalNotes, setApprovalNotes] = useState<{ [key: string]: string }>({});
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [expandedDetailJobId, setExpandedDetailJobId] = useState<string | null>(null);
@@ -137,6 +138,16 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
     setActionSuccess(`Job ${jobId} dikembalikan ke Sales untuk revisi penawaran.`);
     setTimeout(() => setActionSuccess(null), 4000);
   };
+
+  const reviewMonths: string[] = Array.from(new Set<string>(jobCalls.map((job) => (job.inquiry?.date || '').slice(0, 7)).filter(Boolean))).sort().reverse();
+  const filteredReviewJobs = jobCalls.filter((job) => {
+    const query = search.trim().toLowerCase();
+    const matchesSearch = [job.jobId, job.vesselName, job.customerName, job.portName, job.quotation.epda.quoteNo, job.inquiry?.inquiryNo || '', job.inquiry?.createdBy || '']
+      .join(' ').toLowerCase().includes(query);
+    return matchesSearch && (reviewMonth === 'ALL' || (job.inquiry?.date || '').startsWith(reviewMonth));
+  });
+  const formatReviewMonth = (value: string) => new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' })
+    .format(new Date(`${value}-01T00:00:00`));
 
   return (
     <div className="space-y-6">
@@ -317,20 +328,24 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
       {/* QUOTES VIEW TAB */}
       {subTab === 'QUOTES_VIEW' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-3 rounded-xl">
-            <div className="relative flex-1 max-w-md">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+          <div className="flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-900 p-3 sm:flex-row sm:items-center sm:gap-4">
+            <div className="relative min-w-0 flex-1">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
               <input
                 type="text"
-                placeholder="Cari quote berdasarkan Job ID, Kapal..."
+                placeholder="Cari nomor Vessel Call, kapal, customer, port..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
               />
             </div>
-            <span className="text-xs text-slate-400">
-              Menampilkan {jobCalls.length} penawaran komersial
-            </span>
+            <div className="flex items-center justify-between gap-2 sm:justify-end">
+              <select value={reviewMonth} onChange={(event) => setReviewMonth(event.target.value)} className="sales-filter-control">
+                <option value="ALL">Semua Bulan</option>
+                {reviewMonths.map((month) => <option key={month} value={month}>{formatReviewMonth(month)}</option>)}
+              </select>
+              <span className="whitespace-nowrap rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-300">{filteredReviewJobs.length} Vessel Call</span>
+            </div>
           </div>
 
           <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900">
@@ -349,17 +364,36 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
-                {jobCalls
-                  .filter((job) => [job.jobId, job.vesselName, job.customerName, job.portName, job.quotation.epda.quoteNo, job.inquiry?.createdBy || '']
-                    .join(' ').toLowerCase().includes(search.trim().toLowerCase()))
-                  .map((job, index) => {
+                {filteredReviewJobs.map((job, index) => {
                     const creator = resolveCreatedByMeta(job);
                     const epdaKey = `${job.jobId}:EPDA`;
                     const fdaKey = `${job.jobId}:FDA`;
+                    const closingKey = `${job.jobId}:CLOSING`;
                     const epdaGrandTotal = job.quotation.epda.items.reduce((sum, item) => sum + Number(item.totalSellRate || 0), 0);
                     const fdaGrandTotal = (job.actualCosts || []).reduce((sum, item) => sum + Number(item.amount || 0), 0);
                     const epdaOpen = expandedQuoteDetail === epdaKey;
                     const fdaOpen = expandedQuoteDetail === fdaKey;
+                    const closingOpen = expandedQuoteDetail === closingKey;
+                    const closingCurrency = (job.fda?.currency || job.actualCosts?.[0]?.currency || job.quotation?.epda?.currency || job.currency || 'IDR') as 'USD' | 'IDR';
+                    const closingRate = job.exchangeRateUSDToIDR || 15800;
+                    const convertClosingAmount = (amount: number, currency?: 'USD' | 'IDR') => {
+                      const sourceCurrency = currency || closingCurrency;
+                      if (sourceCurrency === closingCurrency) return amount;
+                      return sourceCurrency === 'USD' ? amount * closingRate : amount / closingRate;
+                    };
+                    const closingAR = job.fda?.finalBilledToPrincipal
+                      || job.principalInvoice?.totalAmountUSD
+                      || (job.ar || []).reduce((sum, item) => sum + convertClosingAmount(item.requestedAmount || 0, item.currency), 0);
+                    const closingReceipts = job.principalReceipts || [];
+                    const closingAdvance = closingReceipts
+                      .filter((receipt) => receipt.paymentType === 'ADVANCE_PAYMENT')
+                      .reduce((sum, receipt) => sum + convertClosingAmount(receipt.amount || 0, receipt.currency), 0);
+                    const closingInvoiceReceived = closingReceipts
+                      .filter((receipt) => receipt.paymentType === 'INVOICE')
+                      .reduce((sum, receipt) => sum + convertClosingAmount(receipt.amount || 0, receipt.currency), 0);
+                    const closingReceived = closingAdvance + closingInvoiceReceived;
+                    const closingBalance = Math.max(0, closingAR - closingReceived);
+                    const jobIsClosed = isClosedJob(job);
                     return (
                       <React.Fragment key={job.jobId}>
                         <tr className="hover:bg-slate-800/40 align-middle">
@@ -375,6 +409,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                             <div className="flex justify-center gap-2">
                               <button type="button" onClick={() => setExpandedQuoteDetail(epdaOpen ? null : epdaKey)} className={`rounded-lg p-2 ${epdaOpen ? 'bg-cyan-500/20 text-cyan-300' : 'bg-slate-800 text-slate-300 hover:text-cyan-300'}`} title="Lihat entry EPDA" aria-label="Lihat entry EPDA"><Eye className="h-4 w-4" /></button>
                               <button type="button" onClick={() => setExpandedQuoteDetail(fdaOpen ? null : fdaKey)} className={`rounded-lg p-2 ${fdaOpen ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-300 hover:text-emerald-300'}`} title="Lihat entry FDA" aria-label="Lihat entry FDA"><Eye className="h-4 w-4" /></button>
+                              <button type="button" onClick={() => setExpandedQuoteDetail(closingOpen ? null : closingKey)} className={`rounded-lg p-2 ${closingOpen ? 'bg-purple-500/20 text-purple-300' : 'bg-slate-800 text-slate-300 hover:text-purple-300'}`} title="Lihat ringkasan closing" aria-label="Lihat ringkasan closing"><CheckCircle2 className="h-4 w-4" /></button>
                             </div>
                           </td>
                         </tr>
@@ -388,6 +423,35 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                           <tr><td colSpan={9} className="bg-slate-950 p-4">
                             <div className="mb-2 text-xs font-bold uppercase tracking-wider text-emerald-300">Entry FDA: {job.jobId}</div>
                             {job.actualCosts?.length ? <div className="overflow-x-auto"><table className="w-full text-left text-[11px]"><thead className="text-slate-500 uppercase"><tr><th className="p-2">No</th><th className="p-2">Description Cost</th><th className="p-2">Category</th><th className="p-2">Qty</th><th className="p-2 text-right">Amount FDA</th></tr></thead><tbody className="divide-y divide-slate-800">{job.actualCosts.map((item, itemIndex) => <tr key={item.id}><td className="p-2 text-slate-400">{itemIndex + 1}</td><td className="p-2 font-semibold text-white">{item.description}</td><td className="p-2 text-slate-300">{formatEPDACategory(item.category)}</td><td className="p-2 text-slate-300">{item.quantity ?? 1}</td><td className="p-2 text-right font-mono text-emerald-300">{formatEPDAAmount(item.amount, item.currency)}</td></tr>)}</tbody><tfoot><tr className="border-t border-slate-700"><td colSpan={4} className="p-2 text-right font-bold uppercase text-slate-200">GRAND TOTAL</td><td className="p-2 text-right font-mono font-bold text-emerald-300">{formatEPDAAmount(fdaGrandTotal, job.actualCosts[0]?.currency || job.quotation.epda.currency)}</td></tr></tfoot></table></div> : <p className="text-xs text-slate-400">Belum ada entry FDA untuk job ini.</p>}
+                          </td></tr>
+                        )}
+                        {closingOpen && (
+                          <tr><td colSpan={9} className="bg-slate-950 p-4">
+                            <div className="space-y-5 rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl">
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <span className="rounded border border-purple-500/30 bg-slate-950 px-2 py-0.5 text-xs font-mono font-bold text-purple-400">CLOSING STAGE • {job.jobId}</span>
+                                  <h3 className="mt-1 text-lg font-black text-white">Laporan Keuangan & Final Voyage Closing</h3>
+                                </div>
+                                <button type="button" onClick={() => setExpandedQuoteDetail(null)} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-bold text-slate-300 hover:bg-slate-800">Tutup</button>
+                              </div>
+
+                              <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-950 p-5 font-mono text-xs">
+                                <div className="flex justify-between border-b border-slate-800 pb-2"><span className="text-slate-400">Total Ditagihkan (AR)</span><span className="font-bold text-cyan-300">{formatEPDAAmount(closingAR, closingCurrency)}</span></div>
+                                <div className="flex justify-between border-b border-slate-800 pb-2"><span className="text-slate-400">Advance Payment</span><span className="font-bold text-amber-300">{formatEPDAAmount(closingAdvance, closingCurrency)}</span></div>
+                                <div className="flex justify-between border-b border-slate-800 pb-2"><span className="text-slate-400">Total Diterima (Received)</span><span className="font-bold text-emerald-300">{formatEPDAAmount(closingReceived, closingCurrency)}</span></div>
+                                <div className="flex justify-between pt-1 text-sm font-bold"><span className="text-rose-300">Sisa Saldo Belum Bayar</span><span className="text-rose-300">{formatEPDAAmount(closingBalance, closingCurrency)}</span></div>
+                              </div>
+
+                              <div className="flex flex-col items-center justify-between gap-4 border-t border-slate-800 pt-4 sm:flex-row">
+                                <div className="text-xs text-slate-400">Status Pekerjaan: <strong className="font-mono uppercase text-white">{jobIsClosed ? 'CLOSED' : job.status}</strong>{jobIsClosed && <span className="ml-2 font-semibold text-emerald-400">(Telah ditutup secara finansial)</span>}</div>
+                                {jobIsClosed ? (
+                                  <div className="flex items-center gap-2 rounded-xl border border-purple-800/60 bg-purple-950/60 px-4 py-2 text-xs font-bold text-purple-300"><CheckCircle2 className="h-4 w-4 text-purple-400"/><span>Job ID {job.jobId} Selesai & Terarsip</span></div>
+                                ) : (
+                                  <span className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs font-bold text-amber-300">Belum ditutup secara finansial</span>
+                                )}
+                              </div>
+                            </div>
                           </td></tr>
                         )}
                       </React.Fragment>
