@@ -44,6 +44,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   onNavigate,
 }) => {
   const [subTab, setSubTab] = useState<'DASHBOARD' | 'JOB_ID' | 'ACTUAL_COST' | 'QUOTES_VIEW' | 'APPROVAL'>(initialTab);
+  const isFDAApproved = Boolean(activeJob.fda?.fdaApproved);
   useEffect(() => {
     setSubTab(initialTab);
   }, [initialTab]);
@@ -113,7 +114,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   const handleViewCurrencyChange = (currency: 'USD' | 'IDR') => {
     setViewCurrency(currency);
-    db.updateJob(activeJob.jobId, { fda: { ...activeJob.fda, currency } });
+    if (!isFDAApproved) db.updateJob(activeJob.jobId, { fda: { ...activeJob.fda, currency } });
     if (actualEntryMode !== 'AUTO') return;
     const selected = autoServiceOptions.find((option) => option.name === newActual.description);
     if (selected) setNewActual((current) => ({ ...current, rate: rateForCurrency(currency, selected.rateIDR, selected.rateUSD, selected.legacyRate, selected.currency) }));
@@ -387,6 +388,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     return currency === 'USD' ? grandTotal * exchangeRate : grandTotal;
   };
   const handleExchangeRateChange = (nextValue: string) => {
+    if (isFDAApproved) return;
     const numericValue = Number(nextValue);
     const safeRate = Number.isFinite(numericValue) && numericValue > 0 ? numericValue : 0;
     setExchangeRateInput(safeRate || 15800);
@@ -482,6 +484,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   const handleAddActualCost = (e?: React.FormEvent) => {
     e?.preventDefault();
+    if (isFDAApproved) return;
     if (activeJob.managerApproval?.status !== 'APPROVED') {
       setMsg('Actual Cost belum dapat diinput. Tunggu Manager Approval.');
       setTimeout(() => setMsg(null), 4000);
@@ -543,13 +546,14 @@ export const FDAView: React.FC<FDAViewProps> = ({
   };
 
   const openEditActual = (it: ActualCostItem) => {
-    if (activeJob.managerApproval?.status !== 'APPROVED') return;
+    if (isFDAApproved || activeJob.managerApproval?.status !== 'APPROVED') return;
     setEditingActualId(it.id);
     setNewActual({ description: it.description, category: it.category, vendorName: it.vendorName, vendorInvoiceNo: it.invoiceOrVoucherNo, amountBuy: it.amount, amountSellBilled: it.pdaAmountEstimated, notes: '', attachmentName: it.attachmentName || '' });
     setShowAddActualModal(true);
   };
 
   const updateActualRemark = (actualId: string, remarks: string) => {
+    if (isFDAApproved) return;
     const updated = actualList.map((item) =>
       item.id === actualId ? { ...item, remarks } : item
     );
@@ -558,6 +562,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   };
 
   const deleteActualCost = (actualId: string) => {
+    if (isFDAApproved) return;
     const updated = actualList.filter((item) => item.id !== actualId);
     setActualList(updated);
     db.updateJob(activeJob.jobId, {
@@ -575,6 +580,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   };
 
   const createActualFromEPDA = () => {
+    if (isFDAApproved) return;
     if (activeJob.managerApproval?.status !== 'APPROVED') {
       setMsg('Belum dapat membuat Actual Cost. Manager Approval harus APPROVED.');
       setTimeout(() => setMsg(null), 3500);
@@ -857,7 +863,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   };
 
   return (
-    <div className="space-y-6 fda-form-root">
+    <div className="space-y-6 fda-form-root" aria-readonly={isFDAApproved}>
       {/* Top Banner */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -1254,20 +1260,30 @@ export const FDAView: React.FC<FDAViewProps> = ({
                   min={1}
                   step={1}
                   value={exchangeRateInput}
+                  readOnly={isFDAApproved}
                   onChange={(e) => handleExchangeRateChange(e.target.value)}
                   className="w-24 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-right text-xs text-white"
                 />
               </label>
-              <button
-                type="button"
-                onClick={handleFinalizeFDA}
-                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5"
-              >
-                <Send className="w-4 h-4" />
-                Kirim ke Finance
-              </button>
+              {isFDAApproved ? (
+                <span className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-100 px-3.5 py-2 text-xs font-bold text-blue-700">
+                  <CheckCircle2 className="h-4 w-4" />
+                  VIEW ONLY · APPROVED
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleFinalizeFDA}
+                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5"
+                >
+                  <Send className="w-4 h-4" />
+                  Kirim ke Finance
+                </button>
+              )}
             </div>
           </div>
+
+          {isFDAApproved && <div role="status" className="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0"/><div><b>FDA sudah difinalisasi dan diteruskan ke Finance.</b><div className="mt-1">Data biaya terkunci. Hasil FDA tetap bisa dilihat, diunduh, dan dicetak.</div></div></div>}
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
@@ -1435,7 +1451,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-300 bg-[#edf2f4] p-5 shadow-sm">
+          <div className="fda-entry-panel rounded-2xl border border-slate-300 bg-[#edf2f4] p-5 shadow-sm">
             <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex items-center gap-2 text-emerald-600">
                 <Plus className="h-4 w-4" />
@@ -1575,9 +1591,11 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
                 <div className="text-right">
                   <span className="text-xs text-slate-400 block">Status FDA Saat Ini:</span>
-                  <span className="text-xs font-mono font-bold uppercase text-slate-200">
-                    {activeJob.fda?.fdaApproved ? 'APPROVED & READY' : 'IN_VERIFICATION'}
-                  </span>
+                  {isFDAApproved ? (
+                    <span className="mt-1 inline-flex rounded-lg border border-blue-200 bg-blue-100 px-2.5 py-1 text-xs font-bold uppercase text-blue-700">APPROVED & READY</span>
+                  ) : (
+                    <span className="text-xs font-mono font-bold uppercase text-slate-200">IN_VERIFICATION</span>
+                  )}
                 </div>
               </div>
 
@@ -1603,13 +1621,14 @@ export const FDAView: React.FC<FDAViewProps> = ({
               </div>
 
               <div className="pt-4 flex justify-end">
-                <button
+                {!isFDAApproved && <button
                   onClick={handleFinalizeFDA}
                   className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-bold shadow-lg shadow-cyan-900/30 transition flex items-center gap-2"
                 >
                   <FileCheck2 className="w-4 h-4" />
                   <span>Finalisasi FDA & Teruskan ke Finance</span>
-                </button>
+                </button>}
+                {isFDAApproved && <span className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-100 px-3.5 py-2.5 text-xs font-bold text-blue-700"><CheckCircle2 className="h-4 w-4"/>VIEW ONLY · APPROVED</span>}
                 {activeJob.fda?.fdaApproved && (
                   <>
                     <button onClick={() => openFDAWindow(false)} className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-200 text-xs font-bold transition flex items-center gap-2"><Eye className="w-4 h-4"/>Lihat Hasil FDA</button>
@@ -1624,7 +1643,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       )}
 
       {/* Add Actual Cost Modal */}
-      {showAddActualModal && (
+      {showAddActualModal && !isFDAApproved && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl p-6">
             <h3 className="text-base font-bold text-white mb-1">{editingActualId ? 'Edit Amount FDA' : 'Tambah Item / Amount FDA'}</h3>

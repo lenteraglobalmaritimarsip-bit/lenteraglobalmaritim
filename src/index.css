@@ -496,3 +496,12 @@ button{ cursor:pointer; }
 .epda-form-root table tfoot td.text-right {
   text-align: right !important;
 }
+
+.epda-form-root[aria-readonly="true"] button[title="Hapus item EPDA"] {
+  display: none !important;
+}
+
+.fda-form-root[aria-readonly="true"] button[title="Hapus item FDA"],
+.fda-form-root[aria-readonly="true"] .fda-entry-panel {
+  display: none !important;
+}

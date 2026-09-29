@@ -24,7 +24,6 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     );
   }
 
-  const isReviewOnly = false;
   const epdaQuote = job.quotation?.epda || {
     quoteNo: '',
     date: job.inquiry?.date || new Date().toISOString().slice(0, 10),
@@ -35,6 +34,17 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     marginAmount: 0,
     marginPercentage: 0,
     status: 'DRAFT' as const,
+  };
+  const isManagerApproved = job.managerApproval?.status === 'APPROVED';
+  const isEPDASubmitted = epdaQuote.status === 'SUBMITTED';
+  const isReviewOnly = isManagerApproved || isEPDASubmitted || epdaQuote.status === 'APPROVED';
+  const isEPDALockedInDatabase = () => {
+    const currentJob = db.getJob(job.jobId);
+    const currentEPDAStatus = currentJob?.quotation?.epda?.status;
+    return !currentJob
+      || currentJob.managerApproval?.status === 'APPROVED'
+      || currentEPDAStatus === 'SUBMITTED'
+      || currentEPDAStatus === 'APPROVED';
   };
   const initialCurrency: Currency = epdaQuote.currency || job.currency || 'IDR';
   const [viewCurrency, setViewCurrency] = useState<Currency>(initialCurrency);
@@ -185,7 +195,8 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     });
   };
 
-  const persist = () => {
+  const persist = (): boolean => {
+    if (isReviewOnly || isEPDALockedInDatabase()) return false;
     const currencyItems = items.map((item) => ({ ...item, currency: viewCurrency }));
     db.updateJob(job.jobId, {
       exchangeRateUSDToIDR: exchangeRate,
@@ -195,10 +206,11 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       },
       currentStage: 'QUOTATION',
     });
+    return true;
   };
 
   const autosaveItems = (nextItems: DisbursementItem[]) => {
-    if (isReviewOnly) return;
+    if (isReviewOnly || isEPDALockedInDatabase()) return;
     const manualItems = nextItems.map((item) => ({
       ...item,
       currency: viewCurrency,
@@ -219,6 +231,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   };
 
   const handleQuickAddMasterData = () => {
+    if (isReviewOnly || isEPDALockedInDatabase()) return;
     const itemName = newItem.name.trim();
     const rateValue = Number(newItem.unitBuyRate) || Number(newItem.rate) || 0;
     if (!itemName) {
@@ -353,8 +366,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   };
 
   const handleSubmit = () => {
-    if (isReviewOnly) return;
-    persist();
+    if (!persist()) return;
     onDataSaved?.();
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 3500);
@@ -477,7 +489,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   };
 
   return (
-    <div className="space-y-6 epda-form-root">
+    <div className="space-y-6 epda-form-root" aria-readonly={isReviewOnly}>
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-emerald-400 text-xs font-mono font-bold uppercase"><FileSpreadsheet className="w-4 h-4"/><span>SALES / EPDA</span><span className="text-cyan-300">• JOB ID: {job.jobId}</span></div>
@@ -486,11 +498,13 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800"><button onClick={() => handleViewCurrencyChange('IDR')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${viewCurrency==='IDR'?'bg-emerald-600 text-white':'text-slate-400'}`}>IDR (Rp)</button><button onClick={() => handleViewCurrencyChange('USD')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${viewCurrency==='USD'?'bg-emerald-600 text-white':'text-slate-400'}`}>USD ($)</button></div>
-          <div className="text-xs text-slate-400 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">Kurs USD <input value={exchangeRate} onChange={e=>setExchangeRate(Number(e.target.value)||0)} className="w-20 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-white text-right"/></div>
+          <div className="text-xs text-slate-400 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">Kurs USD <input value={exchangeRate} readOnly={isReviewOnly} onChange={e=>setExchangeRate(Number(e.target.value)||0)} className="w-20 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-white text-right"/></div>
           {!isReviewOnly && <button onClick={handleSubmit} className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5"><Send className="w-4 h-4"/>Kirim ke Manager OPS</button>}
-          {isReviewOnly && <span className="px-3.5 py-2 rounded-xl bg-slate-700 text-white text-xs font-bold">REVIEW ONLY · APPROVED</span>}
+          {isReviewOnly && <span className="px-3.5 py-2 rounded-xl border border-blue-200 bg-blue-100 text-blue-700 text-xs font-bold">{isManagerApproved ? 'VIEW ONLY · APPROVED' : 'TERKIRIM · MENUNGGU APPROVAL'}</span>}
         </div>
       </div>
+
+      {isReviewOnly && <div role="status" className="flex items-start gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-700"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0"/><div><b>{isManagerApproved ? 'EPDA telah disetujui Manager OPS.' : 'EPDA sudah dikirim ke Manager OPS.'}</b><div className="mt-1">{isManagerApproved ? `Disetujui oleh ${job.managerApproval?.approvedBy || 'Manager OPS'}${job.managerApproval?.approvedAt ? ` pada ${formatDate(job.managerApproval.approvedAt)}` : ''}. EPDA hanya dapat dilihat dan tidak dapat diedit atau dikirim ulang.` : 'Menunggu review Manager OPS. EPDA terkunci sampai Manager menyetujui atau mengembalikannya untuk revisi.'}</div></div></div>}
 
       {isSaved && <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-emerald-300 text-xs flex items-center gap-2"><CheckCircle2 className="w-4 h-4"/>EPDA tersimpan dan status menjadi SUBMITTED untuk Manager OPS.</div>}
 

@@ -170,7 +170,21 @@ class DatabaseService {
     try {
       const stored = JSON.parse(localStorage.getItem(LOCAL_DATABASE_KEY) || 'null') as Partial<DatabaseState> | null;
       if (!stored || typeof stored !== 'object') return defaults;
-      return {
+      const storedJobCalls = Array.isArray(stored.jobCalls) ? stored.jobCalls : defaults.jobCalls;
+      let repairedApprovedEPDA = false;
+      const jobCalls = storedJobCalls.map((job) => {
+        if (job.managerApproval?.status !== 'APPROVED' || job.quotation?.epda?.status === 'APPROVED') return job;
+        repairedApprovedEPDA = true;
+        return {
+          ...job,
+          quotation: {
+            ...job.quotation,
+            epda: { ...job.quotation.epda, status: 'APPROVED' as const },
+            pda: { ...job.quotation.pda, status: 'APPROVED' as const },
+          },
+        };
+      });
+      const state: DatabaseState = {
         ...defaults,
         ...stored,
         users: Array.isArray(stored.users) ? stored.users : defaults.users,
@@ -180,9 +194,17 @@ class DatabaseService {
         zones: Array.isArray(stored.zones) ? stored.zones : defaults.zones,
         fixTariffs: Array.isArray(stored.fixTariffs) ? stored.fixTariffs : defaults.fixTariffs,
         expensesItems: Array.isArray(stored.expensesItems) ? stored.expensesItems : defaults.expensesItems,
-        jobCalls: Array.isArray(stored.jobCalls) ? stored.jobCalls : defaults.jobCalls,
+        jobCalls,
         auditLogs: Array.isArray(stored.auditLogs) ? stored.auditLogs : defaults.auditLogs,
       };
+      if (repairedApprovedEPDA) {
+        try {
+          localStorage.setItem(LOCAL_DATABASE_KEY, JSON.stringify(state));
+        } catch (error) {
+          console.error('Failed to repair approved EPDA status:', error);
+        }
+      }
+      return state;
     } catch {
       return defaults;
     }
@@ -524,6 +546,24 @@ class DatabaseService {
       existingJob &&
       this.actor.role === 'SALES' &&
       normalizeBranchCode(existingJob.inquiry?.createdByBranch || existingJob.inquiry?.createdByBranchCode) !== normalizeBranchCode(this.actor.branch)
+    ) {
+      return;
+    }
+    if (
+      existingJob &&
+      this.actor.role === 'SALES' &&
+      updates.quotation &&
+      (existingJob.managerApproval?.status === 'APPROVED' ||
+        existingJob.quotation?.epda?.status === 'SUBMITTED' ||
+        existingJob.quotation?.epda?.status === 'APPROVED')
+    ) {
+      return;
+    }
+    if (
+      existingJob &&
+      this.actor.role === 'FDA' &&
+      existingJob.fda?.fdaApproved &&
+      (updates.actualCosts !== undefined || updates.exchangeRateUSDToIDR !== undefined)
     ) {
       return;
     }
