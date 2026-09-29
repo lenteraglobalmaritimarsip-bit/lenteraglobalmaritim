@@ -846,19 +846,24 @@ export const FDAView: React.FC<FDAViewProps> = ({
       description: `FDA ${activeJob.jobId}`, requestedAmount: totalActualBilled, receivedAmount: 0, currency: viewCurrency, status: 'AWAITING_REMITTANCE' as const,
     }];
 
-    db.updateJob(activeJob.jobId, {
+    const submitted = db.submitFDAForManager(activeJob.jobId, {
       fda: { ...activeJob.fda, fdaNo: fdaNoGenerated, date: now.slice(0, 10), currency: viewCurrency,
         totalActualCost: totalActualBuyLogged, totalEstimatedBuy: activeJob.quotation.epda.totalBuyRate, totalEstimatedSell: activeJob.quotation.pda.totalSellRate || activeJob.quotation.epda.totalSellRate,
         finalBilledToPrincipal: totalActualBilled, varianceAmount: variance, variancePercentage: totalActualBilled > 0 ? (variance / totalActualBilled) * 100 : 0,
-        fdaApproved: true, approvedBy: 'FDA User', approvedAt: now, notes: 'FDA difinalisasi dan diteruskan ke Finance.' },
+        fdaApproved: false, notes: 'FDA dikirim untuk approval Manager Ops.' },
       ap: apFromActual, ar: arFromInvoice,
       principalInvoice: { ...activeJob.principalInvoice, invoiceNo, invoiceDate: now.slice(0, 10),
         dueDate: new Date(new Date(now).getTime() + 30 * 86400000).toISOString().slice(0, 10),
         totalAmountUSD: totalBilledUSD, totalAmountIDR: totalBilledIDR, balanceDueUSD: totalBilledUSD, balanceDueIDR: totalBilledIDR, status: 'ISSUED', pdfGenerated: false },
-      currentStage: 'AP_AR', status: 'IN_PROGRESS',
-    });
+    }, 'FDA User');
 
-    setMsg('Final Disbursement Account (FDA) berhasil di-generate & diteruskan ke Finance!');
+    if (!submitted) {
+      setMsg('FDA gagal dikirim untuk approval Manager Ops.');
+      setTimeout(() => setMsg(null), 3500);
+      return;
+    }
+
+    setMsg('Final Disbursement Account (FDA) berhasil dikirim untuk approval Manager Ops.');
     setTimeout(() => setMsg(null), 3500);
   };
 

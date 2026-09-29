@@ -212,31 +212,6 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   const pendingJobCount = approvedFDAJobs.filter((job) => !isClosedJob(job) && Math.max(0, getJobPrincipalBilled(job) - getJobPrincipalReceived(job)) > 0).length;
   const netOperatingProfit_USD = totalAR_USD - totalAP_USD;
 
-  const handlePayVendor = (voucherId: string) => {
-    if (!activeJob.fda?.fdaApproved) {
-      setMsg('Pembayaran AP belum dapat diproses. FDA harus Approved terlebih dahulu.');
-      setTimeout(() => setMsg(null), 4000);
-      return;
-    }
-    const updatedAP = apItems.map((v) =>
-      v.id === voucherId
-        ? {
-            ...v,
-            status: 'PAID' as const,
-            paidDate: new Date().toISOString().slice(0, 10),
-            paymentRef: `TRF-${Math.floor(10000 + Math.random() * 90000)}`,
-          }
-        : v
-    );
-
-    db.updateJob(activeJob.jobId, {
-      ap: updatedAP,
-    });
-
-    setMsg('Payment Voucher berhasil dibayarkan ke vendor!');
-    setTimeout(() => setMsg(null), 3000);
-  };
-
   const handleReceivePrincipalPayment = () => {
     if (!activeJob.fda?.fdaApproved) {
       setMsg('Finance belum dapat membukukan AR. FDA harus Approved terlebih dahulu.');
@@ -364,7 +339,8 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
   const handleCloseCollectedJob = () => {
     const closed = db.closeJobWhenPrincipalCollected(activeJob.jobId, 'Finance');
-    setMsg(closed ? `Job Vessel ${activeJob.jobId} berhasil ditutup.` : 'Job belum dapat ditutup. Pastikan tagihan Principal sudah lunas.');
+    const guard = db.canCloseJob(activeJob.jobId);
+    setMsg(closed ? `Job Vessel ${activeJob.jobId} berhasil ditutup.` : guard.message || 'Job tidak dapat ditutup.');
     setTimeout(() => setMsg(null), 4000);
   };
 
@@ -375,7 +351,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       setTimeout(() => setMsg(null), 4500);
       return;
     }
-    const closed = db.closeJob(activeJob.jobId, 'Finance', 'Semua AP vendor lunas, FDA approved, dan AR Principal telah diterima.');
+    const closed = db.closeJob(activeJob.jobId, 'Finance', 'FDA approved dan seluruh AP vendor telah dibayar.');
     setMsg(closed ? `Job Call ${activeJob.jobId} resmi ditutup (CLOSING COMPLETE)!` : 'Closing gagal diproses.');
     setTimeout(() => setMsg(null), 4000);
   };
@@ -1126,7 +1102,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   JOB: {activeJob.jobId}
                 </span>
                 <h2 className="text-base font-bold text-white uppercase tracking-wider mt-1">
-                  Pencatatan Uang Masuk dari Principal
+                  Pencatatan Uang Masuk dari Principal (AR)
                 </h2>
                 <p className="text-xs text-slate-400">
                   Catat penerimaan pembayaran Principal dan simpan bukti transfer bank untuk kontrol Finance.
@@ -1207,7 +1183,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                       onClick={handleReceivePrincipalPayment}
                       className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold"
                     >
-                      PAID
+                      Konfirmasi Pelunasan AR
                     </button>
                   )}
                 </div>

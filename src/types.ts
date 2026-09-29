@@ -358,6 +358,9 @@ export interface JobCall {
     varianceAmount: number;
     variancePercentage: number;
     fdaApproved: boolean;
+    approvalStatus?: 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
+    submittedBy?: string;
+    submittedAt?: string;
     approvedBy?: string;
     approvedAt?: string;
     notes?: string;

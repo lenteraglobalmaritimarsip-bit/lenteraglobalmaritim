@@ -48,6 +48,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
       j.managerApproval.status !== 'APPROVED' &&
       j.quotation.epda.status === 'SUBMITTED'
   );
+  const pendingFDAApprovals = jobCalls.filter((job) => job.fda?.approvalStatus === 'SUBMITTED' && !job.fda.fdaApproved);
 
   const approvedOrClosedJobs = jobCalls.filter((j) => j.managerApproval.status === 'APPROVED' || j.currentStage === 'CLOSED');
   const approvedFDAJobs = jobCalls.filter((j) => j.fda?.fdaApproved);
@@ -136,6 +137,20 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
     const notes = approvalNotes[jobId] || 'Margin komersial tidak mencukupi / revisi buy rate vendor.';
     db.rejectJobQuote(jobId, 'Capt. Bambang Suryo (Manager Ops)', notes);
     setActionSuccess(`Job ${jobId} dikembalikan ke Sales untuk revisi penawaran.`);
+    setTimeout(() => setActionSuccess(null), 4000);
+  };
+
+  const handleApproveFDA = (jobId: string) => {
+    const notes = approvalNotes[`${jobId}:FDA`] || 'FDA disetujui untuk diteruskan ke Finance.';
+    const result = db.approveFDA(jobId, 'Capt. Bambang Suryo (Manager Ops)', notes);
+    setActionSuccess(result ? `FDA ${jobId} disetujui dan diteruskan ke Finance.` : 'Approval FDA gagal. Pastikan FDA sudah dikirim oleh tim FDA.');
+    setTimeout(() => setActionSuccess(null), 4000);
+  };
+
+  const handleRejectFDA = (jobId: string) => {
+    const notes = approvalNotes[`${jobId}:FDA`] || 'FDA dikembalikan ke FDA untuk revisi.';
+    const result = db.rejectFDA(jobId, 'Capt. Bambang Suryo (Manager Ops)', notes);
+    setActionSuccess(result ? `FDA ${jobId} dikembalikan ke tim FDA untuk revisi.` : 'FDA tidak dapat dikembalikan karena statusnya bukan SUBMITTED.');
     setTimeout(() => setActionSuccess(null), 4000);
   };
 
@@ -664,6 +679,55 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                 ))}
               </div>
             )}
+          </div>
+
+          <div className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl">
+            <div>
+              <h2 className="text-base font-bold uppercase tracking-wider text-white">Antrian Approval FDA</h2>
+              <p className="mt-1 text-xs text-slate-400">Review Final Disbursement Account sebelum diteruskan ke Finance.</p>
+            </div>
+
+            {pendingFDAApprovals.length === 0 ? (
+              <div className="rounded-xl border border-slate-800 bg-slate-950 p-8 text-center">
+                <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-emerald-400" />
+                <p className="text-sm font-bold text-white">Tidak ada FDA menunggu approval</p>
+              </div>
+            ) : pendingFDAApprovals.map((job) => {
+              const currency = job.fda.currency || job.actualCosts?.[0]?.currency || job.currency || 'USD';
+              return (
+                <div key={`${job.jobId}:FDA-APPROVAL`} className="space-y-3 rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  <div className="flex flex-col justify-between gap-2 border-b border-slate-800 pb-3 sm:flex-row sm:items-center">
+                    <div>
+                      <span className="rounded bg-slate-900 px-2 py-0.5 text-xs font-mono font-bold text-cyan-400">{job.jobId}</span>
+                      <h3 className="mt-1 text-base font-bold text-white">{job.vesselName} • {job.customerName}</h3>
+                      <p className="mt-1 text-xs text-slate-400">Dikirim oleh {job.fda.submittedBy || 'FDA'}{job.fda.submittedAt ? ` • ${formatDateDisplay(job.fda.submittedAt, true)}` : ''}</p>
+                    </div>
+                    <span className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-300">MENUNGGU APPROVAL</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
+                    <div className="rounded-lg border border-slate-800 bg-slate-900 p-3"><span className="text-slate-400">No. FDA</span><strong className="mt-1 block font-mono text-cyan-300">{job.fda.fdaNo || '-'}</strong></div>
+                    <div className="rounded-lg border border-slate-800 bg-slate-900 p-3"><span className="text-slate-400">Total Actual Cost</span><strong className="mt-1 block font-mono text-white">{formatEPDAAmount(job.fda.totalActualCost || job.actualCosts.reduce((sum, item) => sum + Number(item.amount || 0), 0), currency)}</strong></div>
+                    <div className="rounded-lg border border-slate-800 bg-slate-900 p-3"><span className="text-slate-400">Tagihan Principal</span><strong className="mt-1 block font-mono text-emerald-300">{formatEPDAAmount(job.fda.finalBilledToPrincipal || 0, currency)}</strong></div>
+                  </div>
+
+                  <div className="overflow-x-auto rounded-lg border border-slate-800">
+                    <table className="w-full min-w-[650px] text-left text-[11px]">
+                      <thead className="bg-slate-900 text-[10px] uppercase tracking-wider text-slate-400"><tr><th className="p-2">No</th><th className="p-2">Description</th><th className="p-2">Category</th><th className="p-2">Vendor</th><th className="p-2 text-right">Amount</th></tr></thead>
+                      <tbody className="divide-y divide-slate-800">{job.actualCosts.map((item, index) => <tr key={item.id}><td className="p-2 text-slate-400">{index + 1}</td><td className="p-2 font-semibold text-white">{item.description}</td><td className="p-2 text-slate-300">{formatEPDACategory(item.category)}</td><td className="p-2 text-slate-300">{item.vendorName || '-'}</td><td className="p-2 text-right font-mono text-emerald-300">{formatEPDAAmount(item.amount, item.currency || currency)}</td></tr>)}</tbody>
+                    </table>
+                  </div>
+
+                  <div className="flex flex-col items-center gap-3 pt-1 sm:flex-row">
+                    <input type="text" placeholder="Catatan approval / revisi FDA..." value={approvalNotes[`${job.jobId}:FDA`] || ''} onChange={(event) => setApprovalNotes({ ...approvalNotes, [`${job.jobId}:FDA`]: event.target.value })} className="w-full flex-1 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none" />
+                    <div className="flex w-full items-center gap-2 sm:w-auto">
+                      <button type="button" onClick={() => handleRejectFDA(job.jobId)} className="flex-1 rounded-lg border border-rose-500/30 bg-rose-600/20 px-3.5 py-2 text-xs font-bold text-rose-300 transition hover:bg-rose-600/30 sm:flex-initial"><XCircle className="mr-1 inline h-4 w-4"/>Reject / Revisi</button>
+                      <button type="button" onClick={() => handleApproveFDA(job.jobId)} className="flex-1 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-lg transition hover:bg-indigo-500 sm:flex-initial"><CheckCircle2 className="mr-1 inline h-4 w-4"/>Approve & Kirim ke Finance</button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

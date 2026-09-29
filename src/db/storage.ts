@@ -176,6 +176,7 @@ class DatabaseService {
         const isClosed = job.closing?.isClosed || job.status === 'CLOSED' || job.currentStage === 'CLOSED';
         const managerApproved = job.managerApproval?.status === 'APPROVED';
         const needsEPDARepair = managerApproved && job.quotation?.epda?.status !== 'APPROVED';
+        const needsFDAStatusRepair = job.fda?.fdaApproved && job.fda?.approvalStatus !== 'APPROVED';
         const normalizedStage = isClosed
           ? 'CLOSED'
           : managerApproved && job.currentStage === 'QUOTATION'
@@ -183,12 +184,13 @@ class DatabaseService {
             : job.currentStage;
         const needsStageRepair = normalizedStage !== job.currentStage;
         const needsStatusRepair = isClosed && job.status !== 'CLOSED';
-        if (!needsEPDARepair && !needsStageRepair && !needsStatusRepair) return job;
+        if (!needsEPDARepair && !needsFDAStatusRepair && !needsStageRepair && !needsStatusRepair) return job;
         repairedWorkflowState = true;
         return {
           ...job,
           currentStage: normalizedStage,
           status: isClosed ? 'CLOSED' as const : job.status,
+          fda: needsFDAStatusRepair ? { ...job.fda, approvalStatus: 'APPROVED' as const } : job.fda,
           quotation: needsEPDARepair ? {
             ...job.quotation,
             epda: { ...job.quotation.epda, status: 'APPROVED' as const },
@@ -749,7 +751,16 @@ class DatabaseService {
     if (job.managerApproval.status !== 'APPROVED') return { ok: false, message: 'FDA belum dapat diproses. Manager Approval harus APPROVED.' };
     if (job.quotation.epda.status !== 'APPROVED') return { ok: false, message: 'EPDA harus APPROVED sebelum FDA.' };
     if (!job.actualCosts.length) return { ok: false, message: 'Belum ada Actual Cost. FDA belum dapat difinalisasi.' };
-    if (job.fda.fdaApproved) return { ok: false, message: 'FDA untuk Job ini sudah difinalisasi.' };
+    if (job.fda.approvalStatus === 'SUBMITTED') return { ok: false, message: 'FDA sedang menunggu approval Manager OPS.' };
+    if (job.fda.fdaApproved || job.fda.approvalStatus === 'APPROVED') return { ok: false, message: 'FDA untuk Job ini sudah disetujui Manager.' };
+    return { ok: true };
+  }
+
+  public canApproveFDA(jobId: string): { ok: boolean; message?: string } {
+    const job = this.getJob(jobId);
+    if (!job) return { ok: false, message: 'Job/Vessel Call tidak ditemukan.' };
+    if (job.fda.approvalStatus !== 'SUBMITTED') return { ok: false, message: 'FDA belum dikirim oleh tim FDA.' };
+    if (job.fda.fdaApproved) return { ok: false, message: 'FDA sudah disetujui Manager OPS.' };
     return { ok: true };
   }
 
@@ -758,8 +769,6 @@ class DatabaseService {
     if (!job) return { ok: false, message: 'Job/Vessel Call tidak ditemukan.' };
     if (!job.fda.fdaApproved) return { ok: false, message: 'Closing belum dapat dilakukan. FDA belum Approved.' };
     if (!job.ap.length || !job.ap.every(x => x.status === 'PAID')) return { ok: false, message: 'Closing belum dapat dilakukan. AP Vendor harus PAID seluruhnya.' };
-    if (!job.ar.length || !job.ar.every(x => x.status === 'RECEIVED')) return { ok: false, message: 'Closing belum dapat dilakukan. AR Principal harus RECEIVED.' };
-    if (job.principalInvoice.status !== 'SETTLED') return { ok: false, message: 'Closing belum dapat dilakukan. Principal Invoice harus SETTLED.' };
     return { ok: true };
   }
 
@@ -774,6 +783,7 @@ class DatabaseService {
       fda: {
         ...job.fda,
         fdaApproved: false,
+        approvalStatus: 'DRAFT',
         approvedBy: undefined,
         approvedAt: undefined,
         notes: `Dikembalikan oleh ${actorName}: ${reason}`,
@@ -788,37 +798,8 @@ class DatabaseService {
 
   public closeJobWhenPrincipalCollected(jobId: string, closerName: string): boolean {
     const job = this.getJob(jobId);
-    if (!job || !job.fda.fdaApproved || job.closing.isClosed) return false;
-
-    const billed = job.ar.reduce((sum, item) => sum + (item.requestedAmount || 0), 0);
-    const advance = (job.principalReceipts || [])
-      .filter((receipt) => receipt.paymentType === 'ADVANCE_PAYMENT')
-      .reduce((sum, receipt) => sum + (receipt.amount || 0), 0);
-    const received = job.ar.reduce((sum, item) => sum + (item.receivedAmount || 0), 0)
-      + (job.principalReceipts || [])
-        .filter((receipt) => receipt.paymentType !== 'ADVANCE_PAYMENT')
-        .reduce((sum, receipt) => sum + (receipt.amount || 0), 0);
-    if (Math.max(0, billed - advance - received) > 0) return false;
-
-    const actualCostTotal = job.actualCosts.reduce((sum, item) => sum + item.amount, 0);
-    const invoiceTotal = job.principalInvoice.totalAmountUSD || job.quotation.pda.totalSellRate;
-    const grossMarginUSD = invoiceTotal - actualCostTotal;
-    const grossMarginIDR = grossMarginUSD * (job.exchangeRateUSDToIDR || 15800);
-
-    this.audit('CLOSE', 'VESSEL_CALL', `Closed vessel call ${jobId} after principal collection`, jobId);
-    this.updateJob(jobId, {
-      currentStage: 'CLOSED',
-      status: 'CLOSED',
-      closing: {
-        isClosed: true,
-        closedAt: new Date().toISOString(),
-        closedBy: closerName,
-        finalGrossMarginUSD: grossMarginUSD,
-        finalGrossMarginIDR: grossMarginIDR,
-        postVoyageRemarks: 'Principal invoice collected in full.',
-      },
-    });
-    return true;
+    if (!job || job.closing.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED') return false;
+    return this.closeJob(jobId, closerName, 'FDA approved and all vendor AP paid.');
   }
 
   // Manager Approval Action
@@ -867,6 +848,70 @@ class DatabaseService {
         allowedMarginTolerancePct: job.managerApproval.allowedMarginTolerancePct,
       },
     });
+    return true;
+  }
+
+  public submitFDAForManager(jobId: string, updates: Pick<JobCall, 'fda' | 'ap' | 'ar' | 'principalInvoice'>, submitterName: string): boolean {
+    const guard = this.canFinalizeFDA(jobId);
+    if (!guard.ok) return false;
+
+    this.updateJob(jobId, {
+      ...updates,
+      fda: {
+        ...updates.fda,
+        fdaApproved: false,
+        approvalStatus: 'SUBMITTED',
+        submittedBy: submitterName,
+        submittedAt: new Date().toISOString(),
+        approvedBy: undefined,
+        approvedAt: undefined,
+      },
+      currentStage: 'FDA',
+      status: 'IN_PROGRESS',
+    });
+    this.audit('SUBMIT', 'FDA_APPROVAL', `Submitted FDA for Manager approval: ${jobId}`, jobId);
+    return true;
+  }
+
+  public approveFDA(jobId: string, approverName: string, notes?: string): boolean {
+    const job = this.getJob(jobId);
+    const guard = this.canApproveFDA(jobId);
+    if (!job || !guard.ok) return false;
+
+    this.updateJob(jobId, {
+      fda: {
+        ...job.fda,
+        fdaApproved: true,
+        approvalStatus: 'APPROVED',
+        approvedBy: approverName,
+        approvedAt: new Date().toISOString(),
+        notes: notes || 'FDA disetujui Manager OPS dan diteruskan ke Finance.',
+      },
+      currentStage: 'AP_AR',
+      status: 'IN_PROGRESS',
+    });
+    this.audit('APPROVE', 'FDA_APPROVAL', `Approved FDA for ${jobId}`, jobId);
+    return true;
+  }
+
+  public rejectFDA(jobId: string, reviewerName: string, notes?: string): boolean {
+    const job = this.getJob(jobId);
+    const guard = this.canApproveFDA(jobId);
+    if (!job || !guard.ok) return false;
+
+    this.updateJob(jobId, {
+      fda: {
+        ...job.fda,
+        fdaApproved: false,
+        approvalStatus: 'REJECTED',
+        approvedBy: reviewerName,
+        approvedAt: new Date().toISOString(),
+        notes: notes || 'FDA dikembalikan untuk revisi oleh Manager OPS.',
+      },
+      currentStage: 'FDA',
+      status: 'IN_PROGRESS',
+    });
+    this.audit('REJECT', 'FDA_APPROVAL', `Rejected FDA for ${jobId}`, jobId);
     return true;
   }
 

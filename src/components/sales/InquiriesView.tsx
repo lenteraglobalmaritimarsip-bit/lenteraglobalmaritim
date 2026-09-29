@@ -99,6 +99,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
 
   const handleCreateInquiry = (e: React.FormEvent) => {
     e.preventDefault();
+    if (currentUser.role === 'FDA') return;
     if (form.quantity === '' || !Number.isFinite(Number(form.quantity))) {
       setQuantityError('Berat muatan wajib diisi.');
       return;
@@ -174,13 +175,15 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={() => setShowNewModal(true)}
-          className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-lg shadow-blue-900/20 transition flex items-center gap-2 self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Buat Inquiry Baru</span>
-        </button>
+        {currentUser.role !== 'FDA' && (
+          <button
+            onClick={() => setShowNewModal(true)}
+            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-lg shadow-blue-900/20 transition flex items-center gap-2 self-start sm:self-auto"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Buat Inquiry Baru</span>
+          </button>
+        )}
       </div>
 
       {/* Search & Filter */}
@@ -277,7 +280,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
       </div>
 
       {/* New Inquiry Modal */}
-      {showNewModal && (
+      {showNewModal && currentUser.role !== 'FDA' && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex justify-center p-3 sm:p-4">
           <div className="admin-add-modal bg-slate-100 border border-slate-300 rounded-2xl w-full max-w-5xl shadow-2xl p-4 h-[82vh] overflow-y-auto self-start">
             <div className="flex items-center justify-between border-b border-slate-300 pb-3 mb-3">
