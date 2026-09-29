@@ -72,7 +72,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
         <section className="lgm-login-copy">
           <h1>Integrated Maritime.<br /><em>Controlled Vessel Workflow.</em></h1>
           <div className="lgm-login-principles">
-            <section className="lgm-login-principle lgm-login-principle--vision">
+            <section className="lgm-login-principle">
               <h2>VISION</h2>
               <p>Being a quality , Profesional and trusted company that as the first Choice by qualified customers</p>
             </section>
