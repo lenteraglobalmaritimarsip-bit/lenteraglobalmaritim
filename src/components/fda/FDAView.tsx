@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { JobCall, ActualCostItem, ActiveTab, Vessel, FixTariff, ExpensesItem, Currency } from '../../types';
 import { db, buildBranchAwareFDANumber, buildBranchAwareInvoiceNumber, getCurrentBranchName, formatEPDAQuoteNoForDisplay } from '../../db/storage';
-import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, selectPreferredTariffOptions } from '../../utils/tariff';
+import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, filterTariffsByGRT, hasTariffGRTRestriction, selectPreferredTariffOptions } from '../../utils/tariff';
 
 interface FDAViewProps {
   initialTab?: 'DASHBOARD' | 'JOB_ID' | 'ACTUAL_COST' | 'QUOTES_VIEW' | 'APPROVAL';
@@ -90,6 +90,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const [jobMonthFilter, setJobMonthFilter] = useState<string>('');
   const [jobSearch, setJobSearch] = useState('');
   const [actualEntryMode, setActualEntryMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
+  const [manualTariffText, setManualTariffText] = useState('');
   const [actualQuantity, setActualQuantity] = useState(1);
   const [actualList, setActualList] = useState<ActualCostItem[]>(activeJob.actualCosts || []);
 
@@ -169,6 +170,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
     }).format(normalized);
   };
 
+  const formatRateAmount = (value: number) =>
+    new Intl.NumberFormat('en-US', { useGrouping: true, maximumFractionDigits: 8 }).format(value);
+
   const formatTariffInput = (value: number) => value > 0
     ? new Intl.NumberFormat('en-US', {
       minimumFractionDigits: 2,
@@ -199,13 +203,23 @@ export const FDAView: React.FC<FDAViewProps> = ({
     return (!!currentPortId && !!targetPortId && currentPortId === targetPortId)
       || (!!currentPortName && !!targetPortName && currentPortName.toLowerCase() === targetPortName.toLowerCase());
   };
-  const buildAutoServiceOptions = (currency: Currency) => selectPreferredTariffOptions([
-    ...fixTariffs
-      .filter((tariff) =>
-        portMatches(tariff.portId, tariff.portName)
-        && matchesTariffGRT(vesselMaster?.grt, tariff.grt, tariff.grtMin, tariff.grtMax)
-        && rateForCurrency(currency, tariff.rateIDR, tariff.rateUSD, tariff.rate, tariff.currency) > 0
-      )
+  const buildAutoServiceOptions = (currency: Currency) => {
+    const serviceKey = (name: string, category: string) => `${name.trim().toLowerCase()}|${category.trim().toUpperCase()}`;
+    const currentCurrencyFixTariffs = fixTariffs.filter((tariff) =>
+      portMatches(tariff.portId, tariff.portName)
+      && rateForCurrency(currency, tariff.rateIDR, tariff.rateUSD, tariff.rate, tariff.currency) > 0
+    );
+    const rangedFixTariffKeys = new Set(currentCurrencyFixTariffs
+      .filter(hasTariffGRTRestriction)
+      .map((tariff) => serviceKey(tariff.serviceName, tariff.costCategory || 'PORT_EXPENSES')));
+    const applicableFixTariffs = filterTariffsByGRT(
+      currentCurrencyFixTariffs
+        .map((tariff) => ({ ...tariff, name: tariff.serviceName, category: tariff.costCategory || 'PORT_EXPENSES' })),
+      vesselMaster?.grt,
+    );
+
+    return selectPreferredTariffOptions([
+    ...applicableFixTariffs
       .map((tariff) => ({
         name: tariff.serviceName,
         category: tariff.costCategory || 'PORT_EXPENSES',
@@ -227,6 +241,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       .filter((item) =>
         portMatches(item.portId, item.portName)
         && rateForCurrency(currency, item.rateIDR, item.rateUSD, item.standardCostSell || 0, item.defaultCurrency) > 0
+        && !rangedFixTariffKeys.has(serviceKey(item.name, item.category))
       )
       .map((item) => ({
         name: item.name,
@@ -241,13 +256,15 @@ export const FDAView: React.FC<FDAViewProps> = ({
         currency: item.defaultCurrency,
           source: 'EXPENSES_ITEM' as const,
       })),
-        ]);
+          ]);
+        };
   const autoServiceOptions = buildAutoServiceOptions(viewCurrency);
 
-  const applySelectedAutoService = (selectedName: string) => {
-    const selected = autoServiceOptions.find((option) => option.name === selectedName);
+  const autoServiceOptionKey = (name: string, category: string) => JSON.stringify([name, category]);
+  const applySelectedAutoService = (selectedKey: string) => {
+    const selected = autoServiceOptions.find((option) => autoServiceOptionKey(option.name, option.category) === selectedKey);
     if (!selected) {
-      setNewActual({ ...newActual, description: selectedName });
+      setNewActual({ ...newActual, description: '', rate: 0, minCharge: 0 });
       return;
     }
 
@@ -537,6 +554,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
     setShowAddActualModal(false);
     setEditingActualId(null);
+    setManualTariffText('');
     setNewActual({ description: '', category: 'PORT_EXPENSES', vendorName: '', vendorInvoiceNo: '', amountBuy: 0, amountSellBilled: 0, notes: '', attachmentName: '', calculationBasis: 'PER_GRT', tariffType: 'VARIABLE', rate: 0, minCharge: 0 });
     setActualQuantity(1);
     setTimeout(() => setMsg(null), 3000);
@@ -1487,7 +1505,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
             <p className="mb-2 text-xs text-slate-500">
               {actualEntryMode === 'AUTO'
-                ? 'Mode otomatis: tarif dihitung dari asset dasar job (GRT / hari) dan min charge yang berlaku.'
+                ? 'Mode otomatis: tarif VARIABLE dihitung dari basis job (GRT / hari / unit) dikali rate; QTY mengalikan tarif per unit.'
                 : 'Mode manual: nama biaya, kategori, tarif, QTY, dan remark diisi langsung tanpa master data tarif atau expenses.'}
             </p>
             <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] text-amber-800">
@@ -1496,11 +1514,10 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
             {actualEntryMode === 'AUTO' ? (
               <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2 lg:grid-cols-6">
-                <div className="lg:col-span-2"><label className="mb-1 block text-slate-600">Item Service</label>{autoServiceOptions.length > 0 ? <select value={newActual.description} onChange={(e) => applySelectedAutoService(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="">Pilih item service</option>{autoServiceOptions.map((option) => <option key={`${option.name}-${option.category}`} value={option.name}>{option.name}</option>)}</select> : <input required value={newActual.description} onChange={(e) => setNewActual({ ...newActual, description: e.target.value })} placeholder="Nama biaya final otomatis" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none" />}</div>
+                <div className="lg:col-span-2"><label className="mb-1 block text-slate-600">Item Service</label>{autoServiceOptions.length > 0 ? <select value={autoServiceOptionKey(newActual.description, newActual.category)} onChange={(e) => applySelectedAutoService(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="">Pilih item service</option>{autoServiceOptions.map((option) => <option key={autoServiceOptionKey(option.name, option.category)} value={autoServiceOptionKey(option.name, option.category)}>{option.name}</option>)}</select> : <input required value={newActual.description} onChange={(e) => setNewActual({ ...newActual, description: e.target.value })} placeholder="Nama biaya final otomatis" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none" />}</div>
                 <div><label className="mb-1 block text-slate-600">Category Cost</label><select value={newActual.category} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="AGENCY_FEE">AGENCY FEE</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option><option value="VAT_11">VAT 11%</option><option value="PPH_INCOME_TAX">PPH / INCOME TAX</option></select></div>
                 <div><label className="mb-1 block text-slate-600">Type</label><select value={newActual.tariffType} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="RANGE">Range</option></select></div>
-                <div><label className="mb-1 block text-slate-600">Rate</label><input type="text" inputMode="decimal" readOnly value={formatTariffInput(Number(newActual.rate) || 0)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
-                <div><label className="mb-1 block text-slate-600">Min Charge</label><input type="text" inputMode="decimal" readOnly value={formatTariffInput(Number(newActual.minCharge) || 0)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
+                <div><label className="mb-1 block text-slate-600">Rate</label><input type="text" inputMode="decimal" readOnly value={formatRateAmount(Number(newActual.rate) || 0)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
                 <div><label className="mb-1 block text-slate-600">QTY</label><input type="number" min="1" value={actualQuantity} onChange={(e) => setActualQuantity(Math.max(1, Number(e.target.value) || 1))} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>
                 <div className="lg:col-span-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                   <div><label className="mb-1 block text-slate-600">Tarif ({viewCurrency})</label><input readOnly value={formatAccountingNumber(autoTariffPreview, viewCurrency)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
@@ -1514,7 +1531,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                 <div><label className="mb-1 block text-slate-600">Category Cost</label><select value={newActual.category} onChange={(e) => setNewActual({ ...newActual, category: e.target.value })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="AGENCY_FEE">AGENCY FEE</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option><option value="VAT_11">VAT 11%</option><option value="PPH_INCOME_TAX">PPH / INCOME TAX</option></select></div>
                 <div><label className="mb-1 block text-slate-600">Type</label><select value={newActual.tariffType} onChange={(e) => setNewActual({ ...newActual, tariffType: e.target.value as 'FIXED' | 'VARIABLE' | 'RANGE' })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="RANGE">Range</option></select></div>
                 <div><label className="mb-1 block text-slate-600">QTY</label><input type="number" min="1" value={actualQuantity} onChange={(e) => setActualQuantity(Math.max(1, Number(e.target.value) || 1))} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>
-                <div><label className="mb-1 block text-slate-600">Tarif ({viewCurrency})</label><input type="text" inputMode="decimal" value={formatTariffInput(newActual.amountBuy)} onChange={(e) => setNewActual({ ...newActual, amountBuy: parseTariffInput(e.target.value) })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>
+                <div><label className="mb-1 block text-slate-600">Tarif ({viewCurrency})</label><input type="text" inputMode="decimal" placeholder="0.0000" value={manualTariffText} onChange={(e) => { const text = e.target.value; setManualTariffText(text); setNewActual({ ...newActual, amountBuy: parseTariffInput(text) }); }} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>
                 <div><label className="mb-1 block text-slate-600">Amount ({viewCurrency})</label><input readOnly value={formatAccountingNumber(actualAmount, viewCurrency)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
                 <div className="lg:col-span-6"><label className="mb-1 block text-slate-600">Remark</label><input value={newActual.notes} onChange={(e) => setNewActual({ ...newActual, notes: e.target.value })} placeholder="Keterangan tambahan" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none" /></div>
               </div>

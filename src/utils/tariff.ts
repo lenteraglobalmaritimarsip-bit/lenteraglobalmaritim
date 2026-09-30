@@ -39,14 +39,21 @@ export function describeTariffFormula({ description = '', category = '', basis =
   const source = `${basis} ${category} ${description}`.toUpperCase();
   const normalizedBasis = basis.toUpperCase();
   const normalizedCategory = category.toUpperCase().replaceAll(' ', '_');
-  const formatNumber = (value: number) => Number(value || 0).toLocaleString('id-ID', { maximumFractionDigits: 2 });
+  const formatNumber = (value: number) => Number(value || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
   const quantityUnit = describeTariffQuantityUnit(description);
   const quantityLabel = `${formatNumber(quantity)}${quantityUnit ? ` ${quantityUnit}` : ''}`;
   const isFixed = tariffType === 'FIXED' || normalizedBasis.includes('LUMP_SUM') || source.includes('FIXED');
-  const rateLabel = Number(rate || 0).toLocaleString('id-ID', { maximumFractionDigits: 6 });
+  const rateLabel = Number(rate || 0).toLocaleString('en-US', { maximumFractionDigits: 6 });
 
   if (isFixed) {
     return `${rateLabel} x ${quantityLabel}`;
+  }
+
+  if (tariffType === 'VARIABLE' || tariffType === 'RANGE') {
+    const absoluteGRT = Number(absoluteValue || 0);
+    return absoluteGRT > 0
+      ? `${formatNumber(absoluteGRT)} x ${rateLabel} x ${quantityLabel}`
+      : `GRT x ${rateLabel} x ${quantityLabel}`;
   }
 
   if (normalizedCategory === 'PORT_EXPENSES') {
@@ -57,16 +64,16 @@ export function describeTariffFormula({ description = '', category = '', basis =
   }
 
   if (normalizedBasis.includes('PER_GRT') || source.includes('GRT') || source.includes('PORT DUES') || source.includes('BERTHING')) {
-    return `GRT x ${rateLabel} x ${quantityLabel} (minimum charge applies)`;
+    return `GRT x ${rateLabel} x ${quantityLabel}`;
   }
   if (normalizedBasis.includes('PER_DAY') || source.includes('PER DAY') || source.includes('DAY') || source.includes('HARI')) {
-    return `Days x ${rateLabel} x ${quantityLabel} (minimum charge applies)`;
+    return `Days x ${rateLabel} x ${quantityLabel}`;
   }
   if (normalizedBasis.includes('PER_HOUR') || source.includes('PER HOUR') || source.includes('HOUR') || source.includes('JAM')) {
-    return `Hours x ${rateLabel} x ${quantityLabel} (minimum charge applies)`;
+    return `Hours x ${rateLabel} x ${quantityLabel}`;
   }
   if (normalizedBasis.includes('PER_MOVE') || source.includes('PER MOVE') || source.includes('MOVE') || source.includes('SHIFT') || source.includes('PILOTAGE') || source.includes('TOWAGE')) {
-    return `Moves x ${rateLabel} x ${quantityLabel} (minimum charge applies)`;
+    return `Moves x ${rateLabel} x ${quantityLabel}`;
   }
   if (normalizedBasis.includes('LUMP_SUM') || source.includes('LUMP') || source.includes('FIXED') || source.includes('CLEARANCE') || source.includes('AGENCY FEE')) {
     return `Lump sum / ${rateLabel} x ${quantityLabel}`;
@@ -92,17 +99,32 @@ export function matchesTariffGRT(
   grtMax?: number | string,
 ): boolean {
   const hasValue = (value: unknown) => value !== undefined && value !== null && String(value).trim() !== '';
-  const hasExplicitRange = hasValue(grtMin) || hasValue(grtMax);
-  let minimumSource = hasValue(grtMin) ? grtMin : tariffGRT;
-  let maximumSource = hasValue(grtMax) ? grtMax : tariffGRT;
-  let usesRange = hasExplicitRange;
+  const rangeParts = typeof tariffGRT === 'string'
+    ? tariffGRT.trim().split(/\s*(?:-|–|—|\bto\b)\s*/i)
+    : [];
+  const legacyRange = rangeParts.length === 2;
+  const explicitMinimum = hasValue(grtMin) ? parseTariffNumber(grtMin, Number.NaN) : 0;
+  const explicitMaximum = hasValue(grtMax) ? parseTariffNumber(grtMax, Number.NaN) : 0;
+  const hasPositiveExplicitBound = explicitMinimum > 0 || explicitMaximum > 0;
+  const hasInvalidExplicitBound = [grtMin, grtMax].some((bound) =>
+    hasValue(bound) && !Number.isFinite(parseTariffNumber(bound, Number.NaN))
+  );
+  let minimumSource: unknown;
+  let maximumSource: unknown;
+  let usesRange = false;
 
-  if (!hasExplicitRange && typeof tariffGRT === 'string') {
-    const range = tariffGRT.trim().split(/\s*(?:-|–|—|\bto\b)\s*/i);
-    if (range.length === 2) {
-      [minimumSource, maximumSource] = range;
-      usesRange = true;
-    }
+  if (hasPositiveExplicitBound || hasInvalidExplicitBound) {
+    minimumSource = hasValue(grtMin) ? grtMin : tariffGRT;
+    maximumSource = hasValue(grtMax) ? grtMax : tariffGRT;
+    usesRange = true;
+  } else if (legacyRange) {
+    [minimumSource, maximumSource] = rangeParts;
+    usesRange = true;
+  } else if (parseTariffNumber(tariffGRT) > 0) {
+    minimumSource = tariffGRT;
+    maximumSource = tariffGRT;
+  } else {
+    return true;
   }
 
   const hasMinimum = hasValue(minimumSource);
@@ -123,6 +145,34 @@ export function matchesTariffGRT(
   return value === maximum;
 }
 
+export function hasTariffGRTRestriction(record: {
+  grt?: unknown;
+  grtMin?: unknown;
+  grtMax?: unknown;
+}): boolean {
+  const bounds = [record.grtMin, record.grtMax];
+  if (bounds.some((bound) => parseTariffNumber(bound) > 0)) return true;
+  if (bounds.some((bound) => bound !== undefined && bound !== null && String(bound).trim() && !Number.isFinite(parseTariffNumber(bound, Number.NaN)))) return true;
+  if (typeof record.grt === 'string' && record.grt.trim().split(/\s*(?:-|–|—|\bto\b)\s*/i).length === 2) return true;
+  return parseTariffNumber(record.grt) > 0;
+}
+
+export function filterTariffsByGRT<T extends {
+  name: string;
+  category: string;
+  grt?: unknown;
+  grtMin?: unknown;
+  grtMax?: unknown;
+}>(records: T[], vesselGRT: number | string | undefined): T[] {
+  return records.filter((record) => !hasTariffGRTRestriction(record)
+    || matchesTariffGRT(
+      vesselGRT,
+      record.grt as number | string | undefined,
+      record.grtMin as number | string | undefined,
+      record.grtMax as number | string | undefined,
+    ));
+}
+
 export function prefersSpecificTariffGRTRange(
   candidateMin: unknown,
   candidateMax: unknown,
@@ -139,6 +189,14 @@ export function prefersSpecificTariffGRTRange(
     const candidateWidth = parseTariffNumber(candidateMax) - parseTariffNumber(candidateMin);
     const currentWidth = parseTariffNumber(currentMax) - parseTariffNumber(currentMin);
     return candidateWidth < currentWidth;
+  }
+  if (candidateBounds === 1) {
+    const candidateMinimum = parseTariffNumber(candidateMin);
+    const candidateMaximum = parseTariffNumber(candidateMax);
+    const currentMinimum = parseTariffNumber(currentMin);
+    const currentMaximum = parseTariffNumber(currentMax);
+    if (candidateMinimum > 0 && currentMinimum > 0) return candidateMinimum > currentMinimum;
+    if (candidateMaximum > 0 && currentMaximum > 0) return candidateMaximum < currentMaximum;
   }
   return false;
 }
@@ -232,24 +290,14 @@ export function calculateTariffForJob({
   hours = 0,
   moveCount = 0,
   rate,
-  minCharge,
   calculationBasis,
   tariffType,
 }: TariffCalculationInput): number {
   const resolvedType = tariffType ?? (calculationBasis === 'LUMP_SUM' ? 'FIXED' : 'VARIABLE');
 
   if (resolvedType === 'FIXED') {
-    return Math.max(rate, minCharge);
+    return rate;
   }
 
-  const basisValue = getTariffBasisValue({
-    vesselGRT,
-    estimatedDays,
-    hours,
-    moveCount,
-    calculationBasis,
-  });
-
-  const computed = basisValue * rate;
-  return Math.max(computed, minCharge);
+  return vesselGRT * rate;
 }

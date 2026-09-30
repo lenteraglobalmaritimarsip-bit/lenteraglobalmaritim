@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { FileSpreadsheet, Plus, Trash2, Save, Ship, Building, CheckCircle2, Download, Printer, Eye, Send } from 'lucide-react';
 import { JobCall, DisbursementItem, Currency, User, Vessel, FixTariff, ExpensesItem } from '../../types';
 import { db, getCurrentBranchName, buildBranchAwareEPDANumber } from '../../db/storage';
-import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, selectPreferredTariffOptions } from '../../utils/tariff';
+import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, filterTariffsByGRT, hasTariffGRTRestriction, selectPreferredTariffOptions } from '../../utils/tariff';
 
 interface QuotesEPDAViewProps {
   job?: JobCall;
@@ -58,6 +58,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   const [exchangeRate, setExchangeRate] = useState<number>(job.exchangeRateUSDToIDR || 15800);
   const [isSaved, setIsSaved] = useState(false);
   const [itemEntryMode, setItemEntryMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
+  const [manualTariffText, setManualTariffText] = useState('');
   const [newItem, setNewItem] = useState({
     name: '',
     category: 'PORT_EXPENSES',
@@ -75,6 +76,8 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
 
   const formatAmount = (value: number) =>
     new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+  const formatRateAmount = (value: number) =>
+    new Intl.NumberFormat('en-US', { useGrouping: true, maximumFractionDigits: 8 }).format(value);
 
   const formatDate = (value: string) => {
     const datePart = value?.split('T')[0] || '';
@@ -118,13 +121,23 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     return (!!currentPortId && !!targetPortId && currentPortId === targetPortId)
       || (!!currentPortName && !!targetPortName && currentPortName.toLowerCase() === targetPortName.toLowerCase());
   };
-  const buildAutoServiceOptions = (currency: Currency) => selectPreferredTariffOptions([
-    ...fixTariffs
-      .filter((tariff) =>
-        portMatches(tariff.portId, tariff.portName)
-        && matchesTariffGRT(vesselMaster?.grt, tariff.grt, tariff.grtMin, tariff.grtMax)
-        && rateForCurrency(currency, tariff.rateIDR, tariff.rateUSD, tariff.rate, tariff.currency) > 0
-      )
+  const buildAutoServiceOptions = (currency: Currency) => {
+    const serviceKey = (name: string, category: string) => `${name.trim().toLowerCase()}|${category.trim().toUpperCase()}`;
+    const currentCurrencyFixTariffs = fixTariffs.filter((tariff) =>
+      portMatches(tariff.portId, tariff.portName)
+      && rateForCurrency(currency, tariff.rateIDR, tariff.rateUSD, tariff.rate, tariff.currency) > 0
+    );
+    const rangedFixTariffKeys = new Set(currentCurrencyFixTariffs
+      .filter(hasTariffGRTRestriction)
+      .map((tariff) => serviceKey(tariff.serviceName, tariff.costCategory || 'PORT_EXPENSES')));
+    const applicableFixTariffs = filterTariffsByGRT(
+      currentCurrencyFixTariffs
+        .map((tariff) => ({ ...tariff, name: tariff.serviceName, category: tariff.costCategory || 'PORT_EXPENSES' })),
+      vesselMaster?.grt,
+    );
+
+    return selectPreferredTariffOptions([
+    ...applicableFixTariffs
       .map((tariff) => ({
         name: tariff.serviceName,
         category: tariff.costCategory || 'PORT_EXPENSES',
@@ -146,6 +159,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       .filter((item) =>
         portMatches(item.portId, item.portName)
         && rateForCurrency(currency, item.rateIDR, item.rateUSD, item.standardCostSell || 0, item.defaultCurrency) > 0
+        && !rangedFixTariffKeys.has(serviceKey(item.name, item.category))
       )
       .map((item) => ({
         name: item.name,
@@ -160,7 +174,8 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
         currency: item.defaultCurrency,
           source: 'EXPENSES_ITEM' as const,
       })),
-        ]);
+          ]);
+        };
   const autoServiceOptions = buildAutoServiceOptions(viewCurrency);
 
   const handleViewCurrencyChange = (currency: Currency) => {
@@ -172,10 +187,11 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       : { ...current, name: '', rate: 0, minCharge: 0 });
   };
 
-  const applySelectedAutoService = (selectedName: string) => {
-    const selected = autoServiceOptions.find((option) => option.name === selectedName);
+  const autoServiceOptionKey = (name: string, category: string) => JSON.stringify([name, category]);
+  const applySelectedAutoService = (selectedKey: string) => {
+    const selected = autoServiceOptions.find((option) => autoServiceOptionKey(option.name, option.category) === selectedKey);
     if (!selected) {
-      setNewItem({ ...newItem, name: selectedName });
+      setNewItem({ ...newItem, name: '', rate: 0, minCharge: 0 });
       return;
     }
 
@@ -344,6 +360,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     };
 
     autosaveItems([...items, item]);
+    setManualTariffText('');
     setNewItem({
       name: '',
       category: 'PORT_EXPENSES',
@@ -390,27 +407,20 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   }, []);
   const getItemTariff = (item: DisbursementItem) => {
     const serviceDescription = describeTariffService(item.name);
-    const normalizedName = item.name.trim().toLowerCase();
-    const masterTariff = item.category === 'PORT_EXPENSES'
-      ? fixTariffs.find((tariff) => tariff.serviceName.trim().toLowerCase() === normalizedName)
-      : undefined;
-    const masterExpense = item.category !== 'PORT_EXPENSES'
-      ? expensesItems.find((expense) => expense.name.trim().toLowerCase() === normalizedName && expense.category === item.category)
-      : undefined;
-    const masterRate = masterTariff
-      ? rateForCurrency(viewCurrency, masterTariff.rateIDR, masterTariff.rateUSD, masterTariff.rate, masterTariff.currency)
-      : masterExpense
-        ? rateForCurrency(viewCurrency, masterExpense.rateIDR, masterExpense.rateUSD, masterExpense.standardCostSell, masterExpense.defaultCurrency)
-        : undefined;
+    const currency = item.currency || viewCurrency;
+    const masterOption = buildAutoServiceOptions(currency).find((option) =>
+      option.name.trim().toLowerCase() === item.name.trim().toLowerCase()
+      && option.category === item.category
+    );
     if (!serviceDescription) return '';
     return describeTariffFormula({
       description: item.name,
       category: item.category,
-      basis: masterTariff?.calculationBasis || item.calculationBasis || item.basis,
+      basis: item.calculationBasis || masterOption?.calculationBasis || item.basis,
       quantity: item.quantity,
       absoluteValue: vesselMaster?.grt,
-      rate: masterRate ?? item.tariffRate ?? item.unitSellRate,
-      tariffType: masterTariff?.tariffType || item.tariffType,
+      rate: masterOption?.rate ?? item.tariffRate ?? item.unitSellRate,
+      tariffType: item.tariffType || masterOption?.tariffType,
     });
   };
   const escapeHtml = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -601,13 +611,13 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
               <label className="mb-1 block text-slate-600">Item Service</label>
               {autoServiceOptions.length > 0 ? (
                 <select
-                  value={newItem.name}
+                  value={autoServiceOptionKey(newItem.name, newItem.category)}
                   onChange={(e) => applySelectedAutoService(e.target.value)}
                   className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"
                 >
                   <option value="">Pilih item service</option>
                   {autoServiceOptions.map((option) => (
-                    <option key={`${option.name}-${option.category}`} value={option.name}>{option.name}</option>
+                    <option key={autoServiceOptionKey(option.name, option.category)} value={autoServiceOptionKey(option.name, option.category)}>{option.name}</option>
                   ))}
                 </select>
               ) : (
@@ -638,11 +648,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
             </div>
             <div>
               <label className="mb-1 block text-slate-600">Rate</label>
-              <input type="text" inputMode="decimal" readOnly value={formatEntryAmount(Number(newItem.rate) || 0)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"/>
-            </div>
-            <div>
-              <label className="mb-1 block text-slate-600">Min Charge</label>
-              <input type="text" inputMode="decimal" readOnly value={formatEntryAmount(Number(newItem.minCharge) || 0)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"/>
+              <input type="text" inputMode="decimal" readOnly value={formatRateAmount(Number(newItem.rate) || 0)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"/>
             </div>
             <div>
               <label className="mb-1 block text-slate-600">QTY</label>
@@ -697,7 +703,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
             </div>
             <div>
               <label className="mb-1 block text-slate-600">Tarif ({viewCurrency})</label>
-              <input type="text" inputMode="decimal" value={formatEntryAmount(newItem.unitBuyRate)} onChange={e => setNewItem({ ...newItem, unitBuyRate: parseEntryAmount(e.target.value) as number })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"/>
+              <input type="text" inputMode="decimal" placeholder="0.0000" value={manualTariffText} onChange={e => { const text = e.target.value; const parsed = parseEntryAmount(text); setManualTariffText(text); setNewItem({ ...newItem, unitBuyRate: parsed === '' ? 0 : parsed }); }} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"/>
             </div>
             <div>
               <label className="mb-1 block text-slate-600">Amount ({viewCurrency})</label>

@@ -32,7 +32,7 @@ import {
 } from '../../types';
 import { db } from '../../db/storage';
 import { saveStoredAccount } from '../../auth';
-import { formatTariffNumber, parseTariffNumber } from '../../utils/tariff';
+import { formatTariffNumber, getTariffRateForCurrency, parseTariffNumber } from '../../utils/tariff';
 
 interface AdminMasterDataViewProps {
   initialTab?: 'USERS' | 'CUSTOMERS' | 'VESSELS' | 'PORTS' | 'ZONES' | 'FIX_TARIFF' | 'EXPENSES_ITEM';
@@ -109,14 +109,25 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         const port = ports.find((p) => p.id === editMasterForm.portId);
         const rateIDR = parseTariffNumber(editMasterForm.rateIDR);
         const rateUSD = parseTariffNumber(editMasterForm.rateUSD);
-        await db.updateFixTariff(id, {
+        const rangeError = validateGRTBounds(editMasterForm.grtMin ?? editMasterForm.grt ?? 0, editMasterForm.grtMax ?? editMasterForm.grt ?? 0);
+        if (rangeError) {
+          setAddFormError(rangeError);
+          return;
+        }
+        const tariffUpdate = {
           ...editMasterForm,
           portName: port?.name || editMasterForm.portName || '',
           rateIDR,
           rateUSD,
           rate: rateUSD || rateIDR || Number(editMasterForm.rate) || 0,
           currency: rateUSD ? 'USD' : 'IDR',
-        });
+        } as Omit<FixTariff, 'id'>;
+        const conflict = findOverlappingFixTariff(tariffUpdate, id);
+        if (conflict) {
+          setAddFormError(`Range GRT overlap dengan ${conflict.serviceName} (${formatMasterNumber(conflict.grtMin ?? conflict.grt)}–${formatMasterNumber(conflict.grtMax ?? conflict.grt)}).`);
+          return;
+        }
+        await db.updateFixTariff(id, tariffUpdate);
       }
       if (type === 'EXPENSES_ITEM') {
         const rateIDR = parseTariffNumber(editMasterForm.rateIDR);
@@ -352,6 +363,53 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     return { grtMin: minimum || legacyMinimum, grtMax: maximum || legacyMaximum };
   };
 
+  const validateGRTBounds = (minimumValue: unknown, maximumValue: unknown): string => {
+    const minimum = parseTariffNumber(minimumValue, Number.NaN);
+    const maximum = parseTariffNumber(maximumValue, Number.NaN);
+    if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) return 'GRT Min dan GRT Max harus berupa angka.';
+    if (minimum < 0 || maximum < 0) return 'GRT Min dan GRT Max tidak boleh bernilai negatif.';
+    if (minimum > maximum) return 'GRT Min tidak boleh lebih besar dari GRT Max.';
+    return '';
+  };
+
+  const getFixTariffBounds = (tariff: Pick<FixTariff, 'grt' | 'grtMin' | 'grtMax'>) => {
+    const minimum = parseTariffNumber(tariff.grtMin ?? tariff.grt);
+    const maximum = parseTariffNumber(tariff.grtMax ?? tariff.grt);
+    return {
+      minimum: minimum > 0 ? minimum : Number.NEGATIVE_INFINITY,
+      maximum: maximum > 0 ? maximum : Number.POSITIVE_INFINITY,
+    };
+  };
+
+  const findOverlappingFixTariff = (
+    candidate: Omit<FixTariff, 'id'>,
+    ignoreId?: string,
+    records: FixTariff[] = fixTariffs,
+  ) => {
+    const candidateBounds = getFixTariffBounds(candidate);
+    return records.find((tariff) => {
+      if (tariff.id === ignoreId) return false;
+      if (tariff.portId !== candidate.portId) return false;
+      if (tariff.serviceName.trim().toLowerCase() !== candidate.serviceName.trim().toLowerCase()) return false;
+      if ((tariff.costCategory || 'PORT_EXPENSES').toUpperCase() !== (candidate.costCategory || 'PORT_EXPENSES').toUpperCase()) return false;
+
+      const sharesCurrency = (['IDR', 'USD'] as const).some((currency) =>
+        getTariffRateForCurrency(currency, tariff.rateIDR, tariff.rateUSD, tariff.rate, tariff.currency) > 0
+        && getTariffRateForCurrency(currency, candidate.rateIDR, candidate.rateUSD, candidate.rate, candidate.currency) > 0
+      );
+      if (!sharesCurrency) return false;
+
+      const tariffBounds = getFixTariffBounds(tariff);
+      const intersects = candidateBounds.minimum <= tariffBounds.maximum && tariffBounds.minimum <= candidateBounds.maximum;
+      if (!intersects) return false;
+      const sameRange = candidateBounds.minimum === tariffBounds.minimum && candidateBounds.maximum === tariffBounds.maximum;
+      if (sameRange) return true;
+      const candidateContainsTariff = candidateBounds.minimum <= tariffBounds.minimum && candidateBounds.maximum >= tariffBounds.maximum;
+      const tariffContainsCandidate = tariffBounds.minimum <= candidateBounds.minimum && tariffBounds.maximum >= candidateBounds.maximum;
+      return !candidateContainsTariff && !tariffContainsCandidate;
+    });
+  };
+
   const normalizeExpenseCategory = (value: unknown) => {
     const normalized = String(value ?? '').trim().toUpperCase().replace(/[\s-]+/g, '_');
     const aliases: Record<string, string> = {
@@ -570,6 +628,11 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           const resolvedCurrency = rateUSD > 0 ? 'USD' : rateIDR > 0 ? 'IDR' : currency;
           const resolvedRate = rateUSD > 0 ? rateUSD : rateIDR > 0 ? rateIDR : uploadNumber(readUploadValue(row, 'rate'));
           const grtRange = uploadGRTRange(row);
+          const rangeError = validateGRTBounds(grtRange.grtMin, grtRange.grtMax);
+          if (rangeError) {
+            markInvalid(rangeError);
+            return;
+          }
           const dwt = uploadNumber(readUploadValue(row, 'dwt', 'DWT'));
           const uploadedTariffType = String(readUploadValue(row, 'tariffType', 'tariff_type', 'type')).trim().toUpperCase() as FixTariff['tariffType'] || 'FIXED';
           const uploadedCalculationBasis = String(readUploadValue(row, 'calculationBasis', 'calculation_basis', 'basis')).trim().toUpperCase() as FixTariff['calculationBasis']
@@ -615,6 +678,11 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
             minCharge: uploadNumber(readUploadValue(row, 'minCharge', 'min_charge')),
             description: String(readUploadValue(row, 'description')).trim(),
           };
+          const overlappingTariff = findOverlappingFixTariff(tariff, undefined, [...fixTariffs, ...importedTariffs]);
+          if (overlappingTariff) {
+            markInvalid(`range GRT overlap dengan ${overlappingTariff.serviceName}`);
+            return;
+          }
           importedTariffs.push(tariff);
           imported += 1;
           return;
@@ -731,17 +799,30 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           setAddFormError('Nama layanan wajib diisi sebelum menyimpan.');
           return;
         }
+        const rangeError = validateGRTBounds(newTariff.grtMin ?? 0, newTariff.grtMax ?? 0);
+        if (rangeError) {
+          setAddFormError(rangeError);
+          return;
+        }
         const port = ports.find((p) => p.id === newTariff.portId);
         const rateIDR = parseTariffNumber(newTariff.rateIDR);
         const rateUSD = parseTariffNumber(newTariff.rateUSD);
-        await db.addFixTariff({
+        const tariffToAdd = {
           ...newTariff,
+          serviceName: newTariff.serviceName.trim(),
+          costCategory: newTariff.costCategory || 'PORT_EXPENSES',
           portName: port?.name || '',
           rateIDR,
           rateUSD,
           rate: rateUSD || rateIDR || 0,
           currency: rateUSD ? 'USD' : 'IDR',
-        } as Omit<FixTariff, 'id'>);
+        } as Omit<FixTariff, 'id'>;
+        const conflict = findOverlappingFixTariff(tariffToAdd);
+        if (conflict) {
+          setAddFormError(`Range GRT overlap dengan ${conflict.serviceName} (${formatMasterNumber(conflict.grtMin ?? conflict.grt)}–${formatMasterNumber(conflict.grtMax ?? conflict.grt)}).`);
+          return;
+        }
+        await db.addFixTariff(tariffToAdd);
       } else if (activeTab === 'EXPENSES_ITEM') {
         if (!newExpense.name?.trim()) {
           setAddFormError('Nama item wajib diisi sebelum menyimpan.');
@@ -1216,11 +1297,12 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     <label className="block"><span className="text-slate-500 font-semibold">Item Service</span><input required value={editMasterForm.serviceName || ''} onChange={e=>setEditMasterForm({...editMasterForm,serviceName:e.target.value})} className="master-edit-input" /></label>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
-                    <label className="block"><span className="text-slate-500 font-semibold">GRT Min</span><input type="number" step="0.01" value={editMasterForm.grtMin ?? editMasterForm.grt ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,grtMin:Number(e.target.value)})} className="master-edit-input" /></label>
-                    <label className="block"><span className="text-slate-500 font-semibold">GRT Max</span><input type="number" step="0.01" value={editMasterForm.grtMax ?? editMasterForm.grt ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,grtMax:Number(e.target.value)})} className="master-edit-input" /></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">GRT Min</span><input type="text" inputMode="numeric" value={formatRateInput(editMasterForm.grtMin ?? editMasterForm.grt ?? 0)} onChange={e=>setEditMasterForm({...editMasterForm,grtMin:parseTariffNumber(e.target.value)})} className="master-edit-input" /></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">GRT Max</span><input type="text" inputMode="numeric" value={formatRateInput(editMasterForm.grtMax ?? editMasterForm.grt ?? 0)} onChange={e=>setEditMasterForm({...editMasterForm,grtMax:parseTariffNumber(e.target.value)})} className="master-edit-input" /></label>
                     <label className="block"><span className="text-slate-500 font-semibold">DWT</span><input type="number" step="0.01" value={editMasterForm.dwt ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,dwt:Number(e.target.value)})} className="master-edit-input" /></label>
                     <label className="block"><span className="text-slate-500 font-semibold">Minimum Charge</span><input type="number" value={editMasterForm.minCharge ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,minCharge:Number(e.target.value)})} className="master-edit-input" /></label>
                   </div>
+                  <p className="text-[10px] text-slate-500">`0` pada Min atau Max berarti batas terbuka; `0/0` berarti tanpa batas GRT.</p>
                   <div className="grid grid-cols-2 gap-3">
                     <label className="block"><span className="text-slate-500 font-semibold">IDR</span><input type="text" inputMode="decimal" value={formatRateInput(editMasterForm.rateIDR ?? 0)} onChange={e=>setEditMasterForm({...editMasterForm,rateIDR:parseTariffNumber(e.target.value)})} className="master-edit-input" /></label>
                     <label className="block"><span className="text-slate-500 font-semibold">USD</span><input type="text" inputMode="decimal" value={formatRateInput(editMasterForm.rateUSD ?? 0)} onChange={e=>setEditMasterForm({...editMasterForm,rateUSD:parseTariffNumber(e.target.value)})} className="master-edit-input" /></label>
@@ -1656,6 +1738,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                       </select>
                     </div>
                   </div>
+                  <p className="text-[10px] text-slate-400">`0` pada Min atau Max berarti batas terbuka; `0/0` berarti tanpa batas GRT.</p>
 
                   <div>
                     <label className="text-slate-400 block mb-1">Tariff Type:</label>
@@ -1690,20 +1773,20 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     <div>
                       <label className="text-slate-400 block mb-1">GRT Min:</label>
                       <input
-                        type="number"
-                        step="0.01"
-                        value={newTariff.grtMin}
-                        onChange={(e) => setNewTariff({ ...newTariff, grtMin: Number(e.target.value) })}
+                        type="text"
+                        inputMode="numeric"
+                        value={formatRateInput(newTariff.grtMin)}
+                        onChange={(e) => setNewTariff({ ...newTariff, grtMin: parseTariffNumber(e.target.value) })}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
                       />
                     </div>
                     <div>
                       <label className="text-slate-400 block mb-1">GRT Max:</label>
                       <input
-                        type="number"
-                        step="0.01"
-                        value={newTariff.grtMax}
-                        onChange={(e) => setNewTariff({ ...newTariff, grtMax: Number(e.target.value) })}
+                        type="text"
+                        inputMode="numeric"
+                        value={formatRateInput(newTariff.grtMax)}
+                        onChange={(e) => setNewTariff({ ...newTariff, grtMax: parseTariffNumber(e.target.value) })}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
                       />
                     </div>
