@@ -231,7 +231,7 @@ export default function App() {
     setActiveTab(getDefaultTabForRole(newRole));
   };
 
-  const branchVisibleJobCalls = currentUser && currentUser.role === 'SALES'
+  const roleVisibleJobCalls = currentUser?.role === 'SALES'
     ? data.jobCalls.filter((job) => {
         const directBranch = job.inquiry?.createdByBranch || job.inquiry?.createdByBranchCode;
         const currentBranch = normalizeBranchCode(currentUser.branch || 'Head Office');
@@ -239,13 +239,13 @@ export default function App() {
         if (!directBranch) return true;
         return normalizeBranchCode(directBranch) === currentBranch;
       })
-    : data.jobCalls;
+    : currentUser?.role === 'FDA'
+      ? data.jobCalls.filter((job) => job.managerApproval?.status === 'APPROVED')
+      : data.jobCalls;
 
   const currentJob: JobCall =
-    branchVisibleJobCalls.find((j) => j.jobId === selectedJobId) ||
-    data.jobCalls.find((j) => j.jobId === selectedJobId) ||
-    branchVisibleJobCalls[0] ||
-    data.jobCalls[0] ||
+    roleVisibleJobCalls.find((j) => j.jobId === selectedJobId) ||
+    roleVisibleJobCalls[0] ||
     ({} as JobCall);
 
   if (!currentUser) return <LoginView onLogin={handleLogin} />;
@@ -267,9 +267,9 @@ export default function App() {
       {/* Top Main Navigation Header */}
       <Header
         currentRole={currentRole}
-        selectedJobId={selectedJobId}
+        selectedJobId={currentRole === 'FDA' ? currentJob.jobId || '' : selectedJobId}
         onJobSelect={setSelectedJobId}
-        jobCalls={branchVisibleJobCalls}
+        jobCalls={roleVisibleJobCalls}
         currentUser={currentUser}
         onLogout={handleLogout}
         onProfile={handleProfile}
@@ -331,7 +331,7 @@ export default function App() {
             {/* 2. SALES / OPERATOR VIEWS */}
             {currentRole === 'SALES' && activeTab === 'DASHBOARD' && (
               <SalesDashboardView
-                jobCalls={branchVisibleJobCalls}
+                jobCalls={roleVisibleJobCalls}
                 onNavigate={setActiveTab}
                 onSelectJob={setSelectedJobId}
               />
@@ -339,7 +339,7 @@ export default function App() {
 
             {currentRole === 'SALES' && activeTab === 'INQUIRIES' && (
               <InquiriesView
-                jobCalls={branchVisibleJobCalls}
+                jobCalls={roleVisibleJobCalls}
                 vessels={data.vessels}
                 ports={data.ports}
                 customers={data.customers}
@@ -352,7 +352,7 @@ export default function App() {
 
             {currentRole === 'SALES' && activeTab === 'QUOTES_EPDA' && (
               <QuotesListView
-                jobCalls={branchVisibleJobCalls}
+                jobCalls={roleVisibleJobCalls}
                 vessels={data.vessels}
                 onSelectJob={setSelectedJobId}
                 onOpenEPDA={() => setActiveTab('QUOTES_EPDA_DETAIL')}
@@ -364,7 +364,7 @@ export default function App() {
                 job={currentJob}
                 vessels={data.vessels}
                 onSelectJob={setSelectedJobId}
-                allJobs={branchVisibleJobCalls}
+                allJobs={roleVisibleJobCalls}
                 users={data.users}
                 fixTariffs={data.fixTariffs}
                 expensesItems={data.expensesItems}
@@ -383,7 +383,7 @@ export default function App() {
 
             {currentRole === 'SALES' && activeTab === 'JOBS_ENTRY' && (
               <JobsEntryView
-                jobCalls={branchVisibleJobCalls}
+                jobCalls={roleVisibleJobCalls}
                 onSelectJob={setSelectedJobId}
                 onNavigate={setActiveTab}
               />
@@ -391,7 +391,7 @@ export default function App() {
 
             {currentRole === 'FDA' && activeTab === 'FDA_INQUIRIES' && (
               <InquiriesView
-                jobCalls={branchVisibleJobCalls}
+                jobCalls={roleVisibleJobCalls}
                 vessels={data.vessels}
                 ports={data.ports}
                 customers={data.customers}
@@ -404,7 +404,7 @@ export default function App() {
 
             {currentRole === 'FDA' && activeTab === 'FDA_QUOTES_EPDA' && (
               <QuotesListView
-                jobCalls={branchVisibleJobCalls}
+                jobCalls={roleVisibleJobCalls}
                 vessels={data.vessels}
                 onSelectJob={setSelectedJobId}
                 onOpenEPDA={() => setActiveTab('ACTUAL_COST')}
@@ -415,7 +415,7 @@ export default function App() {
               />
             )}
 
-            {currentRole === 'FDA' && activeTab === 'FDA_QUOTES_PDA' && (
+            {currentRole === 'FDA' && roleVisibleJobCalls.length > 0 && activeTab === 'FDA_QUOTES_PDA' && (
               <QuotesPDAView
                 job={currentJob}
                 expensesItems={data.expensesItems}
@@ -437,7 +437,7 @@ export default function App() {
                       ? 'QUOTES_VIEW'
                       : 'APPROVAL'
                   }
-                  jobCalls={branchVisibleJobCalls}
+                  jobCalls={roleVisibleJobCalls}
                   users={data.users}
                   onSelectJob={setSelectedJobId}
                   onNavigate={setActiveTab}
@@ -445,7 +445,7 @@ export default function App() {
               )}
 
             {/* 4. FDA VIEWS */}
-            {currentRole === 'FDA' &&
+            {currentRole === 'FDA' && roleVisibleJobCalls.length > 0 &&
               (activeTab === 'DASHBOARD' ||
                 activeTab === 'FDA_JOB_ID' ||
                 activeTab === 'ACTUAL_COST' ||
@@ -464,7 +464,7 @@ export default function App() {
                       ? 'QUOTES_VIEW'
                       : 'APPROVAL'
                   }
-                  jobCalls={data.jobCalls}
+                  jobCalls={roleVisibleJobCalls}
                   vessels={data.vessels}
                   activeJob={currentJob}
                   onSelectJob={setSelectedJobId}
@@ -473,6 +473,12 @@ export default function App() {
                   onNavigate={setActiveTab}
                 />
               )}
+
+            {currentRole === 'FDA' && roleVisibleJobCalls.length === 0 && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-5 text-sm font-semibold text-amber-200">
+                Belum ada Job/Vessel Call yang disetujui Manager Ops. Job akan muncul di menu FDA setelah approval.
+              </div>
+            )}
 
             {/* 5. FINANCE VIEWS */}
             {currentRole === 'FINANCE' && (activeTab === 'FINANCE_DASHBOARD' ||
@@ -506,7 +512,7 @@ export default function App() {
             {/* 6. ACTIVE VESSEL CALLS */}
             {activeTab === 'ACTIVE_VESSEL_CALLS' && (
               <ActiveVesselCallsView
-                jobCalls={branchVisibleJobCalls}
+                jobCalls={roleVisibleJobCalls}
                 vessels={data.vessels}
                 onSelectJob={setSelectedJobId}
                 onOpenJob={(jobId) => { setSelectedJobId(jobId); }}

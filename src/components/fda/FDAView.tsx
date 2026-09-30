@@ -18,9 +18,9 @@ import {
   Upload,
   Trash2,
 } from 'lucide-react';
-import { JobCall, ActualCostItem, ActiveTab, Vessel, FixTariff, ExpensesItem } from '../../types';
+import { JobCall, ActualCostItem, ActiveTab, Vessel, FixTariff, ExpensesItem, Currency } from '../../types';
 import { db, buildBranchAwareFDANumber, buildBranchAwareInvoiceNumber, getCurrentBranchName, formatEPDAQuoteNoForDisplay } from '../../db/storage';
-import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT } from '../../utils/tariff';
+import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber } from '../../utils/tariff';
 
 interface FDAViewProps {
   initialTab?: 'DASHBOARD' | 'JOB_ID' | 'ACTUAL_COST' | 'QUOTES_VIEW' | 'APPROVAL';
@@ -116,8 +116,10 @@ export const FDAView: React.FC<FDAViewProps> = ({
     setViewCurrency(currency);
     if (!isFDAApproved) db.updateJob(activeJob.jobId, { fda: { ...activeJob.fda, currency } });
     if (actualEntryMode !== 'AUTO') return;
-    const selected = autoServiceOptions.find((option) => option.name === newActual.description);
-    if (selected) setNewActual((current) => ({ ...current, rate: rateForCurrency(currency, selected.rateIDR, selected.rateUSD, selected.legacyRate, selected.currency) }));
+    const selected = buildAutoServiceOptions(currency).find((option) => option.name === newActual.description && option.category === newActual.category);
+    setNewActual((current) => selected
+      ? { ...current, rate: selected.rate, minCharge: selected.minCharge }
+      : { ...current, description: '', rate: 0, minCharge: 0 });
   };
 
   useEffect(() => {
@@ -160,7 +162,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const formatAccountingNumber = (value: number, currency: 'USD' | 'IDR') => {
     const normalized = Number(value || 0);
     const fractionDigits = 2;
-    return new Intl.NumberFormat(currency === 'IDR' ? 'id-ID' : 'en-US', {
+    return new Intl.NumberFormat('en-US', {
       minimumFractionDigits: 2,
       maximumFractionDigits: fractionDigits,
       useGrouping: true,
@@ -168,24 +170,14 @@ export const FDAView: React.FC<FDAViewProps> = ({
   };
 
   const formatTariffInput = (value: number) => value > 0
-    ? new Intl.NumberFormat(viewCurrency === 'IDR' ? 'id-ID' : 'en-US', {
+    ? new Intl.NumberFormat('en-US', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(value)
     : '';
 
   const parseTariffInput = (value: string) => {
-    const normalized = viewCurrency === 'IDR'
-      ? value.replace(/[^0-9]/g, '')
-      : (() => {
-        const cleaned = value.replace(/[^0-9,.-]/g, '');
-        const commaIndex = cleaned.lastIndexOf(',');
-        const dotIndex = cleaned.lastIndexOf('.');
-        return commaIndex > dotIndex
-          ? cleaned.replace(/\./g, '').replace(',', '.')
-          : cleaned.replace(/,/g, '');
-      })();
-    return Number(normalized) || 0;
+    return parseTariffNumber(value);
   };
 
   const fdaEpdaDisplayNo = formatEPDAQuoteNoForDisplay(
@@ -209,11 +201,13 @@ export const FDAView: React.FC<FDAViewProps> = ({
     return (!!currentPortId && !!targetPortId && currentPortId === targetPortId)
       || (!!currentPortName && !!targetPortName && currentPortName.toLowerCase() === targetPortName.toLowerCase());
   };
-  const autoServiceOptions = [
-    ...[
-      ...fixTariffs.filter((tariff) => portMatches(tariff.portId, tariff.portName) && matchesTariffGRT(vesselMaster?.grt, tariff.grt, tariff.grtMin, tariff.grtMax)),
-      ...fixTariffs,
-    ]
+  const buildAutoServiceOptions = (currency: Currency) => [
+    ...fixTariffs
+      .filter((tariff) =>
+        portMatches(tariff.portId, tariff.portName)
+        && matchesTariffGRT(vesselMaster?.grt, tariff.grt, tariff.grtMin, tariff.grtMax)
+        && rateForCurrency(currency, tariff.rateIDR, tariff.rateUSD, tariff.rate, tariff.currency) > 0
+      )
       .map((tariff) => ({
         name: tariff.serviceName,
         category: tariff.costCategory || 'PORT_EXPENSES',
@@ -221,23 +215,24 @@ export const FDAView: React.FC<FDAViewProps> = ({
         calculationBasis: tariff.calculationBasis === 'LUMP_SUM' && (tariff.tariffType === 'VARIABLE' || tariff.tariffType === 'RANGE')
           ? 'PER_GRT'
           : tariff.calculationBasis,
-        rate: rateForCurrency(viewCurrency, tariff.rateIDR, tariff.rateUSD, tariff.rate, tariff.currency),
+        rate: rateForCurrency(currency, tariff.rateIDR, tariff.rateUSD, tariff.rate, tariff.currency),
         rateIDR: tariff.rateIDR,
         rateUSD: tariff.rateUSD,
         legacyRate: tariff.rate,
         minCharge: tariff.minCharge,
         currency: tariff.currency,
       })),
-    ...[
-      ...expensesItems.filter((item) => portMatches(item.portId, item.portName)),
-      ...expensesItems,
-    ]
+    ...expensesItems
+      .filter((item) =>
+        portMatches(item.portId, item.portName)
+        && rateForCurrency(currency, item.rateIDR, item.rateUSD, item.standardCostSell || 0, item.defaultCurrency) > 0
+      )
       .map((item) => ({
         name: item.name,
         category: item.category,
         calculationBasis: 'PER_GRT' as CalculationBasis,
         tariffType: item.calculationType === 'FIXED' ? 'FIXED' : 'VARIABLE',
-        rate: rateForCurrency(viewCurrency, item.rateIDR, item.rateUSD, item.standardCostSell || 0, item.defaultCurrency),
+        rate: rateForCurrency(currency, item.rateIDR, item.rateUSD, item.standardCostSell || 0, item.defaultCurrency),
         rateIDR: item.rateIDR,
         rateUSD: item.rateUSD,
         legacyRate: item.standardCostSell || 0,
@@ -245,6 +240,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
         currency: item.defaultCurrency,
       })),
   ].filter((option, index, arr) => option.name && arr.findIndex((item) => item.name === option.name && item.category === option.category) === index);
+  const autoServiceOptions = buildAutoServiceOptions(viewCurrency);
 
   const applySelectedAutoService = (selectedName: string) => {
     const selected = autoServiceOptions.find((option) => option.name === selectedName);
@@ -253,7 +249,6 @@ export const FDAView: React.FC<FDAViewProps> = ({
       return;
     }
 
-    setViewCurrency(selected.currency ?? viewCurrency);
     setNewActual({
       ...newActual,
       description: selected.name,
@@ -640,7 +635,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       AGENCY_FEE: 5,
     };
     const categoryLabel = (category: string) => category.replaceAll('_', ' ');
-    const amount = (value: number) => new Intl.NumberFormat(epda.currency === 'IDR' ? 'id-ID' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+    const amount = (value: number) => new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
     const escapeHtml = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     const amountHeaderLabel = `AMOUNT ${epda.currency || 'USD'}`;
     const orderedItems = [...epdaItems];
@@ -682,7 +677,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const buildFDAHtml = () => {
     const formatMoney = (value: number, currency: 'USD' | 'IDR' = 'USD') => {
       if (currency === 'IDR') {
-        return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'IDR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
       }
       return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
     };
@@ -716,7 +711,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     const categories = Array.from(new Set(orderedActualList.map((item) => item.category || 'UNKNOWN')));
     const groups = categories.map((category) => ({ category, items: orderedActualList.filter((item) => (item.category || 'UNKNOWN') === category) }));
     const money = (value: number, currency: 'USD' | 'IDR') => currency === 'IDR'
-      ? new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
+      ? new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
       : new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
     const rows = groups.map((group) => {
       const subtotal = group.items.reduce((sum, item) => sum + (item.amount || 0), 0);
@@ -733,7 +728,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   const buildFDAResultDocument = () => {
     const escape = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    const money = (value: number, code: 'USD' | 'IDR') => code === 'IDR' ? new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value) : new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+    const money = (value: number, _code: 'USD' | 'IDR') => new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
     const categories = Array.from(new Set(actualList.map((item) => item.category || 'UNKNOWN')));
     const rows = categories.map((category) => {
       const items = actualList.filter((item) => (item.category || 'UNKNOWN') === category);
@@ -1212,7 +1207,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                       <td className="whitespace-nowrap p-3 font-mono font-bold text-blue-300">{job.jobId}</td>
                       <td className="p-3 font-bold text-white">{job.vesselName}</td>
                       <td className="p-3 font-mono text-slate-300">{vessels.find((vessel) => vessel.id === job.vesselId)?.imoNumber || '-'}</td>
-                      <td className="p-3 font-mono text-slate-300">{vessels.find((vessel) => vessel.id === job.vesselId)?.grt?.toLocaleString('id-ID') || '-'}</td>
+                      <td className="p-3 font-mono text-slate-300">{formatTariffNumber(vessels.find((vessel) => vessel.id === job.vesselId)?.grt)}</td>
                       <td className="p-3 text-slate-300">{job.customerName}</td>
                       <td className="p-3 text-slate-300">{job.portName}</td>
                       <td className="p-3 whitespace-nowrap text-slate-300">{job.eta || '-'}</td>
@@ -1345,7 +1340,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Estimated Days</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.estimatedDays || 0} hari</div></div>
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Cargo Details</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.cargoDetails || '-'}</div></div>
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Vessel Type</div><div className="mt-1 font-bold text-white">{vesselMaster?.vesselType || '-'}</div></div>
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Gross / Net / DWT</div><div className="mt-1 font-bold text-white font-mono">{vesselMaster?.grt?.toLocaleString() || '-'} / {vesselMaster?.nrt?.toLocaleString() || '-'} / {vesselMaster?.dwt?.toLocaleString() || '-'}</div></div>
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Gross / Net / DWT</div><div className="mt-1 font-bold text-white font-mono">{formatTariffNumber(vesselMaster?.grt)} / {formatTariffNumber(vesselMaster?.nrt)} / {formatTariffNumber(vesselMaster?.dwt)}</div></div>
 
               <div className="md:col-span-2 xl:col-span-4 bg-slate-950 border border-slate-800 rounded-xl p-3">
                 <div className="text-slate-400 uppercase tracking-wider">Special Requirements</div>
@@ -1488,11 +1483,14 @@ export const FDAView: React.FC<FDAViewProps> = ({
               </div>
             </div>
 
-            <p className="mb-4 text-xs text-slate-500">
+            <p className="mb-2 text-xs text-slate-500">
               {actualEntryMode === 'AUTO'
                 ? 'Mode otomatis: tarif dihitung dari asset dasar job (GRT / hari) dan min charge yang berlaku.'
                 : 'Mode manual: nama biaya, kategori, tarif, QTY, dan remark diisi langsung tanpa master data tarif atau expenses.'}
             </p>
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] text-amber-800">
+              Format angka: 1,500.50 (koma untuk ribuan, titik untuk desimal).
+            </div>
 
             {actualEntryMode === 'AUTO' ? (
               <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2 lg:grid-cols-6">

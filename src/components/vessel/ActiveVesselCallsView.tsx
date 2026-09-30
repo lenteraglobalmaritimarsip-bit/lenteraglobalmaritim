@@ -260,7 +260,7 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,onSelec
           <div><small>ESTIMASI DURASI</small><strong>{inquiry.estimatedDays ?? 0} hari</strong></div>
 
           <div><small>VESSEL TYPE</small><strong>{selectedVessel?.vesselType || '-'}</strong></div>
-          <div><small>GRT / NRT / DWT</small><strong>{selectedVessel?.grt?.toLocaleString() || '-'} / {selectedVessel?.nrt?.toLocaleString() || '-'} / {selectedVessel?.dwt?.toLocaleString() || '-'}</strong></div>
+          <div><small>GRT / NRT / DWT</small><strong>{selectedVessel?.grt ?? '-'} / {selectedVessel?.nrt ?? '-'} / {selectedVessel?.dwt ?? '-'}</strong></div>
           <div><small>LOA / BEAM</small><strong>{selectedVessel ? `${selectedVessel.loa} m` : '-'} / {selectedVessel ? `${selectedVessel.beam} m` : '-'}</strong></div>
           <div><small>FDA NO.</small><strong>{selectedJob.fda?.fdaNo || '-'}</strong></div>
 

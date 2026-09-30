@@ -556,6 +556,9 @@ class DatabaseService {
 
   public updateJob(jobId: string, updates: Partial<JobCall>): void {
     const existingJob = this.getJob(jobId);
+    if (existingJob && this.actor.role === 'FDA' && existingJob.managerApproval?.status !== 'APPROVED') {
+      return;
+    }
     if (
       existingJob &&
       this.actor.role === 'SALES' &&
@@ -592,6 +595,30 @@ class DatabaseService {
     );
     this.audit('UPDATE', 'VESSEL_CALL', `Updated vessel call ${jobId}`, jobId);
     this.saveToStorage();
+  }
+
+  public deleteJob(jobId: string): boolean {
+    const job = this.getJob(jobId);
+    if (!job || this.actor.role !== 'SALES') return false;
+
+    const jobBranch = job.inquiry?.createdByBranch || job.inquiry?.createdByBranchCode;
+    if (normalizeBranchCode(jobBranch) !== normalizeBranchCode(this.actor.branch)) return false;
+    if (
+      job.managerApproval?.status === 'APPROVED' ||
+      job.quotation?.epda?.status === 'SUBMITTED' ||
+      job.quotation?.epda?.status === 'APPROVED' ||
+      job.fda?.fdaApproved ||
+      (job.actualCosts?.length || 0) > 0 ||
+      job.closing?.isClosed ||
+      job.currentStage === 'CLOSED' ||
+      job.status === 'CLOSED'
+    ) return false;
+
+    this.state.jobCalls = this.state.jobCalls.filter((item) => item.jobId !== jobId);
+    if (this.state.selectedJobId === jobId) this.state.selectedJobId = this.state.jobCalls[0]?.jobId || '';
+    this.audit('DELETE', 'VESSEL_CALL', `Deleted unapproved vessel call ${jobId}`, jobId);
+    this.notifyAfterDelete();
+    return true;
   }
 
   public createJob(jobData: Partial<JobCall>): JobCall {

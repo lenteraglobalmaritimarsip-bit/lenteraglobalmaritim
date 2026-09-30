@@ -11,6 +11,7 @@ import {
   X,
   FileSpreadsheet,
   Eye,
+  Trash2,
 } from 'lucide-react';
 import { JobCall, Vessel, Port, Customer } from '../../types';
 import { db } from '../../db/storage';
@@ -208,22 +209,22 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
       </div>
 
       {/* Inquiry register table */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-lg">
-        <table className="w-full table-fixed text-left text-xs">
+      <div className="overflow-x-auto bg-slate-900 border border-slate-800 rounded-2xl shadow-lg">
+        <table className="w-full min-w-[1100px] table-fixed text-left text-xs">
           <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider">
             <tr>
               <th className="w-[3%] p-2">No</th>
-              <th className="w-[10%] p-2">Req Inquiry</th>
-              <th className="w-[11%] p-2">REG Vessel Call</th>
-              <th className="w-[7%] p-2">IMO</th>
-              <th className="w-[16%] p-2">Customer / Principal</th>
-              <th className="w-[12%] p-2">Vessel</th>
-              <th className="w-[12%] p-2">Port</th>
-              <th className="w-[8%] p-2">Branch</th>
-              <th className="w-[10%] p-2">Create Name</th>
-              <th className="w-[11%] p-2">ETA</th>
-              <th className="w-[8%] p-2">Status</th>
-              <th className="w-[10%] p-2 text-center">Detail</th>
+              <th className="w-[8%] p-2">Req Inquiry</th>
+              <th className="w-[9%] p-2">REG Vessel Call</th>
+              <th className="w-[6%] p-2">IMO</th>
+              <th className="w-[14%] p-2">Customer / Principal</th>
+              <th className="w-[10%] p-2">Vessel</th>
+              <th className="w-[10%] p-2">Port</th>
+              <th className="w-[6%] p-2">Branch</th>
+              <th className="w-[8%] p-2">Create Name</th>
+              <th className="w-[9%] p-2">ETA</th>
+              <th className="w-[7%] p-2">Status</th>
+              <th className="w-[10%] p-2 text-center">Aksi</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
@@ -232,6 +233,15 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
               const imoNumber = vessel?.imoNumber || '-';
               const jobStatus = getJobStatus(job);
               const isFinalApproved = job.managerApproval.status === 'APPROVED';
+              const canDeleteJob = currentUser.role === 'SALES'
+                && !isFinalApproved
+                && job.quotation.epda.status !== 'SUBMITTED'
+                && job.quotation.epda.status !== 'APPROVED'
+                && !job.fda?.fdaApproved
+                && !(job.actualCosts?.length)
+                && !job.closing?.isClosed
+                && job.currentStage !== 'CLOSED'
+                && job.status !== 'CLOSED';
               return (
                 <tr key={job.jobId} className="hover:bg-slate-800/60 transition-colors">
                   <td className="break-words p-2 font-mono font-bold text-slate-400">{index + 1}</td>
@@ -250,26 +260,47 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                     </span>
                   </td>
                   <td className="p-2 text-center">
-                    {isFinalApproved ? (
-                      <button
-                        type="button"
-                        title="Lihat Quotes EPDA yang telah disetujui"
-                        aria-label="Lihat Quotes EPDA yang telah disetujui"
-                        onClick={() => { onSelectJob(job.jobId); onNavigateToQuotes(); }}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-500/30 bg-emerald-500/15 text-emerald-300 transition hover:bg-emerald-500/25"
-                      >
-                        <Eye className="h-4 w-4" />
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => { onSelectJob(job.jobId); onNavigateToQuotes(); }}
-                        className="mx-auto flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-blue-500"
-                      >
-                        <FileSpreadsheet className="h-3.5 w-3.5" />
-                        Buat EPDA
-                      </button>
-                    )}
+                    <div className="flex items-center justify-center gap-2">
+                      {isFinalApproved ? (
+                        <button
+                          type="button"
+                          title="Lihat Quotes EPDA yang telah disetujui"
+                          aria-label="Lihat Quotes EPDA yang telah disetujui"
+                          onClick={() => { onSelectJob(job.jobId); onNavigateToQuotes(); }}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-500/30 bg-emerald-500/15 text-emerald-300 transition hover:bg-emerald-500/25"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => { onSelectJob(job.jobId); onNavigateToQuotes(); }}
+                          className="mx-auto flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-blue-500"
+                        >
+                          <FileSpreadsheet className="h-3.5 w-3.5" />
+                          Buat EPDA
+                        </button>
+                      )}
+                      {canDeleteJob && (
+                        <button
+                          type="button"
+                          title="Hapus Job/Vessel Call yang belum disetujui"
+                          aria-label={`Hapus Job/Vessel Call ${job.jobId}`}
+                          onClick={() => {
+                            const confirmed = window.confirm(`Hapus Job/Vessel Call ${job.jobId} untuk ${job.vesselName} di ${job.portName}? Data yang sudah masuk proses approval tidak dapat dihapus.`);
+                            if (!confirmed) return;
+                            if (!db.deleteJob(job.jobId)) {
+                              window.alert('Job tidak dapat dihapus karena sudah masuk proses approval atau role/branch tidak sesuai.');
+                              return;
+                            }
+                            onDataSaved?.();
+                          }}
+                          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-300 transition hover:bg-rose-500/25"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );

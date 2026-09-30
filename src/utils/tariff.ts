@@ -85,17 +85,65 @@ export interface TariffCalculationInput {
   tariffType?: TariffType;
 }
 
-export function matchesTariffGRT(vesselGRT: number | undefined, tariffGRT?: number, grtMin?: number, grtMax?: number): boolean {
-  const value = Number(vesselGRT || 0);
-  if (!Number.isFinite(value) || value <= 0) return !grtMin && !grtMax && !tariffGRT;
+export function matchesTariffGRT(
+  vesselGRT: number | string | undefined,
+  tariffGRT?: number | string,
+  grtMin?: number | string,
+  grtMax?: number | string,
+): boolean {
+  const hasValue = (value: unknown) => value !== undefined && value !== null && String(value).trim() !== '';
+  const hasExplicitRange = hasValue(grtMin) || hasValue(grtMax);
+  let minimumSource = hasValue(grtMin) ? grtMin : tariffGRT;
+  let maximumSource = hasValue(grtMax) ? grtMax : tariffGRT;
+  let usesRange = hasExplicitRange;
 
-  const minimum = Number(grtMin ?? tariffGRT ?? 0);
-  const maximum = Number(grtMax ?? tariffGRT ?? 0);
-  if (minimum <= 0 && maximum <= 0) return true;
-  if (grtMin !== undefined || grtMax !== undefined) {
-    return (minimum <= 0 || value >= minimum) && (maximum <= 0 || value <= maximum);
+  if (!hasExplicitRange && typeof tariffGRT === 'string') {
+    const range = tariffGRT.trim().split(/\s*(?:-|–|—|\bto\b)\s*/i);
+    if (range.length === 2) {
+      [minimumSource, maximumSource] = range;
+      usesRange = true;
+    }
   }
+
+  const hasMinimum = hasValue(minimumSource);
+  const hasMaximum = hasValue(maximumSource);
+  if (!hasMinimum && !hasMaximum) return true;
+
+  const value = parseTariffNumber(vesselGRT, Number.NaN);
+  const minimum = hasMinimum ? parseTariffNumber(minimumSource, Number.NaN) : 0;
+  const maximum = hasMaximum ? parseTariffNumber(maximumSource, Number.NaN) : 0;
+  if (!Number.isFinite(value) || value <= 0) return false;
+  if ((hasMinimum && !Number.isFinite(minimum)) || (hasMaximum && !Number.isFinite(maximum))) return false;
+
+  if (usesRange) {
+    return (!hasMinimum || minimum <= 0 || value >= minimum)
+      && (!hasMaximum || maximum <= 0 || value <= maximum);
+  }
+  if (maximum <= 0) return true;
   return value === maximum;
+}
+
+export function parseTariffNumber(value: unknown, fallback = 0): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : fallback;
+
+  const normalized = String(value ?? '')
+    .trim()
+    .replace(/\s/g, '')
+    .replace(/,/g, '')
+    .replace(/[^0-9.-]/g, '');
+  if (!normalized) return fallback;
+  if (!/^-?(?:\d+(?:\.\d*)?|\.\d+)$/.test(normalized)) return fallback;
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+export function formatTariffNumber(value: unknown): string {
+  if (value === undefined || value === null || String(value).trim() === '') return '-';
+  const parsed = parseTariffNumber(value, Number.NaN);
+  return Number.isFinite(parsed)
+    ? new Intl.NumberFormat('en-US', { useGrouping: true, maximumFractionDigits: 2 }).format(parsed)
+    : '-';
 }
 
 export function getTariffBasisValue({

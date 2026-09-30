@@ -32,6 +32,7 @@ import {
 } from '../../types';
 import { db } from '../../db/storage';
 import { saveStoredAccount } from '../../auth';
+import { formatTariffNumber, parseTariffNumber } from '../../utils/tariff';
 
 interface AdminMasterDataViewProps {
   initialTab?: 'USERS' | 'CUSTOMERS' | 'VESSELS' | 'PORTS' | 'ZONES' | 'FIX_TARIFF' | 'EXPENSES_ITEM';
@@ -60,6 +61,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     if (value === undefined || value === null || value === 0) return '-';
     return String(value);
   };
+  const formatMasterNumber = (value: unknown) => formatTariffNumber(value);
   const [activeTab, setActiveTab] = useState(initialTab);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -331,30 +333,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     return '';
   };
 
-  const uploadNumber = (value: unknown, fallback = 0) => {
-    if (typeof value === 'number') return Number.isFinite(value) ? value : fallback;
-
-    let normalized = String(value ?? '').trim().replace(/\s/g, '');
-    if (!normalized) return fallback;
-    normalized = normalized.replace(/[^0-9,.-]/g, '');
-
-    const lastComma = normalized.lastIndexOf(',');
-    const lastDot = normalized.lastIndexOf('.');
-    if (lastComma >= 0 && lastDot >= 0) {
-      normalized = lastComma > lastDot
-        ? normalized.replace(/\./g, '').replace(',', '.')
-        : normalized.replace(/,/g, '');
-    } else if (lastComma >= 0) {
-      normalized = /,\d{1,2}$/.test(normalized)
-        ? normalized.replace(',', '.')
-        : normalized.replace(/,/g, '');
-    } else if (lastDot >= 0 && /\.\d{3}$/.test(normalized)) {
-      normalized = normalized.replace('.', '');
-    }
-
-    const parsed = Number(normalized);
-    return Number.isFinite(parsed) ? parsed : fallback;
-  };
+  const uploadNumber = (value: unknown, fallback = 0) => parseTariffNumber(value, fallback);
 
   const uploadGRTRange = (row: Record<string, unknown>) => {
     const minimum = uploadNumber(readUploadValue(row, 'grtMin', 'grt_min', 'grtFrom', 'grt_from'));
@@ -964,10 +943,10 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                         </span>
                       </td>
                       <td className="p-3.5 text-right font-mono font-bold text-slate-700">
-                        {v.grt.toLocaleString()}
+                        {formatMasterNumber(v.grt)}
                       </td>
                       <td className="p-3.5 text-right font-mono text-slate-600">
-                        {v.dwt.toLocaleString()}
+                        {formatMasterNumber(v.dwt)}
                       </td>
                       <td className="p-3.5 text-right font-mono text-slate-500">
                         {v.loa}m / {v.beam}m
@@ -1072,9 +1051,9 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                       <td className="p-3.5 font-semibold text-slate-700">{t.portName || ports.find((port) => port.id === t.portId)?.name || '-'}</td>
                       <td className="p-3.5 font-bold text-slate-900">{t.serviceName}</td>
                       <td className="p-3.5 text-slate-600">{(t.costCategory || 'PORT_EXPENSES').replace(/_/g, ' ')}</td>
-                      <td className="p-3.5 text-right font-mono text-slate-600">{(t.grtMin ?? t.grt) !== undefined ? (t.grtMin ?? t.grt)!.toLocaleString() : '-'}</td>
-                      <td className="p-3.5 text-right font-mono text-slate-600">{(t.grtMax ?? t.grt) !== undefined ? (t.grtMax ?? t.grt)!.toLocaleString() : '-'}</td>
-                      <td className="p-3.5 text-right font-mono text-slate-600">{t.dwt !== undefined ? t.dwt.toLocaleString() : '-'}</td>
+                      <td className="p-3.5 text-right font-mono text-slate-600">{formatMasterNumber(t.grtMin ?? t.grt)}</td>
+                      <td className="p-3.5 text-right font-mono text-slate-600">{formatMasterNumber(t.grtMax ?? t.grt)}</td>
+                      <td className="p-3.5 text-right font-mono text-slate-600">{formatMasterNumber(t.dwt)}</td>
                       <td className="p-3.5"><span className="px-2 py-0.5 rounded text-[10px] font-bold bg-violet-50 text-violet-600">{t.tariffType || (t.calculationBasis === 'LUMP_SUM' ? 'FIXED' : 'VARIABLE')}</span></td>
                       <td className="p-3.5 text-right font-mono font-bold text-slate-700">{formatMasterRate(t.rateIDR ?? (t.currency === 'IDR' ? t.rate : 0))}</td>
                       <td className="p-3.5 text-right font-mono font-bold text-slate-700">{formatMasterRate(t.rateUSD ?? (t.currency === 'USD' ? t.rate : 0))}</td>
@@ -1634,6 +1613,9 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
 
               {activeTab === 'FIX_TARIFF' && (
                 <>
+                  <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] text-amber-800">
+                    Format angka: 1,500.50 (koma untuk ribuan, titik untuk desimal).
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-slate-400 block mb-1">Port:</label>
@@ -1753,6 +1735,9 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
 
               {activeTab === 'EXPENSES_ITEM' && (
                 <>
+                  <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] text-amber-800">
+                    Format angka: 1,500.50 (koma untuk ribuan, titik untuk desimal).
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-slate-400 block mb-1">Port:</label>
