@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { FileSpreadsheet, Plus, Trash2, Save, Ship, Building, CheckCircle2, Download, Printer, Eye, Send } from 'lucide-react';
 import { JobCall, DisbursementItem, Currency, User, Vessel, FixTariff, ExpensesItem } from '../../types';
 import { db, getCurrentBranchName, buildBranchAwareEPDANumber } from '../../db/storage';
-import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber } from '../../utils/tariff';
+import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, selectPreferredTariffOptions } from '../../utils/tariff';
 
 interface QuotesEPDAViewProps {
   job?: JobCall;
@@ -105,9 +105,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   const creator = users.find((user) => user.name.trim().toLowerCase() === creatorName);
   const vesselMaster = vessels.find((vessel) => vessel.id === job.vesselId);
   const rateForCurrency = (currency: Currency, rateIDR: number | undefined, rateUSD: number | undefined, legacyRate: number, legacyCurrency?: Currency) => {
-    const explicitRate = currency === 'IDR' ? rateIDR : rateUSD;
-    if (explicitRate !== undefined && explicitRate > 0) return explicitRate;
-    return legacyCurrency === currency ? Number(legacyRate || 0) : 0;
+    return getTariffRateForCurrency(currency, rateIDR, rateUSD, legacyRate, legacyCurrency);
   };
   const activeBranchName = getCurrentBranchName();
   const epdaNo = buildBranchAwareEPDANumber(job.jobId, activeBranchName, documentDate);
@@ -120,7 +118,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     return (!!currentPortId && !!targetPortId && currentPortId === targetPortId)
       || (!!currentPortName && !!targetPortName && currentPortName.toLowerCase() === targetPortName.toLowerCase());
   };
-  const buildAutoServiceOptions = (currency: Currency) => [
+  const buildAutoServiceOptions = (currency: Currency) => selectPreferredTariffOptions([
     ...fixTariffs
       .filter((tariff) =>
         portMatches(tariff.portId, tariff.portName)
@@ -140,6 +138,9 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
         legacyRate: tariff.rate,
         minCharge: tariff.minCharge,
         currency: tariff.currency,
+        source: 'FIX_TARIFF' as const,
+        grtMin: tariff.grtMin ?? tariff.grt,
+        grtMax: tariff.grtMax ?? tariff.grt,
       })),
     ...expensesItems
       .filter((item) =>
@@ -157,8 +158,9 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
         legacyRate: item.standardCostSell || 0,
         minCharge: item.standardCostBuy || 0,
         currency: item.defaultCurrency,
+          source: 'EXPENSES_ITEM' as const,
       })),
-  ].filter((option, index, arr) => option.name && arr.findIndex((item) => item.name === option.name && item.category === option.category) === index);
+        ]);
   const autoServiceOptions = buildAutoServiceOptions(viewCurrency);
 
   const handleViewCurrencyChange = (currency: Currency) => {

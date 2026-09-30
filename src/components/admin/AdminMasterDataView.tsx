@@ -57,9 +57,16 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   expensesItems,
   onDataSaved,
 }) => {
-  const formatMasterRate = (value: number | undefined) => {
-    if (value === undefined || value === null || value === 0) return '-';
-    return String(value);
+  const formatMasterRate = (value: unknown) => {
+    const parsed = parseTariffNumber(value, Number.NaN);
+    if (!Number.isFinite(parsed) || parsed === 0) return '-';
+    return new Intl.NumberFormat('en-US', { useGrouping: true, maximumFractionDigits: 8 }).format(parsed);
+  };
+  const formatRateInput = (value: unknown) => {
+    const parsed = parseTariffNumber(value, Number.NaN);
+    return Number.isFinite(parsed)
+      ? new Intl.NumberFormat('en-US', { useGrouping: true, maximumFractionDigits: 8 }).format(parsed)
+      : '';
   };
   const formatMasterNumber = (value: unknown) => formatTariffNumber(value);
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -100,8 +107,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       if (type === 'PORTS') await db.updatePort(id, editMasterForm);
       if (type === 'FIX_TARIFF') {
         const port = ports.find((p) => p.id === editMasterForm.portId);
-        const rateIDR = Number(editMasterForm.rateIDR) || 0;
-        const rateUSD = Number(editMasterForm.rateUSD) || 0;
+        const rateIDR = parseTariffNumber(editMasterForm.rateIDR);
+        const rateUSD = parseTariffNumber(editMasterForm.rateUSD);
         await db.updateFixTariff(id, {
           ...editMasterForm,
           portName: port?.name || editMasterForm.portName || '',
@@ -112,9 +119,9 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         });
       }
       if (type === 'EXPENSES_ITEM') {
-        const rateIDR = Number(editMasterForm.rateIDR) || 0;
-        const rateUSD = Number(editMasterForm.rateUSD) || 0;
-        const selectedRate = rateUSD || rateIDR || Number(editMasterForm.standardCostSell) || Number(editMasterForm.standardCostBuy) || 0;
+        const rateIDR = parseTariffNumber(editMasterForm.rateIDR);
+        const rateUSD = parseTariffNumber(editMasterForm.rateUSD);
+        const selectedRate = rateUSD || rateIDR || parseTariffNumber(editMasterForm.standardCostSell) || parseTariffNumber(editMasterForm.standardCostBuy);
         await db.updateExpensesItem(id, {
           ...editMasterForm,
           rateIDR,
@@ -725,8 +732,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           return;
         }
         const port = ports.find((p) => p.id === newTariff.portId);
-        const rateIDR = Number(newTariff.rateIDR) || 0;
-        const rateUSD = Number(newTariff.rateUSD) || 0;
+        const rateIDR = parseTariffNumber(newTariff.rateIDR);
+        const rateUSD = parseTariffNumber(newTariff.rateUSD);
         await db.addFixTariff({
           ...newTariff,
           portName: port?.name || '',
@@ -741,8 +748,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           return;
         }
         const port = ports.find((p) => p.id === newExpense.portId);
-        const rateIDR = Number(newExpense.rateIDR) || 0;
-        const rateUSD = Number(newExpense.rateUSD) || 0;
+        const rateIDR = parseTariffNumber(newExpense.rateIDR);
+        const rateUSD = parseTariffNumber(newExpense.rateUSD);
         const selectedRate = rateUSD || rateIDR || 0;
         await db.addExpensesItem({
           ...newExpense,
@@ -1215,8 +1222,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     <label className="block"><span className="text-slate-500 font-semibold">Minimum Charge</span><input type="number" value={editMasterForm.minCharge ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,minCharge:Number(e.target.value)})} className="master-edit-input" /></label>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <label className="block"><span className="text-slate-500 font-semibold">IDR</span><input type="number" step="0.0001" value={editMasterForm.rateIDR ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,rateIDR:Number(e.target.value)})} className="master-edit-input" /></label>
-                    <label className="block"><span className="text-slate-500 font-semibold">USD</span><input type="number" step="0.0001" value={editMasterForm.rateUSD ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,rateUSD:Number(e.target.value)})} className="master-edit-input" /></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">IDR</span><input type="text" inputMode="decimal" value={formatRateInput(editMasterForm.rateIDR ?? 0)} onChange={e=>setEditMasterForm({...editMasterForm,rateIDR:parseTariffNumber(e.target.value)})} className="master-edit-input" /></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">USD</span><input type="text" inputMode="decimal" value={formatRateInput(editMasterForm.rateUSD ?? 0)} onChange={e=>setEditMasterForm({...editMasterForm,rateUSD:parseTariffNumber(e.target.value)})} className="master-edit-input" /></label>
                   </div>
                 </>
               )}
@@ -1236,8 +1243,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     <label className="block"><span className="text-slate-500 font-semibold">Unit</span><select value={editMasterForm.unit || 'job'} onChange={e=>setEditMasterForm({...editMasterForm,unit:e.target.value})} className="master-edit-input"><option value="job">job</option><option value="hour">hour</option><option value="day">day</option><option value="qty">qty</option><option value="GRT">GRT</option></select></label>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <label className="block"><span className="text-slate-500 font-semibold">Rate IDR</span><input type="number" step="0.0001" value={editMasterForm.rateIDR ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,rateIDR:Number(e.target.value)})} className="master-edit-input" /></label>
-                    <label className="block"><span className="text-slate-500 font-semibold">Rate USD</span><input type="number" step="0.0001" value={editMasterForm.rateUSD ?? 0} onChange={e=>setEditMasterForm({...editMasterForm,rateUSD:Number(e.target.value)})} className="master-edit-input" /></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">Rate IDR</span><input type="text" inputMode="decimal" value={formatRateInput(editMasterForm.rateIDR ?? 0)} onChange={e=>setEditMasterForm({...editMasterForm,rateIDR:parseTariffNumber(e.target.value)})} className="master-edit-input" /></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">Rate USD</span><input type="text" inputMode="decimal" value={formatRateInput(editMasterForm.rateUSD ?? 0)} onChange={e=>setEditMasterForm({...editMasterForm,rateUSD:parseTariffNumber(e.target.value)})} className="master-edit-input" /></label>
                   </div>
                 </>
               )}
@@ -1711,20 +1718,20 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     <div>
                       <label className="text-slate-400 block mb-1">IDR:</label>
                       <input
-                        type="number"
-                        step="0.0001"
-                        value={newTariff.rateIDR}
-                        onChange={(e) => setNewTariff({ ...newTariff, rateIDR: Number(e.target.value) })}
+                        type="text"
+                        inputMode="decimal"
+                        value={formatRateInput(newTariff.rateIDR)}
+                        onChange={(e) => setNewTariff({ ...newTariff, rateIDR: parseTariffNumber(e.target.value) })}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
                       />
                     </div>
                     <div>
                       <label className="text-slate-400 block mb-1">USD:</label>
                       <input
-                        type="number"
-                        step="0.0001"
-                        value={newTariff.rateUSD}
-                        onChange={(e) => setNewTariff({ ...newTariff, rateUSD: Number(e.target.value) })}
+                        type="text"
+                        inputMode="decimal"
+                        value={formatRateInput(newTariff.rateUSD)}
+                        onChange={(e) => setNewTariff({ ...newTariff, rateUSD: parseTariffNumber(e.target.value) })}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
                       />
                     </div>
@@ -1810,20 +1817,20 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     <div>
                       <label className="text-slate-400 block mb-1">Rate IDR:</label>
                       <input
-                        type="number"
-                        step="0.0001"
-                        value={newExpense.rateIDR}
-                        onChange={(e) => setNewExpense({ ...newExpense, rateIDR: Number(e.target.value) })}
+                        type="text"
+                        inputMode="decimal"
+                        value={formatRateInput(newExpense.rateIDR)}
+                        onChange={(e) => setNewExpense({ ...newExpense, rateIDR: parseTariffNumber(e.target.value) })}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
                       />
                     </div>
                     <div>
                       <label className="text-slate-400 block mb-1">Rate USD:</label>
                       <input
-                        type="number"
-                        step="0.0001"
-                        value={newExpense.rateUSD}
-                        onChange={(e) => setNewExpense({ ...newExpense, rateUSD: Number(e.target.value) })}
+                        type="text"
+                        inputMode="decimal"
+                        value={formatRateInput(newExpense.rateUSD)}
+                        onChange={(e) => setNewExpense({ ...newExpense, rateUSD: parseTariffNumber(e.target.value) })}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
                       />
                     </div>

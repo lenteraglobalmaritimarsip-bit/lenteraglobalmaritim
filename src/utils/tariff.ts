@@ -123,6 +123,51 @@ export function matchesTariffGRT(
   return value === maximum;
 }
 
+export function prefersSpecificTariffGRTRange(
+  candidateMin: unknown,
+  candidateMax: unknown,
+  currentMin: unknown,
+  currentMax: unknown,
+): boolean {
+  const positiveBoundCount = (minimum: unknown, maximum: unknown) =>
+    Number(parseTariffNumber(minimum) > 0) + Number(parseTariffNumber(maximum) > 0);
+  const candidateBounds = positiveBoundCount(candidateMin, candidateMax);
+  const currentBounds = positiveBoundCount(currentMin, currentMax);
+  if (candidateBounds !== currentBounds) return candidateBounds > currentBounds;
+
+  if (candidateBounds === 2) {
+    const candidateWidth = parseTariffNumber(candidateMax) - parseTariffNumber(candidateMin);
+    const currentWidth = parseTariffNumber(currentMax) - parseTariffNumber(currentMin);
+    return candidateWidth < currentWidth;
+  }
+  return false;
+}
+
+export function selectPreferredTariffOptions<T extends {
+  name: string;
+  category: string;
+  source: 'FIX_TARIFF' | 'EXPENSES_ITEM';
+  grtMin?: unknown;
+  grtMax?: unknown;
+}>(options: T[]): T[] {
+  return options.reduce<T[]>((selected, option) => {
+    const existingIndex = selected.findIndex((item) =>
+      item.name.trim().toLowerCase() === option.name.trim().toLowerCase()
+      && item.category === option.category
+    );
+    if (existingIndex < 0) return [...selected, option];
+
+    const existing = selected[existingIndex];
+    const preferOption = option.source === 'FIX_TARIFF'
+      && existing.source !== 'FIX_TARIFF'
+      || option.source === 'FIX_TARIFF'
+        && existing.source === 'FIX_TARIFF'
+        && prefersSpecificTariffGRTRange(option.grtMin, option.grtMax, existing.grtMin, existing.grtMax);
+    if (!preferOption) return selected;
+    return selected.map((item, index) => index === existingIndex ? option : item);
+  }, []);
+}
+
 export function parseTariffNumber(value: unknown, fallback = 0): number {
   if (typeof value === 'number') return Number.isFinite(value) ? value : fallback;
 
@@ -144,6 +189,18 @@ export function formatTariffNumber(value: unknown): string {
   return Number.isFinite(parsed)
     ? new Intl.NumberFormat('en-US', { useGrouping: true, maximumFractionDigits: 2 }).format(parsed)
     : '-';
+}
+
+export function getTariffRateForCurrency(
+  currency: 'IDR' | 'USD',
+  rateIDR: unknown,
+  rateUSD: unknown,
+  legacyRate: unknown,
+  legacyCurrency?: 'IDR' | 'USD',
+): number {
+  const explicitRate = parseTariffNumber(currency === 'IDR' ? rateIDR : rateUSD, Number.NaN);
+  if (Number.isFinite(explicitRate) && explicitRate > 0) return explicitRate;
+  return legacyCurrency === currency ? parseTariffNumber(legacyRate) : 0;
 }
 
 export function getTariffBasisValue({

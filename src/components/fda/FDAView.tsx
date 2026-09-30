@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { JobCall, ActualCostItem, ActiveTab, Vessel, FixTariff, ExpensesItem, Currency } from '../../types';
 import { db, buildBranchAwareFDANumber, buildBranchAwareInvoiceNumber, getCurrentBranchName, formatEPDAQuoteNoForDisplay } from '../../db/storage';
-import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber } from '../../utils/tariff';
+import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, selectPreferredTariffOptions } from '../../utils/tariff';
 
 interface FDAViewProps {
   initialTab?: 'DASHBOARD' | 'JOB_ID' | 'ACTUAL_COST' | 'QUOTES_VIEW' | 'APPROVAL';
@@ -188,9 +188,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   );
   const vesselMaster = vessels.find((vessel) => vessel.id === activeJob.vesselId);
   const rateForCurrency = (currency: 'IDR' | 'USD', rateIDR: number | undefined, rateUSD: number | undefined, legacyRate: number, legacyCurrency?: 'IDR' | 'USD') => {
-    const explicitRate = currency === 'IDR' ? rateIDR : rateUSD;
-    if (explicitRate !== undefined && explicitRate > 0) return explicitRate;
-    return legacyCurrency === currency ? Number(legacyRate || 0) : 0;
+    return getTariffRateForCurrency(currency, rateIDR, rateUSD, legacyRate, legacyCurrency);
   };
   const portMatches = (portId?: string, portName?: string) => {
     const currentPortId = (activeJob.portId || activeJob.inquiry?.portId || '').trim();
@@ -201,7 +199,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     return (!!currentPortId && !!targetPortId && currentPortId === targetPortId)
       || (!!currentPortName && !!targetPortName && currentPortName.toLowerCase() === targetPortName.toLowerCase());
   };
-  const buildAutoServiceOptions = (currency: Currency) => [
+  const buildAutoServiceOptions = (currency: Currency) => selectPreferredTariffOptions([
     ...fixTariffs
       .filter((tariff) =>
         portMatches(tariff.portId, tariff.portName)
@@ -221,6 +219,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
         legacyRate: tariff.rate,
         minCharge: tariff.minCharge,
         currency: tariff.currency,
+        source: 'FIX_TARIFF' as const,
+        grtMin: tariff.grtMin ?? tariff.grt,
+        grtMax: tariff.grtMax ?? tariff.grt,
       })),
     ...expensesItems
       .filter((item) =>
@@ -238,8 +239,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
         legacyRate: item.standardCostSell || 0,
         minCharge: item.standardCostBuy || 0,
         currency: item.defaultCurrency,
+          source: 'EXPENSES_ITEM' as const,
       })),
-  ].filter((option, index, arr) => option.name && arr.findIndex((item) => item.name === option.name && item.category === option.category) === index);
+        ]);
   const autoServiceOptions = buildAutoServiceOptions(viewCurrency);
 
   const applySelectedAutoService = (selectedName: string) => {
