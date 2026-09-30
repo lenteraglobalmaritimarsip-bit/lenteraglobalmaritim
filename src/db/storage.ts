@@ -561,6 +561,13 @@ class DatabaseService {
     }
     if (
       existingJob &&
+      this.actor.role === 'FDA' &&
+      (existingJob.fda?.approvalStatus === 'SUBMITTED' || existingJob.fda?.fdaApproved)
+    ) {
+      return;
+    }
+    if (
+      existingJob &&
       this.actor.role === 'SALES' &&
       normalizeBranchCode(existingJob.inquiry?.createdByBranch || existingJob.inquiry?.createdByBranchCode) !== normalizeBranchCode(this.actor.branch)
     ) {
@@ -573,14 +580,6 @@ class DatabaseService {
       (existingJob.managerApproval?.status === 'APPROVED' ||
         existingJob.quotation?.epda?.status === 'SUBMITTED' ||
         existingJob.quotation?.epda?.status === 'APPROVED')
-    ) {
-      return;
-    }
-    if (
-      existingJob &&
-      this.actor.role === 'FDA' &&
-      existingJob.fda?.fdaApproved &&
-      (updates.actualCosts !== undefined || updates.exchangeRateUSDToIDR !== undefined)
     ) {
       return;
     }
@@ -797,30 +796,6 @@ class DatabaseService {
     if (!job.fda.fdaApproved) return { ok: false, message: 'Closing belum dapat dilakukan. FDA belum Approved.' };
     if (!job.ap.length || !job.ap.every(x => x.status === 'PAID')) return { ok: false, message: 'Closing belum dapat dilakukan. AP Vendor harus PAID seluruhnya.' };
     return { ok: true };
-  }
-
-  public returnJobToFDA(jobId: string, reason: string, actorName: string): boolean {
-    const job = this.getJob(jobId);
-    if (!job || job.closing?.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED') return false;
-
-    this.audit('RETURN_TO_FDA', 'VESSEL_CALL', `Returned ${jobId} to FDA for correction: ${reason}`, jobId);
-    this.updateJob(jobId, {
-      currentStage: 'FDA',
-      status: 'IN_PROGRESS',
-      fda: {
-        ...job.fda,
-        fdaApproved: false,
-        approvalStatus: 'DRAFT',
-        approvedBy: undefined,
-        approvedAt: undefined,
-        notes: `Dikembalikan oleh ${actorName}: ${reason}`,
-      },
-      principalInvoice: {
-        ...job.principalInvoice,
-        status: 'DRAFT',
-      },
-    });
-    return true;
   }
 
   public closeJobWhenPrincipalCollected(jobId: string, closerName: string): boolean {

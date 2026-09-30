@@ -87,33 +87,56 @@ export const Header: React.FC<HeaderProps> = ({
       const approval = job.managerApproval?.status;
 
       if (currentRole === 'MANAGER_OPS' && approval !== 'APPROVED' && epdaSubmitted) {
-        push({ id:`approval-${job.jobId}`, title:'Approval menunggu tindakan', message:`${job.jobId} · ${job.vesselName} siap diperiksa dan disetujui setelah EPDA disubmit.`, jobId:job.jobId, tab:'APPROVAL', kind:'APPROVAL' });
+        push({ id:`approval-${job.jobId}-${job.updatedAt}`, title:'Approval menunggu tindakan', message:`${job.jobId} · ${job.vesselName} siap diperiksa dan disetujui setelah EPDA disubmit.`, jobId:job.jobId, tab:'APPROVAL', kind:'APPROVAL' });
       }
 
-      if (currentRole === 'SALES' && approval === 'REJECTED') {
-        push({ id:`rejected-${job.jobId}`, title:'EPDA/PDA dikembalikan', message:`${job.jobId} · ${job.vesselName} memerlukan revisi sebelum diajukan kembali.`, jobId:job.jobId, tab:'QUOTES_EPDA', kind:'WARNING' });
-      }
-
-      if (currentRole === 'FDA' && approval === 'APPROVED' && !job.fda?.fdaApproved) {
-        const pendingActual = (job.actualCosts || []).filter(x => x.status !== 'APPROVED_BY_FDA').length;
-        const hasActualCost = (job.actualCosts || []).length > 0;
+      if (currentRole === 'MANAGER_OPS' && job.fda?.approvalStatus === 'SUBMITTED' && !job.fda.fdaApproved) {
         push({
-          id:`fda-${job.jobId}-${pendingActual}`,
-          title: !hasActualCost ? 'Actual Cost perlu diinput' : pendingActual ? 'FDA perlu verifikasi biaya' : 'FDA siap difinalisasi',
-          message: !hasActualCost
-            ? `${job.jobId} · ${job.vesselName} sudah Approved. Lengkapi Actual Cost terlebih dahulu.`
-            : pendingActual
-              ? `${job.jobId} memiliki ${pendingActual} actual cost yang belum diverifikasi.`
-              : `${job.jobId} · ${job.vesselName} memiliki biaya yang sudah diverifikasi dan siap difinalisasi FDA.`,
+          id:`fda-approval-${job.jobId}-${job.fda.submittedAt || job.updatedAt}`,
+          title:'FDA menunggu approval',
+          message:`${job.jobId} · ${job.vesselName} dikirim oleh ${job.fda.submittedBy || 'FDA'} dan menunggu keputusan Manager Ops.`,
           jobId:job.jobId,
-          tab: !hasActualCost || pendingActual ? 'ACTUAL_COST' : 'FDA_JOB_ID',
-          kind: !hasActualCost || pendingActual ? 'WARNING' : 'INFO'
+          tab:'APPROVAL',
+          kind:'APPROVAL',
         });
       }
 
+      if (currentRole === 'SALES' && approval === 'REJECTED') {
+        push({ id:`rejected-${job.jobId}-${job.managerApproval?.approvedAt || job.updatedAt}`, title:'EPDA/PDA dikembalikan', message:`${job.jobId} · ${job.vesselName} memerlukan revisi sebelum diajukan kembali.`, jobId:job.jobId, tab:'QUOTES_EPDA', kind:'WARNING' });
+      }
+
+      if (currentRole === 'FDA' && approval === 'APPROVED' && !job.fda?.fdaApproved) {
+        const fdaStatus = job.fda?.approvalStatus;
+        if (fdaStatus === 'REJECTED') {
+          push({
+            id:`fda-rejected-${job.jobId}-${job.fda?.approvedAt || job.updatedAt}`,
+            title:'FDA dikembalikan untuk revisi',
+            message:`${job.jobId} · ${job.vesselName} perlu diperbaiki. Catatan Manager: ${job.fda?.notes || 'Silakan periksa kembali data FDA.'}`,
+            jobId:job.jobId,
+            tab:'ACTUAL_COST',
+            kind:'WARNING',
+          });
+        } else if (fdaStatus !== 'SUBMITTED') {
+          const pendingActual = (job.actualCosts || []).filter(x => x.status !== 'APPROVED_BY_FDA').length;
+          const hasActualCost = (job.actualCosts || []).length > 0;
+          push({
+            id:`fda-${job.jobId}-${pendingActual}`,
+            title: !hasActualCost ? 'Actual Cost perlu diinput' : pendingActual ? 'FDA perlu verifikasi biaya' : 'FDA siap difinalisasi',
+            message: !hasActualCost
+              ? `${job.jobId} · ${job.vesselName} sudah Approved. Lengkapi Actual Cost terlebih dahulu.`
+              : pendingActual
+                ? `${job.jobId} memiliki ${pendingActual} actual cost yang belum diverifikasi.`
+                : `${job.jobId} · ${job.vesselName} memiliki biaya yang sudah diverifikasi dan siap dikirim ke Manager Ops untuk approval.`,
+            jobId:job.jobId,
+            tab: !hasActualCost || pendingActual ? 'ACTUAL_COST' : 'APPROVAL',
+            kind: !hasActualCost || pendingActual ? 'WARNING' : 'INFO'
+          });
+        }
+      }
+
       if (currentRole === 'FINANCE' && job.fda?.fdaApproved) {
-        if (job.principalInvoice?.status === 'DRAFT') {
-          push({ id:`invoice-${job.jobId}`, title:'FDA Approved · Invoice siap dibuat', message:`${job.jobId} · ${job.vesselName} sudah FDA Approved. Lanjutkan invoice principal.`, jobId:job.jobId, tab:'PRINCIPAL_INVOICE', kind:'INFO' });
+        if (job.principalInvoice?.status !== 'SETTLED') {
+          push({ id:`invoice-${job.jobId}`, title:'FDA Approved · Invoice perlu ditinjau', message:`${job.jobId} · ${job.vesselName} sudah FDA Approved. Periksa invoice principal dan status penagihannya.`, jobId:job.jobId, tab:'PRINCIPAL_INVOICE', kind:'INFO' });
         }
         const unpaid = (job.ap || []).filter(x => x.status !== 'PAID').length;
         const unreceived = (job.ar || []).filter(x => x.status !== 'RECEIVED').length;

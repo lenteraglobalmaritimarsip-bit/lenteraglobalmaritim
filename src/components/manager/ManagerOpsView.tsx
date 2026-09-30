@@ -694,6 +694,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
               </div>
             ) : pendingFDAApprovals.map((job) => {
               const currency = job.fda.currency || job.actualCosts?.[0]?.currency || job.currency || 'USD';
+              const actualCostTotal = job.fda.totalActualCost || job.actualCosts.reduce((sum, item) => sum + Number(item.amount || 0), 0);
               return (
                 <div key={`${job.jobId}:FDA-APPROVAL`} className="space-y-3 rounded-xl border border-slate-800 bg-slate-950 p-4">
                   <div className="flex flex-col justify-between gap-2 border-b border-slate-800 pb-3 sm:flex-row sm:items-center">
@@ -707,7 +708,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
 
                   <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
                     <div className="rounded-lg border border-slate-800 bg-slate-900 p-3"><span className="text-slate-400">No. FDA</span><strong className="mt-1 block font-mono text-cyan-300">{job.fda.fdaNo || '-'}</strong></div>
-                    <div className="rounded-lg border border-slate-800 bg-slate-900 p-3"><span className="text-slate-400">Total Actual Cost</span><strong className="mt-1 block font-mono text-white">{formatEPDAAmount(job.fda.totalActualCost || job.actualCosts.reduce((sum, item) => sum + Number(item.amount || 0), 0), currency)}</strong></div>
+                    <div className="rounded-lg border border-slate-800 bg-slate-900 p-3"><span className="text-slate-400">Total Actual Cost</span><strong className="mt-1 block font-mono text-white">{formatEPDAAmount(actualCostTotal, currency)}</strong></div>
                     <div className="rounded-lg border border-slate-800 bg-slate-900 p-3"><span className="text-slate-400">Tagihan Principal</span><strong className="mt-1 block font-mono text-emerald-300">{formatEPDAAmount(job.fda.finalBilledToPrincipal || 0, currency)}</strong></div>
                   </div>
 
@@ -715,6 +716,12 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                     <table className="w-full min-w-[650px] text-left text-[11px]">
                       <thead className="bg-slate-900 text-[10px] uppercase tracking-wider text-slate-400"><tr><th className="p-2">No</th><th className="p-2">Description</th><th className="p-2">Category</th><th className="p-2">Vendor</th><th className="p-2 text-right">Amount</th></tr></thead>
                       <tbody className="divide-y divide-slate-800">{job.actualCosts.map((item, index) => <tr key={item.id}><td className="p-2 text-slate-400">{index + 1}</td><td className="p-2 font-semibold text-white">{item.description}</td><td className="p-2 text-slate-300">{formatEPDACategory(item.category)}</td><td className="p-2 text-slate-300">{item.vendorName || '-'}</td><td className="p-2 text-right font-mono text-emerald-300">{formatEPDAAmount(item.amount, item.currency || currency)}</td></tr>)}</tbody>
+                      <tfoot className="border-t border-slate-700 bg-slate-900/80">
+                        <tr>
+                          <td colSpan={4} className="p-2 text-right font-bold uppercase text-slate-200">GRAND TOTAL</td>
+                          <td className="p-2 text-right font-mono font-bold text-emerald-300">{formatEPDAAmount(actualCostTotal, currency)}</td>
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
 

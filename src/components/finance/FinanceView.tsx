@@ -252,15 +252,6 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     setTimeout(() => setMsg(null), 3500);
   };
 
-  const handleReturnToFDA = () => {
-    const reason = window.prompt('Masukkan alasan pengembalian ke FDA:');
-    if (!reason?.trim()) return;
-    const returned = db.returnJobToFDA(activeJob.jobId, reason.trim(), 'Finance');
-    setMsg(returned ? `Job ${activeJob.jobId} dikembalikan ke FDA untuk revisi.` : 'Job tidak dapat dikembalikan karena sudah closed.');
-    setSubTab('JOB_INVOICE_OPEN');
-    setTimeout(() => setMsg(null), 4000);
-  };
-
   const handleAddPrincipalReceipt = (event: React.FormEvent) => {
     event.preventDefault();
     const enteredAmount = Number(receiptAmount);
@@ -271,7 +262,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     const outstandingBeforeReceipt = jobAROutstanding;
     const normalizedOutstanding = normalizeReceiptAmount(outstandingBeforeReceipt);
     const isWholeIDR = jobCurrency !== 'IDR' || Number.isInteger(enteredAmount);
-    if (!activeJob.fda?.fdaApproved || !receiptDate || !Number.isFinite(enteredAmount) || enteredAmount <= 0 || !receiptBankRemark.trim()) {
+    if (!activeJob.fda?.fdaApproved || !receiptDate || !Number.isFinite(enteredAmount) || enteredAmount <= 0 || !Number.isFinite(amount) || amount <= 0 || !receiptBankRemark.trim()) {
       setReceiptAmountError('Lengkapi tanggal, nominal penerimaan, dan remark bank. FDA harus Approved.');
       setMsg('Data penerimaan belum lengkap.');
       setTimeout(() => setMsg(null), 4000);
@@ -999,14 +990,6 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                     <span>Konfirmasi Terima Pembayaran (AR)</span>
                   </button>
                 )}
-                {!isClosedJob(activeJob) && (
-                  <button
-                    onClick={handleReturnToFDA}
-                    className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/30 text-xs font-bold shadow transition"
-                  >
-                    Kembalikan ke FDA
-                  </button>
-                )}
               </div>
             </div>
 
@@ -1140,19 +1123,20 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
             </div>
 
             <form onSubmit={handleAddPrincipalReceipt} className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3 bg-slate-950 p-4 rounded-xl border border-slate-800">
-              <label className="text-xs text-slate-400">Tanggal Masuk
-                <input type="date" value={receiptDate} onChange={(event) => setReceiptDate(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
+              <label className="text-xs text-slate-400">Tanggal Masuk *
+                <input type="date" required value={receiptDate} onChange={(event) => setReceiptDate(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
               </label>
-              <label className="text-xs text-slate-400">Jenis Penerimaan
-                <select value={receiptType} onChange={(event) => setReceiptType(event.target.value as 'ADVANCE_PAYMENT' | 'INVOICE')} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white">
+              <label className="text-xs text-slate-400">Jenis Penerimaan *
+                <select required value={receiptType} onChange={(event) => setReceiptType(event.target.value as 'ADVANCE_PAYMENT' | 'INVOICE')} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white">
                   <option value="ADVANCE_PAYMENT">Advance Payment</option>
                   <option value="INVOICE">Invoice</option>
                 </select>
               </label>
-              <label className="text-xs text-slate-400">Nominal Masuk ({jobCurrency})
+              <label className="text-xs text-slate-400">Nominal Masuk ({jobCurrency}) *
                 <input
                   type="number"
-                  min="0"
+                  required
+                  min={jobCurrency === 'IDR' ? '1' : '0.01'}
                   step={jobCurrency === 'IDR' ? '1' : '0.01'}
                   value={receiptAmount}
                   onChange={(event) => { setReceiptAmount(event.target.value); setReceiptAmountError(''); }}
@@ -1164,8 +1148,8 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   Format: {receiptAmount && Number.isFinite(Number(receiptAmount)) ? formatCurrency(Number(receiptAmount), jobCurrency) : jobCurrency === 'IDR' ? 'Rp 0' : '0 USD'}
                 </span>
               </label>
-              <label className="text-xs text-slate-400">Remark Bank
-                <input value={receiptBankRemark} onChange={(event) => setReceiptBankRemark(event.target.value)} placeholder="Contoh: Transfer BCA dari Principal" className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
+              <label className="text-xs text-slate-400">Remark Bank *
+                <input required value={receiptBankRemark} onChange={(event) => setReceiptBankRemark(event.target.value)} placeholder="Contoh: Transfer BCA dari Principal" className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
               </label>
               <label className="text-xs text-slate-400">Upload Bukti PNG
                 <input type="file" accept="image/png" onChange={handleReceiptAttachment} className="mt-1 w-full text-xs text-slate-300 file:mr-2 file:rounded-md file:border-0 file:bg-cyan-500/20 file:px-2 file:py-1.5 file:text-cyan-200" />
