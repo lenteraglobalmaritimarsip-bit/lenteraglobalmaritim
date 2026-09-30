@@ -17,6 +17,7 @@ CREATE TYPE job_status AS ENUM ('INQUIRY', 'QUOTED', 'APPROVED', 'IN_PROGRESS', 
 CREATE TYPE inquiry_status AS ENUM ('RECEIVED', 'EVALUATED', 'CONVERTED');
 CREATE TYPE quotation_status AS ENUM ('DRAFT', 'SUBMITTED', 'APPROVED');
 CREATE TYPE approval_status AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
+CREATE TYPE fda_approval_status AS ENUM ('DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED');
 CREATE TYPE cost_status AS ENUM ('PENDING_VERIFICATION', 'VERIFIED', 'APPROVED_BY_FDA');
 CREATE TYPE ap_status AS ENUM ('UNPAID', 'PARTIALLY_PAID', 'PAID');
 CREATE TYPE ar_status AS ENUM ('AWAITING_REMITTANCE', 'RECEIVED', 'OVERDUE');
@@ -74,7 +75,7 @@ CREATE TABLE vessels (
   imo_number varchar(30) NOT NULL UNIQUE,
   call_sign varchar(50) NOT NULL,
   flag varchar(100) NOT NULL,
-  vessel_type varchar(40) NOT NULL,
+  vessel_type varchar(40) NOT NULL CHECK (vessel_type IN ('BULK CARRIER', 'CONTAINER', 'OIL TANKER', 'GENERAL CARGO', 'TUG & BARGE', 'LNG CARRIER')),
   grt numeric(18,4) NOT NULL DEFAULT 0 CHECK (grt >= 0),
   nrt numeric(18,4) NOT NULL DEFAULT 0 CHECK (nrt >= 0),
   dwt numeric(18,4) NOT NULL DEFAULT 0 CHECK (dwt >= 0),
@@ -182,6 +183,7 @@ CREATE TABLE inquiries (
   cargo_details text NOT NULL,
   estimated_days numeric(12,4) NOT NULL DEFAULT 0 CHECK (estimated_days >= 0),
   special_requirements text NOT NULL DEFAULT '',
+  CHECK (quantity_unit IS NULL OR quantity_unit IN ('MATRIX_TON', 'TON')),
   status inquiry_status NOT NULL DEFAULT 'RECEIVED',
   created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
   created_by_name varchar(150),
@@ -212,7 +214,7 @@ CREATE TABLE quotation_items (
   fix_tariff_id uuid REFERENCES fix_tariffs(id) ON DELETE SET NULL,
   entry_order integer NOT NULL,
   name varchar(200) NOT NULL,
-  category varchar(80) NOT NULL,
+  category varchar(80) NOT NULL CHECK (category IN ('PORT_EXPENSES', 'CLEARANCE', 'GENERAL_EXPENSES', 'CREW_EXPENSES', 'OWNER_MATTER', 'AGENCY_FEE', 'TAX_CONTINGENCY', 'PORT_DUES', 'PILOTAGE_TOWAGE', 'BERTHING', 'CREW_CHANGE', 'IMMIGRATION_CUSTOMS', 'LOGISTICS_SUPPLIES', 'SUNDRY')),
   basis text NOT NULL DEFAULT '',
   quantity numeric(18,6) NOT NULL DEFAULT 1,
   unit_buy_rate numeric(30,12) NOT NULL DEFAULT 0,
@@ -238,7 +240,7 @@ CREATE TABLE crew_change_plans (
   transport_cost numeric(30,12) NOT NULL DEFAULT 0,
   total_cost_usd numeric(30,12) NOT NULL DEFAULT 0,
   total_cost_idr numeric(30,12) NOT NULL DEFAULT 0,
-  status varchar(30) NOT NULL DEFAULT 'PLANNED'
+  status varchar(30) NOT NULL DEFAULT 'PLANNED' CHECK (status IN ('PLANNED', 'IN_TRANSIT', 'COMPLETED'))
 );
 
 CREATE TABLE crew_members (
@@ -322,6 +324,10 @@ CREATE TABLE fda_records (
   variance_amount numeric(30,12) NOT NULL DEFAULT 0,
   variance_percentage numeric(18,6) NOT NULL DEFAULT 0,
   fda_approved boolean NOT NULL DEFAULT false,
+  approval_status fda_approval_status NOT NULL DEFAULT 'DRAFT',
+  submitted_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+  submitted_by_name varchar(150),
+  submitted_at timestamptz,
   approved_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
   approved_by_name varchar(150),
   approved_at timestamptz,
