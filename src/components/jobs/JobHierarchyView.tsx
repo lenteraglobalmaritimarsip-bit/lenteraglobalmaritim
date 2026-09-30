@@ -1079,6 +1079,19 @@ export const JobHierarchyView: React.FC<JobHierarchyViewProps> = ({
                         >
                           {item.status}
                         </span>
+                        {currentRole === 'FINANCE' && item.status !== 'PAID' && (
+                          <button
+                            type="button"
+                            onClick={() => db.updateJob(job.jobId, {
+                              ap: job.ap.map((apItem) => apItem.id === item.id
+                                ? { ...apItem, status: 'PAID', paidDate: new Date().toISOString().slice(0, 10) }
+                                : apItem),
+                            })}
+                            className="mt-2 block ml-auto rounded-md bg-emerald-600 px-2 py-1 text-[10px] font-bold text-white hover:bg-emerald-500"
+                          >
+                            PAID
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}

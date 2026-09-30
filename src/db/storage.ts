@@ -800,8 +800,8 @@ class DatabaseService {
 
   public closeJobWhenPrincipalCollected(jobId: string, closerName: string): boolean {
     const job = this.getJob(jobId);
-    if (!job || job.closing.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED') return false;
-    return this.closeJob(jobId, closerName, 'FDA approved and all vendor AP paid.');
+    if (!job || !job.fda.fdaApproved || job.closing.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED') return false;
+    return this.recordJobClosure(jobId, closerName, 'FDA approved and principal payment fully received.');
   }
 
   // Manager Approval Action
@@ -923,6 +923,13 @@ class DatabaseService {
     const guard = this.canCloseJob(jobId);
     if (!job || !guard.ok) return false;
 
+    return this.recordJobClosure(jobId, closerName, auditNotes || 'All disbursements, FDA reconciliation, and AR/AP settled in full.');
+  }
+
+  private recordJobClosure(jobId: string, closerName: string, auditNotes: string): boolean {
+    const job = this.getJob(jobId);
+    if (!job || job.closing.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED') return false;
+
     const actualCostTotal = job.actualCosts.reduce((sum, item) => sum + item.amount, 0);
     const invoiceTotal = job.principalInvoice.totalAmountUSD || job.quotation.pda.totalSellRate;
     const grossMarginUSD = invoiceTotal - actualCostTotal;
@@ -938,7 +945,7 @@ class DatabaseService {
         closedBy: closerName,
         finalGrossMarginUSD: grossMarginUSD,
         finalGrossMarginIDR: grossMarginIDR,
-        postVoyageRemarks: auditNotes || 'All disbursements, FDA reconciliation, and AR/AP settled in full.',
+        postVoyageRemarks: auditNotes,
       },
     });
     return true;

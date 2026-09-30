@@ -212,7 +212,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   const pendingJobCount = approvedFDAJobs.filter((job) => !isClosedJob(job) && Math.max(0, getJobPrincipalBilled(job) - getJobPrincipalReceived(job)) > 0).length;
   const netOperatingProfit_USD = totalAR_USD - totalAP_USD;
 
-  const handleReceivePrincipalPayment = () => {
+  const handleReceivePrincipalPayment = (closeJobAfterReceipt = false) => {
     if (!activeJob.fda?.fdaApproved) {
       setMsg('Finance belum dapat membukukan AR. FDA harus Approved terlebih dahulu.');
       setTimeout(() => setMsg(null), 4000);
@@ -247,6 +247,20 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
         : receiptHistory,
       currentStage: 'PRINCIPAL_INVOICE',
     });
+
+    if (closeJobAfterReceipt) {
+      const closed = db.closeJobWhenPrincipalCollected(activeJob.jobId, 'Finance');
+      const latestJob = db.getJob(activeJob.jobId);
+      const alreadyClosed = latestJob ? isClosedJob(latestJob) : false;
+      const failureMessage = latestJob?.fda?.fdaApproved
+        ? 'Job Vessel belum dapat ditutup.'
+        : 'Closing belum dapat dilakukan. FDA belum Approved.';
+      setMsg(closed || alreadyClosed
+        ? 'Job Vessel sudah selesai.'
+        : `Pelunasan berhasil dibukukan, tetapi job belum dapat ditutup. ${failureMessage}`);
+      setTimeout(() => setMsg(null), 4000);
+      return;
+    }
 
     setMsg(`Pelunasan dari Principal ${activeJob.customerName} berhasil dibukukan!`);
     setTimeout(() => setMsg(null), 3500);
@@ -886,7 +900,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                     const outstandingAmount = Math.max(0, billedAmount - receivedAmount);
                     const apTotal = j.ap?.reduce((sum, item) => sum + (item.amount || 0), 0) || 0;
                     const apPaid = j.ap?.filter((item) => item.status === 'PAID').reduce((sum, item) => sum + (item.amount || 0), 0) || 0;
-                    const apStatus = apTotal === 0 || apPaid >= apTotal ? 'PAID' : apPaid > 0 ? 'PARTIALLY_PAID' : 'OPEN';
+                    const apStatus = isClosedJob(j) ? 'CLOSED' : apTotal === 0 || apPaid >= apTotal ? 'PAID' : apPaid > 0 ? 'PARTIALLY_PAID' : 'OPEN';
 
                     return (
                       <tr key={j.jobId} className="hover:bg-slate-800/40">
@@ -913,7 +927,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                         <td className="p-3">
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              apStatus === 'PAID'
+                              apStatus === 'PAID' || apStatus === 'CLOSED'
                                 ? 'bg-emerald-500/20 text-emerald-300'
                                 : apStatus === 'PARTIALLY_PAID'
                                   ? 'bg-amber-500/20 text-amber-300'
@@ -1283,26 +1297,26 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
             </div>
 
             <div className="flex justify-end">
-              {jobAROutstanding > 0 ? (
+              {isClosedJob(activeJob) ? (
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-300 bg-slate-950 border border-slate-700 px-3 py-1.5 rounded-lg">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Job Vessel sudah selesai</span>
+                </div>
+              ) : jobAROutstanding > 0 ? (
                 <button
-                  onClick={handleReceivePrincipalPayment}
+                  onClick={() => handleReceivePrincipalPayment(true)}
                   className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow transition flex items-center gap-1.5"
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   <span>Bukukan Pelunasan Piutang</span>
                 </button>
-              ) : activeJob.closing?.isClosed ? (
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-300 bg-slate-950 border border-slate-700 px-3 py-1.5 rounded-lg">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Job Vessel Closed</span>
-                </div>
               ) : (
                 <button
                   onClick={handleCloseCollectedJob}
                   className="flex items-center gap-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 rounded-lg"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Job Vessel Closed</span>
+                  <span>Tutup Job Vessel</span>
                 </button>
               )}
             </div>
