@@ -583,15 +583,16 @@ class DatabaseService {
     ) {
       return;
     }
-    this.state.jobCalls = this.state.jobCalls.map((j) =>
-      j.jobId === jobId
-        ? {
-            ...j,
-            ...updates,
-            updatedAt: new Date().toISOString(),
-          }
-        : j
-    );
+    let jobUpdated = false;
+    this.state.jobCalls = this.state.jobCalls.map((j) => {
+      if (jobUpdated || j.jobId !== jobId) return j;
+      jobUpdated = true;
+      return {
+        ...j,
+        ...updates,
+        updatedAt: new Date().toISOString(),
+      };
+    });
     this.audit('UPDATE', 'VESSEL_CALL', `Updated vessel call ${jobId}`, jobId);
     this.saveToStorage();
   }
@@ -621,10 +622,23 @@ class DatabaseService {
   }
 
   public createJob(jobData: Partial<JobCall>): JobCall {
-    const nextSeq = this.state.jobCalls.length + 1;
     const year = new Date().getFullYear();
-    const generatedJobId = `VC-${year}-${String(nextSeq).padStart(4, '0')}`;
-    const documentSequence = this.state.jobCalls.length + 1;
+    const existingJobIds = new Set(this.state.jobCalls.map((job) => job.jobId));
+    const yearPrefix = `VC-${year}-`;
+    const maxSequence = this.state.jobCalls.reduce((max, job) => {
+      if (!job.jobId.startsWith(yearPrefix)) return max;
+      const sequence = Number(job.jobId.slice(yearPrefix.length));
+      return Number.isInteger(sequence) && sequence > max ? sequence : max;
+    }, 0);
+    let nextSeq = maxSequence + 1;
+    let generatedJobId = `VC-${year}-${String(nextSeq).padStart(4, '0')}`;
+    while (existingJobIds.has(generatedJobId)) {
+      nextSeq += 1;
+      generatedJobId = `VC-${year}-${String(nextSeq).padStart(4, '0')}`;
+    }
+    const requestedJobId = jobData.jobId?.trim();
+    const newJobId = requestedJobId && !existingJobIds.has(requestedJobId) ? requestedJobId : generatedJobId;
+    const documentSequence = nextSeq;
     const documentNumberJobId = `VC-${year}-${String(documentSequence).padStart(4, '0')}`;
     const actorBranch = this.actor.role === 'SALES'
       ? (this.actor.branch || 'Head Office')
@@ -632,7 +646,7 @@ class DatabaseService {
     const actorBranchCode = normalizeBranchCode(actorBranch);
 
     const newJob: JobCall = {
-      jobId: jobData.jobId || generatedJobId,
+      jobId: newJobId,
       vesselId: jobData.vesselId || '',
       vesselName: jobData.vesselName || 'MV UNNAMED',
       portId: jobData.portId || '',
@@ -794,13 +808,31 @@ class DatabaseService {
     const job = this.getJob(jobId);
     if (!job) return { ok: false, message: 'Job/Vessel Call tidak ditemukan.' };
     if (!job.fda.fdaApproved) return { ok: false, message: 'Closing belum dapat dilakukan. FDA belum Approved.' };
-    if (!job.ap.length || !job.ap.every(x => x.status === 'PAID')) return { ok: false, message: 'Closing belum dapat dilakukan. AP Vendor harus PAID seluruhnya.' };
+    const invoiceCurrency = job.fda.currency || job.currency || 'IDR';
+    const exchangeRate = job.exchangeRateUSDToIDR || 15800;
+    const invoiceTotal = job.fda.finalBilledToPrincipal
+      || job.principalInvoice?.totalAmountUSD
+      || job.quotation?.pda?.totalSellRate
+      || job.quotation?.epda?.totalSellRate
+      || 0;
+    const receivedTotal = (job.principalReceipts || []).reduce((sum, receipt) => {
+      const receiptCurrency = receipt.currency || job.currency || 'IDR';
+      const amount = receipt.amount || 0;
+      if (receiptCurrency === invoiceCurrency) return sum + amount;
+      return sum + (invoiceCurrency === 'IDR' ? amount * exchangeRate : amount / exchangeRate);
+    }, 0);
+    const outstanding = Math.max(0, invoiceTotal - receivedTotal);
+    const settlementTolerance = invoiceCurrency === 'IDR' ? 1 : 0.01;
+    if (outstanding > settlementTolerance) {
+      return { ok: false, message: `Closing belum dapat dilakukan. Sisa tagihan AR ${invoiceCurrency} ${outstanding.toLocaleString('en-US')} belum lunas.` };
+    }
     return { ok: true };
   }
 
   public closeJobWhenPrincipalCollected(jobId: string, closerName: string): boolean {
     const job = this.getJob(jobId);
-    if (!job || !job.fda.fdaApproved || job.closing.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED') return false;
+    const guard = this.canCloseJob(jobId);
+    if (!job || !guard.ok || job.closing.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED') return false;
     return this.recordJobClosure(jobId, closerName, 'FDA approved and principal payment fully received.');
   }
 
@@ -917,13 +949,13 @@ class DatabaseService {
     return true;
   }
 
-  // Close Job Action — only after FDA + AP + AR/Invoice are complete.
+  // Close Job Action — only after FDA and AR/Invoice are complete.
   public closeJob(jobId: string, closerName: string, auditNotes?: string): boolean {
     const job = this.getJob(jobId);
     const guard = this.canCloseJob(jobId);
     if (!job || !guard.ok) return false;
 
-    return this.recordJobClosure(jobId, closerName, auditNotes || 'All disbursements, FDA reconciliation, and AR/AP settled in full.');
+    return this.recordJobClosure(jobId, closerName, auditNotes || 'FDA reconciliation and principal invoice settled in full.');
   }
 
   private recordJobClosure(jobId: string, closerName: string, auditNotes: string): boolean {

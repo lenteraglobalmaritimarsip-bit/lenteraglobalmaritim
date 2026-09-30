@@ -121,6 +121,16 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     return sum + normalizeToIDR(receipt.amount || 0, currency, getJobExchangeRate(job));
   }, 0);
 
+  const normalizeOutstanding = (amount: number, currency: Currency) =>
+    amount <= (currency === 'IDR' ? 1 : 0.01) ? 0 : amount;
+
+  const getJobPrincipalOutstandingIDR = (job: JobCall) => {
+    const outstanding = Math.max(0, getJobPrincipalBilled(job) - getJobPrincipalReceived(job));
+    const currency = (job.fda?.currency || job.currency || 'IDR') as Currency;
+    const toleranceIDR = currency === 'USD' ? 0.01 * getJobExchangeRate(job) : 1;
+    return outstanding <= toleranceIDR ? 0 : outstanding;
+  };
+
   const getJobAdvancePayment = (job: JobCall) => (job.principalReceipts || [])
     .filter((receipt) => receipt.paymentType === 'ADVANCE_PAYMENT')
     .reduce((sum, receipt) => {
@@ -167,7 +177,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     .filter((receipt) => receipt.paymentType === 'INVOICE')
     .reduce((s, receipt) => s + convertCurrency(receipt.amount || 0, receipt.currency, jobCurrency, getJobExchangeRate(activeJob)), 0);
   const jobTotalReceived = jobAdvancePayment + jobInvoiceReceived;
-  const jobAROutstanding = Math.max(0, jobARTotal - jobAdvancePayment - jobInvoiceReceived);
+  const jobAROutstanding = normalizeOutstanding(Math.max(0, jobARTotal - jobAdvancePayment - jobInvoiceReceived), jobCurrency);
   const jobARReceived = jobTotalReceived;
 
   const toIDR = (amount: number, currency: 'USD' | 'IDR', exchangeRate: number) =>
@@ -204,27 +214,36 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   const totalReceived_IDR = totalAdvancePayment_IDR + totalInvoiceReceived_IDR;
   const totalIncomingBill_IDR = approvedFDAJobs.reduce((sum, job) => sum + getJobPrincipalReceived(job), 0);
   const totalOutstanding_IDR = approvedFDAJobs.reduce(
-    (sum, job) => sum + (isClosedJob(job)
-      ? 0
-      : Math.max(0, getJobPrincipalBilled(job) - getJobPrincipalReceived(job))),
+    (sum, job) => sum + (isClosedJob(job) ? 0 : getJobPrincipalOutstandingIDR(job)),
     0
   );
-  const pendingJobCount = approvedFDAJobs.filter((job) => !isClosedJob(job) && Math.max(0, getJobPrincipalBilled(job) - getJobPrincipalReceived(job)) > 0).length;
+  const pendingJobCount = approvedFDAJobs.filter((job) => !isClosedJob(job) && getJobPrincipalOutstandingIDR(job) > 0).length;
   const netOperatingProfit_USD = totalAR_USD - totalAP_USD;
 
-  const handleReceivePrincipalPayment = (closeJobAfterReceipt = false) => {
+  const handleReceivePrincipalPayment = () => {
     if (!activeJob.fda?.fdaApproved) {
       setMsg('Finance belum dapat membukukan AR. FDA harus Approved terlebih dahulu.');
       setTimeout(() => setMsg(null), 4000);
       return;
     }
+    const settlementTolerance = jobCurrency === 'IDR' ? 1 : 0.01;
+    if (jobAROutstanding > settlementTolerance) {
+      setMsg(`Pelunasan belum dapat dikonfirmasi. Catat penerimaan aktual terlebih dahulu. Sisa saldo: ${formatJobCurrency(jobAROutstanding)}.`);
+      setTimeout(() => setMsg(null), 4500);
+      return;
+    }
+    if (activeJob.principalInvoice?.status === 'SETTLED') {
+      setMsg('Tagihan sudah dilunasi, segera tutup JOB Vessel melalui menu AR.');
+      setTimeout(() => setMsg(null), 4500);
+      return;
+    }
+
     const updatedAR = arItems.map((item) => ({
       ...item,
       receivedAmount: item.requestedAmount,
       status: 'RECEIVED' as const,
       receivedDate: new Date().toISOString().slice(0, 10),
     }));
-    const invoiceReceiptAmount = Math.max(0, jobARTotal - jobAdvancePayment - jobARReceived);
 
     db.updateJob(activeJob.jobId, {
       principalInvoice: {
@@ -234,36 +253,11 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
         balanceDueIDR: 0,
       },
       ar: updatedAR,
-      principalReceipts: invoiceReceiptAmount > 0
-        ? [...receiptHistory, {
-            id: `RECEIPT-${activeJob.jobId}-${Date.now()}`,
-            jobId: activeJob.jobId,
-            receivedDate: new Date().toISOString().slice(0, 10),
-            amount: invoiceReceiptAmount,
-            currency: jobCurrency,
-            paymentType: 'INVOICE' as const,
-            bankRemark: 'Pelunasan Piutang Principal',
-          }]
-        : receiptHistory,
       currentStage: 'PRINCIPAL_INVOICE',
     });
 
-    if (closeJobAfterReceipt) {
-      const closed = db.closeJobWhenPrincipalCollected(activeJob.jobId, 'Finance');
-      const latestJob = db.getJob(activeJob.jobId);
-      const alreadyClosed = latestJob ? isClosedJob(latestJob) : false;
-      const failureMessage = latestJob?.fda?.fdaApproved
-        ? 'Job Vessel belum dapat ditutup.'
-        : 'Closing belum dapat dilakukan. FDA belum Approved.';
-      setMsg(closed || alreadyClosed
-        ? 'Job Vessel sudah selesai.'
-        : `Pelunasan berhasil dibukukan, tetapi job belum dapat ditutup. ${failureMessage}`);
-      setTimeout(() => setMsg(null), 4000);
-      return;
-    }
-
-    setMsg(`Pelunasan dari Principal ${activeJob.customerName} berhasil dibukukan!`);
-    setTimeout(() => setMsg(null), 3500);
+    setMsg('Tagihan sudah dilunasi, segera tutup JOB Vessel melalui menu AR.');
+    setTimeout(() => setMsg(null), 4500);
   };
 
   const handleAddPrincipalReceipt = (event: React.FormEvent) => {
@@ -343,21 +337,28 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   };
 
   const handleCloseCollectedJob = () => {
-    const closed = db.closeJobWhenPrincipalCollected(activeJob.jobId, 'Finance');
     const guard = db.canCloseJob(activeJob.jobId);
+    if (!guard.ok) {
+      setMsg(guard.message || 'Job tidak dapat ditutup.');
+      setTimeout(() => setMsg(null), 4000);
+      return;
+    }
+    if (!window.confirm(`Tutup Job Vessel ${activeJob.jobId}? Pastikan seluruh saldo AR sudah lunas.`)) return;
+    const closed = db.closeJobWhenPrincipalCollected(activeJob.jobId, 'Finance');
     setMsg(closed ? `Job Vessel ${activeJob.jobId} berhasil ditutup.` : guard.message || 'Job tidak dapat ditutup.');
     setTimeout(() => setMsg(null), 4000);
   };
 
-  const handleCloseJob = () => {
-    const guard = db.canCloseJob(activeJob.jobId);
+  const handleCloseJob = (jobId = activeJob.jobId) => {
+    const guard = db.canCloseJob(jobId);
     if (!guard.ok) {
       setMsg(guard.message || 'Closing belum dapat dilakukan.');
       setTimeout(() => setMsg(null), 4500);
       return;
     }
-    const closed = db.closeJob(activeJob.jobId, 'Finance', 'FDA approved dan seluruh AP vendor telah dibayar.');
-    setMsg(closed ? `Job Call ${activeJob.jobId} resmi ditutup (CLOSING COMPLETE)!` : 'Closing gagal diproses.');
+    if (!window.confirm(`Tutup Job ${jobId} secara resmi? Pastikan seluruh saldo AR sudah lunas.`)) return;
+    const closed = db.closeJob(jobId, 'Finance', 'FDA approved dan pelunasan AR principal sudah diterima.');
+    setMsg(closed ? `Job Call ${jobId} resmi ditutup (CLOSING COMPLETE)!` : 'Closing gagal diproses.');
     setTimeout(() => setMsg(null), 4000);
   };
 
@@ -798,7 +799,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                                 }}
                                 className="px-2.5 py-1 rounded-md border border-amber-500/30 bg-amber-500/10 text-amber-200 text-[10px] font-bold tracking-wide hover:bg-amber-500/20 transition-colors"
                               >
-                                AP
+                                Terima
                               </button>
                               <button
                                 onClick={() => {
@@ -807,7 +808,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                                 }}
                                 className="px-2.5 py-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 text-[10px] font-bold tracking-wide hover:bg-emerald-500/20 transition-colors"
                               >
-                                AR
+                                Closing
                               </button>
                             </div>
                           </td>
@@ -897,7 +898,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                           : convertCurrency(receipt.amount || 0, receiptCurrency, rowCurrency, exchangeRate);
                         return sum + signed;
                       }, 0);
-                    const outstandingAmount = Math.max(0, billedAmount - receivedAmount);
+                    const outstandingAmount = normalizeOutstanding(Math.max(0, billedAmount - receivedAmount), rowCurrency);
                     const apTotal = j.ap?.reduce((sum, item) => sum + (item.amount || 0), 0) || 0;
                     const apPaid = j.ap?.filter((item) => item.status === 'PAID').reduce((sum, item) => sum + (item.amount || 0), 0) || 0;
                     const apStatus = isClosedJob(j) ? 'CLOSED' : apTotal === 0 || apPaid >= apTotal ? 'PAID' : apPaid > 0 ? 'PARTIALLY_PAID' : 'OPEN';
@@ -1175,15 +1176,14 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                 </div>
                 <div className="flex items-center gap-2">
                   <button type="submit" className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold">Simpan Penerimaan</button>
-                  {activeJob.principalInvoice?.status !== 'SETTLED' && (
-                    <button
-                      type="button"
-                      onClick={handleReceivePrincipalPayment}
-                      className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold"
-                    >
-                      Konfirmasi Pelunasan AR
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={handleReceivePrincipalPayment}
+                    title={jobAROutstanding > (jobCurrency === 'IDR' ? 1 : 0.01) ? 'Catat seluruh penerimaan terlebih dahulu.' : 'Tandai AR PAID; job tidak ditutup.'}
+                    className="px-4 py-2 rounded-xl border-2 border-sky-500 bg-sky-200 text-sky-950 text-xs font-black shadow-sm hover:bg-sky-300"
+                  >
+                    PAID
+                  </button>
                 </div>
               </div>
             </form>
@@ -1302,9 +1302,9 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   <CheckCircle2 className="w-4 h-4" />
                   <span>Job Vessel sudah selesai</span>
                 </div>
-              ) : jobAROutstanding > 0 ? (
+              ) : jobAROutstanding > (jobCurrency === 'IDR' ? 1 : 0.01) ? (
                 <button
-                  onClick={() => handleReceivePrincipalPayment(true)}
+                  onClick={() => setSubTab('AP')}
                   className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow transition flex items-center gap-1.5"
                 >
                   <CheckCircle2 className="w-4 h-4" />
@@ -1326,7 +1326,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
       {subTab === 'REPORTS' && (
         <div className="space-y-4">
-          {closingDetailJobId ? (
+          {closingDetailJobId && activeJob.jobId === closingDetailJobId ? (
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
               <div className="flex items-center justify-between">
                 <div>
@@ -1369,7 +1369,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   {activeJob.status === 'CLOSED' && <span className="ml-2 text-emerald-400 font-semibold">(Telah ditutup secara finansial)</span>}
                 </div>
                 {activeJob.status !== 'CLOSED' ? (
-                  <button onClick={handleCloseJob} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-purple-900/30 transition flex items-center gap-2">
+                  <button onClick={() => handleCloseJob(closingDetailJobId)} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-purple-900/30 transition flex items-center gap-2">
                     <Lock className="w-4 h-4" />
                     <span>Close Job Secara Resmi (Tahap 10: Closing)</span>
                   </button>

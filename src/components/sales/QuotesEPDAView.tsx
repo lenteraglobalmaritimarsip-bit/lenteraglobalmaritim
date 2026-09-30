@@ -107,6 +107,16 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   const creatorName = job.inquiry.createdBy.split(' (')[0].trim().toLowerCase();
   const creator = users.find((user) => user.name.trim().toLowerCase() === creatorName);
   const vesselMaster = vessels.find((vessel) => vessel.id === job.vesselId);
+  const manualTariffPreview = calculateTariffForJob({
+    vesselGRT: vesselMaster?.grt || 0,
+    estimatedDays: Number(job.inquiry?.estimatedDays || 0),
+    hours: 1,
+    moveCount: 1,
+    rate: Number(newItem.unitBuyRate) || 0,
+    minCharge: Number(newItem.minCharge) || 0,
+    calculationBasis: newItem.calculationBasis,
+    tariffType: newItem.tariffType,
+  });
   const rateForCurrency = (currency: Currency, rateIDR: number | undefined, rateUSD: number | undefined, legacyRate: number, legacyCurrency?: Currency) => {
     return getTariffRateForCurrency(currency, rateIDR, rateUSD, legacyRate, legacyCurrency);
   };
@@ -337,7 +347,16 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       minCharge: autoMinCharge,
       calculationBasis: selectedBasis,
       tariffType: selectedType,
-    }) : manualRate;
+    }) : calculateTariffForJob({
+      vesselGRT: vesselMaster?.grt || 0,
+      estimatedDays: Number(job.inquiry?.estimatedDays || 0),
+      hours: 1,
+      moveCount: 1,
+      rate: manualRate,
+      minCharge: autoMinCharge,
+      calculationBasis: selectedBasis,
+      tariffType: selectedType,
+    });
     const calculatedAmount = quantity * tariffRate;
     const item: DisbursementItem = {
       id: `ITM-EPDA-${Date.now()}`,
@@ -598,8 +617,8 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
 
         <p className="mb-2 text-xs text-slate-500">
           {itemEntryMode === 'AUTO'
-            ? 'Mode otomatis: tarif dihitung dari basis port/vessel dan data estimasi job, lalu diinput ke item EPDA.'
-            : 'Mode manual: semua data item EPDA diisi langsung tanpa master tarif atau expenses.'}
+            ? 'Mode otomatis: Type VARIABLE dihitung dengan rumus GRT x tarif x QTY.'
+            : 'Mode manual: data diisi langsung. Jika Type VARIABLE, rumusnya GRT x tarif x QTY.'}
         </p>
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] text-amber-800">
           Format angka: 1,500.50 (koma untuk ribuan, titik untuk desimal).
@@ -707,7 +726,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
             </div>
             <div>
               <label className="mb-1 block text-slate-600">Amount ({viewCurrency})</label>
-              <input type="text" value={formatEntryAmount((Number(newItem.quantity) || 1) * (Number(newItem.unitBuyRate) || 0))} readOnly className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"/>
+              <input type="text" value={formatEntryAmount((Number(newItem.quantity) || 1) * manualTariffPreview)} readOnly className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"/>
             </div>
             <div className="lg:col-span-6">
               <label className="mb-1 block text-slate-600">Remark</label>

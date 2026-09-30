@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Makalah BPO MaritimPort - Flow dan Panduan Role</title>
+<style>
+  @page { size: A4; margin: 17mm 16mm 18mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; color: #202b3c; font: 10pt/1.5 Arial, sans-serif; }
+  h1, h2, h3 { color: #173e70; line-height: 1.2; }
+  h1 { font-size: 28pt; margin: 0 0 10px; }
+  h2 { font-size: 17pt; border-bottom: 2px solid #d7e3f1; padding-bottom: 6px; margin: 0 0 12px; }
+  h3 { font-size: 12pt; margin: 14px 0 5px; }
+  p { margin: 6px 0 9px; }
+  ul, ol { margin: 5px 0 10px; padding-left: 20px; }
+  li { margin: 3px 0; }
+  .cover { height: 255mm; display: flex; flex-direction: column; justify-content: center; padding: 22mm 18mm; background: #eff5fb; border-left: 9px solid #2863a4; }
+  .eyebrow { color: #3976b7; font-size: 11pt; font-weight: bold; text-transform: uppercase; margin-bottom: 16px; }
+  .cover h1 { max-width: 145mm; }
+  .subtitle { color: #50627a; font-size: 15pt; max-width: 140mm; }
+  .cover-rule { width: 35mm; border-top: 4px solid #d69c36; margin: 24px 0; }
+  .cover-meta { color: #586a80; font-size: 10pt; }
+  .cover-note { margin-top: 34mm; padding-top: 5mm; border-top: 1px solid #c5d3e3; color: #63758a; font-size: 9pt; }
+  .page-break { break-before: page; page-break-before: always; }
+  .lead { color: #455872; font-size: 11pt; }
+  .callout { border-left: 4px solid #2c72ae; background: #f0f6fc; padding: 9px 12px; margin: 10px 0 13px; }
+  .success { border-left-color: #2d8962; background: #eef8f2; }
+  .warning { border-left-color: #cc8b2a; background: #fff8e9; }
+  .flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin: 13px 0; }
+  .step { min-height: 25mm; border: 1px solid #c6d7e9; background: #f7faff; padding: 8px; }
+  .step b { display: block; color: #1d568e; margin-bottom: 3px; }
+  .step span { color: #54647a; font-size: 9pt; }
+  .role-card { border: 1px solid #d4deea; border-radius: 4px; margin: 9px 0; padding: 10px 12px; break-inside: avoid; }
+  .role-title { display: flex; align-items: baseline; gap: 9px; margin-bottom: 5px; }
+  .role-title h3 { margin: 0; }
+  .role-tag { color: #3976b7; font-size: 8.5pt; font-weight: bold; text-transform: uppercase; }
+  table { width: 100%; border-collapse: collapse; margin: 9px 0 13px; font-size: 9pt; }
+  th { background: #234f80; color: #fff; text-align: left; padding: 7px; }
+  td { border: 1px solid #ced8e4; padding: 6px 7px; vertical-align: top; }
+  tr:nth-child(even) td { background: #f6f8fb; }
+  .small { color: #5e6f83; font-size: 8.5pt; }
+  .pill { display: inline-block; padding: 2px 6px; background: #e7f0fa; color: #214f80; font-size: 8.5pt; font-weight: bold; }
+  .footer { margin-top: 18px; padding-top: 6px; border-top: 1px solid #d5dde7; color: #728096; font-size: 8pt; }
+</style>
+</head>
+<body>
+<section class="cover">
+  <div class="eyebrow">Business Process Overview</div>
+  <h1>Makalah BPO MaritimPort</h1>
+  <div class="subtitle">Flow End-to-End dan Panduan Penggunaan untuk Setiap Role</div>
+  <div class="cover-rule"></div>
+  <p class="lead">Panduan proses kerja Shipping Agency mulai dari persiapan data, inquiry, quotation, persetujuan, operasional, rekonsiliasi FDA, invoice principal, penerimaan AR, hingga penutupan Job Vessel.</p>
+  <div class="cover-meta"><b>Dokumen operasional</b><br>Versi 1.0 | 30 September 2026</div>
+  <div class="cover-note">Disusun sebagai bahan pemahaman alur dan tanggung jawab pengguna pada portal MaritimPort.</div>
+</section>
+
+<section class="page-break">
+  <h2>Ringkasan Eksekutif</h2>
+  <p class="lead">MaritimPort menghubungkan pekerjaan kapal dalam satu identitas Job / Vessel Call. Informasi komersial, kegiatan operasional, biaya aktual, FDA, invoice principal, penerimaan pembayaran, dan status penutupan mengikuti identitas job yang sama.</p>
+  <p>Model ini membantu setiap bagian mengetahui pekerjaan yang perlu ditangani, keputusan yang sudah diberikan, data yang masih kurang, serta tahap berikutnya. Pembagian role membatasi pekerjaan sesuai tanggung jawabnya dan mengurangi perpindahan data manual antarbagian.</p>
+  <div class="callout"><b>Prinsip utama:</b> satu Job ID menjadi rujukan bersama. Data pada tahap berikutnya menggunakan informasi dan persetujuan yang telah diselesaikan pada tahap sebelumnya.</div>
+
+  <h2>1. Pendahuluan</h2>
+  <h3>1.1 Latar Belakang</h3>
+  <p>Operasi keagenan kapal melibatkan data pelanggan, kapal, pelabuhan, penawaran, pelaksanaan layanan, biaya aktual, dan penagihan. Tanpa alur terpadu, data yang sama dapat dicatat berulang, status pekerjaan sulit dipantau, dan dasar pengambilan keputusan menjadi tidak konsisten.</p>
+  <h3>1.2 Tujuan</h3>
+  <ul>
+    <li>Menjelaskan alur kerja utama MaritimPort dari inquiry sampai Job Vessel ditutup.</li>
+    <li>Menjelaskan fungsi dan tanggung jawab Admin, Sales, Manager Ops, FDA, dan Finance.</li>
+    <li>Memberikan urutan penggunaan menu serta kontrol yang perlu diperhatikan pada setiap tahap.</li>
+  </ul>
+  <h3>1.3 Ruang Lingkup</h3>
+  <p>Dokumen berfokus pada proses internal untuk satu Job / Vessel Call, penggunaan menu berdasarkan role, proses approval, pencatatan penerimaan AR, dan closing. Proses dimulai dari kesiapan master data dan berakhir saat pekerjaan dinyatakan selesai.</p>
+
+  <h2>2. Gambaran Flow End-to-End</h2>
+  <div class="flow">
+    <div class="step"><b>1. Persiapan</b><span>Admin menyiapkan user dan master data.</span></div>
+    <div class="step"><b>2. Inquiry</b><span>Sales menerima kebutuhan principal.</span></div>
+    <div class="step"><b>3. Quotation</b><span>Sales menyusun EPDA / PDA.</span></div>
+    <div class="step"><b>4. Approval</b><span>Manager Ops meninjau dan memutuskan.</span></div>
+    <div class="step"><b>5. Operasional</b><span>Job dan kronologi kapal dimonitor.</span></div>
+    <div class="step"><b>6. Actual Cost</b><span>FDA mencatat realisasi biaya.</span></div>
+    <div class="step"><b>7. FDA Final</b><span>FDA diajukan dan disetujui.</span></div>
+    <div class="step"><b>8. Invoice & AR</b><span>Finance menagih dan mencatat penerimaan.</span></div>
+  </div>
+  <div class="callout success"><b>Hasil akhir:</b> setelah FDA disetujui dan saldo AR principal dinyatakan lunas, Finance dapat melakukan konfirmasi penutupan Job Vessel.</div>
+  <p class="small">Alur dapat kembali ke tahap revisi jika quotation atau FDA ditolak. Keputusan dan catatan review menjadi bagian dari riwayat pekerjaan.</p>
+</section>
+
+<section class="page-break">
+  <h2>3. Role Admin</h2>
+  <div class="role-card">
+    <div class="role-title"><h3>Admin</h3><span class="role-tag">Fondasi data dan akses</span></div>
+    <p>Admin menjaga agar pengguna dan referensi operasional tersedia sebelum job dibuat. Data master yang konsisten membantu role lain memilih informasi yang tepat dan mengurangi input bebas.</p>
+    <table>
+      <tr><th>Menu</th><th>Penggunaan</th><th>Hasil yang diharapkan</th></tr>
+      <tr><td>Dashboard</td><td>Melihat ringkasan sistem dan akses ke area administrasi.</td><td>Kondisi umum pekerjaan mudah dipantau.</td></tr>
+      <tr><td>Users</td><td>Mengelola akun, role, branch, jabatan, dan status aktif.</td><td>Pengguna memperoleh akses sesuai tanggung jawab.</td></tr>
+      <tr><td>Customers</td><td>Menjaga data principal, charterer, shipowner, kontak, dan term komersial.</td><td>Sales dan Finance menggunakan identitas pelanggan yang konsisten.</td></tr>
+      <tr><td>Vessels</td><td>Mengelola identitas kapal, IMO, flag, jenis, dan ukuran kapal.</td><td>Job terhubung ke vessel yang benar.</td></tr>
+      <tr><td>Ports</td><td>Mengelola port, lokasi, code, dan batasan operasional.</td><td>Inquiry dan rencana layanan memiliki referensi pelabuhan yang benar.</td></tr>
+      <tr><td>Fix Tariff / Expenses Item</td><td>Mengelola layanan, kategori, rate, currency, basis kalkulasi, dan item biaya.</td><td>Quotation dan pencatatan biaya memakai referensi yang disepakati.</td></tr>
+      <tr><td>Monitoring Vessel Calls</td><td>Melihat job dan tahap proses lintas fungsi.</td><td>Admin mengetahui progres tanpa mengubah keputusan role lain.</td></tr>
+    </table>
+    <div class="callout warning"><b>Kontrol Admin:</b> validasi data master, hindari duplikasi, pastikan role pengguna benar, dan nonaktifkan akun yang tidak lagi digunakan.</div>
+  </div>
+
+  <h2>4. Role Sales</h2>
+  <div class="role-card">
+    <div class="role-title"><h3>Sales</h3><span class="role-tag">Inquiry dan penawaran</span></div>
+    <p>Sales menjadi titik awal kebutuhan principal masuk ke sistem dan mengubahnya menjadi Job / Vessel Call serta quotation yang dapat direview.</p>
+    <ol>
+      <li>Buka <b>Inquiries</b>, lalu catat pelanggan, vessel, port, ETA/ETD, cargo, quantity, estimasi hari, dan kebutuhan khusus.</li>
+      <li>Periksa kembali data job sebelum menyimpan agar Job ID menjadi referensi untuk tahapan berikutnya.</li>
+      <li>Buka <b>Quotes</b> dan pilih job yang sesuai.</li>
+      <li>Susun EPDA/PDA menggunakan item master, quantity, rate, currency, basis kalkulasi, dan remark.</li>
+      <li>Periksa total buy, total sell, margin, serta keterangan sebelum mengirim untuk review.</li>
+      <li>Jika ditolak, baca catatan Manager Ops, revisi quotation, lalu ajukan kembali.</li>
+    </ol>
+    <p><b>Menu utama:</b> Dashboard, Inquiries, Quotes, Monitoring Vessel Calls.</p>
+    <p><b>Output:</b> inquiry lengkap, Job ID, quotation yang dapat ditinjau, dan informasi perubahan yang dapat ditelusuri.</p>
+  </div>
+</section>
+
+<section class="page-break">
+  <h2>5. Role Manager Ops</h2>
+  <div class="role-card">
+    <div class="role-title"><h3>Manager Ops</h3><span class="role-tag">Review dan persetujuan</span></div>
+    <p>Manager Ops memastikan penawaran dan dokumen final layak diteruskan, dengan mempertimbangkan layanan, kewajaran nilai, margin, dan kebutuhan operasi.</p>
+    <h3>Review Quotation</h3>
+    <ol>
+      <li>Buka <b>Quotes Review</b> atau <b>Approval Center</b>.</li>
+      <li>Pilih job dan cocokkan lingkup layanan dengan inquiry.</li>
+      <li>Periksa rincian item, kuantitas, rate, currency, total, margin, dan catatan.</li>
+      <li>Pilih approve atau reject. Sertakan catatan yang menjelaskan keputusan.</li>
+    </ol>
+    <h3>Approval FDA</h3>
+    <ol>
+      <li>Buka pengajuan FDA yang menunggu review.</li>
+      <li>Bandingkan estimasi dengan actual cost dan periksa variance.</li>
+      <li>Periksa kelengkapan lampiran serta catatan rekonsiliasi.</li>
+      <li>Setujui atau kembalikan dengan catatan perbaikan yang spesifik.</li>
+    </ol>
+    <p><b>Menu utama:</b> Dashboard, Quotes Review, Approval Center, Monitoring Vessel Calls.</p>
+    <div class="callout"><b>Prinsip keputusan:</b> approval quotation dan approval FDA merupakan keputusan terpisah. Pastikan dokumen yang ditinjau sesuai dengan Job ID.</div>
+  </div>
+
+  <h2>6. Role FDA</h2>
+  <div class="role-card">
+    <div class="role-title"><h3>FDA</h3><span class="role-tag">Realisasi dan rekonsiliasi biaya</span></div>
+    <p>FDA menyiapkan akun final disbursement berdasarkan pekerjaan yang telah memperoleh persetujuan operasional. Actual cost harus dapat ditelusuri kembali ke layanan, bukti, dan job terkait.</p>
+    <ol>
+      <li>Buka <b>Inquiries</b> atau <b>Create FDA</b>, lalu pilih Job ID yang sudah disetujui Manager Ops.</li>
+      <li>Gunakan quotation sebagai referensi dan masukkan biaya aktual dengan kategori, deskripsi, quantity, currency, tanggal, serta informasi pendukung.</li>
+      <li>Unggah bukti dokumen jika tersedia dan tulis remark yang menjelaskan biaya atau selisih.</li>
+      <li>Periksa kembali perhitungan total dan variance terhadap estimasi sebelum mengajukan.</li>
+      <li>Kirim FDA ke Manager Ops untuk persetujuan akhir.</li>
+    </ol>
+    <p><b>Menu utama:</b> Dashboard, Inquiries, Create FDA, Monitoring Vessel Calls. Di dalam FDA tersedia area Job ID, Actual Cost, Crew Change, Quotes View, dan Approval.</p>
+    <p><b>Output:</b> actual cost yang terdokumentasi, rekonsiliasi, serta FDA final yang siap ditinjau.</p>
+  </div>
+</section>
+
+<section class="page-break">
+  <h2>7. Role Finance</h2>
+  <div class="role-card">
+    <div class="role-title"><h3>Finance</h3><span class="role-tag">Invoice principal, AR, dan closing</span></div>
+    <p>Finance melanjutkan proses setelah FDA final disetujui. Fokus proses pada akurasi invoice principal, pencatatan penerimaan dana, pemantauan saldo, dan closing berdasarkan status yang tervalidasi.</p>
+    <h3>Invoice Principal</h3>
+    <ol>
+      <li>Buka <b>JOB Invoice</b> dan pilih Job ID dengan FDA yang sudah disetujui.</li>
+      <li>Periksa nama principal, nilai final, currency, nomor invoice, tanggal terbit, dan jatuh tempo.</li>
+      <li>Pratinjau dokumen sebelum invoice dicetak atau dibagikan.</li>
+    </ol>
+    <h3>Penerimaan dan AR</h3>
+    <ol>
+      <li>Pilih tombol <b>Terima</b> untuk membuka pencatatan penerimaan dari principal.</li>
+      <li>Masukkan tanggal, jenis penerimaan, nominal aktual, remark bank, dan bukti jika tersedia.</li>
+      <li>Simpan setiap penerimaan sesuai nilai yang benar-benar diterima. Penerimaan parsial tetap menyisakan saldo.</li>
+      <li>Pantau total tagihan, total diterima, dan sisa saldo di area AR.</li>
+      <li>Gunakan tombol <b>PAID</b> setelah seluruh penerimaan tercatat dan saldo berada pada nol sesuai toleransi pembulatan.</li>
+    </ol>
+    <h3>Closing Job Vessel</h3>
+    <ol>
+      <li>Pastikan FDA telah disetujui dan saldo AR principal telah lunas.</li>
+      <li>Buka area <b>Closing</b> dari Job Invoice atau menu <b>JOB Closing</b>.</li>
+      <li>Periksa Job ID dan ringkasan finansial, lalu pilih penutupan dan konfirmasi.</li>
+      <li>Pastikan status job berubah menjadi <span class="pill">CLOSED</span>.</li>
+    </ol>
+    <div class="callout warning"><b>Kontrol penting:</b> tombol PAID menegaskan status invoice AR dan tidak menutup job dengan sendirinya. Closing dilakukan melalui aksi Closing setelah FDA disetujui dan saldo AR lunas.</div>
+    <p><b>Menu utama:</b> Financial Overview, JOB Invoice, JOB Closing, Monitoring Vessel Calls.</p>
+  </div>
+
+  <h2>8. Status dan Titik Kontrol</h2>
+  <table>
+    <tr><th>Titik proses</th><th>Yang harus dipastikan</th><th>Hasil kontrol</th></tr>
+    <tr><td>Inquiry</td><td>Data principal, vessel, port, dan jadwal terisi dengan benar.</td><td>Job memiliki dasar informasi yang dapat dipakai Sales dan Operations.</td></tr>
+    <tr><td>Quotation</td><td>Item, rate, currency, quantity, total, dan margin ditinjau.</td><td>Penawaran siap diputuskan oleh Manager Ops.</td></tr>
+    <tr><td>Approval</td><td>Job ID dan dokumen yang disetujui sesuai.</td><td>Tahap berikutnya terbuka sesuai keputusan.</td></tr>
+    <tr><td>Actual Cost / FDA</td><td>Nilai, kategori, bukti, catatan, dan variance dapat ditelusuri.</td><td>FDA siap diperiksa dan disetujui.</td></tr>
+    <tr><td>Invoice / AR</td><td>Nilai invoice sesuai FDA dan penerimaan dicatat sesuai transaksi aktual.</td><td>Saldo AR menunjukkan posisi tagihan yang benar.</td></tr>
+    <tr><td>Closing</td><td>FDA approved, saldo AR lunas, dan pengguna mengonfirmasi Job ID yang benar.</td><td>Job berubah ke status CLOSED.</td></tr>
+  </table>
+</section>
+
+<section class="page-break">
+  <h2>9. Checklist Penggunaan per Role</h2>
+  <table>
+    <tr><th>Role</th><th>Sebelum selesai bekerja, pastikan</th></tr>
+    <tr><td>Admin</td><td>Akun dan branch tepat; customer, vessel, port, tariff, dan item biaya tidak duplikat serta siap digunakan.</td></tr>
+    <tr><td>Sales</td><td>Inquiry lengkap; Job ID benar; quotation mencakup layanan yang diminta; revisi mengikuti catatan reviewer.</td></tr>
+    <tr><td>Manager Ops</td><td>Dokumen yang ditinjau sesuai Job ID; keputusan dan alasan approve/reject tercatat.</td></tr>
+    <tr><td>FDA</td><td>Actual cost akurat; dokumen pendukung terhubung; variance dijelaskan; FDA dikirim ke tahap review yang benar.</td></tr>
+    <tr><td>Finance</td><td>Invoice sesuai FDA; penerimaan sesuai nilai aktual; saldo AR benar; closing dilakukan hanya setelah syarat terpenuhi.</td></tr>
+  </table>
+
+  <h2>10. Skenario Operasional Singkat</h2>
+  <div class="role-card">
+    <h3>Skenario: layanan vessel dari inquiry hingga selesai</h3>
+    <ol>
+      <li>Admin memvalidasi master data pelanggan, vessel, port, tariff, dan expense.</li>
+      <li>Sales membuat inquiry, menerima Job ID, lalu menyusun EPDA/PDA.</li>
+      <li>Manager Ops meninjau quotation dan memberi keputusan.</li>
+      <li>Tim operasi memantau data vessel call; FDA mencatat realisasi biaya dan menyiapkan rekonsiliasi.</li>
+      <li>Manager Ops menyetujui FDA final.</li>
+      <li>Finance menerbitkan atau memeriksa invoice principal dan mencatat penerimaan secara bertahap sesuai transaksi.</li>
+      <li>Setelah saldo AR lunas, Finance mengonfirmasi PAID dan menjalankan closing Job Vessel.</li>
+    </ol>
+  </div>
+
+  <h2>11. Kesimpulan</h2>
+  <p>Penggunaan MaritimPort yang efektif bergantung pada satu Job ID, pembagian tanggung jawab yang jelas, dan kelengkapan data pada setiap tahap. Admin menyediakan referensi; Sales membangun inquiry dan quotation; Manager Ops mengendalikan persetujuan; FDA mendokumentasikan realisasi dan menyusun FDA final; Finance mengelola invoice principal, AR, dan penutupan job.</p>
+  <p>Dengan mengikuti urutan tersebut, status pekerjaan lebih mudah dipantau, dokumen lebih mudah ditelusuri, dan keputusan penutupan memiliki dasar yang jelas.</p>
+
+  <h2>Glosarium</h2>
+  <table>
+    <tr><th>Istilah</th><th>Arti dalam proses</th></tr>
+    <tr><td>Job / Vessel Call ID</td><td>Identitas unik pekerjaan yang menghubungkan data lintas tahap.</td></tr>
+    <tr><td>EPDA</td><td>Estimasi awal biaya disbursement untuk kebutuhan penawaran.</td></tr>
+    <tr><td>PDA</td><td>Estimasi disbursement yang menjadi referensi perencanaan layanan.</td></tr>
+    <tr><td>FDA</td><td>Final Disbursement Account yang merekonsiliasi biaya aktual dan nilai final.</td></tr>
+    <tr><td>AR</td><td>Accounts Receivable, yaitu tagihan kepada principal dan penerimaan yang dicatat.</td></tr>
+    <tr><td>Closing</td><td>Konfirmasi penyelesaian Job Vessel setelah syarat final terpenuhi.</td></tr>
+  </table>
+  <p class="footer">Makalah BPO MaritimPort | Flow dan Panduan Penggunaan Role | Versi 1.0</p>
+</section>
+</body>
+</html>

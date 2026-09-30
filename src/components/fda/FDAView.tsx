@@ -419,7 +419,17 @@ export const FDAView: React.FC<FDAViewProps> = ({
     calculationBasis: newActual.calculationBasis || 'PER_GRT',
     tariffType: currentTariffType,
   });
-  const actualAmount = actualQuantityValue * (actualEntryMode === 'AUTO' ? autoTariffPreview : actualTariff);
+  const manualTariffPreview = calculateTariffForJob({
+    vesselGRT: vesselMaster?.grt || 0,
+    estimatedDays: Number(activeJob.inquiry?.estimatedDays || 0),
+    hours: 1,
+    moveCount: 1,
+    rate: actualTariff,
+    minCharge: Number(newActual.minCharge) || 0,
+    calculationBasis: newActual.calculationBasis || 'PER_GRT',
+    tariffType: currentTariffType,
+  });
+  const actualAmount = actualQuantityValue * (actualEntryMode === 'AUTO' ? autoTariffPreview : manualTariffPreview);
 
   const handleQuickAddMasterData = () => {
     const itemName = (newActual.description || '').trim();
@@ -512,7 +522,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       calculationBasis: newActual.calculationBasis || 'PER_GRT',
       tariffType: currentTariffType,
     });
-    const tariff = actualEntryMode === 'AUTO' ? autoTariffValue : Number(newActual.amountBuy) || 0;
+    const tariff = actualEntryMode === 'AUTO' ? autoTariffValue : manualTariffPreview;
     const calculatedAmount = quantity * tariff;
 
     const normalizedDescription = newActual.description || {
@@ -558,8 +568,29 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   const openEditActual = (it: ActualCostItem) => {
     if (isFDAReadOnly || activeJob.managerApproval?.status !== 'APPROVED') return;
+    const quantity = Number(it.quantity) || 1;
+    const calculationBasis = it.calculationBasis || 'PER_GRT';
+    const tariffType = it.tariffType || (calculationBasis === 'LUMP_SUM' ? 'FIXED' : 'VARIABLE');
+    const amountDivisor = quantity * (tariffType === 'FIXED' ? 1 : (vesselMaster?.grt || 1));
+    const tariff = Number(it.tariffRate) || Number(it.amount || 0) / amountDivisor;
     setEditingActualId(it.id);
-    setNewActual({ description: it.description, category: it.category, vendorName: it.vendorName, vendorInvoiceNo: it.invoiceOrVoucherNo, amountBuy: it.amount, amountSellBilled: it.pdaAmountEstimated, notes: '', attachmentName: it.attachmentName || '' });
+    setActualEntryMode('MANUAL');
+    setActualQuantity(quantity);
+    setManualTariffText(formatTariffInput(tariff));
+    setNewActual({
+      description: it.description,
+      category: it.category,
+      vendorName: it.vendorName,
+      vendorInvoiceNo: it.invoiceOrVoucherNo,
+      amountBuy: tariff,
+      amountSellBilled: it.pdaAmountEstimated,
+      notes: it.remarks || '',
+      attachmentName: it.attachmentName || '',
+      calculationBasis,
+      tariffType,
+      rate: tariff,
+      minCharge: 0,
+    });
     setShowAddActualModal(true);
   };
 
@@ -731,7 +762,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       : new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
     const rows = groups.map((group) => {
       const subtotal = group.items.reduce((sum, item) => sum + (item.amount || 0), 0);
-      return `<tr class="section"><td colspan="5">${escape(formatCategoryCost(String(group.category)))}</td></tr>${group.items.map((item, index) => { const currency = (item.currency || viewCurrency) as 'USD' | 'IDR'; return `<tr class="item-row"><td>${index + 1}</td><td>${escape(item.description)}</td><td>${escape(getActualTariff(item))}</td><td class="amount">${money(item.amount || 0, currency)}</td><td>${escape(item.remarks || '')}</td></tr>`; }).join('')}<tr class="subtotal"><td colspan="3">SUBTOTAL</td><td class="amount">${money(subtotal, (group.items[0]?.currency || viewCurrency) as 'USD' | 'IDR')}</td><td></td></tr>`;
+      return `<tr class="section"><td colspan="5" style="text-indent:1em">${escape(formatCategoryCost(String(group.category)))}</td></tr>${group.items.map((item, index) => { const currency = (item.currency || viewCurrency) as 'USD' | 'IDR'; return `<tr class="item-row"><td>${index + 1}</td><td>${escape(item.description)}</td><td>${escape(getActualTariff(item))}</td><td class="amount">${money(item.amount || 0, currency)}</td><td>${escape(item.remarks || '')}</td></tr>`; }).join('')}<tr class="subtotal"><td colspan="3">SUBTOTAL</td><td class="amount">${money(subtotal, (group.items[0]?.currency || viewCurrency) as 'USD' | 'IDR')}</td><td></td></tr>`;
     }).join('');
     const total = actualList.reduce((sum, item) => sum + (item.amount || 0), 0);
     const vessel = vessels.find((item) => item.id === activeJob.vesselId);
@@ -1429,7 +1460,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                     return (
                       <React.Fragment key={category}>
                         <tr className="bg-slate-600 font-bold">
-                          <td colSpan={5} style={{ color: '#fff', backgroundColor: '#4b5563' }} className="border-l border-slate-700 p-2.5 text-left font-black uppercase tracking-[0.16em]">
+                          <td colSpan={5} style={{ color: '#fff', backgroundColor: '#4b5563', textIndent: '1em' }} className="border-l border-slate-700 p-2.5 text-left font-black uppercase tracking-[0.16em]">
                             {formatCategoryCost(category)}
                           </td>
                         </tr>
@@ -1514,8 +1545,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
             <p className="mb-2 text-xs text-slate-500">
               {actualEntryMode === 'AUTO'
-                ? 'Mode otomatis: tarif VARIABLE dihitung dari basis job (GRT / hari / unit) dikali rate; QTY mengalikan tarif per unit.'
-                : 'Mode manual: nama biaya, kategori, tarif, QTY, dan remark diisi langsung tanpa master data tarif atau expenses.'}
+                ? 'Mode otomatis: Type VARIABLE dihitung dengan rumus GRT x tarif x QTY.'
+                : 'Mode manual: data diisi langsung. Jika Type VARIABLE, rumusnya GRT x tarif x QTY.'}
             </p>
             <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] text-amber-800">
               Format angka: 1,500.50 (koma untuk ribuan, titik untuk desimal).
@@ -1548,8 +1579,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
             <div className="mt-3 text-[10px] text-slate-500">
               {actualEntryMode === 'AUTO'
-                ? 'Tarif otomatis mengikuti formula GRT/estimasi hari x rate, dengan minimum charge yang sudah ditetapkan.'
-                : 'Tarif dan QTY diisi manual. Amount otomatis dihitung dari Tarif x QTY dan dicatat sebagai biaya final FDA.'}
+                ? 'Tarif VARIABLE otomatis dihitung dari GRT x rate, lalu dikalikan QTY.'
+                : 'Untuk Type VARIABLE, amount dihitung dari GRT x tarif x QTY dan dicatat sebagai biaya final FDA.'}
             </div>
             </fieldset>
           </div>
