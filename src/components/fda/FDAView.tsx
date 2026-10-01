@@ -93,7 +93,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const [viewCurrency, setViewCurrency] = useState<'USD' | 'IDR'>(
     activeJob.fda?.currency || activeJob.actualCosts?.[0]?.currency || activeJob.quotation?.epda?.currency || activeJob.currency || 'USD'
   );
-  const [exchangeRateInput, setExchangeRateInput] = useState<number>(activeJob.exchangeRateUSDToIDR || 15800);
+  const [exchangeRateInput, setExchangeRateInput] = useState<number>(activeJob.fda?.exchangeRateUSDToIDR || activeJob.exchangeRateUSDToIDR || 15800);
   const [jobMonthFilter, setJobMonthFilter] = useState<string>('');
   const [jobSearch, setJobSearch] = useState('');
   const [actualEntryMode, setActualEntryMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
@@ -136,8 +136,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
   }, [activeJob.jobId, activeJob.fda?.currency, activeJob.actualCosts, activeJob.quotation?.epda?.currency, activeJob.currency]);
 
   useEffect(() => {
-    setExchangeRateInput(activeJob.exchangeRateUSDToIDR || 15800);
-  }, [activeJob.jobId, activeJob.exchangeRateUSDToIDR]);
+    setExchangeRateInput(activeJob.fda?.exchangeRateUSDToIDR || activeJob.exchangeRateUSDToIDR || 15800);
+  }, [activeJob.jobId, activeJob.fda?.exchangeRateUSDToIDR, activeJob.exchangeRateUSDToIDR]);
 
   const effectiveExchangeRate = Number(exchangeRateInput || activeJob.exchangeRateUSDToIDR || 15800);
 
@@ -392,7 +392,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   ).length;
   const normalizeGrandTotalToIDR = (job: JobCall) => {
     const currency = (job.fda?.currency || job.actualCosts?.[0]?.currency || job.currency || 'IDR') as 'USD' | 'IDR';
-    const exchangeRate = Number(job.exchangeRateUSDToIDR || 15800);
+    const exchangeRate = Number(job.fda?.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800);
     const grandTotal = job.fda?.finalBilledToPrincipal
       ?? job.principalInvoice?.totalAmountUSD
       ?? job.principalInvoice?.totalAmountIDR
@@ -405,7 +405,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     const numericValue = Number(nextValue);
     const safeRate = Number.isFinite(numericValue) && numericValue > 0 ? numericValue : 0;
     setExchangeRateInput(safeRate || 15800);
-    db.updateJob(activeJob.jobId, { exchangeRateUSDToIDR: safeRate || 15800 });
+    db.updateJob(activeJob.jobId, { fda: { ...activeJob.fda, exchangeRateUSDToIDR: safeRate || 15800 } });
   };
   const totalCost = jobCalls.reduce((sum, job) => sum + normalizeGrandTotalToIDR(job), 0);
   const approvedJobs = jobCalls.filter((job) => job.managerApproval?.status === 'APPROVED');
@@ -931,7 +931,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     }];
 
     const submitted = db.submitFDAForManager(activeJob.jobId, {
-      fda: { ...activeJob.fda, fdaNo: fdaNoGenerated, date: now.slice(0, 10), currency: viewCurrency,
+      fda: { ...activeJob.fda, fdaNo: fdaNoGenerated, date: now.slice(0, 10), currency: viewCurrency, exchangeRateUSDToIDR: exchangeRate,
         totalActualCost: totalActualBuyLogged, totalEstimatedBuy: activeJob.quotation.epda.totalBuyRate, totalEstimatedSell: activeJob.quotation.pda.totalSellRate || activeJob.quotation.epda.totalSellRate,
         finalBilledToPrincipal: totalActualBilled, varianceAmount: variance, variancePercentage: totalActualBilled > 0 ? (variance / totalActualBilled) * 100 : 0,
         fdaApproved: false, notes: 'FDA dikirim untuk approval Manager Ops.' },

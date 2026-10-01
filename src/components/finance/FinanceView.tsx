@@ -102,7 +102,11 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     minimumFractionDigits: currency === 'IDR' ? 0 : 2,
     maximumFractionDigits: currency === 'IDR' ? 0 : 2,
   }).format(amount);
-  const getJobExchangeRate = (job: JobCall) => job.exchangeRateUSDToIDR || 15800;
+  const getJobExchangeRate = (job: JobCall) => job.fda?.exchangeRateUSDToIDR
+    || job.quotation.pda.exchangeRateUSDToIDR
+    || job.quotation.epda.exchangeRateUSDToIDR
+    || job.exchangeRateUSDToIDR
+    || 15800;
   const isFDAApproved = (job?: JobCall) => Boolean(job?.fda?.fdaApproved || job?.fda?.approvalStatus === 'APPROVED');
   const approvedFDAJobs = jobCalls.filter(isFDAApproved);
   const normalizeToIDR = (amount: number, currency: Currency, exchangeRate: number) => {
@@ -529,7 +533,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
     const totalInvoiceRow = `<tr class="total"><td colspan="2" class="right">TOTAL NILAI INVOICE</td><td class="amount">${escapeHtml(formatCurrencyNumber(invoiceAmount, jobCurrency))}</td></tr>`;
     const equivalentRow = jobCurrency === 'USD'
-      ? `<tr class="total"><td colspan="2" class="right">Equivalen IDR (Kurs ${escapeHtml(new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(activeJob.exchangeRateUSDToIDR || 15800))}):</td><td class="amount">${escapeHtml(formatIDR(invoiceAmount * (activeJob.exchangeRateUSDToIDR || 15800)))}</td></tr>`
+      ? `<tr class="total"><td colspan="2" class="right">Equivalen IDR (Kurs ${escapeHtml(new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(getJobExchangeRate(activeJob)))}):</td><td class="amount">${escapeHtml(formatIDR(invoiceAmount * getJobExchangeRate(activeJob)))}</td></tr>`
       : '';
 
     const printBankInfo = jobCurrency === 'USD'
@@ -1118,10 +1122,10 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   {jobCurrency === 'USD' && (
                     <tr>
                       <td colSpan={2} className="p-3 text-right text-slate-400 uppercase">
-                        Equivalen IDR (Kurs {new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(activeJob.exchangeRateUSDToIDR || 15800)}):
+                        Equivalen IDR (Kurs {new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(getJobExchangeRate(activeJob))}):
                       </td>
                       <td className="p-3 text-right font-mono text-slate-300">
-                        {formatIDR(invoiceAmount * (activeJob.exchangeRateUSDToIDR || 15800))}
+                        {formatIDR(invoiceAmount * getJobExchangeRate(activeJob))}
                       </td>
                     </tr>
                   )}
@@ -1153,7 +1157,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   Catat penerimaan pembayaran Principal dan simpan bukti transfer bank untuk kontrol Finance.
                 </p>
                 <p className="text-xs font-semibold text-cyan-300 mt-2">
-                  Currency Job: {jobCurrency} {jobCurrency === 'USD' ? `| Kurs: ${formatIDR(activeJob.exchangeRateUSDToIDR || 15800)} / USD` : ''}
+                  Currency Job: {jobCurrency} {jobCurrency === 'USD' ? `| Kurs: ${formatIDR(getJobExchangeRate(activeJob))} / USD` : ''}
                 </p>
                 <p className="text-xs font-semibold text-cyan-300 mt-2">
                   Total Tagihan FDA: <span className="font-mono text-base">{formatJobCurrency(fdaBillingTotal)}</span>
@@ -1326,7 +1330,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   {formatJobCurrency(jobAdvancePayment)}
                 </span>
                 <span className="text-[10px] text-slate-500 ml-2">
-                  {jobCurrency === 'USD' ? ` / ${formatIDR(jobAdvancePayment * (activeJob.exchangeRateUSDToIDR || 15800))}` : ''}
+                  {jobCurrency === 'USD' ? ` / ${formatIDR(jobAdvancePayment * getJobExchangeRate(activeJob))}` : ''}
                 </span>
               </div>
               <div>

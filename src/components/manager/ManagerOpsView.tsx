@@ -51,19 +51,23 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
   const pendingFDAApprovals = jobCalls.filter((job) => job.fda?.approvalStatus === 'SUBMITTED' && !job.fda.fdaApproved);
 
   const approvedOrClosedJobs = jobCalls.filter((j) => j.managerApproval.status === 'APPROVED' || j.currentStage === 'CLOSED');
-  const approvedFDAJobs = jobCalls.filter((j) => j.fda?.fdaApproved);
+  const approvedFDAJobs = jobCalls.filter((job) => Boolean(job.fda?.fdaApproved || job.fda?.approvalStatus === 'APPROVED'));
   const isClosedJob = (job: JobCall) => job.closing?.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED';
   const totalPrincipalBilledIDR = approvedFDAJobs.reduce((sum, job) => {
-    const billed = job.fda?.finalBilledToPrincipal || job.principalInvoice?.totalAmountUSD || 0;
+    const billed = job.fda?.finalBilledToPrincipal
+      || job.principalInvoice?.totalAmountUSD
+      || job.quotation?.pda?.totalSellRate
+      || job.quotation?.epda?.totalSellRate
+      || 0;
     const currency = job.fda?.currency || job.currency || 'IDR';
-    const rate = job.exchangeRateUSDToIDR || 15800;
-    return sum + (currency === 'USD' ? billed * rate : billed);
+    const rate = job.fda?.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
+    return sum + Math.round(currency === 'USD' ? billed * rate : billed);
   }, 0);
   const totalOutstandingIDR = approvedFDAJobs.reduce((sum, job) => {
     if (isClosedJob(job)) return sum;
     const billed = job.fda?.finalBilledToPrincipal || job.principalInvoice?.totalAmountUSD || 0;
     const billedCurrency = job.fda?.currency || job.currency || 'IDR';
-    const rate = job.exchangeRateUSDToIDR || 15800;
+    const rate = job.fda?.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
     const billedIDR = billedCurrency === 'USD' ? billed * rate : billed;
     const receivedIDR = (job.principalReceipts || []).reduce((receiptSum, receipt) => {
       const receiptCurrency = receipt.currency || job.currency || 'IDR';
@@ -72,7 +76,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
     return sum + Math.max(0, billedIDR - receivedIDR);
   }, 0);
   const totalReceivedIDR = approvedFDAJobs.reduce((sum, job) => {
-    const rate = job.exchangeRateUSDToIDR || 15800;
+    const rate = job.fda?.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
     return sum + (job.principalReceipts || []).reduce((receiptSum, receipt) => {
       const receiptCurrency = receipt.currency || job.currency || 'IDR';
       return receiptSum + (receiptCurrency === 'USD' ? receipt.amount * rate : receipt.amount);
@@ -98,7 +102,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
     if (job.managerApproval?.status !== 'APPROVED' || job.quotation?.epda?.status !== 'APPROVED') return sum;
     const amount = job.quotation?.epda?.totalSellRate || 0;
     const currency = job.quotation?.epda?.currency || job.currency || 'IDR';
-    const rate = job.exchangeRateUSDToIDR || 15800;
+    const rate = job.quotation.epda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
     return sum + (currency === 'USD' ? amount * rate : amount);
   }, 0);
 
@@ -390,7 +394,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                     const fdaOpen = expandedQuoteDetail === fdaKey;
                     const closingOpen = expandedQuoteDetail === closingKey;
                     const closingCurrency = (job.fda?.currency || job.actualCosts?.[0]?.currency || job.quotation?.epda?.currency || job.currency || 'IDR') as 'USD' | 'IDR';
-                    const closingRate = job.exchangeRateUSDToIDR || 15800;
+                    const closingRate = job.fda?.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
                     const convertClosingAmount = (amount: number, currency?: 'USD' | 'IDR') => {
                       const sourceCurrency = currency || closingCurrency;
                       if (sourceCurrency === closingCurrency) return amount;

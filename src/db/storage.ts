@@ -47,7 +47,7 @@ const syncActualFDAInvoice = (job: JobCall): JobCall => {
   if (!actualTotal || !job.fda?.fdaApproved) return job;
 
   const currency = job.fda.currency || job.actualCosts?.[0]?.currency || job.currency;
-  const exchangeRate = job.exchangeRateUSDToIDR || 15800;
+  const exchangeRate = job.fda?.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
   const totalBilledUSD = currency === 'USD' ? actualTotal : actualTotal / exchangeRate;
   const totalBilledIDR = currency === 'IDR' ? actualTotal : actualTotal * exchangeRate;
 
@@ -829,7 +829,7 @@ class DatabaseService {
       return { ok: false, message: 'Closing belum dapat dilakukan. Tandai pembayaran PAID di AR setelah saldo lunas.' };
     }
     const invoiceCurrency = job.fda.currency || job.currency || 'IDR';
-    const exchangeRate = job.exchangeRateUSDToIDR || 15800;
+    const exchangeRate = job.fda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
     const rawInvoiceTotal = job.fda.finalBilledToPrincipal
       || job.principalInvoice?.totalAmountUSD
       || job.quotation?.pda?.totalSellRate
@@ -988,7 +988,7 @@ class DatabaseService {
     const actualCostTotal = job.actualCosts.reduce((sum, item) => sum + item.amount, 0);
     const invoiceTotal = job.principalInvoice.totalAmountUSD || job.quotation.pda.totalSellRate;
     const grossMarginUSD = invoiceTotal - actualCostTotal;
-    const grossMarginIDR = grossMarginUSD * (job.exchangeRateUSDToIDR || 15800);
+    const grossMarginIDR = grossMarginUSD * (job.fda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800);
 
     const previousAuditLogs = this.state.auditLogs;
     this.audit('CLOSE', 'VESSEL_CALL', `Closed vessel call ${jobId}`, jobId);

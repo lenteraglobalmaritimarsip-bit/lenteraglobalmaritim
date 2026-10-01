@@ -287,6 +287,7 @@ export interface JobCall {
       quoteNo: string;
       date: string;
       currency: Currency;
+      exchangeRateUSDToIDR?: number;
       items: DisbursementItem[];
       totalBuyRate: number;
       totalSellRate: number;
@@ -298,6 +299,7 @@ export interface JobCall {
       quoteNo: string;
       date: string;
       currency: Currency;
+      exchangeRateUSDToIDR?: number;
       items: DisbursementItem[];
       totalBuyRate: number;
       totalSellRate: number;
@@ -351,6 +353,7 @@ export interface JobCall {
     fdaNo: string;
     date: string;
     currency?: Currency;
+    exchangeRateUSDToIDR?: number;
     totalEstimatedBuy: number;
     totalEstimatedSell: number;
     totalActualCost: number;

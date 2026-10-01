@@ -171,7 +171,7 @@ export const JobHierarchyView: React.FC<JobHierarchyViewProps> = ({
             Setiap pekerjaan memiliki <strong>1 Job/Vessel Call ID ({job.jobId})</strong> yang mengikat seluruh relasi dokumen dari Inquiry hingga Closing. Klik node untuk melihat rincian.
           </p>
           <span className="text-[11px] font-mono text-cyan-400 hidden md:inline">
-            1 USD = Rp {job.exchangeRateUSDToIDR.toLocaleString('id-ID')}
+            1 USD = Rp {(job.fda?.exchangeRateUSDToIDR || job.quotation.epda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR).toLocaleString('id-ID')}
           </span>
         </div>
       </div>
@@ -1197,7 +1197,7 @@ export const JobHierarchyView: React.FC<JobHierarchyViewProps> = ({
                     <div>
                       <span className="text-slate-400 block">Gross Profit IDR:</span>
                       <span className="text-emerald-400 font-mono font-black text-base">
-                        {formatIDR((job.closing.finalGrossMarginUSD || grossProfit) * job.exchangeRateUSDToIDR)}
+                        {formatIDR((job.closing.finalGrossMarginUSD || grossProfit) * (job.fda?.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR))}
                       </span>
                     </div>
                   </div>

@@ -32,7 +32,7 @@ export const QuotesPDAView: React.FC<QuotesPDAViewProps> = ({
   const isReviewOnly = false;
   const [viewCurrency, setViewCurrency] = useState<Currency>('USD');
   const [items, setItems] = useState<DisbursementItem[]>(job.quotation.pda.items || []);
-  const [exchangeRate, setExchangeRate] = useState<number>(job.exchangeRateUSDToIDR || 15800);
+  const [exchangeRate, setExchangeRate] = useState<number>(job.quotation.pda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800);
   const [isSaved, setIsSaved] = useState(false);
 
   const formatAmount = (usdVal: number) => {
@@ -89,12 +89,12 @@ export const QuotesPDAView: React.FC<QuotesPDAViewProps> = ({
       return;
     }
     db.updateJob(job.jobId, {
-      exchangeRateUSDToIDR: exchangeRate,
       status: 'QUOTED',
       quotation: {
         ...job.quotation,
         pda: {
           ...job.quotation.pda,
+          exchangeRateUSDToIDR: exchangeRate,
           items,
           totalBuyRate: totalBuyUSD,
           totalSellRate: totalSellUSD,

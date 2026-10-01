@@ -55,7 +55,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     totalSellRate: Number(item.unitSellRate || item.unitBuyRate || 0) * (item.quantity || 1),
     unitSellRate: Number(item.unitSellRate || item.unitBuyRate || 0),
   })));
-  const [exchangeRate, setExchangeRate] = useState<number>(job.exchangeRateUSDToIDR || 15800);
+  const [exchangeRate, setExchangeRate] = useState<number>(job.quotation.epda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800);
   const [isSaved, setIsSaved] = useState(false);
   const [editingAmountId, setEditingAmountId] = useState<string | null>(null);
   const [amountDraft, setAmountDraft] = useState('');
@@ -224,10 +224,9 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     if (isReviewOnly || isEPDALockedInDatabase()) return false;
     const currencyItems = items.map((item) => ({ ...item, currency: viewCurrency }));
     db.updateJob(job.jobId, {
-      exchangeRateUSDToIDR: exchangeRate,
       quotation: {
         ...job.quotation,
-        epda: { ...job.quotation.epda, quoteNo: epdaNo, items: currencyItems, currency: viewCurrency, totalBuyRate: totalBuyUSD, totalSellRate: totalSellUSD, marginAmount: marginUSD, marginPercentage: Number(marginPct), status: 'SUBMITTED' },
+        epda: { ...job.quotation.epda, quoteNo: epdaNo, items: currencyItems, currency: viewCurrency, exchangeRateUSDToIDR: exchangeRate, totalBuyRate: totalBuyUSD, totalSellRate: totalSellUSD, marginAmount: marginUSD, marginPercentage: Number(marginPct), status: 'SUBMITTED' },
       },
       currentStage: 'QUOTATION',
     });
