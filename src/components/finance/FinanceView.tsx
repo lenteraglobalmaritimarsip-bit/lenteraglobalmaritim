@@ -42,6 +42,8 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   const [subTab, setSubTab] = useState<'DASHBOARD' | 'JOB_INVOICE_OPEN' | 'INVOICES' | 'AP' | 'AR' | 'REPORTS'>(initialTab);
   const [invoiceSearch, setInvoiceSearch] = useState('');
   const [invoiceMonth, setInvoiceMonth] = useState('ALL');
+  const [closingSearch, setClosingSearch] = useState('');
+  const [closingMonth, setClosingMonth] = useState('ALL');
   const [closingDetailJobId, setClosingDetailJobId] = useState<string | null>(null);
   const [receiptDate, setReceiptDate] = useState(new Date().toISOString().slice(0, 10));
   const receiptDatePickerRef = useRef<HTMLInputElement | null>(null);
@@ -266,29 +268,41 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     }
     setReceiptAmountError('');
 
-    db.updateJob(activeJob.jobId, {
-      principalReceipts: [
-        ...receiptHistory,
-        {
-          id: `RECEIPT-${activeJob.jobId}-${Date.now()}`,
-          jobId: activeJob.jobId,
-          receivedDate: receiptDate,
-          amount,
-          currency: jobCurrency,
-          paymentType: receiptType,
-          bankRemark: receiptBankRemark.trim(),
-          attachmentName: receiptAttachment?.name,
-          attachmentDataUrl: receiptAttachment?.dataUrl,
-        },
-      ],
+    const receipt = {
+      id: `RECEIPT-${activeJob.jobId}-${Date.now()}`,
+      jobId: activeJob.jobId,
+      receivedDate: receiptDate,
+      amount,
+      currency: jobCurrency,
+      paymentType: receiptType,
+      bankRemark: receiptBankRemark.trim(),
+      attachmentName: receiptAttachment?.name,
+      attachmentDataUrl: receiptAttachment?.dataUrl,
+    };
+    const saved = db.updateJob(activeJob.jobId, {
+      principalReceipts: [...receiptHistory, receipt],
     });
+    let savedWithoutAttachment = false;
+    if (!saved && receiptAttachment) {
+      const { attachmentName: _attachmentName, attachmentDataUrl: _attachmentDataUrl, ...receiptWithoutAttachment } = receipt;
+      savedWithoutAttachment = db.updateJob(activeJob.jobId, {
+        principalReceipts: [...receiptHistory, receiptWithoutAttachment],
+      });
+    }
+
+    if (!saved && !savedWithoutAttachment) {
+      setReceiptAmountError('Penerimaan tidak tersimpan. Penyimpanan browser penuh atau menolak perubahan. Form tetap dipertahankan; coba lagi tanpa lampiran PNG dan pastikan ruang penyimpanan tersedia.');
+      return;
+    }
 
     setReceiptAmount('');
     setReceiptAmountError('');
     setReceiptType('INVOICE');
     setReceiptBankRemark('');
     setReceiptAttachment(null);
-    setMsg('Penerimaan uang dari Principal berhasil dicatat.');
+    setMsg(savedWithoutAttachment
+      ? 'Penerimaan berhasil dicatat, tetapi bukti PNG tidak tersimpan karena kapasitas penyimpanan browser.'
+      : 'Penerimaan uang dari Principal berhasil dicatat.');
     setTimeout(() => setMsg(null), 3500);
   };
 
@@ -370,7 +384,9 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     }
     if (!window.confirm(`Tutup Job Vessel ${activeJob.jobId}? Pastikan seluruh saldo AR sudah lunas.`)) return;
     const closed = db.closeJobWhenPrincipalCollected(activeJob.jobId, 'Finance');
-    setMsg(closed ? `Job Vessel ${activeJob.jobId} berhasil ditutup.` : guard.message || 'Job tidak dapat ditutup.');
+    setMsg(closed
+      ? `Job Vessel ${activeJob.jobId} berhasil ditutup.`
+      : guard.message || 'Closing gagal disimpan. Periksa kapasitas penyimpanan browser, lalu coba lagi.');
     setTimeout(() => setMsg(null), 4000);
   };
 
@@ -383,7 +399,9 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     }
     if (!window.confirm(`Tutup Job ${jobId} secara resmi? Pastikan seluruh saldo AR sudah lunas.`)) return;
     const closed = db.closeJob(jobId, 'Finance', 'FDA approved dan pelunasan AR principal sudah diterima.');
-    setMsg(closed ? `Job Call ${jobId} resmi ditutup (CLOSING COMPLETE)!` : 'Closing gagal diproses.');
+    setMsg(closed
+      ? `Job Call ${jobId} resmi ditutup (CLOSING COMPLETE)!`
+      : 'Closing gagal disimpan. Periksa kapasitas penyimpanan browser, lalu coba lagi.');
     setTimeout(() => setMsg(null), 4000);
   };
 
@@ -401,6 +419,28 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   });
 
   const closingJobs = openInvoiceJobs.filter((job) => job.closing?.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED');
+  const getClosingInquiryMonth = (job: JobCall) => {
+    const inquiryDate = job.inquiry?.date || '';
+    if (!inquiryDate) return '';
+    const date = new Date(`${inquiryDate.slice(0, 10)}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return '';
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  };
+  const closingMonthOptions = Array.from(new Set(closingJobs.map(getClosingInquiryMonth).filter(Boolean))).sort().reverse();
+  const filteredClosingJobs = closingJobs.filter((job) => {
+    const matchesMonth = closingMonth === 'ALL' || getClosingInquiryMonth(job) === closingMonth;
+    const keyword = closingSearch.trim().toLowerCase();
+    const matchesSearch = !keyword || [
+      job.jobId,
+      job.vesselName,
+      job.customerName,
+      job.portName,
+      job.inquiry?.inquiryNo || '',
+      job.principalInvoice?.invoiceNo || '',
+      job.fda?.fdaNo || '',
+    ].some((value) => value.toLowerCase().includes(keyword));
+    return matchesMonth && matchesSearch;
+  });
 
   const monthOptions = Array.from(new Set(
     openInvoiceJobs.map((job) => {
@@ -1406,9 +1446,30 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                     Review job vessel yang sudah ditutup untuk pemeriksaan akhir keuangan dan penutupan voyage.
                   </p>
                 </div>
-                <div className="text-right">
-                  <span className="text-xs text-slate-400 block">Total Job</span>
-                  <span className="text-lg font-black text-white font-mono">{closingJobs.length}</span>
+              </div>
+
+              <div className="mb-4 flex flex-col gap-3 rounded-xl border border-slate-700 bg-slate-900 p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="relative w-full flex-1 sm:max-w-[760px]">
+                  <SearchIcon className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                  <input
+                    value={closingSearch}
+                    onChange={(event) => setClosingSearch(event.target.value)}
+                    placeholder="Cari job berdasarkan kapal, Job ID, Principal, Pelabuhan..."
+                    className="w-full rounded-lg border border-slate-800 bg-slate-950 py-2 pl-9 pr-3 text-xs text-slate-200 placeholder:text-slate-500 focus:border-cyan-500 focus:outline-none"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <select value={closingMonth} onChange={(event) => setClosingMonth(event.target.value)} className="sales-filter-control">
+                    <option value="ALL">Semua Bulan Inquiry</option>
+                    {closingMonthOptions.map((monthKey) => (
+                      <option key={monthKey} value={monthKey}>
+                        {new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date(`${monthKey}-01T00:00:00`))}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="whitespace-nowrap rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200">
+                    Total: <span className="text-cyan-300">{filteredClosingJobs.length}</span>
+                  </div>
                 </div>
               </div>
 
@@ -1427,14 +1488,14 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
-                    {closingJobs.length === 0 ? (
+                    {filteredClosingJobs.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="p-6 text-center text-slate-400">
-                          Belum ada job vessel yang sudah close untuk review.
+                          {closingJobs.length === 0 ? 'Belum ada job vessel yang sudah close untuk review.' : 'Tidak ada job closing yang sesuai dengan pencarian atau bulan inquiry.'}
                         </td>
                       </tr>
                     ) : (
-                      closingJobs.map((job, index) => {
+                      filteredClosingJobs.map((job, index) => {
                         const invoiceTotal = job.fda?.finalBilledToPrincipal || job.principalInvoice?.totalAmountUSD || job.quotation?.pda?.totalSellRate || job.quotation?.epda?.totalSellRate || 0;
                         const invoiceCurrency = getJobCurrency(job);
                         return (

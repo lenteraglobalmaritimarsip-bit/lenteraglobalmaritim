@@ -254,13 +254,16 @@ class DatabaseService {
     return this.actor.branch?.trim() || 'Head Office';
   }
 
-  private async saveToStorage(): Promise<void> {
+  private saveToStorage(): boolean {
     try {
       localStorage.setItem(LOCAL_DATABASE_KEY, JSON.stringify(this.state));
     } catch (error) {
       console.error('Failed to save local database:', error);
+      this.notify();
+      return false;
     }
     this.notify();
+    return true;
   }
 
   private notifyAfterDelete(): void {
@@ -559,24 +562,24 @@ class DatabaseService {
     await this.saveToStorage();
   }
 
-  public updateJob(jobId: string, updates: Partial<JobCall>): void {
+  public updateJob(jobId: string, updates: Partial<JobCall>): boolean {
     const existingJob = this.getJob(jobId);
     if (existingJob && this.actor.role === 'FDA' && existingJob.managerApproval?.status !== 'APPROVED') {
-      return;
+      return false;
     }
     if (
       existingJob &&
       this.actor.role === 'FDA' &&
       (existingJob.fda?.approvalStatus === 'SUBMITTED' || existingJob.fda?.fdaApproved)
     ) {
-      return;
+      return false;
     }
     if (
       existingJob &&
       this.actor.role === 'SALES' &&
       normalizeBranchCode(existingJob.inquiry?.createdByBranch || existingJob.inquiry?.createdByBranchCode) !== normalizeBranchCode(this.actor.branch)
     ) {
-      return;
+      return false;
     }
     if (
       existingJob &&
@@ -586,8 +589,10 @@ class DatabaseService {
         existingJob.quotation?.epda?.status === 'SUBMITTED' ||
         existingJob.quotation?.epda?.status === 'APPROVED')
     ) {
-      return;
+      return false;
     }
+    const previousJobCalls = this.state.jobCalls;
+    const previousAuditLogs = this.state.auditLogs;
     let jobUpdated = false;
     this.state.jobCalls = this.state.jobCalls.map((j) => {
       if (jobUpdated || j.jobId !== jobId) return j;
@@ -598,8 +603,15 @@ class DatabaseService {
         updatedAt: new Date().toISOString(),
       };
     });
+    if (!jobUpdated) return false;
     this.audit('UPDATE', 'VESSEL_CALL', `Updated vessel call ${jobId}`, jobId);
-    this.saveToStorage();
+    if (!this.saveToStorage()) {
+      this.state.jobCalls = previousJobCalls;
+      this.state.auditLogs = previousAuditLogs;
+      this.notify();
+      return false;
+    }
+    return true;
   }
 
   public deleteJob(jobId: string): boolean {
@@ -978,8 +990,9 @@ class DatabaseService {
     const grossMarginUSD = invoiceTotal - actualCostTotal;
     const grossMarginIDR = grossMarginUSD * (job.exchangeRateUSDToIDR || 15800);
 
+    const previousAuditLogs = this.state.auditLogs;
     this.audit('CLOSE', 'VESSEL_CALL', `Closed vessel call ${jobId}`, jobId);
-    this.updateJob(jobId, {
+    const saved = this.updateJob(jobId, {
       currentStage: 'CLOSED',
       status: 'CLOSED',
       closing: {
@@ -991,6 +1004,11 @@ class DatabaseService {
         postVoyageRemarks: auditNotes,
       },
     });
+    if (!saved) {
+      this.state.auditLogs = previousAuditLogs;
+      this.notify();
+      return false;
+    }
     return true;
   }
 }
