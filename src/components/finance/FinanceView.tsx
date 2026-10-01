@@ -74,9 +74,11 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     || job.quotation?.epda?.currency
     || job.currency
     || 'IDR';
+  const roundMoney = (amount: number, digits = 2) => Number(Math.abs(amount).toFixed(digits));
   const convertCurrency = (amount: number, from: Currency, to: Currency, exchangeRate: number) => {
-    if (from === to) return amount;
-    return from === 'USD' && to === 'IDR' ? amount * exchangeRate : amount / exchangeRate;
+    if (from === to) return to === 'IDR' ? Math.round(amount) : roundMoney(amount, 2);
+    const converted = from === 'USD' && to === 'IDR' ? amount * exchangeRate : amount / exchangeRate;
+    return to === 'IDR' ? Math.round(converted) : roundMoney(converted, 2);
   };
   const formatCurrency = (amount: number, currency: Currency) => currency === 'IDR' ? formatIDR(amount) : formatUSD(amount);
   const formatCurrencyNumber = (amount: number, currency: Currency) => new Intl.NumberFormat(currency === 'IDR' ? 'id-ID' : 'en-US', {
@@ -85,8 +87,10 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   }).format(amount);
   const getJobExchangeRate = (job: JobCall) => job.exchangeRateUSDToIDR || 15800;
   const approvedFDAJobs = jobCalls.filter((job) => job.fda?.fdaApproved);
-  const normalizeToIDR = (amount: number, currency: Currency, exchangeRate: number) =>
-    currency === 'USD' ? amount * exchangeRate : amount;
+  const normalizeToIDR = (amount: number, currency: Currency, exchangeRate: number) => {
+    const value = currency === 'USD' ? amount * exchangeRate : amount;
+    return Math.round(value);
+  };
   const invoiceIssueDate = activeJob.principalInvoice?.invoiceDate || new Date().toISOString().slice(0, 10);
   const invoiceDueDate = activeJob.principalInvoice?.dueDate || new Date(new Date(invoiceIssueDate).getTime() + 30 * 86400000).toISOString().slice(0, 10);
   const invoiceBankInfo = jobCurrency === 'USD'
@@ -126,9 +130,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
   const getJobPrincipalOutstandingIDR = (job: JobCall) => {
     const outstanding = Math.max(0, getJobPrincipalBilled(job) - getJobPrincipalReceived(job));
-    const currency = (job.fda?.currency || job.currency || 'IDR') as Currency;
-    const toleranceIDR = currency === 'USD' ? 0.01 * getJobExchangeRate(job) : 1;
-    return outstanding <= toleranceIDR ? 0 : outstanding;
+    return outstanding;
   };
 
   const getJobAdvancePayment = (job: JobCall) => (job.principalReceipts || [])
@@ -180,8 +182,10 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   const jobAROutstanding = normalizeOutstanding(Math.max(0, jobARTotal - jobAdvancePayment - jobInvoiceReceived), jobCurrency);
   const jobARReceived = jobTotalReceived;
 
-  const toIDR = (amount: number, currency: 'USD' | 'IDR', exchangeRate: number) =>
-    currency === 'USD' ? amount * exchangeRate : amount;
+  const toIDR = (amount: number, currency: 'USD' | 'IDR', exchangeRate: number) => {
+    const value = currency === 'USD' ? amount * exchangeRate : amount;
+    return Math.round(value);
+  };
 
   const isClosedJob = (job: JobCall) => job.closing?.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED';
   const sumApprovedFDAValue = (selector: (job: JobCall) => number) =>
@@ -213,10 +217,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   );
   const totalReceived_IDR = totalAdvancePayment_IDR + totalInvoiceReceived_IDR;
   const totalIncomingBill_IDR = approvedFDAJobs.reduce((sum, job) => sum + getJobPrincipalReceived(job), 0);
-  const totalOutstanding_IDR = approvedFDAJobs.reduce(
-    (sum, job) => sum + (isClosedJob(job) ? 0 : getJobPrincipalOutstandingIDR(job)),
-    0
-  );
+  const totalOutstanding_IDR = Math.max(0, totalPrincipalBilled_IDR - totalIncomingBill_IDR);
   const pendingJobCount = approvedFDAJobs.filter((job) => !isClosedJob(job) && getJobPrincipalOutstandingIDR(job) > 0).length;
   const netOperatingProfit_USD = totalAR_USD - totalAP_USD;
 
