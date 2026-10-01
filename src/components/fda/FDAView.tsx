@@ -10,6 +10,8 @@ import {
   FileSpreadsheet,
   FileText,
   Pencil,
+  Check,
+  X,
   AlertTriangle,
   Send,
   Eye,
@@ -21,6 +23,7 @@ import {
 import { JobCall, ActualCostItem, ActiveTab, Vessel, FixTariff, ExpensesItem, Currency } from '../../types';
 import { db, buildBranchAwareFDANumber, buildBranchAwareInvoiceNumber, getCurrentBranchName, formatEPDAQuoteNoForDisplay } from '../../db/storage';
 import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, filterTariffsByGRT, hasTariffGRTRestriction, selectPreferredTariffOptions } from '../../utils/tariff';
+import { formatDateDisplay } from '../../utils/date';
 
 interface FDAViewProps {
   initialTab?: 'DASHBOARD' | 'JOB_ID' | 'ACTUAL_COST' | 'QUOTES_VIEW' | 'APPROVAL';
@@ -69,6 +72,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   const [showAddActualModal, setShowAddActualModal] = useState(false);
   const [editingActualId, setEditingActualId] = useState<string | null>(null);
+  const [editingResultAmountId, setEditingResultAmountId] = useState<string | null>(null);
+  const [resultAmountDraft, setResultAmountDraft] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   const [showPdfPreview, setShowPdfPreview] = useState(false);
   const [previewDocument, setPreviewDocument] = useState<string | null>(null);
@@ -158,9 +163,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val);
 
   const formatInquiryDate = (value?: string) => {
-    if (!value) return '-';
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('id-ID').format(date);
+    return formatDateDisplay(value);
   };
 
   const formatAccountingNumber = (value: number, currency: 'USD' | 'IDR') => {
@@ -613,6 +616,30 @@ export const FDAView: React.FC<FDAViewProps> = ({
     });
   };
 
+  const startEditResultAmount = (item: typeof fdaResultRows[number]) => {
+    if (isFDAReadOnly || activeJob.managerApproval?.status !== 'APPROVED') return;
+    setEditingResultAmountId(item.id);
+    setResultAmountDraft(formatAccountingNumber(item.amount, item.currency));
+  };
+
+  const saveResultAmount = (actualId: string) => {
+    if (isFDAReadOnly || activeJob.managerApproval?.status !== 'APPROVED') return;
+    const amount = parseTariffNumber(resultAmountDraft, Number.NaN);
+    if (!Number.isFinite(amount) || amount < 0) return;
+    const updated = actualList.map((item) => item.id === actualId
+      ? { ...item, amount, varianceAmount: amount - (item.pdaAmountEstimated || 0) }
+      : item);
+    setActualList(updated);
+    db.updateJob(activeJob.jobId, { actualCosts: updated, currentStage: 'ACTUAL_COST' });
+    setEditingResultAmountId(null);
+    setResultAmountDraft('');
+  };
+
+  const cancelEditResultAmount = () => {
+    setEditingResultAmountId(null);
+    setResultAmountDraft('');
+  };
+
   const handleInlineInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter' || event.key === 'NumpadEnter') {
       event.preventDefault();
@@ -796,7 +823,16 @@ export const FDAView: React.FC<FDAViewProps> = ({
     .replaceAll('margin:24px 0 0 12%;', 'margin:24px 0 0 12%;')
     .replaceAll('margin:16px 0 0 12%;', 'margin:24px 0 0 12%;');
 
-  const normalizeFDAExportLayoutBase = (html: string) => pushFinanceSignatureDown(html.replaceAll('>CURRENCY<', '>TARIFF<').replace('</style>', 'h2{background:#28598e!important;color:#fff!important;text-align:center!important}.section td{background:#566270!important;color:#fff!important}.subtotal,.grand{background:#dbe8f2!important}.grand{color:#f00!important}.bank,.signature{box-sizing:border-box}.signature-main{display:block}.signature-role{display:block;margin-top:120px;padding-top:12px}.meta-col.right{justify-self:end;width:100%;padding-left:0;transform:translateX(35%)}table th:nth-child(2),table td:nth-child(2){width:20%!important}table th:nth-child(3),table td:nth-child(3){width:35%!important;text-align:center!important;white-space:nowrap}table th:nth-child(4),table td:nth-child(4){width:12%!important;white-space:nowrap}</style>'));
+  const formatFDAExportDates = (html: string) => {
+    const inquiryDate = activeJob.inquiry?.date || activeJob.createdAt;
+    const currentFDAFallback = new Date().toLocaleDateString('id-ID');
+    const formattedFDAFallback = formatDateDisplay(activeJob.fda?.date || new Date().toISOString().slice(0, 10));
+    return html
+      .replaceAll(new Date(inquiryDate).toLocaleDateString('id-ID'), formatDateDisplay(inquiryDate))
+      .replaceAll(activeJob.fda?.date || currentFDAFallback, formattedFDAFallback);
+  };
+
+  const normalizeFDAExportLayoutBase = (html: string) => pushFinanceSignatureDown(formatFDAExportDates(html.replaceAll('>CURRENCY<', '>TARIFF<').replace('</style>', 'h2{background:#28598e!important;color:#fff!important;text-align:center!important}.section td{background:#566270!important;color:#fff!important}.subtotal,.grand{background:#dbe8f2!important}.grand{color:#f00!important}.bank,.signature{box-sizing:border-box}.signature-main{display:block}.signature-role{display:block;margin-top:120px;padding-top:12px}.meta-col.right{justify-self:end;width:100%;padding-left:0;transform:translateX(35%)}table th:nth-child(2),table td:nth-child(2){width:20%!important}table th:nth-child(3),table td:nth-child(3){width:35%!important;text-align:center!important;white-space:nowrap}table th:nth-child(4),table td:nth-child(4){width:12%!important;white-space:nowrap}</style>')));
 
   const normalizeFDAExportLayout = (html: string) => normalizeFDAExportLayoutBase(html).replace('</style>', 'table th{text-align:center!important}table tr.item-row td:nth-child(1){text-align:center!important}table tr.item-row td:nth-child(2),table tr.item-row td:nth-child(5){text-align:left!important}table tr.item-row td:nth-child(3){text-align:center!important}table tr.item-row td:nth-child(4){text-align:right!important}table tr.section td{text-align:left!important}table tr.subtotal td:first-child{font-weight:700;text-align:right!important}table tr.grand td:first-child{text-align:right!important}table tr.subtotal td.amount,table tr.grand td.amount{font-variant-numeric:tabular-nums;text-align:right!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}</style>');
 
@@ -872,11 +908,13 @@ export const FDAView: React.FC<FDAViewProps> = ({
       return;
     }
     const totalActualBuyLogged = totalActualBuy > 0 ? totalActualBuy : activeJob.quotation?.pda?.totalBuyRate || 0;
-    const totalActualBilled = totalActualBuy > 0 ? totalActualBuy : totalQuotedPDA;
+    const rawTotalActualBilled = totalActualBuy > 0 ? totalActualBuy : totalQuotedPDA;
+    const invoicePrecision = viewCurrency === 'IDR' ? 1 : 100;
+    const totalActualBilled = Math.round((rawTotalActualBilled + Number.EPSILON) * invoicePrecision) / invoicePrecision;
     const variance = totalActualBilled - totalActualBuyLogged;
     const exchangeRate = effectiveExchangeRate;
-    const totalBilledUSD = viewCurrency === 'USD' ? totalActualBilled : totalActualBilled / exchangeRate;
-    const totalBilledIDR = viewCurrency === 'IDR' ? totalActualBilled : totalActualBilled * exchangeRate;
+    const totalBilledUSD = Math.round(((viewCurrency === 'USD' ? totalActualBilled : totalActualBilled / exchangeRate) + Number.EPSILON) * 100) / 100;
+    const totalBilledIDR = Math.round((viewCurrency === 'IDR' ? totalActualBilled : totalActualBilled * exchangeRate) + Number.EPSILON);
 
     const now = new Date().toISOString();
     const branchRef = getCurrentBranchName();
@@ -1254,7 +1292,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                     <tr key={job.jobId} className="transition-colors hover:bg-slate-800/50">
                       <td className="p-3 font-mono font-bold text-slate-400">{index + 1}</td>
                       <td className="whitespace-nowrap p-3 font-mono font-bold text-cyan-300">{job.inquiry.inquiryNo}</td>
-                      <td className="p-3 whitespace-nowrap text-slate-300">{job.inquiry.date || '-'}</td>
+                      <td className="p-3 whitespace-nowrap text-slate-300">{formatInquiryDate(job.inquiry.date)}</td>
                       <td className="whitespace-nowrap p-3 font-mono font-bold text-blue-300">{job.jobId}</td>
                       <td className="p-3 font-bold text-white">{job.vesselName}</td>
                       <td className="p-3 font-mono text-slate-300">{vessels.find((vessel) => vessel.id === job.vesselId)?.imoNumber || '-'}</td>
@@ -1470,14 +1508,27 @@ export const FDAView: React.FC<FDAViewProps> = ({
                             <td className="border-l border-slate-800 p-3.5 font-bold text-white">{it.description}</td>
                             <td className="border-l border-slate-800 p-3.5 font-mono text-cyan-300">{it.tariff}</td>
                             <td className="border-l border-slate-800 p-3.5 text-right font-mono font-bold text-white">
-                              {it.currency === 'IDR'
-                                ? formatAccountingNumber(it.amount, 'IDR')
-                                : formatAccountingNumber(it.amount, 'USD')}
+                              <div className="flex items-center justify-end gap-2">
+                                {editingResultAmountId === it.id ? (
+                                  <>
+                                    <input autoFocus inputMode="decimal" value={resultAmountDraft} onChange={(event) => setResultAmountDraft(event.target.value)} aria-label={`Amount ${it.description}`} className="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1 text-right text-white" />
+                                    <button type="button" onClick={() => saveResultAmount(it.id)} className="rounded p-1 text-emerald-300 hover:bg-emerald-500/20" title="Simpan amount" aria-label={`Simpan amount ${it.description}`}><Check className="h-4 w-4" /></button>
+                                    <button type="button" onClick={cancelEditResultAmount} className="rounded p-1 text-slate-400 hover:bg-slate-700" title="Batal edit" aria-label="Batal edit amount"><X className="h-4 w-4" /></button>
+                                  </>
+                                ) : (
+                                  <>
+                                    {formatAccountingNumber(it.amount, it.currency)}
+                                  </>
+                                )}
+                              </div>
                             </td>
                             <td className="border-l border-slate-800 p-3.5 text-slate-300">
                               <div className="flex items-center justify-between gap-3">
                                 <span>{it.remarks}</span>
-                                {!isFDAReadOnly && <button type="button" onClick={() => deleteActualCost(it.id)} className="rounded-md p-1.5 text-rose-300 hover:bg-rose-500/20 hover:text-rose-200" title="Hapus item FDA" aria-label={`Hapus ${it.description}`}><Trash2 className="h-3.5 w-3.5" /></button>}
+                                <div className="flex items-center gap-1">
+                                  {!isFDAReadOnly && activeJob.managerApproval?.status === 'APPROVED' && editingResultAmountId !== it.id && <button type="button" onClick={() => startEditResultAmount(it)} className="rounded-md p-1.5 text-cyan-300 hover:bg-cyan-500/20" title="Edit amount" aria-label={`Edit amount ${it.description}`}><Pencil className="h-3.5 w-3.5" /></button>}
+                                  {!isFDAReadOnly && <button type="button" onClick={() => deleteActualCost(it.id)} className="rounded-md p-1.5 text-rose-300 hover:bg-rose-500/20 hover:text-rose-200" title="Hapus item FDA" aria-label={`Hapus ${it.description}`}><Trash2 className="h-3.5 w-3.5" /></button>}
+                                </div>
                               </div>
                             </td>
                           </tr>

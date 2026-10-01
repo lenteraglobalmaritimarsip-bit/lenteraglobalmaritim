@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileSpreadsheet, Plus, Trash2, Save, Ship, Building, CheckCircle2, Download, Printer, Eye, Send } from 'lucide-react';
+import { FileSpreadsheet, Plus, Trash2, Save, Ship, Building, CheckCircle2, Download, Printer, Eye, Send, Pencil, Check, X } from 'lucide-react';
 import { JobCall, DisbursementItem, Currency, User, Vessel, FixTariff, ExpensesItem } from '../../types';
 import { db, getCurrentBranchName, buildBranchAwareEPDANumber } from '../../db/storage';
 import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, filterTariffsByGRT, hasTariffGRTRestriction, selectPreferredTariffOptions } from '../../utils/tariff';
@@ -57,6 +57,8 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   })));
   const [exchangeRate, setExchangeRate] = useState<number>(job.exchangeRateUSDToIDR || 15800);
   const [isSaved, setIsSaved] = useState(false);
+  const [editingAmountId, setEditingAmountId] = useState<string | null>(null);
+  const [amountDraft, setAmountDraft] = useState('');
   const [itemEntryMode, setItemEntryMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
   const [manualTariffText, setManualTariffText] = useState('');
   const [newItem, setNewItem] = useState({
@@ -84,6 +86,8 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     const [year, month, day] = datePart.split('-');
     return year && month && day ? `${day}/${month}/${year}` : value || '-';
   };
+  const today = new Date();
+  const todayDisplayDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
 
   const formatEntryAmount = (value: number | '') => {
     if (value === '') return '';
@@ -249,6 +253,28 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       },
     });
     onDataSaved?.();
+  };
+
+  const startEditAmount = (item: DisbursementItem) => {
+    if (isReviewOnly || isEPDALockedInDatabase()) return;
+    setEditingAmountId(item.id);
+    setAmountDraft(formatEntryAmount(item.totalSellRate));
+  };
+
+  const saveEditedAmount = (itemId: string) => {
+    if (isReviewOnly || isEPDALockedInDatabase()) return;
+    const amount = parseEntryAmount(amountDraft);
+    if (amount === '') return;
+    autosaveItems(items.map((item) => item.id === itemId
+      ? { ...item, totalSellRate: amount, unitSellRate: amount / (Number(item.quantity) || 1) }
+      : item));
+    setEditingAmountId(null);
+    setAmountDraft('');
+  };
+
+  const cancelEditAmount = () => {
+    setEditingAmountId(null);
+    setAmountDraft('');
   };
 
   const handleQuickAddMasterData = () => {
@@ -464,6 +490,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     .replaceAll('.footer{left:0;right:0;text-align:center!important;font-size:12px;line-height:1.45;font-weight:600;color:#111}.footer .contact{color:#e11d48;text-decoration:underline}', '.bank{display:inline-block;width:42%;margin-top:24px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.signature-main{display:block}.signature-role{display:block;margin-top:120px;padding-top:12px}.office-footer{left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center!important;font-size:9px;line-height:1.45;font-weight:600;color:#111;z-index:3}.office-footer .contact{color:#e11d48;text-decoration:underline}')
     .replaceAll('th,td{border:1px solid #777;padding:6px 7px}th{background:#e8ecf2;text-align:left}', 'table{border:2px solid #6b7280}th,td{border:0;padding:6px 7px}th{background:#e8ecf2;text-align:center;border-bottom:2px solid #9ca3af}.item-row td{border:0}.subtotal td{border-top:1px solid #d1d5db}.office-footer{left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center!important;font-size:9px;line-height:1.45;font-weight:600;color:#111;z-index:3}.office-footer .contact{color:#e11d48;text-decoration:underline}')
     .replaceAll(job.inquiry.date, formatDate(job.inquiry.date))
+    .replaceAll(new Date().toLocaleDateString('id-ID'), todayDisplayDate)
     .replace(/<\/body>/i, `${printFooter}${officeFooter}</body>`));
 
   const formatExportTableBase = (html: string) => html
@@ -580,7 +607,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
 
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4"><div><h2 className="text-base font-bold text-white uppercase tracking-wider">Hasil Quotes EPDA</h2><span className="text-xs text-slate-400">Hasil entry data manual Estimasi Biaya</span></div><div className="flex flex-wrap gap-2"><button onClick={()=>openPreview(false)} className="px-3 py-2 rounded-lg bg-slate-800 text-slate-200 text-xs font-bold flex items-center gap-1.5"><Eye className="w-3.5 h-3.5"/>Lihat Hasil EPDA</button><button onClick={downloadExcel} className="px-3 py-2 rounded-lg bg-emerald-600/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold flex items-center gap-1.5"><Download className="w-3.5 h-3.5"/>Download Excel</button><button onClick={()=>openPreview(true)} className="px-3 py-2 rounded-lg bg-white text-slate-900 text-xs font-bold flex items-center gap-1.5"><Printer className="w-3.5 h-3.5"/>Cetak / PDF</button></div></div>
-        <div className="overflow-x-auto"><table className="w-full text-left text-xs border-separate border-spacing-0"><thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider"><tr><th className="p-3.5 border-l border-slate-700">No</th><th className="p-3.5 border-l border-slate-700">Description</th><th className="p-3.5 border-l border-slate-700">Tariff</th><th className="p-3.5 text-right border-l border-slate-700">Amount ({viewCurrency})</th><th className="p-3.5 border-l border-slate-700">Remark</th></tr></thead><tbody className="divide-y divide-slate-800">{groupedItems.map((group) => <React.Fragment key={group.category}><tr className={`${categoryTone.screen} font-bold`}><td colSpan={5} style={{ color: '#fff', backgroundColor: '#4b5563' }} className="p-2.5 font-black uppercase tracking-[0.16em] border-l border-slate-700">{categoryLabel(group.category)}</td></tr>{group.items.map((it, index) => <tr key={it.id} className="transition-colors hover:bg-slate-700/40"><td className="p-3.5 font-mono text-slate-300 border-l border-slate-800">{index + 1}</td><td className="p-3.5 font-bold text-white border-l border-slate-800">{it.name}</td><td className="p-3.5 font-mono text-cyan-300 border-l border-slate-800">{getItemTariff(it)}</td><td className="p-3.5 text-right font-mono font-bold text-white border-l border-slate-800">{formatAmount(it.totalSellRate)}</td><td className="p-3.5 text-slate-300 border-l border-slate-800"><div className="flex items-center justify-between gap-3"><span>{it.remarks || '-'}</span><button type="button" onClick={() => autosaveItems(items.filter((item) => item.id !== it.id))} className="p-1.5 rounded-md text-rose-300 hover:bg-rose-500/20 hover:text-rose-200" title="Hapus item EPDA" aria-label={`Hapus ${it.name}`}><Trash2 className="w-3.5 h-3.5" /></button></div></td></tr>)}<tr className="bg-slate-950/70"><td colSpan={3} className="p-2.5 text-right font-bold uppercase tracking-wider text-slate-200 border-l border-slate-800">SUB TOTAL</td><td className="p-2.5 text-right font-mono font-bold text-white border-l border-slate-800">{formatAmount(group.items.reduce((sum, item) => sum + item.totalSellRate, 0))}</td><td className="border-l border-slate-800" /></tr></React.Fragment>)}</tbody><tfoot className="bg-slate-950"><tr><td colSpan={3} className="p-3.5 text-right font-black uppercase tracking-wider text-white border-l border-slate-800">GRAND TOTAL</td><td className="p-3.5 text-right font-mono text-lg font-black text-white border-l border-slate-800">{formatAmount(totalSellUSD)}</td><td className="border-l border-slate-800"/></tr></tfoot></table></div>
+        <div className="overflow-x-auto"><table className="w-full text-left text-xs border-separate border-spacing-0"><thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider"><tr><th className="p-3.5 border-l border-slate-700">No</th><th className="p-3.5 border-l border-slate-700">Description</th><th className="p-3.5 border-l border-slate-700">Tariff</th><th className="p-3.5 text-right border-l border-slate-700">Amount ({viewCurrency})</th><th className="p-3.5 border-l border-slate-700">Remark</th></tr></thead><tbody className="divide-y divide-slate-800">{groupedItems.map((group) => <React.Fragment key={group.category}><tr className={`${categoryTone.screen} font-bold`}><td colSpan={5} style={{ color: '#fff', backgroundColor: '#4b5563' }} className="p-2.5 font-black uppercase tracking-[0.16em] border-l border-slate-700">{categoryLabel(group.category)}</td></tr>{group.items.map((it, index) => <tr key={it.id} className="transition-colors hover:bg-slate-700/40"><td className="p-3.5 font-mono text-slate-300 border-l border-slate-800">{index + 1}</td><td className="p-3.5 font-bold text-white border-l border-slate-800">{it.name}</td><td className="p-3.5 font-mono text-cyan-300 border-l border-slate-800">{getItemTariff(it)}</td><td className="p-3.5 text-right font-mono font-bold text-white border-l border-slate-800"><div className="flex items-center justify-end gap-2">{editingAmountId === it.id ? <><input autoFocus inputMode="decimal" value={amountDraft} onChange={(event) => setAmountDraft(event.target.value)} aria-label={`Amount ${it.name}`} className="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1 text-right text-white"/><button type="button" onClick={() => saveEditedAmount(it.id)} className="rounded p-1 text-emerald-300 hover:bg-emerald-500/20" title="Simpan amount" aria-label={`Simpan amount ${it.name}`}><Check className="h-4 w-4"/></button><button type="button" onClick={cancelEditAmount} className="rounded p-1 text-slate-400 hover:bg-slate-700" title="Batal edit" aria-label="Batal edit amount"><X className="h-4 w-4"/></button></> : formatAmount(it.totalSellRate)}</div></td><td className="p-3.5 text-slate-300 border-l border-slate-800"><div className="flex items-center justify-between gap-3"><span>{it.remarks || '-'}</span><div className="flex items-center gap-1"><>{!isReviewOnly && !isEPDALockedInDatabase() && editingAmountId !== it.id && <button type="button" onClick={() => startEditAmount(it)} className="rounded p-1.5 text-cyan-300 hover:bg-cyan-500/20" title="Edit amount" aria-label={`Edit amount ${it.name}`}><Pencil className="h-3.5 w-3.5"/></button>}<button type="button" onClick={() => autosaveItems(items.filter((item) => item.id !== it.id))} className="p-1.5 rounded-md text-rose-300 hover:bg-rose-500/20 hover:text-rose-200" title="Hapus item EPDA" aria-label={`Hapus ${it.name}`}><Trash2 className="w-3.5 h-3.5" /></button></></div></div></td></tr>)}<tr className="bg-slate-950/70"><td colSpan={3} className="p-2.5 text-right font-bold uppercase tracking-wider text-slate-200 border-l border-slate-800">SUB TOTAL</td><td className="p-2.5 text-right font-mono font-bold text-white border-l border-slate-800">{formatAmount(group.items.reduce((sum, item) => sum + item.totalSellRate, 0))}</td><td className="border-l border-slate-800" /></tr></React.Fragment>)}</tbody><tfoot className="bg-slate-950"><tr><td colSpan={3} className="p-3.5 text-right font-black uppercase tracking-wider text-white border-l border-slate-800">GRAND TOTAL</td><td className="p-3.5 text-right font-mono text-lg font-black text-white border-l border-slate-800">{formatAmount(totalSellUSD)}</td><td className="border-l border-slate-800"/></tr></tfoot></table></div>
       </div>
 
       {!isReviewOnly && <div className="rounded-2xl border border-slate-300 bg-[#edf2f4] p-5 shadow-sm">

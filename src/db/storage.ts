@@ -815,20 +815,23 @@ class DatabaseService {
     if (!job.fda.fdaApproved) return { ok: false, message: 'Closing belum dapat dilakukan. FDA belum Approved.' };
     const invoiceCurrency = job.fda.currency || job.currency || 'IDR';
     const exchangeRate = job.exchangeRateUSDToIDR || 15800;
-    const invoiceTotal = job.fda.finalBilledToPrincipal
+    const rawInvoiceTotal = job.fda.finalBilledToPrincipal
       || job.principalInvoice?.totalAmountUSD
       || job.quotation?.pda?.totalSellRate
       || job.quotation?.epda?.totalSellRate
       || 0;
-    const receivedTotal = (job.principalReceipts || []).reduce((sum, receipt) => {
+    const invoicePrecision = invoiceCurrency === 'IDR' ? 1 : 100;
+    const invoiceTotal = Math.round((rawInvoiceTotal + Number.EPSILON) * invoicePrecision) / invoicePrecision;
+    const rawReceivedTotal = (job.principalReceipts || []).reduce((sum, receipt) => {
       const receiptCurrency = receipt.currency || job.currency || 'IDR';
       const amount = receipt.amount || 0;
       if (receiptCurrency === invoiceCurrency) return sum + amount;
       return sum + (invoiceCurrency === 'IDR' ? amount * exchangeRate : amount / exchangeRate);
     }, 0);
+    const receivedTotal = Math.round((rawReceivedTotal + Number.EPSILON) * invoicePrecision) / invoicePrecision;
     const outstanding = Math.max(0, invoiceTotal - receivedTotal);
-    const settlementTolerance = invoiceCurrency === 'IDR' ? 1 : 0.01;
-    if (outstanding > settlementTolerance) {
+    const floatingPointTolerance = Number.EPSILON * Math.max(1, Math.abs(invoiceTotal), Math.abs(receivedTotal)) * 4;
+    if (outstanding > floatingPointTolerance) {
       return { ok: false, message: `Closing belum dapat dilakukan. Sisa tagihan AR ${invoiceCurrency} ${outstanding.toLocaleString('en-US')} belum lunas.` };
     }
     return { ok: true };
