@@ -240,45 +240,6 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   const pendingJobCount = approvedFDAJobs.filter((job) => !isClosedJob(job) && getJobPrincipalOutstandingIDR(job) > 0).length;
   const netOperatingProfit_USD = totalAR_USD - totalAP_USD;
 
-  const handleReceivePrincipalPayment = () => {
-    if (!isFDAApproved(activeJob)) {
-      setMsg('Finance belum dapat membukukan AR. FDA harus Approved terlebih dahulu.');
-      setTimeout(() => setMsg(null), 4000);
-      return;
-    }
-    if (jobAROutstanding > 0) {
-      setMsg(`Pelunasan belum dapat dikonfirmasi. Catat penerimaan aktual terlebih dahulu. Sisa saldo: ${formatJobCurrency(jobAROutstanding)}.`);
-      setTimeout(() => setMsg(null), 4500);
-      return;
-    }
-    if (activeJob.principalInvoice?.status === 'SETTLED') {
-      setMsg('Tagihan sudah dilunasi, segera tutup JOB Vessel melalui menu AR.');
-      setTimeout(() => setMsg(null), 4500);
-      return;
-    }
-
-    const updatedAR = arItems.map((item) => ({
-      ...item,
-      receivedAmount: item.requestedAmount,
-      status: 'RECEIVED' as const,
-      receivedDate: new Date().toISOString().slice(0, 10),
-    }));
-
-    db.updateJob(activeJob.jobId, {
-      principalInvoice: {
-        ...activeJob.principalInvoice,
-        status: 'SETTLED',
-        balanceDueUSD: 0,
-        balanceDueIDR: 0,
-      },
-      ar: updatedAR,
-      currentStage: 'PRINCIPAL_INVOICE',
-    });
-
-    setMsg('Tagihan sudah dilunasi, segera tutup JOB Vessel melalui menu AR.');
-    setTimeout(() => setMsg(null), 4500);
-  };
-
   const handleAddPrincipalReceipt = (event: React.FormEvent) => {
     event.preventDefault();
     const enteredAmount = Number(receiptAmount);
@@ -328,6 +289,51 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     setReceiptBankRemark('');
     setReceiptAttachment(null);
     setMsg('Penerimaan uang dari Principal berhasil dicatat.');
+    setTimeout(() => setMsg(null), 3500);
+  };
+
+  const handleMarkPrincipalPaymentPaid = () => {
+    const latestJob = db.getJob(activeJob.jobId);
+    if (!latestJob || !isFDAApproved(latestJob)) {
+      setReceiptAmountError('Pembayaran belum dapat ditandai PAID. FDA harus Approved terlebih dahulu.');
+      return;
+    }
+
+    const billed = getJobPrincipalBilledRaw(latestJob);
+    const outstanding = normalizeOutstanding(
+      billed.amount - getJobReceiptsInCurrency(latestJob, billed.currency),
+      billed.currency,
+    );
+    if (outstanding > 0) {
+      setReceiptAmountError(`Pembayaran belum dapat ditandai PAID. Masih ada sisa saldo ${formatJobCurrency(outstanding)}.`);
+      return;
+    }
+
+    if (latestJob.principalInvoice?.status === 'SETTLED') {
+      setMsg('Pembayaran sudah ditandai lunas dan siap untuk proses closing.');
+      setTimeout(() => setMsg(null), 3500);
+      return;
+    }
+
+    const updatedAR = (latestJob.ar || []).map((item) => ({
+      ...item,
+      receivedAmount: item.requestedAmount,
+      status: 'RECEIVED' as const,
+      receivedDate: new Date().toISOString().slice(0, 10),
+    }));
+
+    db.updateJob(latestJob.jobId, {
+      principalInvoice: {
+        ...latestJob.principalInvoice,
+        status: 'SETTLED',
+        balanceDueUSD: 0,
+        balanceDueIDR: 0,
+      },
+      ar: updatedAR,
+      currentStage: 'PRINCIPAL_INVOICE',
+    });
+    setReceiptAmountError('');
+    setMsg('Pembayaran ditandai lunas. Sinyal pelunasan siap untuk proses closing.');
     setTimeout(() => setMsg(null), 3500);
   };
 
@@ -1006,15 +1012,6 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   Status: {activeJob.principalInvoice?.status || 'ISSUED'}
                 </span>
 
-                {activeJob.principalInvoice?.status !== 'SETTLED' && (
-                  <button
-                    onClick={handleReceivePrincipalPayment}
-                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow transition flex items-center gap-1.5"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>Konfirmasi Terima Pembayaran (AR)</span>
-                  </button>
-                )}
               </div>
             </div>
 
@@ -1193,14 +1190,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                 </div>
                 <div className="flex items-center gap-2">
                   <button type="submit" className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold">Simpan Penerimaan</button>
-                  <button
-                    type="button"
-                    onClick={handleReceivePrincipalPayment}
-                    title={jobAROutstanding > 0 ? 'Catat seluruh penerimaan terlebih dahulu.' : 'Tandai AR PAID; job tidak ditutup.'}
-                    className="px-4 py-2 rounded-xl border-2 border-sky-500 bg-sky-200 text-sky-950 text-xs font-black shadow-sm hover:bg-sky-300"
-                  >
-                    PAID
-                  </button>
+                  <button type="button" onClick={handleMarkPrincipalPaymentPaid} className="px-4 py-2 rounded-xl border-2 border-sky-500 bg-sky-200 text-sky-950 text-xs font-black shadow-sm hover:bg-sky-300" title="Tandai lunas setelah saldo menjadi nol">PAID</button>
                 </div>
               </div>
             </form>
@@ -1327,6 +1317,10 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   <CheckCircle2 className="w-4 h-4" />
                   <span>Bukukan Pelunasan Piutang</span>
                 </button>
+              ) : activeJob.principalInvoice?.status !== 'SETTLED' ? (
+                <div className="text-xs font-semibold text-amber-300">
+                  Saldo lunas. Tandai PAID pada form penerimaan untuk mengirim sinyal closing.
+                </div>
               ) : (
                 <button
                   onClick={handleCloseCollectedJob}

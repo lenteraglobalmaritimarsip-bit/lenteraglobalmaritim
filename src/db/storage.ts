@@ -813,6 +813,9 @@ class DatabaseService {
     const job = this.getJob(jobId);
     if (!job) return { ok: false, message: 'Job/Vessel Call tidak ditemukan.' };
     if (!job.fda.fdaApproved) return { ok: false, message: 'Closing belum dapat dilakukan. FDA belum Approved.' };
+    if (job.principalInvoice?.status !== 'SETTLED') {
+      return { ok: false, message: 'Closing belum dapat dilakukan. Tandai pembayaran PAID di AR setelah saldo lunas.' };
+    }
     const invoiceCurrency = job.fda.currency || job.currency || 'IDR';
     const exchangeRate = job.exchangeRateUSDToIDR || 15800;
     const rawInvoiceTotal = job.fda.finalBilledToPrincipal
