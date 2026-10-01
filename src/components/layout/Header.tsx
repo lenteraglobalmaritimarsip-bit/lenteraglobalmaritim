@@ -6,6 +6,7 @@ import {
 import { UserRole, JobCall, ActiveTab } from '../../types';
 import { AuthAccount, initials } from '../../auth';
 import { LogOut } from 'lucide-react';
+import { apiAuth } from '../../lib/api';
 
 interface HeaderProps {
   currentRole: UserRole;
@@ -261,11 +262,11 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="maritim-modal-head"><div><b>Ubah Password</b><small>{currentUser.username} · {currentUser.name}</small></div><button onClick={()=>setShowPasswordForm(false)}>×</button></div>
                 <div className="maritim-modal-body">
                   <label>Password Lama<input type="password" value={oldPassword} onChange={e=>setOldPassword(e.target.value)} /></label>
-                  <label>Password Baru<input type="password" value={newPassword} onChange={e=>setNewPassword(e.target.value)} /></label>
-                  <label>Konfirmasi Password<input type="password" value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} /></label>
+                  <label>Password Baru<input type="password" inputMode={apiAuth.enabled?'numeric':undefined} maxLength={apiAuth.enabled?8:undefined} value={newPassword} onChange={e=>setNewPassword(apiAuth.enabled?e.target.value.replace(/\D/g,'').slice(0,8):e.target.value)} /></label>
+                  <label>Konfirmasi Password<input type="password" inputMode={apiAuth.enabled?'numeric':undefined} maxLength={apiAuth.enabled?8:undefined} value={confirmPassword} onChange={e=>setConfirmPassword(apiAuth.enabled?e.target.value.replace(/\D/g,'').slice(0,8):e.target.value)} /></label>
                   {passwordError && <div className="maritim-form-error">{passwordError}</div>}
                 </div>
-                <div className="maritim-modal-actions"><button onClick={()=>setShowPasswordForm(false)}>Batal</button><button className="primary" onClick={()=>{if(oldPassword!==currentUser.password){setPasswordError('Password lama tidak sesuai.');return;}if(newPassword.length<6){setPasswordError('Password baru minimal 6 karakter.');return;}if(newPassword!==confirmPassword){setPasswordError('Konfirmasi password tidak sama.');return;}onChangePassword(oldPassword,newPassword);setOldPassword('');setNewPassword('');setConfirmPassword('');setShowPasswordForm(false);}}>Simpan Password</button></div>
+                <div className="maritim-modal-actions"><button onClick={()=>setShowPasswordForm(false)}>Batal</button><button className="primary" onClick={()=>{if(!apiAuth.enabled&&oldPassword!==currentUser.password){setPasswordError('Password lama tidak sesuai.');return;}if(apiAuth.enabled?!/^\d{8}$/.test(newPassword):newPassword.length<6){setPasswordError(apiAuth.enabled?'Password harus tepat 8 digit angka.':'Password baru minimal 6 karakter.');return;}if(newPassword!==confirmPassword){setPasswordError('Konfirmasi password tidak sama.');return;}onChangePassword(oldPassword,newPassword);setOldPassword('');setNewPassword('');setConfirmPassword('');setShowPasswordForm(false);}}>Simpan Password</button></div>
               </div>
             </div>
           )}

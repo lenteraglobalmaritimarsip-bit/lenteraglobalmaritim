@@ -27,7 +27,10 @@ export const SalesDashboardView:React.FC<SalesDashboardViewProps>=({jobCalls,onN
       const epdaTotal = Number(job.quotation.epda.totalSellRate || 0);
       const currency = job.quotation.epda.currency || job.currency || 'USD';
       const exchangeRate = Number(job.quotation.epda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800);
-      return total + (currency === 'USD' ? epdaTotal * exchangeRate : epdaTotal);
+      const normalizedTotal = currency === 'USD'
+        ? Math.round((epdaTotal + Number.EPSILON) * 100) / 100
+        : epdaTotal;
+      return total + (currency === 'USD' ? normalizedTotal * exchangeRate : normalizedTotal);
     }, 0);
   const formatIDR = (value: number) => new Intl.NumberFormat('id-ID', {
     style: 'currency',

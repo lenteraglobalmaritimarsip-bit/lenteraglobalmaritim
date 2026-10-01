@@ -20,6 +20,8 @@ import {
   INITIAL_EXPENSES_ITEMS,
   INITIAL_JOB_CALLS,
 } from './initialData';
+import { apiAuth } from '../lib/api';
+import { dataApi } from '../lib/dataApi';
 
 export interface DatabaseState {
   users: User[];
@@ -146,6 +148,7 @@ export const buildBranchAwareInvoiceNumber = (jobId: string, branch?: string, re
 class DatabaseService {
   private state: DatabaseState;
   private listeners: Array<(state: DatabaseState) => void> = [];
+  private apiSaveQueue: Promise<void> = Promise.resolve();
   private actor: { id?: string; name: string; role: UserRole; branch?: string } = { name: 'System', role: 'ADMIN' };
 
   constructor() {
@@ -230,6 +233,25 @@ class DatabaseService {
   }
 
   public async hydrate(): Promise<void> {
+    if (apiAuth.enabled) {
+      const remote = await dataApi.load();
+      if (!remote.initialized && this.actor.role === 'ADMIN') {
+        const defaults = this.getDefaultState();
+        this.state = {
+          ...defaults,
+          ...remote.state,
+          users: remote.state.users,
+          jobCalls: remote.state.jobCalls,
+          auditLogs: remote.state.auditLogs,
+          currentRole: this.actor.role,
+        };
+        await dataApi.save(this.state);
+      } else {
+        this.state = { ...remote.state, currentRole: this.actor.role };
+      }
+      this.notify();
+      return;
+    }
     this.state = this.loadLocalState();
     this.notify();
   }
@@ -256,23 +278,31 @@ class DatabaseService {
 
   private saveToStorage(): boolean {
     try {
-      localStorage.setItem(LOCAL_DATABASE_KEY, JSON.stringify(this.state));
+      const safeState = apiAuth.enabled
+        ? { ...this.state, users: this.state.users.map(({ password: _password, ...user }) => user) }
+        : this.state;
+      localStorage.setItem(LOCAL_DATABASE_KEY, JSON.stringify(safeState));
     } catch (error) {
       console.error('Failed to save local database:', error);
       this.notify();
       return false;
+    }
+    if (apiAuth.enabled) {
+      const snapshot = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
+      this.apiSaveQueue = this.apiSaveQueue
+        .then(() => dataApi.save(snapshot))
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : 'Database synchronization failed';
+          console.error('Failed to synchronize database state:', error);
+          if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('lgm:api-save-error', { detail: message }));
+        });
     }
     this.notify();
     return true;
   }
 
   private notifyAfterDelete(): void {
-    try {
-      localStorage.setItem(LOCAL_DATABASE_KEY, JSON.stringify(this.state));
-    } catch (error) {
-      console.error('Failed to save local database:', error);
-    }
-    this.notify();
+    this.saveToStorage();
   }
 
   public subscribe(listener: (state: DatabaseState) => void): () => void {

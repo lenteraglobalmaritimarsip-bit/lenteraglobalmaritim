@@ -17,9 +17,11 @@ import { FDAView } from './components/fda/FDAView';
 import { FinanceView } from './components/finance/FinanceView';
 import { AuthAccount, DEMO_ACCOUNTS, getStoredAccounts, saveStoredAccount } from './auth';
 import { LoginView } from './components/auth/LoginView';
+import { apiAuth } from './lib/api';
 
 const syncCurrentUserFromMaster = (account: AuthAccount | null): AuthAccount | null => {
   if (!account) return null;
+  if (apiAuth.enabled) return { ...account, branch: account.branch || 'Head Office' };
 
   const storedAccounts = getStoredAccounts();
   const latestFromStorage = storedAccounts.find((item) => item.id === account.id || item.username === account.username) || account;
@@ -71,7 +73,9 @@ let resetJobsPromise: Promise<void> | null = null;
 export default function App() {
   const [data, setData] = useState<DatabaseState>(db.getState());
   const [currentRole, setCurrentRole] = useState<UserRole>('ADMIN');
+  const [authReady, setAuthReady] = useState(!apiAuth.enabled);
   const [currentUser, setCurrentUser] = useState<AuthAccount | null>(() => {
+    if (apiAuth.enabled) return null;
     try {
       const raw = localStorage.getItem('lgm_active_user');
       if (!raw) return null;
@@ -155,13 +159,15 @@ export default function App() {
     }
     setCurrentUser(freshAccount);
     setCurrentRole(freshAccount.role);
-    try {
-      if (rememberMe) {
-        localStorage.setItem('lgm_active_user', JSON.stringify(freshAccount));
-      } else {
-        localStorage.removeItem('lgm_active_user');
-      }
-    } catch {}
+    if (!apiAuth.enabled) {
+      try {
+        if (rememberMe) {
+          localStorage.setItem('lgm_active_user', JSON.stringify(freshAccount));
+        } else {
+          localStorage.removeItem('lgm_active_user');
+        }
+      } catch {}
+    }
     db.setActor({ id: freshAccount.id, name: freshAccount.name, role: freshAccount.role, branch: freshAccount.branch });
     db.setRole(freshAccount.role);
     setLoginToast(`Selamat datang, ${freshAccount.name.split(' ')[0]}!`);
@@ -173,8 +179,12 @@ export default function App() {
     window.dispatchEvent(new CustomEvent('lgm:open-profile'));
   };
 
-  const handleChangePassword = async (_oldPassword: string, newPassword: string) => {
+  const handleChangePassword = async (oldPassword: string, newPassword: string) => {
     if (!currentUser) return;
+    if (apiAuth.enabled) {
+      await apiAuth.changePassword(oldPassword, newPassword);
+      return;
+    }
     const updated = { ...currentUser, password: newPassword };
     saveStoredAccount(updated);
     db.updateUser(currentUser.id, { password: newPassword });
@@ -186,13 +196,50 @@ export default function App() {
 
   const handleLogout = async () => {
     const userId = currentUser?.id;
+    if (apiAuth.enabled) {
+      try {
+        await apiAuth.logout();
+      } catch (error) {
+        console.error('API logout failed:', error);
+      }
+    }
     setCurrentUser(null);
     setLoginToast(null);
     clearStoredAuthSession(userId);
   };
 
+  useEffect(() => {
+    if (!apiAuth.enabled) return;
+    let cancelled = false;
+    void apiAuth.me()
+      .then((account) => {
+        if (cancelled) return;
+        if (account) {
+          const freshAccount = syncCurrentUserFromMaster(account);
+          setCurrentUser(freshAccount);
+          setCurrentRole(freshAccount.role);
+          db.setActor({ id: freshAccount.id, name: freshAccount.name, role: freshAccount.role, branch: freshAccount.branch });
+          setActiveTab(getDefaultTabForRole(freshAccount.role));
+        }
+      })
+      .catch((error) => console.error('API session restore failed:', error))
+      .finally(() => { if (!cancelled) setAuthReady(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    const handleApiSaveError = (event: Event) => {
+      const message = (event as CustomEvent<string>).detail;
+      setSaveToast(`Database gagal menyimpan perubahan: ${message}`);
+      window.setTimeout(() => setSaveToast(null), 6000);
+    };
+    window.addEventListener('lgm:api-save-error', handleApiSaveError);
+    return () => window.removeEventListener('lgm:api-save-error', handleApiSaveError);
+  }, []);
+
   // Subscribe to reactive database changes
   useEffect(() => {
+    if (apiAuth.enabled && !currentUser) return;
     if (currentUser) db.setActor({ id: currentUser.id, name: currentUser.name, role: currentUser.role, branch: currentUser.branch });
     let unsubscribe = () => {};
     void (async () => {
@@ -210,6 +257,11 @@ export default function App() {
         setData({ ...db.getState() });
       } catch (error) {
         console.error('Local database hydrate failed:', error);
+        if (apiAuth.enabled) {
+          const message = error instanceof Error ? error.message : 'Database initialization failed';
+          setSaveToast(`Database gagal memuat/menyimpan data: ${message}`);
+          window.setTimeout(() => setSaveToast(null), 10000);
+        }
       }
     })();
     unsubscribe = db.subscribe((newState) => {
@@ -248,6 +300,7 @@ export default function App() {
     roleVisibleJobCalls[0] ||
     ({} as JobCall);
 
+  if (!authReady) return <div className="min-h-screen bg-slate-950 text-white grid place-items-center">Memeriksa sesi...</div>;
   if (!currentUser) return <LoginView onLogin={handleLogin} />;
 
   return (

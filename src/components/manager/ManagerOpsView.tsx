@@ -103,7 +103,10 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
     const amount = job.quotation?.epda?.totalSellRate || 0;
     const currency = job.quotation?.epda?.currency || job.currency || 'IDR';
     const rate = job.quotation.epda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
-    return sum + (currency === 'USD' ? amount * rate : amount);
+    const normalizedAmount = currency === 'USD'
+      ? Math.round((amount + Number.EPSILON) * 100) / 100
+      : amount;
+    return sum + (currency === 'USD' ? normalizedAmount * rate : normalizedAmount);
   }, 0);
 
   const formatEPDACategory = (category: string) => {

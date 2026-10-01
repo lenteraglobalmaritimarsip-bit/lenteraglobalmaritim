@@ -32,6 +32,7 @@ import {
 } from '../../types';
 import { db } from '../../db/storage';
 import { saveStoredAccount } from '../../auth';
+import { apiAuth } from '../../lib/api';
 import { formatTariffNumber, getTariffRateForCurrency, parseTariffNumber } from '../../utils/tariff';
 
 interface AdminMasterDataViewProps {
@@ -165,8 +166,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       setUserEditError('User, nama, jabatan, dan email wajib diisi.');
       return;
     }
-    if (editUserForm.newPassword && editUserForm.newPassword.length < 6) {
-      setUserEditError('Password baru minimal 6 karakter.');
+    if (editUserForm.newPassword && (apiAuth.enabled ? !/^\d{8}$/.test(editUserForm.newPassword) : editUserForm.newPassword.length < 6)) {
+      setUserEditError(apiAuth.enabled ? 'Password harus tepat 8 digit angka.' : 'Password baru minimal 6 karakter.');
       return;
     }
 
@@ -185,7 +186,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       };
       await db.updateUser(editingUser.id, updates);
       const updated = { ...editingUser, ...updates } as User;
-      saveStoredAccount({ ...updated, username: updated.username || editingUser.username || '', password: updated.password || editingUser.password || '' });
+      if (!apiAuth.enabled) saveStoredAccount({ ...updated, username: updated.username || editingUser.username || '', password: updated.password || editingUser.password || '' });
       setEditingUser(null);
       setEditUserForm({});
       onDataSaved?.(activeTab);
@@ -211,15 +212,17 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   const [newUser, setNewUser] = useState<Partial<User>>({
     name: '',
     email: '',
-    role: 'SALES',
-    department: 'Commercial',
-    branch: 'Head Office',
-    status: 'ACTIVE',
+    department: '',
+    branch: '',
     phone: '',
     username: '',
     password: '',
     position: '',
   });
+  const resetNewUser = () => {
+    setNewUser({ name: '', email: '', department: '', branch: '', phone: '', username: '', password: '', position: '' });
+    setAddFormError('');
+  };
 
   const [newCustomer, setNewCustomer] = useState<Partial<Customer>>({
     code: '',
@@ -763,12 +766,16 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     setAddFormError('');
     try {
       if (activeTab === 'USERS') {
-        if (!newUser.name?.trim() || !newUser.email?.trim() || !newUser.username?.trim() || !newUser.password || !newUser.position?.trim()) {
-          setAddFormError('Lengkapi User, Password, Nama, Jabatan, dan Email sebelum menyimpan.');
+        if (!newUser.name?.trim() || !newUser.email?.trim() || !newUser.username?.trim() || !newUser.password || !newUser.position?.trim() || !newUser.role || !newUser.status || !newUser.department?.trim() || !newUser.branch?.trim()) {
+          setAddFormError('Lengkapi User, Password, Nama, Jabatan, Email, Role, Status, Departemen, dan Branch sebelum menyimpan.');
+          return;
+        }
+        if (apiAuth.enabled && !/^\d{8}$/.test(newUser.password)) {
+          setAddFormError('Password harus tepat 8 digit angka.');
           return;
         }
         const created = await db.addUser(newUser as Omit<User, 'id'>);
-        saveStoredAccount({ ...created, username: newUser.username!, password: newUser.password! });
+        if (!apiAuth.enabled) saveStoredAccount({ ...created, username: newUser.username!, password: newUser.password! });
       } else if (activeTab === 'CUSTOMERS') {
         if (!newCustomer.companyName?.trim()) {
           setAddFormError('Nama perusahaan wajib diisi sebelum menyimpan.');
@@ -856,6 +863,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
 
     setShowAddModal(false);
     setAddFormError('');
+    if (activeTab === 'USERS') resetNewUser();
     onDataSaved?.(activeTab);
   };
 
@@ -925,7 +933,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
               </>
             )}
             <button
-              onClick={() => setShowAddModal(true)}
+              onClick={() => { resetNewUser(); setShowAddModal(true); }}
               className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-slate-300 bg-slate-200 px-3.5 py-2 text-[11px] font-bold text-slate-700 shadow-sm transition hover:bg-slate-300"
             >
               <Plus className="w-4 h-4" />
@@ -1368,7 +1376,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <label className="block"><span className="text-slate-500 font-semibold">Phone</span><input value={editUserForm.phone || ''} onChange={e => setEditUserForm({...editUserForm, phone:e.target.value})} className="mt-1 w-full border border-slate-200 rounded-lg p-2.5 text-slate-800" /></label>
-                <label className="block"><span className="text-slate-500 font-semibold">Password Baru</span><input type="password" placeholder="Kosongkan jika tidak diubah" value={editUserForm.newPassword || ''} onChange={e => setEditUserForm({...editUserForm, newPassword:e.target.value})} className="mt-1 w-full border border-slate-200 rounded-lg p-2.5 text-slate-800" /></label>
+                <label className="block"><span className="text-slate-500 font-semibold">Password Baru</span><input type="password" inputMode={apiAuth.enabled?'numeric':undefined} maxLength={apiAuth.enabled?8:undefined} placeholder={apiAuth.enabled?'8 digit angka; kosongkan jika tidak diubah':'Kosongkan jika tidak diubah'} value={editUserForm.newPassword || ''} onChange={e => setEditUserForm({...editUserForm, newPassword:apiAuth.enabled?e.target.value.replace(/\D/g,'').slice(0,8):e.target.value})} className="mt-1 w-full border border-slate-200 rounded-lg p-2.5 text-slate-800" /></label>
               </div>
               {userEditError && <div className="rounded-lg bg-rose-50 border border-rose-200 text-rose-600 px-3 py-2">{userEditError}</div>}
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-200"><button type="button" onClick={() => setEditingUser(null)} className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600">Batal</button><button type="submit" className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold">Simpan Perubahan</button></div>
@@ -1385,8 +1393,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
               <h3 className="text-base font-bold text-slate-900">
                 Tambah Master: {activeTab.replace('_', ' ')}
               </h3>
-              <button
-                onClick={() => setShowAddModal(false)}
+                  <button
+                onClick={() => { resetNewUser(); setShowAddModal(false); }}
                 className="p-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-500 hover:text-slate-800"
               >
                 <X className="w-5 h-5" />
@@ -1398,16 +1406,16 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 <>
                   <div className="grid grid-cols-2 gap-3">
                     <div><label className="text-slate-400 block mb-1">User / Username:</label><input required value={newUser.username} onChange={e=>setNewUser({...newUser,username:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" placeholder="contoh: budi.admin" /></div>
-                    <div><label className="text-slate-400 block mb-1">Password:</label><input required type="password" value={newUser.password} onChange={e=>setNewUser({...newUser,password:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" placeholder="minimal 6 karakter" /></div>
+                    <div><label className="text-slate-400 block mb-1">Password:</label><input required type="password" inputMode={apiAuth.enabled?'numeric':undefined} maxLength={apiAuth.enabled?8:undefined} value={newUser.password} onChange={e=>setNewUser({...newUser,password:apiAuth.enabled?e.target.value.replace(/\D/g,'').slice(0,8):e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" placeholder={apiAuth.enabled?'8 digit angka':'minimal 6 karakter'} /></div>
                   </div>
                   <div><label className="text-slate-400 block mb-1">Nama Pemegang User:</label><input required value={newUser.name} onChange={e=>setNewUser({...newUser,name:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" /></div>
                   <div className="grid grid-cols-2 gap-3">
-                    <div><label className="text-slate-400 block mb-1">Role:</label><select value={newUser.role} onChange={e=>setNewUser({...newUser,role:e.target.value as UserRole})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"><option value="ADMIN">ADMIN</option><option value="SALES">SALES</option><option value="MANAGER_OPS">MANAGER_OPS</option><option value="FDA">FDA</option><option value="FINANCE">FINANCE</option></select></div>
+                    <div><label className="text-slate-400 block mb-1">Role:</label><select value={newUser.role || ''} onChange={e=>setNewUser({...newUser,role:e.target.value as UserRole})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"><option value="">Pilih role</option><option value="ADMIN">ADMIN</option><option value="SALES">SALES</option><option value="MANAGER_OPS">MANAGER_OPS</option><option value="FDA">FDA</option><option value="FINANCE">FINANCE</option></select></div>
                     <div><label className="text-slate-400 block mb-1">Jabatan:</label><input required value={newUser.position} onChange={e=>setNewUser({...newUser,position:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" /></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div><label className="text-slate-400 block mb-1">Email:</label><input required type="email" value={newUser.email} onChange={e=>setNewUser({...newUser,email:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" /></div>
-                    <div><label className="text-slate-400 block mb-1">Status:</label><select value={newUser.status} onChange={e=>setNewUser({...newUser,status:e.target.value as any})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"><option value="ACTIVE">ACTIVE</option><option value="INACTIVE">INACTIVE</option></select></div>
+                    <div><label className="text-slate-400 block mb-1">Status:</label><select value={newUser.status || ''} onChange={e=>setNewUser({...newUser,status:e.target.value as User['status']})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"><option value="">Pilih status</option><option value="ACTIVE">ACTIVE</option><option value="INACTIVE">INACTIVE</option></select></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="md:col-span-2"><label className="text-slate-400 block mb-1">Branch:</label><input required value={newUser.branch || ''} onChange={e=>setNewUser({...newUser,branch:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" placeholder="contoh: JKT, Head Office, Surabaya" /></div>

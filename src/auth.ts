@@ -2,7 +2,7 @@ import { User, UserRole } from './types';
 
 export interface AuthAccount extends User {
   username: string;
-  password: string;
+  password?: string;
 }
 
 export const DEMO_ACCOUNTS: AuthAccount[] = [

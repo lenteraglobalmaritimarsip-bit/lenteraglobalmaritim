@@ -17,3 +17,4 @@ coverage/
 *.p12
 *.pfx
 secrets/
+api/config.local.php

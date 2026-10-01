@@ -1,448 +1,438 @@
 -- MaritimPort / Lentera Global Maritim
--- PostgreSQL schema for Admin, Sales, Manager Ops, FDA, and Finance workflows.
+-- MySQL 8.0.16+ schema for Admin, Sales, Manager Ops, FDA, and Finance workflows.
 -- Runtime note: the current demo still persists through browser localStorage.
+-- IDs are supplied by the application (for example USR-001, EXP-001, and ACT-...).
 
-BEGIN;
-
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
-CREATE TYPE user_role AS ENUM ('ADMIN', 'SALES', 'MANAGER_OPS', 'FDA', 'FINANCE');
-CREATE TYPE record_status AS ENUM ('ACTIVE', 'INACTIVE');
-CREATE TYPE currency_code AS ENUM ('IDR', 'USD');
-CREATE TYPE tariff_basis AS ENUM ('PER_GRT', 'PER_DAY', 'LUMP_SUM', 'PER_HOUR', 'PER_MOVE');
-CREATE TYPE tariff_type AS ENUM ('FIXED', 'VARIABLE', 'RANGE');
-CREATE TYPE expense_calculation_type AS ENUM ('FIXED', 'VARIABLE', 'QTY_RATE', 'PERCENTAGE', 'RANGE');
-CREATE TYPE job_stage AS ENUM ('INQUIRY', 'QUOTATION', 'MANAGER_APPROVAL', 'OPERATIONAL', 'ACTUAL_COST', 'FDA', 'AP_AR', 'PRINCIPAL_INVOICE', 'CLOSED');
-CREATE TYPE job_status AS ENUM ('INQUIRY', 'QUOTED', 'APPROVED', 'IN_PROGRESS', 'COMPLETED', 'CLOSED');
-CREATE TYPE inquiry_status AS ENUM ('RECEIVED', 'EVALUATED', 'CONVERTED');
-CREATE TYPE quotation_status AS ENUM ('DRAFT', 'SUBMITTED', 'APPROVED');
-CREATE TYPE approval_status AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
-CREATE TYPE fda_approval_status AS ENUM ('DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED');
-CREATE TYPE cost_status AS ENUM ('PENDING_VERIFICATION', 'VERIFIED', 'APPROVED_BY_FDA');
-CREATE TYPE ap_status AS ENUM ('UNPAID', 'PARTIALLY_PAID', 'PAID');
-CREATE TYPE ar_status AS ENUM ('AWAITING_REMITTANCE', 'RECEIVED', 'OVERDUE');
-CREATE TYPE receipt_type AS ENUM ('ADVANCE_PAYMENT', 'INVOICE');
-CREATE TYPE invoice_status AS ENUM ('DRAFT', 'ISSUED', 'SETTLED');
-CREATE TYPE vessel_call_purpose AS ENUM ('CARGO_DISCHARGE', 'CARGO_LOADING', 'BUNKERING', 'CREW_CHANGE_ONLY', 'REPAIR_MAINTENANCE');
-CREATE TYPE zone_type AS ENUM ('BERTH', 'ANCHORAGE', 'STS', 'INNER_ROAD', 'OUTER_ROAD');
-CREATE TYPE crew_type AS ENUM ('SIGN_ON', 'SIGN_OFF');
-CREATE TYPE immigration_status AS ENUM ('PENDING', 'CLEARED', 'REJECTED');
+SET NAMES utf8mb4;
 
 CREATE TABLE branches (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  code varchar(30) NOT NULL UNIQUE,
-  name varchar(150) NOT NULL UNIQUE,
-  address text,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  code VARCHAR(30) NOT NULL UNIQUE,
+  name VARCHAR(150) NOT NULL UNIQUE,
+  address TEXT,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE users (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name varchar(150) NOT NULL,
-  email varchar(255) NOT NULL UNIQUE,
-  username varchar(100) UNIQUE,
-  password_hash text,
-  role user_role NOT NULL,
-  department varchar(120) NOT NULL,
-  branch_id uuid REFERENCES branches(id) ON DELETE SET NULL,
-  branch_name varchar(150),
-  position varchar(120),
-  phone varchar(50),
-  avatar text,
-  status record_status NOT NULL DEFAULT 'ACTIVE',
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  name VARCHAR(150) NOT NULL,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  username VARCHAR(100) UNIQUE,
+  password_hash TEXT,
+  role ENUM('ADMIN', 'SALES', 'MANAGER_OPS', 'FDA', 'FINANCE') NOT NULL,
+  department VARCHAR(120) NOT NULL,
+  branch_code VARCHAR(30),
+  branch_name VARCHAR(150),
+  position VARCHAR(120),
+  phone VARCHAR(50),
+  avatar TEXT,
+  status ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  CONSTRAINT fk_users_branch_code FOREIGN KEY (branch_code) REFERENCES branches(code) ON DELETE SET NULL,
+  INDEX idx_users_role_status (role, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE customers (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  code varchar(50) NOT NULL UNIQUE,
-  company_name varchar(200) NOT NULL,
-  country varchar(100) NOT NULL,
-  customer_type varchar(30) NOT NULL CHECK (customer_type IN ('PRINCIPAL', 'CHARTERER', 'SHIPOWNER')),
-  contact_person varchar(150) NOT NULL,
-  email varchar(255) NOT NULL,
-  phone varchar(50) NOT NULL,
-  address text NOT NULL,
-  credit_term_days integer NOT NULL DEFAULT 30 CHECK (credit_term_days >= 0),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  code VARCHAR(50) NOT NULL UNIQUE,
+  company_name VARCHAR(200) NOT NULL,
+  country VARCHAR(100) NOT NULL,
+  customer_type ENUM('PRINCIPAL', 'CHARTERER', 'SHIPOWNER') NOT NULL,
+  contact_person VARCHAR(150) NOT NULL,
+  email VARCHAR(255) NOT NULL,
+  phone VARCHAR(50) NOT NULL,
+  address TEXT NOT NULL,
+  credit_term_days INT NOT NULL DEFAULT 30 CHECK (credit_term_days >= 0),
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE vessels (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name varchar(200) NOT NULL,
-  imo_number varchar(30) NOT NULL UNIQUE,
-  call_sign varchar(50) NOT NULL,
-  flag varchar(100) NOT NULL,
-  vessel_type varchar(40) NOT NULL CHECK (vessel_type IN ('BULK CARRIER', 'CONTAINER', 'OIL TANKER', 'GENERAL CARGO', 'TUG & BARGE', 'LNG CARRIER')),
-  grt numeric(18,4) NOT NULL DEFAULT 0 CHECK (grt >= 0),
-  nrt numeric(18,4) NOT NULL DEFAULT 0 CHECK (nrt >= 0),
-  dwt numeric(18,4) NOT NULL DEFAULT 0 CHECK (dwt >= 0),
-  loa numeric(12,4) NOT NULL DEFAULT 0 CHECK (loa >= 0),
-  beam numeric(12,4) NOT NULL DEFAULT 0 CHECK (beam >= 0),
-  year_built integer CHECK (year_built BETWEEN 1800 AND 2200),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  name VARCHAR(200) NOT NULL,
+  imo_number VARCHAR(30) NOT NULL UNIQUE,
+  call_sign VARCHAR(50) NOT NULL,
+  flag VARCHAR(100) NOT NULL,
+  vessel_type ENUM('BULK CARRIER', 'CONTAINER', 'OIL TANKER', 'GENERAL CARGO', 'TUG & BARGE', 'LNG CARRIER') NOT NULL,
+  grt DECIMAL(18,4) NOT NULL DEFAULT 0 CHECK (grt >= 0),
+  nrt DECIMAL(18,4) NOT NULL DEFAULT 0 CHECK (nrt >= 0),
+  dwt DECIMAL(18,4) NOT NULL DEFAULT 0 CHECK (dwt >= 0),
+  loa DECIMAL(12,4) NOT NULL DEFAULT 0 CHECK (loa >= 0),
+  beam DECIMAL(12,4) NOT NULL DEFAULT 0 CHECK (beam >= 0),
+  year_built INT CHECK (year_built BETWEEN 1800 AND 2200),
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE ports (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  code varchar(30) NOT NULL UNIQUE,
-  name varchar(150) NOT NULL UNIQUE,
-  country varchar(100) NOT NULL,
-  unlocode varchar(20) NOT NULL UNIQUE,
-  channel_depth_meters numeric(10,3) NOT NULL DEFAULT 0 CHECK (channel_depth_meters >= 0),
-  tide_restriction text,
-  operating_hours varchar(100),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  code VARCHAR(30) NOT NULL UNIQUE,
+  name VARCHAR(150) NOT NULL UNIQUE,
+  country VARCHAR(100) NOT NULL,
+  unlocode VARCHAR(20) NOT NULL UNIQUE,
+  channel_depth_meters DECIMAL(10,3) NOT NULL DEFAULT 0 CHECK (channel_depth_meters >= 0),
+  tide_restriction TEXT,
+  operating_hours VARCHAR(100),
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE zones (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  port_id uuid NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
-  zone_code varchar(40) NOT NULL,
-  zone_name varchar(150) NOT NULL,
-  zone_type zone_type NOT NULL,
-  max_draft_meters numeric(10,3) NOT NULL DEFAULT 0 CHECK (max_draft_meters >= 0),
-  description text,
-  UNIQUE (port_id, zone_code)
-);
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  port_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  zone_code VARCHAR(40) NOT NULL,
+  zone_name VARCHAR(150) NOT NULL,
+  zone_type ENUM('BERTH', 'ANCHORAGE', 'STS', 'INNER_ROAD', 'OUTER_ROAD') NOT NULL,
+  max_draft_meters DECIMAL(10,3) NOT NULL DEFAULT 0 CHECK (max_draft_meters >= 0),
+  description TEXT,
+  UNIQUE KEY uq_zones_port_code (port_id, zone_code),
+  INDEX idx_zones_port (port_id),
+  CONSTRAINT fk_zones_port FOREIGN KEY (port_id) REFERENCES ports(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE fix_tariffs (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  port_id uuid NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
-  service_code varchar(50) NOT NULL,
-  service_name varchar(200) NOT NULL,
-  cost_category varchar(80),
-  grt numeric(18,4),
-  grt_min numeric(18,4),
-  grt_max numeric(18,4),
-  dwt numeric(18,4),
-  calculation_basis tariff_basis NOT NULL,
-  tariff_type tariff_type,
-  currency currency_code NOT NULL,
-  rate numeric(30,12) NOT NULL DEFAULT 0,
-  rate_idr numeric(30,12),
-  rate_usd numeric(30,12),
-  min_charge numeric(30,12) NOT NULL DEFAULT 0,
-  description text NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  port_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  service_code VARCHAR(50) NOT NULL,
+  service_name VARCHAR(200) NOT NULL,
+  cost_category VARCHAR(80),
+  grt DECIMAL(18,4),
+  grt_min DECIMAL(18,4),
+  grt_max DECIMAL(18,4),
+  dwt DECIMAL(18,4),
+  calculation_basis ENUM('PER_GRT', 'PER_DAY', 'LUMP_SUM', 'PER_HOUR', 'PER_MOVE') NOT NULL,
+  tariff_type ENUM('FIXED', 'VARIABLE', 'RANGE'),
+  currency ENUM('IDR', 'USD') NOT NULL,
+  rate DECIMAL(30,12) NOT NULL DEFAULT 0,
+  rate_idr DECIMAL(30,12),
+  rate_usd DECIMAL(30,12),
+  min_charge DECIMAL(30,12) NOT NULL DEFAULT 0,
+  description TEXT NOT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   CHECK (grt_min IS NULL OR grt_min >= 0),
   CHECK (grt_max IS NULL OR grt_max >= 0),
   CHECK (rate >= 0),
-  CHECK (min_charge >= 0)
-);
+  CHECK (min_charge >= 0),
+  INDEX idx_fix_tariffs_port_service (port_id, service_name),
+  INDEX idx_fix_tariffs_port_grt (port_id, grt_min, grt_max),
+  CONSTRAINT fk_fix_tariffs_port FOREIGN KEY (port_id) REFERENCES ports(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE expenses_items (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  port_id uuid REFERENCES ports(id) ON DELETE SET NULL,
-  code varchar(50) NOT NULL UNIQUE,
-  category varchar(80) NOT NULL,
-  name varchar(200) NOT NULL,
-  unit varchar(50),
-  default_currency currency_code NOT NULL,
-  standard_cost_buy numeric(30,12) NOT NULL DEFAULT 0,
-  standard_cost_sell numeric(30,12) NOT NULL DEFAULT 0,
-  rate_idr numeric(30,12),
-  rate_usd numeric(30,12),
-  preferred_vendor varchar(200),
-  calculation_type expense_calculation_type,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  port_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin,
+  code VARCHAR(50) NOT NULL UNIQUE,
+  category VARCHAR(80) NOT NULL,
+  name VARCHAR(200) NOT NULL,
+  unit VARCHAR(50),
+  default_currency ENUM('IDR', 'USD') NOT NULL,
+  standard_cost_buy DECIMAL(30,12) NOT NULL DEFAULT 0,
+  standard_cost_sell DECIMAL(30,12) NOT NULL DEFAULT 0,
+  rate_idr DECIMAL(30,12),
+  rate_usd DECIMAL(30,12),
+  preferred_vendor VARCHAR(200),
+  calculation_type ENUM('FIXED', 'VARIABLE', 'QTY_RATE', 'PERCENTAGE', 'RANGE'),
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   CHECK (standard_cost_buy >= 0),
-  CHECK (standard_cost_sell >= 0)
-);
+  CHECK (standard_cost_sell >= 0),
+  INDEX idx_expenses_items_port_category (port_id, category),
+  CONSTRAINT fk_expenses_items_port FOREIGN KEY (port_id) REFERENCES ports(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE vessel_calls (
-  job_id varchar(50) PRIMARY KEY,
-  vessel_id uuid NOT NULL REFERENCES vessels(id),
-  port_id uuid NOT NULL REFERENCES ports(id),
-  customer_id uuid NOT NULL REFERENCES customers(id),
-  currency currency_code NOT NULL,
-  exchange_rate_usd_to_idr numeric(30,12) NOT NULL DEFAULT 15800 CHECK (exchange_rate_usd_to_idr > 0),
-  eta timestamptz,
-  etd timestamptz,
-  purpose_of_call vessel_call_purpose NOT NULL,
-  current_stage job_stage NOT NULL DEFAULT 'INQUIRY',
-  status job_status NOT NULL DEFAULT 'INQUIRY',
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
+  job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  vessel_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  port_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  customer_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  currency ENUM('IDR', 'USD') NOT NULL,
+  exchange_rate_usd_to_idr DECIMAL(30,12) NOT NULL DEFAULT 15800 CHECK (exchange_rate_usd_to_idr > 0),
+  eta DATETIME(3),
+  etd DATETIME(3),
+  purpose_of_call ENUM('CARGO_DISCHARGE', 'CARGO_LOADING', 'BUNKERING', 'CREW_CHANGE_ONLY', 'REPAIR_MAINTENANCE') NOT NULL,
+  current_stage ENUM('INQUIRY', 'QUOTATION', 'MANAGER_APPROVAL', 'OPERATIONAL', 'ACTUAL_COST', 'FDA', 'AP_AR', 'PRINCIPAL_INVOICE', 'CLOSED') NOT NULL DEFAULT 'INQUIRY',
+  status ENUM('INQUIRY', 'QUOTED', 'APPROVED', 'IN_PROGRESS', 'COMPLETED', 'CLOSED') NOT NULL DEFAULT 'INQUIRY',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  INDEX idx_vessel_calls_stage_status (current_stage, status),
+  INDEX idx_vessel_calls_port (port_id),
+  INDEX idx_vessel_calls_customer (customer_id),
+  CONSTRAINT fk_vessel_calls_vessel FOREIGN KEY (vessel_id) REFERENCES vessels(id),
+  CONSTRAINT fk_vessel_calls_port FOREIGN KEY (port_id) REFERENCES ports(id),
+  CONSTRAINT fk_vessel_calls_customer FOREIGN KEY (customer_id) REFERENCES customers(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE inquiries (
-  job_id varchar(50) PRIMARY KEY REFERENCES vessel_calls(job_id) ON DELETE CASCADE,
-  inquiry_no varchar(60) NOT NULL UNIQUE,
-  inquiry_date date NOT NULL,
-  eta_remarks text,
-  etd_remarks text,
-  quantity numeric(18,4),
-  quantity_unit varchar(30),
-  cargo_details text NOT NULL,
-  estimated_days numeric(12,4) NOT NULL DEFAULT 0 CHECK (estimated_days >= 0),
-  special_requirements text NOT NULL DEFAULT '',
-  CHECK (quantity_unit IS NULL OR quantity_unit IN ('MATRIX_TON', 'TON')),
-  status inquiry_status NOT NULL DEFAULT 'RECEIVED',
-  created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
-  created_by_name varchar(150),
-  created_by_branch varchar(150),
-  created_by_branch_code varchar(30)
-);
+  job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  inquiry_no VARCHAR(60) NOT NULL UNIQUE,
+  inquiry_date DATE NOT NULL,
+  eta_remarks TEXT,
+  etd_remarks TEXT,
+  quantity DECIMAL(18,4),
+  quantity_unit ENUM('MATRIX_TON', 'TON'),
+  cargo_details TEXT NOT NULL,
+  estimated_days DECIMAL(12,4) NOT NULL DEFAULT 0 CHECK (estimated_days >= 0),
+  special_requirements TEXT,
+  status ENUM('RECEIVED', 'EVALUATED', 'CONVERTED') NOT NULL DEFAULT 'RECEIVED',
+  created_by_user_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin,
+  created_by_name VARCHAR(150),
+  created_by_branch VARCHAR(150),
+  created_by_branch_code VARCHAR(30),
+  CONSTRAINT fk_inquiries_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id) ON DELETE CASCADE,
+  CONSTRAINT fk_inquiries_user FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE quotations (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  job_id varchar(50) NOT NULL REFERENCES vessel_calls(job_id) ON DELETE CASCADE,
-  quote_type varchar(10) NOT NULL CHECK (quote_type IN ('EPDA', 'PDA')),
-  quote_no varchar(80) NOT NULL,
-  quote_date date NOT NULL,
-  currency currency_code NOT NULL,
-  total_buy_rate numeric(30,12) NOT NULL DEFAULT 0,
-  total_sell_rate numeric(30,12) NOT NULL DEFAULT 0,
-  margin_amount numeric(30,12) NOT NULL DEFAULT 0,
-  margin_percentage numeric(18,6) NOT NULL DEFAULT 0,
-  status quotation_status NOT NULL DEFAULT 'DRAFT',
-  UNIQUE (job_id, quote_type),
-  UNIQUE (quote_no)
-);
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  quote_type ENUM('EPDA', 'PDA') NOT NULL,
+  quote_no VARCHAR(80) NOT NULL UNIQUE,
+  quote_date DATE NOT NULL,
+  currency ENUM('IDR', 'USD') NOT NULL,
+  exchange_rate_usd_to_idr DECIMAL(30,12) NOT NULL DEFAULT 15800 CHECK (exchange_rate_usd_to_idr > 0),
+  total_buy_rate DECIMAL(30,12) NOT NULL DEFAULT 0,
+  total_sell_rate DECIMAL(30,12) NOT NULL DEFAULT 0,
+  margin_amount DECIMAL(30,12) NOT NULL DEFAULT 0,
+  margin_percentage DECIMAL(18,6) NOT NULL DEFAULT 0,
+  status ENUM('DRAFT', 'SUBMITTED', 'APPROVED') NOT NULL DEFAULT 'DRAFT',
+  UNIQUE KEY uq_quotations_job_type (job_id, quote_type),
+  CONSTRAINT fk_quotations_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE quotation_items (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  quotation_id uuid NOT NULL REFERENCES quotations(id) ON DELETE CASCADE,
-  expense_item_id uuid REFERENCES expenses_items(id) ON DELETE SET NULL,
-  fix_tariff_id uuid REFERENCES fix_tariffs(id) ON DELETE SET NULL,
-  entry_order integer NOT NULL,
-  name varchar(200) NOT NULL,
-  category varchar(80) NOT NULL CHECK (category IN ('PORT_EXPENSES', 'CLEARANCE', 'GENERAL_EXPENSES', 'CREW_EXPENSES', 'OWNER_MATTER', 'AGENCY_FEE', 'TAX_CONTINGENCY', 'PORT_DUES', 'PILOTAGE_TOWAGE', 'BERTHING', 'CREW_CHANGE', 'IMMIGRATION_CUSTOMS', 'LOGISTICS_SUPPLIES', 'SUNDRY')),
-  basis text NOT NULL DEFAULT '',
-  quantity numeric(18,6) NOT NULL DEFAULT 1,
-  unit_buy_rate numeric(30,12) NOT NULL DEFAULT 0,
-  unit_sell_rate numeric(30,12) NOT NULL DEFAULT 0,
-  total_buy_rate numeric(30,12) NOT NULL DEFAULT 0,
-  total_sell_rate numeric(30,12) NOT NULL DEFAULT 0,
-  currency currency_code NOT NULL,
-  tariff_type tariff_type,
-  calculation_basis tariff_basis,
-  tariff_rate numeric(30,12),
-  remarks text,
-  UNIQUE (quotation_id, entry_order)
-);
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  quotation_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  expense_item_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin,
+  fix_tariff_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin,
+  entry_order INT NOT NULL,
+  name VARCHAR(200) NOT NULL,
+  category ENUM('PORT_EXPENSES', 'CLEARANCE', 'GENERAL_EXPENSES', 'CREW_EXPENSES', 'OWNER_MATTER', 'AGENCY_FEE', 'TAX_CONTINGENCY', 'PORT_DUES', 'PILOTAGE_TOWAGE', 'BERTHING', 'CREW_CHANGE', 'IMMIGRATION_CUSTOMS', 'LOGISTICS_SUPPLIES', 'SUNDRY') NOT NULL,
+  basis TEXT,
+  quantity DECIMAL(18,6) NOT NULL DEFAULT 1,
+  unit_buy_rate DECIMAL(30,12) NOT NULL DEFAULT 0,
+  unit_sell_rate DECIMAL(30,12) NOT NULL DEFAULT 0,
+  total_buy_rate DECIMAL(30,12) NOT NULL DEFAULT 0,
+  total_sell_rate DECIMAL(30,12) NOT NULL DEFAULT 0,
+  currency ENUM('IDR', 'USD') NOT NULL,
+  tariff_type ENUM('FIXED', 'VARIABLE', 'RANGE'),
+  calculation_basis ENUM('PER_GRT', 'PER_DAY', 'LUMP_SUM', 'PER_HOUR', 'PER_MOVE'),
+  tariff_rate DECIMAL(30,12),
+  remarks TEXT,
+  UNIQUE KEY uq_quotation_items_order (quotation_id, entry_order),
+  INDEX idx_quotation_items_order (quotation_id, entry_order),
+  CONSTRAINT fk_quotation_items_quotation FOREIGN KEY (quotation_id) REFERENCES quotations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_quotation_items_expense FOREIGN KEY (expense_item_id) REFERENCES expenses_items(id) ON DELETE SET NULL,
+  CONSTRAINT fk_quotation_items_tariff FOREIGN KEY (fix_tariff_id) REFERENCES fix_tariffs(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE crew_change_plans (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  job_id varchar(50) NOT NULL UNIQUE REFERENCES vessel_calls(job_id) ON DELETE CASCADE,
-  plan_date date NOT NULL,
-  sign_on_count integer NOT NULL DEFAULT 0 CHECK (sign_on_count >= 0),
-  sign_off_count integer NOT NULL DEFAULT 0 CHECK (sign_off_count >= 0),
-  logistics_cost numeric(30,12) NOT NULL DEFAULT 0,
-  immigration_visa_cost numeric(30,12) NOT NULL DEFAULT 0,
-  transport_cost numeric(30,12) NOT NULL DEFAULT 0,
-  total_cost_usd numeric(30,12) NOT NULL DEFAULT 0,
-  total_cost_idr numeric(30,12) NOT NULL DEFAULT 0,
-  status varchar(30) NOT NULL DEFAULT 'PLANNED' CHECK (status IN ('PLANNED', 'IN_TRANSIT', 'COMPLETED'))
-);
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin NOT NULL UNIQUE,
+  plan_date DATE NOT NULL,
+  sign_on_count INT NOT NULL DEFAULT 0 CHECK (sign_on_count >= 0),
+  sign_off_count INT NOT NULL DEFAULT 0 CHECK (sign_off_count >= 0),
+  logistics_cost DECIMAL(30,12) NOT NULL DEFAULT 0,
+  immigration_visa_cost DECIMAL(30,12) NOT NULL DEFAULT 0,
+  transport_cost DECIMAL(30,12) NOT NULL DEFAULT 0,
+  total_cost_usd DECIMAL(30,12) NOT NULL DEFAULT 0,
+  total_cost_idr DECIMAL(30,12) NOT NULL DEFAULT 0,
+  status ENUM('PLANNED', 'IN_TRANSIT', 'COMPLETED') NOT NULL DEFAULT 'PLANNED',
+  CONSTRAINT fk_crew_change_plans_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE crew_members (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  crew_change_plan_id uuid NOT NULL REFERENCES crew_change_plans(id) ON DELETE CASCADE,
-  name varchar(150) NOT NULL,
-  passport_number varchar(80) NOT NULL,
-  seaman_book varchar(80) NOT NULL,
-  rank varchar(100) NOT NULL,
-  nationality varchar(100) NOT NULL,
-  crew_type crew_type NOT NULL,
-  flight_details text,
-  hotel_booked boolean NOT NULL DEFAULT false,
-  transit_cost_usd numeric(30,12) NOT NULL DEFAULT 0,
-  immigration_status immigration_status NOT NULL DEFAULT 'PENDING'
-);
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  crew_change_plan_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  name VARCHAR(150) NOT NULL,
+  passport_number VARCHAR(80) NOT NULL,
+  seaman_book VARCHAR(80) NOT NULL,
+  rank VARCHAR(100) NOT NULL,
+  nationality VARCHAR(100) NOT NULL,
+  crew_type ENUM('SIGN_ON', 'SIGN_OFF') NOT NULL,
+  flight_details TEXT,
+  hotel_booked BOOLEAN NOT NULL DEFAULT FALSE,
+  transit_cost_usd DECIMAL(30,12) NOT NULL DEFAULT 0,
+  immigration_status ENUM('PENDING', 'CLEARED', 'REJECTED') NOT NULL DEFAULT 'PENDING',
+  CONSTRAINT fk_crew_members_plan FOREIGN KEY (crew_change_plan_id) REFERENCES crew_change_plans(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE manager_approvals (
-  job_id varchar(50) PRIMARY KEY REFERENCES vessel_calls(job_id) ON DELETE CASCADE,
-  status approval_status NOT NULL DEFAULT 'PENDING',
-  approved_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
-  approved_by_name varchar(150),
-  approved_at timestamptz,
-  notes text,
-  allowed_margin_tolerance_pct numeric(18,6) NOT NULL DEFAULT 0
-);
+  job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  status ENUM('PENDING', 'APPROVED', 'REJECTED') NOT NULL DEFAULT 'PENDING',
+  approved_by_user_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin,
+  approved_by_name VARCHAR(150),
+  approved_at DATETIME(3),
+  notes TEXT,
+  allowed_margin_tolerance_pct DECIMAL(18,6) NOT NULL DEFAULT 0,
+  CONSTRAINT fk_manager_approvals_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id) ON DELETE CASCADE,
+  CONSTRAINT fk_manager_approvals_user FOREIGN KEY (approved_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE operational_data (
-  job_id varchar(50) PRIMARY KEY REFERENCES vessel_calls(job_id) ON DELETE CASCADE,
-  ata timestamptz,
-  atb timestamptz,
-  atd timestamptz,
-  pilot_on_board_time timestamptz,
-  pilot_off_time timestamptz,
-  berth_zone_name varchar(150),
-  cargo_quantity_metric_tons numeric(18,4),
-  cargo_commodity varchar(150),
-  harbor_master_clearance_no varchar(100)
-);
+  job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  ata DATETIME(3),
+  atb DATETIME(3),
+  atd DATETIME(3),
+  pilot_on_board_time DATETIME(3),
+  pilot_off_time DATETIME(3),
+  berth_zone_name VARCHAR(150),
+  cargo_quantity_metric_tons DECIMAL(18,4),
+  cargo_commodity VARCHAR(150),
+  harbor_master_clearance_no VARCHAR(100),
+  CONSTRAINT fk_operational_data_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE statements_of_fact (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  job_id varchar(50) NOT NULL REFERENCES vessel_calls(job_id) ON DELETE CASCADE,
-  event_time timestamptz NOT NULL,
-  event varchar(200) NOT NULL,
-  remarks text
-);
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  event_time DATETIME(3) NOT NULL,
+  event VARCHAR(200) NOT NULL,
+  remarks TEXT,
+  INDEX idx_statements_of_fact_job_time (job_id, event_time),
+  CONSTRAINT fk_statements_of_fact_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE actual_costs (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  job_id varchar(50) NOT NULL REFERENCES vessel_calls(job_id) ON DELETE CASCADE,
-  item_code varchar(60) NOT NULL,
-  description varchar(200) NOT NULL,
-  category varchar(80) NOT NULL,
-  vendor_name varchar(200) NOT NULL,
-  invoice_or_voucher_no varchar(100) NOT NULL,
-  cost_date date NOT NULL,
-  quantity numeric(18,6),
-  amount numeric(30,12) NOT NULL DEFAULT 0,
-  currency currency_code NOT NULL,
-  tariff_type tariff_type,
-  calculation_basis tariff_basis,
-  tariff_rate numeric(30,12),
-  pda_amount_estimated numeric(30,12) NOT NULL DEFAULT 0,
-  variance_amount numeric(30,12) NOT NULL DEFAULT 0,
-  status cost_status NOT NULL DEFAULT 'PENDING_VERIFICATION',
-  attachment_name varchar(255),
-  attachment_data_url text,
-  remarks text
-);
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  item_code VARCHAR(60) NOT NULL,
+  description VARCHAR(200) NOT NULL,
+  category VARCHAR(80) NOT NULL,
+  vendor_name VARCHAR(200) NOT NULL,
+  invoice_or_voucher_no VARCHAR(100) NOT NULL,
+  cost_date DATE NOT NULL,
+  quantity DECIMAL(18,6),
+  amount DECIMAL(30,12) NOT NULL DEFAULT 0,
+  currency ENUM('IDR', 'USD') NOT NULL,
+  tariff_type ENUM('FIXED', 'VARIABLE', 'RANGE'),
+  calculation_basis ENUM('PER_GRT', 'PER_DAY', 'LUMP_SUM', 'PER_HOUR', 'PER_MOVE'),
+  tariff_rate DECIMAL(30,12),
+  pda_amount_estimated DECIMAL(30,12) NOT NULL DEFAULT 0,
+  variance_amount DECIMAL(30,12) NOT NULL DEFAULT 0,
+  status ENUM('PENDING_VERIFICATION', 'VERIFIED', 'APPROVED_BY_FDA') NOT NULL DEFAULT 'PENDING_VERIFICATION',
+  attachment_name VARCHAR(255),
+  attachment_data_url LONGTEXT,
+  remarks TEXT,
+  INDEX idx_actual_costs_job_status (job_id, status),
+  CONSTRAINT fk_actual_costs_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE fda_records (
-  job_id varchar(50) PRIMARY KEY REFERENCES vessel_calls(job_id) ON DELETE CASCADE,
-  fda_no varchar(80) NOT NULL UNIQUE,
-  fda_date date NOT NULL,
-  currency currency_code,
-  total_estimated_buy numeric(30,12) NOT NULL DEFAULT 0,
-  total_estimated_sell numeric(30,12) NOT NULL DEFAULT 0,
-  total_actual_cost numeric(30,12) NOT NULL DEFAULT 0,
-  final_billed_to_principal numeric(30,12) NOT NULL DEFAULT 0,
-  variance_amount numeric(30,12) NOT NULL DEFAULT 0,
-  variance_percentage numeric(18,6) NOT NULL DEFAULT 0,
-  fda_approved boolean NOT NULL DEFAULT false,
-  approval_status fda_approval_status NOT NULL DEFAULT 'DRAFT',
-  submitted_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
-  submitted_by_name varchar(150),
-  submitted_at timestamptz,
-  approved_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
-  approved_by_name varchar(150),
-  approved_at timestamptz,
-  notes text,
-  pdf_file_name varchar(255),
-  pdf_data_url text
-);
+  job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  fda_no VARCHAR(80) NOT NULL UNIQUE,
+  fda_date DATE NOT NULL,
+  currency ENUM('IDR', 'USD'),
+  exchange_rate_usd_to_idr DECIMAL(30,12) NOT NULL DEFAULT 15800 CHECK (exchange_rate_usd_to_idr > 0),
+  total_estimated_buy DECIMAL(30,12) NOT NULL DEFAULT 0,
+  total_estimated_sell DECIMAL(30,12) NOT NULL DEFAULT 0,
+  total_actual_cost DECIMAL(30,12) NOT NULL DEFAULT 0,
+  final_billed_to_principal DECIMAL(30,12) NOT NULL DEFAULT 0,
+  variance_amount DECIMAL(30,12) NOT NULL DEFAULT 0,
+  variance_percentage DECIMAL(18,6) NOT NULL DEFAULT 0,
+  fda_approved BOOLEAN NOT NULL DEFAULT FALSE,
+  approval_status ENUM('DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED') NOT NULL DEFAULT 'DRAFT',
+  submitted_by_user_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin,
+  submitted_by_name VARCHAR(150),
+  submitted_at DATETIME(3),
+  approved_by_user_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin,
+  approved_by_name VARCHAR(150),
+  approved_at DATETIME(3),
+  notes TEXT,
+  pdf_file_name VARCHAR(255),
+  pdf_data_url LONGTEXT,
+  CONSTRAINT fk_fda_records_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id) ON DELETE CASCADE,
+  CONSTRAINT fk_fda_records_submitted_by FOREIGN KEY (submitted_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_fda_records_approved_by FOREIGN KEY (approved_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE ap_items (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  job_id varchar(50) NOT NULL REFERENCES vessel_calls(job_id) ON DELETE CASCADE,
-  voucher_no varchar(100) NOT NULL,
-  vendor_name varchar(200) NOT NULL,
-  description text NOT NULL,
-  invoice_date date NOT NULL,
-  due_date date NOT NULL,
-  amount numeric(30,12) NOT NULL DEFAULT 0,
-  currency currency_code NOT NULL,
-  status ap_status NOT NULL DEFAULT 'UNPAID',
-  payment_ref varchar(100),
-  paid_date date
-);
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  voucher_no VARCHAR(100) NOT NULL,
+  vendor_name VARCHAR(200) NOT NULL,
+  description TEXT NOT NULL,
+  invoice_date DATE NOT NULL,
+  due_date DATE NOT NULL,
+  amount DECIMAL(30,12) NOT NULL DEFAULT 0,
+  currency ENUM('IDR', 'USD') NOT NULL,
+  status ENUM('UNPAID', 'PARTIALLY_PAID', 'PAID') NOT NULL DEFAULT 'UNPAID',
+  payment_ref VARCHAR(100),
+  paid_date DATE,
+  INDEX idx_ap_items_job_status (job_id, status),
+  CONSTRAINT fk_ap_items_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE ar_items (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  job_id varchar(50) NOT NULL REFERENCES vessel_calls(job_id) ON DELETE CASCADE,
-  reference_no varchar(100) NOT NULL,
-  principal_name varchar(200) NOT NULL,
-  description text NOT NULL,
-  requested_amount numeric(30,12) NOT NULL DEFAULT 0,
-  received_amount numeric(30,12) NOT NULL DEFAULT 0,
-  currency currency_code NOT NULL,
-  received_date date,
-  bank_account varchar(150),
-  status ar_status NOT NULL DEFAULT 'AWAITING_REMITTANCE'
-);
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  reference_no VARCHAR(100) NOT NULL,
+  principal_name VARCHAR(200) NOT NULL,
+  description TEXT NOT NULL,
+  requested_amount DECIMAL(30,12) NOT NULL DEFAULT 0,
+  received_amount DECIMAL(30,12) NOT NULL DEFAULT 0,
+  currency ENUM('IDR', 'USD') NOT NULL,
+  received_date DATE,
+  bank_account VARCHAR(150),
+  status ENUM('AWAITING_REMITTANCE', 'RECEIVED', 'OVERDUE') NOT NULL DEFAULT 'AWAITING_REMITTANCE',
+  INDEX idx_ar_items_job_status (job_id, status),
+  CONSTRAINT fk_ar_items_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE principal_invoices (
-  job_id varchar(50) PRIMARY KEY REFERENCES vessel_calls(job_id) ON DELETE CASCADE,
-  invoice_no varchar(100) NOT NULL UNIQUE,
-  invoice_date date NOT NULL,
-  due_date date NOT NULL,
-  total_amount_usd numeric(30,12) NOT NULL DEFAULT 0,
-  total_amount_idr numeric(30,12) NOT NULL DEFAULT 0,
-  advance_deducted_usd numeric(30,12) NOT NULL DEFAULT 0,
-  advance_deducted_idr numeric(30,12) NOT NULL DEFAULT 0,
-  balance_due_usd numeric(30,12) NOT NULL DEFAULT 0,
-  balance_due_idr numeric(30,12) NOT NULL DEFAULT 0,
-  status invoice_status NOT NULL DEFAULT 'DRAFT',
-  pdf_generated boolean NOT NULL DEFAULT false
-);
+  job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  invoice_no VARCHAR(100) NOT NULL UNIQUE,
+  invoice_date DATE NOT NULL,
+  due_date DATE NOT NULL,
+  total_amount_usd DECIMAL(30,12) NOT NULL DEFAULT 0,
+  total_amount_idr DECIMAL(30,12) NOT NULL DEFAULT 0,
+  advance_deducted_usd DECIMAL(30,12) NOT NULL DEFAULT 0,
+  advance_deducted_idr DECIMAL(30,12) NOT NULL DEFAULT 0,
+  balance_due_usd DECIMAL(30,12) NOT NULL DEFAULT 0,
+  balance_due_idr DECIMAL(30,12) NOT NULL DEFAULT 0,
+  status ENUM('DRAFT', 'ISSUED', 'SETTLED') NOT NULL DEFAULT 'DRAFT',
+  pdf_generated BOOLEAN NOT NULL DEFAULT FALSE,
+  CONSTRAINT fk_principal_invoices_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE principal_receipts (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  job_id varchar(50) NOT NULL REFERENCES vessel_calls(job_id) ON DELETE CASCADE,
-  received_date date NOT NULL,
-  amount numeric(30,12) NOT NULL CHECK (amount > 0),
-  currency currency_code NOT NULL,
-  payment_type receipt_type NOT NULL,
-  bank_remark text NOT NULL,
-  attachment_name varchar(255),
-  attachment_data_url text
-);
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  received_date DATE NOT NULL,
+  amount DECIMAL(30,12) NOT NULL CHECK (amount > 0),
+  currency ENUM('IDR', 'USD') NOT NULL,
+  payment_type ENUM('ADVANCE_PAYMENT', 'INVOICE') NOT NULL,
+  bank_remark TEXT NOT NULL,
+  attachment_name VARCHAR(255),
+  attachment_data_url LONGTEXT,
+  INDEX idx_receipts_job_date (job_id, received_date),
+  CONSTRAINT fk_principal_receipts_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE closing_records (
-  job_id varchar(50) PRIMARY KEY REFERENCES vessel_calls(job_id) ON DELETE CASCADE,
-  is_closed boolean NOT NULL DEFAULT false,
-  closed_at timestamptz,
-  closed_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
-  closed_by_name varchar(150),
-  final_gross_margin_usd numeric(30,12) NOT NULL DEFAULT 0,
-  final_gross_margin_idr numeric(30,12) NOT NULL DEFAULT 0,
-  post_voyage_remarks text
-);
+  job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  is_closed BOOLEAN NOT NULL DEFAULT FALSE,
+  closed_at DATETIME(3),
+  closed_by_user_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin,
+  closed_by_name VARCHAR(150),
+  final_gross_margin_usd DECIMAL(30,12) NOT NULL DEFAULT 0,
+  final_gross_margin_idr DECIMAL(30,12) NOT NULL DEFAULT 0,
+  post_voyage_remarks TEXT,
+  CONSTRAINT fk_closing_records_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id) ON DELETE CASCADE,
+  CONSTRAINT fk_closing_records_user FOREIGN KEY (closed_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE audit_logs (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  logged_at timestamptz NOT NULL DEFAULT now(),
-  actor_id uuid REFERENCES users(id) ON DELETE SET NULL,
-  actor_name varchar(150) NOT NULL,
-  actor_role user_role NOT NULL,
-  action varchar(100) NOT NULL,
-  entity varchar(100) NOT NULL,
-  entity_id varchar(100),
-  description text NOT NULL
-);
-
-CREATE INDEX idx_users_role_status ON users(role, status);
-CREATE INDEX idx_zones_port ON zones(port_id);
-CREATE INDEX idx_fix_tariffs_port_service ON fix_tariffs(port_id, service_name);
-CREATE INDEX idx_fix_tariffs_port_grt ON fix_tariffs(port_id, grt_min, grt_max);
-CREATE INDEX idx_expenses_items_port_category ON expenses_items(port_id, category);
-CREATE INDEX idx_vessel_calls_stage_status ON vessel_calls(current_stage, status);
-CREATE INDEX idx_vessel_calls_port ON vessel_calls(port_id);
-CREATE INDEX idx_vessel_calls_customer ON vessel_calls(customer_id);
-CREATE INDEX idx_quotation_items_order ON quotation_items(quotation_id, entry_order);
-CREATE INDEX idx_actual_costs_job_status ON actual_costs(job_id, status);
-CREATE INDEX idx_ap_items_job_status ON ap_items(job_id, status);
-CREATE INDEX idx_ar_items_job_status ON ar_items(job_id, status);
-CREATE INDEX idx_receipts_job_date ON principal_receipts(job_id, received_date);
-CREATE INDEX idx_audit_logs_entity ON audit_logs(entity, entity_id);
-
-CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$
-BEGIN
-  NEW.updated_at = now();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trg_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER trg_customers_updated_at BEFORE UPDATE ON customers FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER trg_vessels_updated_at BEFORE UPDATE ON vessels FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER trg_ports_updated_at BEFORE UPDATE ON ports FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER trg_fix_tariffs_updated_at BEFORE UPDATE ON fix_tariffs FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER trg_expenses_items_updated_at BEFORE UPDATE ON expenses_items FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-CREATE TRIGGER trg_vessel_calls_updated_at BEFORE UPDATE ON vessel_calls FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
-COMMIT;
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  logged_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  actor_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin,
+  actor_name VARCHAR(150) NOT NULL,
+  actor_role ENUM('ADMIN', 'SALES', 'MANAGER_OPS', 'FDA', 'FINANCE') NOT NULL,
+  action VARCHAR(100) NOT NULL,
+  entity VARCHAR(100) NOT NULL,
+  entity_id VARCHAR(100),
+  description TEXT NOT NULL,
+  INDEX idx_audit_logs_entity (entity, entity_id),
+  CONSTRAINT fk_audit_logs_actor FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

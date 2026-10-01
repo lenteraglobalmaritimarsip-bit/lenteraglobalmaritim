@@ -1,0 +1,5 @@
+Options -Indexes
+
+<FilesMatch "^(bootstrap|config|create_admin|reset_admin_password)\.php$">
+  Require all denied
+</FilesMatch>

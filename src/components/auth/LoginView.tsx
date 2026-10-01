@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowRight, Eye, EyeOff, LockKeyhole, UserRound } from 'lucide-react';
 import { AuthAccount, authenticate } from '../../auth';
+import { apiAuth } from '../../lib/api';
 
 interface LoginViewProps { onLogin: (account: AuthAccount, rememberMe?: boolean) => void; }
 
@@ -33,7 +34,9 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
     setLoading(true);
     window.setTimeout(async () => {
       try {
-        const account = authenticate(username, password);
+        const account = apiAuth.enabled
+          ? await apiAuth.login(username, password)
+          : authenticate(username, password);
         if (!account) {
           setError('Username atau password tidak valid.');
           setLoading(false);
@@ -99,10 +102,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
               <h2>Login ke Portal</h2>
               <p>Silakan masuk menggunakan akun sesuai role pekerjaan Anda.</p>
             </div>
-            <span className="lgm-demo-mode">Mode Lokal</span>
+            <span className="lgm-demo-mode">{apiAuth.enabled ? 'Mode Database' : 'Mode Lokal'}</span>
           </div>
 
-          <div className="lgm-demo-quicklist" aria-label="Local login presets">
+          {!apiAuth.enabled && <div className="lgm-demo-quicklist" aria-label="Local login presets">
               {DEMO_LOGIN_PRESETS.map((preset) => (
                 <button
                   key={preset.username}
@@ -117,7 +120,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                   {preset.label}
                 </button>
               ))}
-            </div>
+            </div>}
 
           <form onSubmit={submit}>
             <label className="lgm-field">
@@ -136,8 +139,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
               <div className="lgm-password">
                 <input
                   type={showPassword ? 'text' : 'password'}
+                  inputMode={apiAuth.enabled ? 'numeric' : undefined}
+                  maxLength={apiAuth.enabled ? 8 : undefined}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => setPassword(apiAuth.enabled ? e.target.value.replace(/\D/g, '').slice(0, 8) : e.target.value)}
                   placeholder="Password"
                   aria-label="Password"
                 />
