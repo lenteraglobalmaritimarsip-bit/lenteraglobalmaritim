@@ -38,6 +38,8 @@ const resolveInquiryOwner = (job: JobCall) => ({
   branch: job.inquiry?.createdByBranch || 'Head Office'
 });
 
+const isClosedJob = (job: JobCall) => job.closing?.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED';
+
 const emptyInquiry = {
   inquiryNo: '-',
   date: '',

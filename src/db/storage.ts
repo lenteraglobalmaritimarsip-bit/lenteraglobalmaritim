@@ -85,6 +85,11 @@ export const normalizeBranchCode = (branch?: string): string => {
   return initials ? initials.padEnd(3, 'X') : 'HO';
 };
 
+export const isJobClosed = (job?: Partial<JobCall> | null): boolean => {
+  if (!job) return false;
+  return !!(job.closing?.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED');
+};
+
 export const getCurrentBranchName = (): string => {
   return db.getActorBranch();
 };
