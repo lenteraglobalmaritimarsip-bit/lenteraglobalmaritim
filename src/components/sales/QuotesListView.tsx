@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { FileSpreadsheet, Search } from 'lucide-react';
 import { JobCall, Vessel } from '../../types';
+import { formatDateDisplay } from '../../utils/date';
 
 interface QuotesListViewProps {
   jobCalls: JobCall[];
@@ -86,7 +87,7 @@ export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessel
                 <td className="break-words p-2 font-semibold text-white">{job.customerName}</td>
                 <td className="break-words p-2 font-bold text-emerald-300">{job.vesselName}</td>
                 <td className="break-words p-2 text-slate-300">{job.portName}</td>
-                <td className="break-words p-2 text-slate-300">{job.eta.replace('T', ' ')}</td>
+                <td className="break-words p-2 text-slate-300">{formatDateDisplay(job.eta, true)}</td>
                 <td className="p-2 text-center">
                   <button
                     type="button"

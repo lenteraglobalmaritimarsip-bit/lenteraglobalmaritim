@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   FileQuestion,
   Plus,
@@ -16,6 +16,7 @@ import {
 import { JobCall, Vessel, Port, Customer } from '../../types';
 import { db } from '../../db/storage';
 import { AuthAccount } from '../../auth';
+import { formatDateDisplay } from '../../utils/date';
 
 interface InquiriesViewProps {
   jobCalls: JobCall[];
@@ -87,6 +88,12 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
   });
 
   const selectedVessel = vessels.find((v) => v.id === form.vesselId);
+  const inquiryDatePickerRef = useRef<HTMLInputElement>(null);
+  const openInquiryDatePicker = () => {
+    const datePicker = inquiryDatePickerRef.current as (HTMLInputElement & { showPicker?: () => void }) | null;
+    if (datePicker?.showPicker) datePicker.showPicker();
+    else datePicker?.click();
+  };
   const inquiryMonths: string[] = Array.from(new Set<string>(jobCalls.map((job) => job.inquiry.date.slice(0, 7)).filter(Boolean))).sort().reverse();
   const filteredInquiries = jobCalls.filter((job) => {
     const query = search.toLowerCase();
@@ -253,7 +260,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                   <td className="break-words p-2 text-slate-300">{job.portName}</td>
                   <td className="break-words p-2 text-slate-300">{job.inquiry.createdByBranch || job.inquiry.createdByBranchCode || '-'}</td>
                   <td className="break-words p-2 text-slate-300">{job.inquiry.createdByName || job.inquiry.createdBy || '-'}</td>
-                  <td className="break-words p-2 text-slate-300">{job.eta.replace('T', ' ')}</td>
+                  <td className="break-words p-2 text-slate-300">{formatDateDisplay(job.eta, true)}</td>
                   <td className="p-2">
                     <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold ${jobStatus.color}`}>
                       {jobStatus.label}
@@ -334,13 +341,28 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
                 <div className="w-full">
                   <label className="text-slate-500 block mb-1 font-semibold">Date Inquiry</label>
-                  <input
-                    type="date"
-                    required
-                    value={form.inquiryDate}
-                    onChange={(e) => setForm({ ...form, inquiryDate: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
-                  />
+                  <div className="relative">
+                    <input
+                      type="text"
+                      readOnly
+                      value={formatDateDisplay(form.inquiryDate)}
+                      onClick={openInquiryDatePicker}
+                      aria-label="Tanggal inquiry"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 pr-10 text-white font-mono"
+                    />
+                    <button type="button" onClick={openInquiryDatePicker} aria-label="Pilih tanggal inquiry" title="Pilih tanggal" className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-300 hover:bg-slate-800">
+                      <Calendar size={16} />
+                    </button>
+                    <input
+                      ref={inquiryDatePickerRef}
+                      type="date"
+                      required
+                      value={form.inquiryDate}
+                      onChange={(e) => setForm({ ...form, inquiryDate: e.target.value })}
+                      aria-label="Pilih tanggal inquiry"
+                      className="pointer-events-none absolute h-px w-px opacity-0"
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="text-slate-500 block mb-1 font-semibold">Customer / Principal / Charterer</label>

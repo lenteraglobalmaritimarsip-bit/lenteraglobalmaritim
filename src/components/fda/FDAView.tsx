@@ -826,9 +826,12 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   const formatFDAExportDates = (html: string) => {
     const inquiryDate = activeJob.inquiry?.date || activeJob.createdAt;
-    const currentFDAFallback = new Date().toLocaleDateString('id-ID');
+    const currentFDAFallback = formatDateDisplay(new Date());
     const formattedFDAFallback = formatDateDisplay(activeJob.fda?.date || new Date().toISOString().slice(0, 10));
-    return html
+    const dates = [inquiryDate, activeJob.fda?.date, activeJob.eta, activeJob.etd]
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => right.length - left.length);
+    return dates.reduce((result, value) => result.replaceAll(value, formatDateDisplay(value)), html)
       .replaceAll(new Date(inquiryDate).toLocaleDateString('id-ID'), formatDateDisplay(inquiryDate))
       .replaceAll(activeJob.fda?.date || currentFDAFallback, formattedFDAFallback)
       .replaceAll('AMOUNT</th>', `AMOUNT ${viewCurrency}</th>`);
@@ -1116,8 +1119,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
                       </td>
                       <td className="p-3 font-bold text-white">{j.vesselName}</td>
                       <td className="p-3 text-slate-300">{j.customerName}</td>
-                      <td className="p-3 text-slate-200">{j.eta || '-'}</td>
-                      <td className="p-3 text-slate-200">{j.etd || '-'}</td>
+                      <td className="p-3 text-slate-200">{formatDateDisplay(j.eta, true)}</td>
+                      <td className="p-3 text-slate-200">{formatDateDisplay(j.etd, true)}</td>
                       <td className="p-3">
                         <div className="flex flex-wrap items-center gap-2">
                           <button
@@ -1302,7 +1305,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                       <td className="p-3 font-mono text-slate-300">{formatTariffNumber(vessels.find((vessel) => vessel.id === job.vesselId)?.grt)}</td>
                       <td className="p-3 text-slate-300">{job.customerName}</td>
                       <td className="p-3 text-slate-300">{job.portName}</td>
-                      <td className="p-3 whitespace-nowrap text-slate-300">{job.eta || '-'}</td>
+                      <td className="p-3 whitespace-nowrap text-slate-300">{formatInquiryDate(job.eta)}</td>
                     </tr>
                   ))}
                   {!approvedJobs.length && (

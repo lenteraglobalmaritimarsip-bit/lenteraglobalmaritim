@@ -6,6 +6,8 @@ import {
   ClipboardCheck, Calculator
 } from 'lucide-react';
 import { UserRole, ActiveTab } from '../../types';
+import { formatDateDisplay } from '../../utils/date';
+            {formatDateDisplay(new Date())}
 
 interface SidebarProps {
   currentRole: UserRole;
@@ -100,7 +102,7 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
         <div className="maritim-today-card">
           <div className="maritim-today-label">TODAY</div>
           <div className="maritim-today-date">
-            {new Intl.DateTimeFormat('id-ID',{weekday:'long',day:'2-digit',month:'long',year:'numeric'}).format(new Date())}
+            {formatDateDisplay(new Date())}
           </div>
         </div>
       </div>
