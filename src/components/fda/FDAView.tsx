@@ -168,9 +168,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   const formatAccountingNumber = (value: number, currency: 'USD' | 'IDR') => {
     const normalized = Number(value || 0);
-    const fractionDigits = 2;
+    const fractionDigits = currency === 'IDR' ? 0 : 2;
     return new Intl.NumberFormat('en-US', {
-      minimumFractionDigits: 2,
+      minimumFractionDigits: fractionDigits,
       maximumFractionDigits: fractionDigits,
       useGrouping: true,
     }).format(normalized);
