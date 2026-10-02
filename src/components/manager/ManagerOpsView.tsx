@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
+import ExcelJS from 'exceljs';
 import {
   ShieldCheck,
   CheckCircle2,
   XCircle,
   Eye,
+  Download,
   Ship,
   Clock,
   TrendingUp,
@@ -13,13 +15,14 @@ import {
   DollarSign,
   Search,
 } from 'lucide-react';
-import { JobCall, ActiveTab } from '../../types';
+import { JobCall, ActiveTab, Vessel } from '../../types';
 import { db } from '../../db/storage';
 import { formatDateDisplay } from '../../utils/date';
 
 interface ManagerOpsViewProps {
   initialTab?: 'DASHBOARD' | 'QUOTES_VIEW' | 'APPROVAL';
   jobCalls: JobCall[];
+  vessels?: Vessel[];
   users?: Array<{ id?: string; name?: string; branch?: string; username?: string; role?: string }>;
   onSelectJob: (jobId: string) => void;
   onNavigate: (tab: ActiveTab) => void;
@@ -28,6 +31,7 @@ interface ManagerOpsViewProps {
 export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
   initialTab = 'DASHBOARD',
   jobCalls,
+  vessels = [],
   users = [],
   onSelectJob,
   onNavigate,
@@ -170,6 +174,86 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
   });
   const formatReviewMonth = (value: string) => new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' })
     .format(new Date(`${value}-01T00:00:00`));
+
+  const downloadReviewReport = async () => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Quotes Review');
+    const headers = [
+      'Job Vessel', 'Tanggal Inquiry', 'Vessel', 'Customer', 'Port', 'No EPDA', 'No FDA', 'Branch',
+      'ETA', 'ETD', 'GRT', 'Created By', 'Status', 'Total EPDA (USD)', 'Total EPDA (IDR)',
+      'Total FDA (USD)', 'Total FDA (IDR)',
+    ];
+    const lastColumn = String.fromCharCode(64 + headers.length);
+
+    worksheet.mergeCells(`A1:${lastColumn}1`);
+    worksheet.getCell('A1').value = 'LAPORAN QUOTES REVIEW';
+    worksheet.mergeCells(`A2:${lastColumn}2`);
+    worksheet.getCell('A2').value = `Periode: ${reviewMonth === 'ALL' ? 'Semua Bulan' : formatReviewMonth(reviewMonth)}`;
+    worksheet.addRow([]);
+    worksheet.addRow(headers);
+    worksheet.views = [{ state: 'frozen', ySplit: 4 }];
+
+    const headerRow = worksheet.getRow(4);
+    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1E3A5F' } };
+    headerRow.alignment = { vertical: 'middle', wrapText: true };
+    worksheet.autoFilter = { from: 'A4', to: `${lastColumn}${Math.max(4, filteredReviewJobs.length + 4)}` };
+    worksheet.columns = [
+      { width: 20 }, { width: 16 }, { width: 24 }, { width: 28 }, { width: 20 }, { width: 24 },
+      { width: 24 }, { width: 22 }, { width: 21 }, { width: 21 }, { width: 14 }, { width: 28 },
+      { width: 20 }, { width: 20 }, { width: 20 }, { width: 20 }, { width: 20 },
+    ];
+
+    filteredReviewJobs.forEach((job) => {
+      const creator = resolveCreatedByMeta(job);
+      const vessel = vessels.find((item) => item.id === job.vesselId);
+      const epdaTotals: Record<'USD' | 'IDR', number> = { USD: 0, IDR: 0 };
+      job.quotation.epda.items.forEach((item) => {
+        epdaTotals[item.currency || job.quotation.epda.currency] += Number(item.totalSellRate || 0);
+      });
+      const fdaTotals: Record<'USD' | 'IDR', number> = { USD: 0, IDR: 0 };
+      (job.actualCosts || []).forEach((item) => {
+        fdaTotals[item.currency || job.fda?.currency || job.currency] += Number(item.amount || 0);
+      });
+
+      worksheet.addRow([
+        job.jobId,
+        formatDateDisplay(job.inquiry?.date),
+        job.vesselName,
+        job.customerName,
+        job.portName,
+        job.quotation.epda.quoteNo || '-',
+        job.fda?.fdaNo || '-',
+        creator.branch,
+        formatDateDisplay(job.eta, true),
+        formatDateDisplay(job.etd, true),
+        vessel?.grt ?? '-',
+        creator.user,
+        job.status,
+        epdaTotals.USD,
+        epdaTotals.IDR,
+        fdaTotals.USD,
+        fdaTotals.IDR,
+      ]);
+    });
+
+    [14, 16].forEach((column) => { worksheet.getColumn(column).numFmt = '"$"#,##0.00'; });
+    [15, 17].forEach((column) => { worksheet.getColumn(column).numFmt = '"Rp" #,##0'; });
+
+    try {
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `quotes-review-${reviewMonth === 'ALL' ? 'semua-bulan' : reviewMonth}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setActionSuccess('Laporan Quotes Review gagal dibuat. Silakan coba lagi.');
+      setTimeout(() => setActionSuccess(null), 4000);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -367,6 +451,9 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                 {reviewMonths.map((month) => <option key={month} value={month}>{formatReviewMonth(month)}</option>)}
               </select>
               <span className="whitespace-nowrap rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-300">{filteredReviewJobs.length} Vessel Call</span>
+              <button type="button" onClick={() => void downloadReviewReport()} className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-500">
+                <Download className="h-4 w-4" /> Unduh Excel
+              </button>
             </div>
           </div>
 

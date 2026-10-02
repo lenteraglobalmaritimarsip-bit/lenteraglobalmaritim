@@ -501,6 +501,7 @@ export default function App() {
                       : 'APPROVAL'
                   }
                   jobCalls={roleVisibleJobCalls}
+                  vessels={data.vessels}
                   users={data.users}
                   onSelectJob={setSelectedJobId}
                   onNavigate={setActiveTab}

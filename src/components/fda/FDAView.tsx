@@ -826,15 +826,14 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   const formatFDAExportDates = (html: string) => {
     const inquiryDate = activeJob.inquiry?.date || activeJob.createdAt;
-    const currentFDAFallback = formatDateDisplay(new Date());
+    const currentFDAFallback = new Date().toLocaleDateString('id-ID');
     const formattedFDAFallback = formatDateDisplay(activeJob.fda?.date || new Date().toISOString().slice(0, 10));
-    const dates = [inquiryDate, activeJob.fda?.date, activeJob.eta, activeJob.etd]
-      .filter((value): value is string => Boolean(value))
-      .sort((left, right) => right.length - left.length);
-    return dates.reduce((result, value) => result.replaceAll(value, formatDateDisplay(value)), html)
+    const isoDatePattern = /\b\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?\b/g;
+    return html
       .replaceAll(new Date(inquiryDate).toLocaleDateString('id-ID'), formatDateDisplay(inquiryDate))
       .replaceAll(activeJob.fda?.date || currentFDAFallback, formattedFDAFallback)
-      .replaceAll('AMOUNT</th>', `AMOUNT ${viewCurrency}</th>`);
+      .replaceAll('AMOUNT</th>', `AMOUNT ${viewCurrency}</th>`)
+      .replace(isoDatePattern, (value) => formatDateDisplay(value));
   };
 
   const normalizeFDAExportLayoutBase = (html: string) => pushFinanceSignatureDown(formatFDAExportDates(html.replaceAll('>CURRENCY<', '>TARIFF<').replace('</style>', 'h2{background:#28598e!important;color:#fff!important;text-align:center!important}.section td{background:#566270!important;color:#fff!important}.subtotal,.grand{background:#dbe8f2!important}.grand{color:#f00!important}.bank,.signature{box-sizing:border-box}.signature-main{display:block}.signature-role{display:block;margin-top:120px;padding-top:12px}.meta-col.right{justify-self:end;width:100%;padding-left:0;transform:translateX(35%)}table th:nth-child(2),table td:nth-child(2){width:20%!important}table th:nth-child(3),table td:nth-child(3){width:35%!important;text-align:center!important;white-space:nowrap}table th:nth-child(4),table td:nth-child(4){width:12%!important;white-space:nowrap}</style>')));
