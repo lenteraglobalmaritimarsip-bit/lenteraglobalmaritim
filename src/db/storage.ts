@@ -149,6 +149,8 @@ class DatabaseService {
   private state: DatabaseState;
   private listeners: Array<(state: DatabaseState) => void> = [];
   private apiSaveQueue: Promise<void> = Promise.resolve();
+  private apiRevision = '';
+  private stateVersion = 0;
   private actor: { id?: string; name: string; role: UserRole; branch?: string } = { name: 'System', role: 'ADMIN' };
 
   constructor() {
@@ -235,6 +237,7 @@ class DatabaseService {
   public async hydrate(): Promise<void> {
     if (apiAuth.enabled) {
       const remote = await dataApi.load();
+      this.apiRevision = remote.revision;
       if (!remote.initialized && this.actor.role === 'ADMIN') {
         const defaults = this.getDefaultState();
         this.state = {
@@ -245,7 +248,7 @@ class DatabaseService {
           auditLogs: remote.state.auditLogs,
           currentRole: this.actor.role,
         };
-        await dataApi.save(this.state);
+        this.apiRevision = await dataApi.save(this.state, this.apiRevision);
       } else {
         this.state = { ...remote.state, currentRole: this.actor.role };
       }
@@ -253,6 +256,17 @@ class DatabaseService {
       return;
     }
     this.state = this.loadLocalState();
+    this.notify();
+  }
+
+  public async refreshRemote(): Promise<void> {
+    if (!apiAuth.enabled) return;
+    await this.apiSaveQueue;
+    const version = this.stateVersion;
+    const remote = await dataApi.load();
+    if (version !== this.stateVersion) return;
+    this.state = { ...remote.state, currentRole: this.actor.role };
+    this.apiRevision = remote.revision;
     this.notify();
   }
 
@@ -277,6 +291,7 @@ class DatabaseService {
   }
 
   private saveToStorage(): boolean {
+    this.stateVersion += 1;
     try {
       const safeState = apiAuth.enabled
         ? { ...this.state, users: this.state.users.map(({ password: _password, ...user }) => user) }
@@ -290,7 +305,7 @@ class DatabaseService {
     if (apiAuth.enabled) {
       const snapshot = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
       this.apiSaveQueue = this.apiSaveQueue
-        .then(() => dataApi.save(snapshot))
+        .then(async () => { this.apiRevision = await dataApi.save(snapshot, this.apiRevision); })
         .catch((error: unknown) => {
           const message = error instanceof Error ? error.message : 'Database synchronization failed';
           console.error('Failed to synchronize database state:', error);

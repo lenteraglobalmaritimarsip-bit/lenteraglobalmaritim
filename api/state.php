@@ -13,12 +13,55 @@ function branchCode(string $branch): string
     return $initials === '' ? 'HO' : str_pad($initials, 3, 'X');
 }
 
+function stateRevision(array $state): string
+{
+    unset($state['currentRole'], $state['selectedJobId']);
+    $encoded = json_encode($state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($encoded === false) throw new RuntimeException('Unable to calculate application state revision');
+    return hash('sha256', $encoded);
+}
+
+function applyNonAdminMasterData(array &$state, array $before, string $role): void
+{
+    foreach (['users', 'customers', 'vessels', 'ports', 'zones'] as $key) {
+        $state[$key] = $before[$key];
+    }
+
+    $canAddItems = in_array($role, ['SALES', 'FDA'], true);
+    foreach (['fixTariffs', 'expensesItems'] as $key) {
+        $existing = [];
+        foreach ($before[$key] as $item) $existing[(string) $item['id']] = $item;
+        $incoming = is_array($state[$key] ?? null) ? $state[$key] : [];
+        $incomingIds = [];
+        $additions = [];
+
+        foreach ($incoming as $item) {
+            $id = (string) ($item['id'] ?? '');
+            if ($id === '') jsonResponse(['error' => 'Master data item ID is required'], 400);
+            $incomingIds[$id] = true;
+            if (isset($existing[$id])) {
+                if (json_encode($existing[$id]) !== json_encode($item)) {
+                    jsonResponse(['error' => 'Only administrators can edit or delete master data'], 403);
+                }
+                continue;
+            }
+            if (!$canAddItems) jsonResponse(['error' => 'Only Sales and FDA can add service master data'], 403);
+            $additions[] = $item;
+        }
+
+        if (array_diff_key($existing, $incomingIds)) {
+            jsonResponse(['error' => 'Only administrators can edit or delete master data'], 403);
+        }
+        $state[$key] = array_merge($before[$key], $additions);
+    }
+}
+
 try {
     if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
         requireAuthenticatedUser();
         $state = loadAppState();
         $initialized = !empty($state['ports']) || !empty($state['customers']) || !empty($state['vessels']);
-        jsonResponse(['state' => $state, 'initialized' => $initialized]);
+        jsonResponse(['state' => $state, 'initialized' => $initialized, 'revision' => stateRevision($state)]);
     }
 
     requireMethod('PUT');
@@ -29,14 +72,27 @@ try {
     if (!is_array($state) || !isset($state['jobCalls']) || !is_array($state['jobCalls'])) {
         jsonResponse(['error' => 'Invalid application state'], 400);
     }
+    $revision = $body['revision'] ?? null;
+    if (!is_string($revision) || $revision === '') {
+        jsonResponse(['error' => 'Application state revision is required'], 400);
+    }
+
+    $pdo = db();
+    $lock = $pdo->query("SELECT GET_LOCK('maritimport_app_state', 10)")->fetchColumn();
+    if ((int) $lock !== 1) jsonResponse(['error' => 'Could not lock application state for saving'], 503);
+    $before = loadAppState();
+    $currentRevision = stateRevision($before);
+    if (!hash_equals($currentRevision, $revision)) {
+        jsonResponse([
+            'error' => 'Data berubah oleh pengguna lain. Muat ulang sebelum menyimpan.',
+            'code' => 'STATE_CONFLICT',
+            'state' => $before,
+            'revision' => $currentRevision,
+        ], 409);
+    }
 
     if ($actor['role'] !== 'ADMIN') {
-        $before = loadAppState();
-        foreach (['users', 'customers', 'vessels', 'ports', 'zones', 'fixTariffs', 'expensesItems'] as $key) {
-            if (json_encode($state[$key] ?? []) !== json_encode($before[$key] ?? [])) {
-                jsonResponse(['error' => 'Only administrators can change master data'], 403);
-            }
-        }
+        applyNonAdminMasterData($state, $before, (string) $actor['role']);
         $allowed = match ($actor['role']) {
             'SALES' => ['inquiry', 'quotation', 'status', 'currentStage', 'updatedAt', 'vesselId', 'vesselName', 'portId', 'portName', 'customerId', 'customerName', 'currency', 'exchangeRateUSDToIDR', 'eta', 'etd', 'purposeOfCall'],
             'MANAGER_OPS' => ['managerApproval', 'quotation', 'fda', 'status', 'currentStage', 'updatedAt'],
@@ -103,8 +159,6 @@ try {
                 }
             }
         }
-        $state['users'] = $before['users'];
-        foreach (['customers', 'vessels', 'ports', 'zones', 'fixTariffs', 'expensesItems'] as $key) $state[$key] = $before[$key];
         $state['auditLogs'] = $before['auditLogs'];
         foreach (array_unique($changedJobIds) as $jobId) {
             array_unshift($state['auditLogs'], [
@@ -123,7 +177,10 @@ try {
     }
 
     replaceAppState($state);
-    jsonResponse(['ok' => true]);
+    $savedState = loadAppState();
+    $savedRevision = stateRevision($savedState);
+    $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+    jsonResponse(['ok' => true, 'revision' => $savedRevision]);
 } catch (PDOException $error) {
     error_log('MaritimPort state database error: ' . $error->getMessage());
     jsonResponse(['error' => 'Database operation failed', 'details' => $config['debug'] ? $error->getMessage() : null], 500);

@@ -228,6 +228,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!apiAuth.enabled || !currentUser) return;
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      void db.refreshRemote().catch((error) => console.error('API refresh failed:', error));
+    };
+    const intervalId = window.setInterval(refresh, 15_000);
+    return () => window.clearInterval(intervalId);
+  }, [currentUser]);
+
+  useEffect(() => {
     const handleApiSaveError = (event: Event) => {
       const message = (event as CustomEvent<string>).detail;
       setSaveToast(`Database gagal menyimpan perubahan: ${message}`);
