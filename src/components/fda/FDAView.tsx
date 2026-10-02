@@ -742,9 +742,10 @@ export const FDAView: React.FC<FDAViewProps> = ({
       .replace(/<div class="sign">[\s\S]*?<\/div>/, '')
       .replace(/<div class="meta">[\s\S]*?(?=<table(?:\s|>))/i, inquiryMeta)
       .replaceAll('>No.</span>', '>No EPDA</span>');
+    const centeredCompactHtml = compactHtml.replace('</style>', 'table th{text-align:center!important}table tr.item-row td:nth-child(3){text-align:center!important}</style>');
     const windowRef = window.open('', '_blank', 'width=900,height=1100');
     if (!windowRef) return;
-    windowRef.document.write(compactHtml.replaceAll('.meta-col.right{justify-self:stretch}', '.meta-col.right{justify-self:end;width:100%;padding-left:0;transform:translateX(35%)}'));
+    windowRef.document.write(centeredCompactHtml.replaceAll('.meta-col.right{justify-self:stretch}', '.meta-col.right{justify-self:end;width:100%;padding-left:0;transform:translateX(35%)}'));
     windowRef.document.close();
   };
 
@@ -829,24 +830,26 @@ export const FDAView: React.FC<FDAViewProps> = ({
     const formattedFDAFallback = formatDateDisplay(activeJob.fda?.date || new Date().toISOString().slice(0, 10));
     return html
       .replaceAll(new Date(inquiryDate).toLocaleDateString('id-ID'), formatDateDisplay(inquiryDate))
-      .replaceAll(activeJob.fda?.date || currentFDAFallback, formattedFDAFallback);
+      .replaceAll(activeJob.fda?.date || currentFDAFallback, formattedFDAFallback)
+      .replaceAll('AMOUNT</th>', `AMOUNT ${viewCurrency}</th>`);
   };
 
   const normalizeFDAExportLayoutBase = (html: string) => pushFinanceSignatureDown(formatFDAExportDates(html.replaceAll('>CURRENCY<', '>TARIFF<').replace('</style>', 'h2{background:#28598e!important;color:#fff!important;text-align:center!important}.section td{background:#566270!important;color:#fff!important}.subtotal,.grand{background:#dbe8f2!important}.grand{color:#f00!important}.bank,.signature{box-sizing:border-box}.signature-main{display:block}.signature-role{display:block;margin-top:120px;padding-top:12px}.meta-col.right{justify-self:end;width:100%;padding-left:0;transform:translateX(35%)}table th:nth-child(2),table td:nth-child(2){width:20%!important}table th:nth-child(3),table td:nth-child(3){width:35%!important;text-align:center!important;white-space:nowrap}table th:nth-child(4),table td:nth-child(4){width:12%!important;white-space:nowrap}</style>')));
 
   const normalizeFDAExportLayout = (html: string) => normalizeFDAExportLayoutBase(html).replace('</style>', 'table th{text-align:center!important}table tr.item-row td:nth-child(1){text-align:center!important}table tr.item-row td:nth-child(2),table tr.item-row td:nth-child(5){text-align:left!important}table tr.item-row td:nth-child(3){text-align:center!important}table tr.item-row td:nth-child(4){text-align:right!important}table tr.section td{text-align:left!important}table tr.subtotal td:first-child{font-weight:700;text-align:right!important}table tr.grand td:first-child{text-align:right!important}table tr.subtotal td.amount,table tr.grand td.amount{font-variant-numeric:tabular-nums;text-align:right!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}</style>');
+  const centerFDAExportColumns = (html: string) => normalizeFDAExportLayout(html).replace('</style>', 'table th,table td{text-align:center!important}</style>');
 
   const openFDAWindow = (print = false) => {
     const onePageHtml = pushFinanceSignatureDown(buildFDAHtmlSalesTemplate(false).replace('</style>', '@page{size:A4;margin:14mm}body{font-size:9px}.brand-row{margin:0 0 2px}.brand-wrap{min-height:48px;gap:10px}.logo{width:70px;height:52px}.brand{font-size:17px}.tag{font-size:10px;margin-top:2px}h2{font-size:10px;padding:4px;margin:2px 0 4px}.meta{gap:1px 20px;margin-bottom:3px}.meta-col{gap:1px}.meta-row{line-height:1.15}.meta-row .label{font-size:9px}table{page-break-inside:avoid;table-layout:fixed}table th:first-child,table td:first-child{width:5%;text-align:center!important}table th:nth-child(2),table td:nth-child(2){width:42%;text-align:center!important}table th:nth-child(3),table td:nth-child(3){width:8%;text-align:center!important}table th:nth-child(4),table td:nth-child(4){width:17%;text-align:center!important;white-space:nowrap}table th:nth-child(5),table td:nth-child(5){width:28%;text-align:center!important}tr{page-break-inside:avoid}th,td{padding:3px 4px;font-size:8px}.subtotal td:first-child,.grand td:first-child{font-weight:700;text-align:center!important}.subtotal td.amount,.grand td.amount,.subtotal td:nth-child(2),.grand td:nth-child(2){font-variant-numeric:tabular-nums;text-align:center!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}.section td{padding-left:0!important}.bank{display:inline-block;width:42%;margin-top:24px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.signature-main{display:block}.signature-role{display:block;margin-top:22px;padding-top:4px}.office-footer{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center;font-size:8px;line-height:1.2;font-weight:600;color:#111;z-index:3}.office-footer span{color:#e11d48;text-decoration:underline}</style>'));
     const windowRef = window.open('', '_blank', 'width=900,height=1100');
     if (!windowRef) return;
-    windowRef.document.write(normalizeFDAExportLayout(onePageHtml));
+    windowRef.document.write(centerFDAExportColumns(onePageHtml));
     windowRef.document.close();
     if (print) windowRef.onload = () => { windowRef.focus(); windowRef.print(); };
   };
   const printFDA = () => {
     const onePageHtml = pushFinanceSignatureDown(buildFDAHtmlSalesTemplate(true).replace('</style>', '@page{size:A4;margin:14mm}body{font-size:9px}.brand-row{margin:0 0 2px}.brand-wrap{min-height:48px;gap:10px}.logo{width:70px;height:52px}.brand{font-size:17px}.tag{font-size:10px;margin-top:2px}h2{font-size:10px;padding:4px;margin:2px 0 4px}.meta{gap:1px 20px;margin-bottom:3px}.meta-col{gap:1px}.meta-row{line-height:1.15}.meta-row .label{font-size:9px}table{page-break-inside:avoid;table-layout:fixed}table th:first-child,table td:first-child{width:5%;text-align:center!important}table th:nth-child(2),table td:nth-child(2){width:42%;text-align:center!important}table th:nth-child(3),table td:nth-child(3){width:8%;text-align:center!important}table th:nth-child(4),table td:nth-child(4){width:17%;text-align:center!important;white-space:nowrap}table th:nth-child(5),table td:nth-child(5){width:28%;text-align:center!important}tr{page-break-inside:avoid}th,td{padding:3px 4px;font-size:8px}.subtotal td:first-child,.grand td:first-child{font-weight:700;text-align:center!important}.subtotal td.amount,.grand td.amount,.subtotal td:nth-child(2),.grand td:nth-child(2){font-variant-numeric:tabular-nums;text-align:center!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}.section td{padding-left:0!important}.bank{display:inline-block;width:42%;margin-top:24px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.signature-main{display:block}.signature-role{display:block;margin-top:22px;padding-top:4px}.office-footer{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center;font-size:8px;line-height:1.2;font-weight:600;color:#111;z-index:3}.office-footer span{color:#e11d48;text-decoration:underline}</style>'));
-    setPreviewDocument(normalizeFDAExportLayout(onePageHtml));
+    setPreviewDocument(centerFDAExportColumns(onePageHtml));
   };
 
   const handleFDAFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
