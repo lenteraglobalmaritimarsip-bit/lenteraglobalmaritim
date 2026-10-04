@@ -45,7 +45,8 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
   );
 
   const rows = useMemo(
-    () => [...paymentVouchers]
+    () => paymentVouchers
+      .filter((voucher) => voucher.status === 'APPROVED' || voucher.status === 'PAID')
       .filter((voucher) => month === 'ALL' || String(voucher.requestDate).slice(0, 7) === month)
       .sort((a, b) => String(b.requestDate).localeCompare(String(a.requestDate)) || b.requestNumber.localeCompare(a.requestNumber))
       .map((voucher) => ({ voucher, sums: sumItems(voucher) })),
@@ -117,7 +118,7 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-widest text-violet-600">Finance</div>
+            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Finance</div>
             <h1 className="mt-1 text-xl font-black text-slate-900 lg:text-2xl">History Laporan Keuangan</h1>
             <p className="text-xs text-slate-500">Rincian PPN dan PPH per pengajuan pembayaran.</p>
           </div>

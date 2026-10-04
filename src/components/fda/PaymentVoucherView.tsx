@@ -1,14 +1,17 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
 import { JobCall, PaymentVoucher, PaymentVoucherItem, VendorPartner } from '../../types';
 import { db } from '../../db/storage';
 import { parseTariffNumber } from '../../utils/tariff';
+import { printPaymentVoucher } from '../../utils/voucherPrint';
 
 interface PaymentVoucherViewProps {
   jobCalls: JobCall[];
   vendorPartners: VendorPartner[];
   requestBy: string;
   onDataSaved?: () => void;
+  voucher?: PaymentVoucher;
+  onCancelEdit?: () => void;
 }
 
 type JobInfo = PaymentVoucher['jobInfo'];
@@ -55,14 +58,47 @@ const calculate = (row: VoucherRow) => {
   return { vatAmount, total, pph23Amount, pph21Amount, paidAmount: total - pph23Amount - pph21Amount };
 };
 
-const inputClass = 'w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-800 focus:border-violet-500 focus:outline-none';
+const inputClass = 'w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-800 focus:border-slate-400 focus:outline-none';
 const readonlyClass = 'w-full rounded-lg border border-slate-200 bg-slate-100 px-2.5 py-2 text-xs font-semibold text-slate-700';
 
-export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls, vendorPartners, requestBy, onDataSaved }) => {
-  const [requestDate, setRequestDate] = useState(todayIso());
-  const [jobInfo, setJobInfo] = useState<JobInfo>('OPERASIONAL');
-  const [vendorId, setVendorId] = useState('');
-  const [rows, setRows] = useState<VoucherRow[]>(() => [newRow()]);
+interface VoucherDraft {
+  requestDate: string;
+  jobInfo: JobInfo;
+  vendorId: string;
+  rows: VoucherRow[];
+}
+
+const draftKey = (owner: string) => `lgm_voucher_draft_${owner || 'user'}`;
+
+const loadDraft = (owner: string): VoucherDraft | null => {
+  try {
+    const raw = localStorage.getItem(draftKey(owner));
+    if (!raw) return null;
+    const draft = JSON.parse(raw) as VoucherDraft;
+    return draft && Array.isArray(draft.rows) && draft.rows.length > 0 ? draft : null;
+  } catch {
+    return null;
+  }
+};
+
+export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls, vendorPartners, requestBy, onDataSaved, voucher: editingVoucher, onCancelEdit }) => {
+  const [initialDraft] = useState(() => (editingVoucher ? null : loadDraft(requestBy)));
+  const [requestDate, setRequestDate] = useState(() => editingVoucher ? String(editingVoucher.requestDate).slice(0, 10) : initialDraft?.requestDate || todayIso());
+  const [jobInfo, setJobInfo] = useState<JobInfo>(editingVoucher?.jobInfo || initialDraft?.jobInfo || 'OPERASIONAL');
+  const [vendorId, setVendorId] = useState(editingVoucher?.vendorPartnerId || initialDraft?.vendorId || '');
+  const [draftRestored, setDraftRestored] = useState(!!initialDraft);
+  const [rows, setRows] = useState<VoucherRow[]>(() => !editingVoucher && initialDraft ? initialDraft.rows : editingVoucher && editingVoucher.items.length > 0
+    ? editingVoucher.items.map((item) => ({
+        id: item.id,
+        jobNumber: item.jobNumber,
+        customerName: item.customerName,
+        itemService: item.itemService,
+        amount: item.amount,
+        vatApplied: !!item.vatApplied,
+        pph23Applied: !!item.pph23Applied,
+        pph21Applied: !!item.pph21Applied,
+      }))
+    : [newRow()]);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [savedTick, setSavedTick] = useState(0);
@@ -73,7 +109,10 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
   );
 
   // savedTick forces a fresh number after each save.
-  const requestNumber = useMemo(() => db.getNextPaymentVoucherNumber(requestDate), [requestDate, savedTick]);
+  const requestNumber = useMemo(
+    () => editingVoucher ? editingVoucher.requestNumber : db.getNextPaymentVoucherNumber(requestDate),
+    [requestDate, savedTick, editingVoucher],
+  );
   const vendor = vendorPartners.find((item) => item.id === vendorId);
 
   const servicesForJob = (jobNumber: string) => {
@@ -106,14 +145,26 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
 
   const grandTotal = rows.reduce((sum, row) => sum + calculate(row).paidAmount, 0);
 
+  // Autosave draft locally so entry can continue after leaving the menu.
+  useEffect(() => {
+    if (editingVoucher) return;
+    const isBlank = !vendorId && rows.every((row) => !row.jobNumber && !row.customerName && !row.itemService && !row.amount);
+    try {
+      if (isBlank) localStorage.removeItem(draftKey(requestBy));
+      else localStorage.setItem(draftKey(requestBy), JSON.stringify({ requestDate, jobInfo, vendorId, rows } satisfies VoucherDraft));
+    } catch {}
+  }, [editingVoucher, requestBy, requestDate, jobInfo, vendorId, rows]);
+
   const resetForm = () => {
+    if (!editingVoucher) {
+      try { localStorage.removeItem(draftKey(requestBy)); } catch {}
+    }
+    setDraftRestored(false);
     setRequestDate(todayIso());
     setJobInfo('OPERASIONAL');
     setVendorId('');
     setRows([newRow()]);
   };
-
-  const escapeHtml = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
   const handlePrint = () => {
     setError('');
@@ -121,52 +172,21 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
       setError('Pilih vendor sebelum mencetak voucher.');
       return;
     }
-    const formattedDate = new Date(`${requestDate}T00:00:00`).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
-    const bodyRows = rows.map((row, index) => {
-      const result = calculate(row);
-      return `<tr><td class="c">${index + 1}</td><td>${escapeHtml(row.jobNumber)}</td><td>${escapeHtml(row.customerName)}</td><td>${escapeHtml(row.itemService)}</td><td class="r">${money(row.amount)}</td><td class="r">${money(result.vatAmount)}</td><td class="r">${money(result.total)}</td><td class="r">${money(result.pph23Amount)}</td><td class="r">${money(result.pph21Amount)}</td><td class="r b">${money(result.paidAmount)}</td></tr>`;
-    }).join('');
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Payment Voucher ${escapeHtml(requestNumber)}</title><style>
-      @page{size:A4 landscape;margin:12mm}
-      body{font-family:Arial,sans-serif;font-size:11px;color:#111;margin:0}
-      h1{text-align:center;font-size:18px;letter-spacing:1px;margin:0 0 14px}
-      .meta{width:100%;border-collapse:collapse;margin-bottom:12px}
-      .meta td{padding:3px 6px;vertical-align:top}
-      .meta td.k{width:110px;font-weight:bold}
-      table.items{width:100%;border-collapse:collapse}
-      table.items th,table.items td{border:1px solid #444;padding:5px 6px}
-      table.items th{background:#e8e8e8;text-transform:uppercase;font-size:10px}
-      .r{text-align:right}.c{text-align:center}.b{font-weight:bold}
-      .sign{width:100%;margin-top:36px;border-collapse:collapse}
-      .sign td{width:25%;text-align:center;padding-top:4px}
-      .sign .space{height:60px}
-    </style></head><body>
-      <h1>PAYMENT VOUCHER</h1>
-      <table class="meta"><tr>
-        <td class="k">Request Number</td><td>: ${escapeHtml(requestNumber)}</td>
-        <td class="k">Vendor Name</td><td>: ${escapeHtml(vendor.vendorName)}</td></tr><tr>
-        <td class="k">Request Date</td><td>: ${escapeHtml(formattedDate)}</td>
-        <td class="k">Paid To</td><td>: ${escapeHtml(vendor.paidName)}</td></tr><tr>
-        <td class="k">Info JOB</td><td>: ${jobInfo === 'JOB_VESSEL' ? 'JOB Vessel' : 'Operasional'}</td>
-        <td class="k">Bank</td><td>: ${escapeHtml(vendor.bankName)}</td></tr><tr>
-        <td class="k">Request By</td><td>: ${escapeHtml(requestBy)}</td>
-        <td class="k">A/c Number</td><td>: ${escapeHtml(vendor.accountNumber)}</td></tr></table>
-      <table class="items"><thead><tr><th>No</th><th>JOB Number</th><th>Customer</th><th>Item Service</th><th>Amount</th><th>Vat</th><th>Total</th><th>PPH 23 (1%)</th><th>PPH 21 (2%)</th><th>Paid Amount</th></tr></thead>
-      <tbody>${bodyRows}</tbody>
-      <tfoot><tr><td colspan="9" class="r b">TOTAL PAID AMOUNT</td><td class="r b">${money(grandTotal)}</td></tr></tfoot></table>
-      <table class="sign"><tr><td>Dibuat oleh</td><td>Diperiksa oleh</td><td>Disetujui oleh</td><td>Diterima oleh</td></tr>
-      <tr><td class="space"></td><td></td><td></td><td></td></tr>
-      <tr><td>( ${escapeHtml(requestBy)} )</td><td>(                    )</td><td>(                    )</td><td>(                    )</td></tr></table>
-    </body></html>`;
-    const printWindow = window.open('', '_blank', 'width=1100,height=800');
-    if (!printWindow) {
-      setError('Pop-up diblokir browser. Izinkan pop-up untuk mencetak voucher.');
-      return;
-    }
-    printWindow.document.open();
-    printWindow.document.write(html);
-    printWindow.document.close();
-    printWindow.onload = () => { printWindow.focus(); printWindow.print(); };
+    const printError = printPaymentVoucher({
+      requestNumber,
+      requestDate,
+      jobInfo,
+      requestBy,
+      checkerName: requestBy,
+      signerName: editingVoucher?.reviewedBy,
+      paidBy: editingVoucher?.paidBy,
+      vendorName: vendor.vendorName,
+      paidTo: vendor.paidName,
+      bankName: vendor.bankName,
+      accountNumber: vendor.accountNumber,
+      items: rows.map((row) => ({ jobNumber: row.jobNumber, customerName: row.customerName, itemService: row.itemService, amount: row.amount, ...calculate(row) })),
+    });
+    if (printError) setError(printError);
   };
 
   const handleSave = async (event: React.FormEvent) => {
@@ -197,6 +217,21 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
       })(),
     }));
     try {
+      if (editingVoucher) {
+        await db.updatePaymentVoucher(editingVoucher.id, {
+          requestDate,
+          jobInfo,
+          vendorPartnerId: vendor.id,
+          vendorName: vendor.vendorName,
+          paidTo: vendor.paidName,
+          bankName: vendor.bankName,
+          accountNumber: vendor.accountNumber,
+          items,
+          totalPaidAmount: items.reduce((sum, item) => sum + item.paidAmount, 0),
+        });
+        onDataSaved?.();
+        return;
+      }
       const saved = await db.addPaymentVoucher({
         requestDate,
         jobInfo,
@@ -209,7 +244,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
         items,
         totalPaidAmount: items.reduce((sum, item) => sum + item.paidAmount, 0),
       });
-      setMessage(`Payment Voucher ${saved.requestNumber} berhasil disimpan.`);
+      setMessage(`Payment Voucher ${saved.requestNumber} berhasil disimpan dan dikirim ke Manager untuk persetujuan.`);
       setSavedTick((tick) => tick + 1);
       resetForm();
       onDataSaved?.();
@@ -221,7 +256,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
   return (
     <form onSubmit={handleSave} className="space-y-5">
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="text-[10px] font-bold uppercase tracking-widest text-violet-600">Request Payment</div>
+        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{editingVoucher ? 'Edit Voucher' : 'Request Payment'}</div>
         <h1 className="mt-1 text-xl font-black text-slate-900 lg:text-2xl">PAYMENT VOUCHER</h1>
 
         <div className="mt-5 grid grid-cols-1 gap-4 text-xs md:grid-cols-2">
@@ -391,9 +426,20 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
       {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">{error}</div>}
       {message && <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-700">{message}</div>}
 
-      <div className="flex justify-end">
+      {draftRestored && !editingVoucher && (
+        <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs font-semibold text-sky-700">
+          Draft sebelumnya dipulihkan. Perubahan disimpan otomatis sampai voucher disimpan.
+        </div>
+      )}
+
+      <div className="flex justify-end gap-2">
+        {editingVoucher && (
+          <button type="button" onClick={onCancelEdit} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100">
+            Batal
+          </button>
+        )}
         <button type="submit" className="flex items-center gap-2 rounded-xl border border-slate-300 bg-slate-200 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-300">
-          <Save className="h-4 w-4" /> Simpan Voucher
+          <Save className="h-4 w-4" /> {editingVoucher ? 'Simpan Perubahan' : 'Simpan Voucher'}
         </button>
       </div>
     </form>

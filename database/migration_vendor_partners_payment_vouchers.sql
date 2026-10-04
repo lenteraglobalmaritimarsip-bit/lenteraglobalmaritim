@@ -27,6 +27,12 @@ CREATE TABLE IF NOT EXISTS payment_vouchers (
   bank_name VARCHAR(150),
   account_number VARCHAR(80),
   total_paid_amount DECIMAL(30,2) NOT NULL DEFAULT 0,
+  status ENUM('PENDING_MANAGER', 'APPROVED', 'REJECTED', 'PAID') NOT NULL DEFAULT 'PENDING_MANAGER',
+  manager_note TEXT,
+  reviewed_by VARCHAR(200),
+  reviewed_at DATETIME(3) NULL,
+  paid_by VARCHAR(200),
+  paid_at DATETIME(3) NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   INDEX idx_payment_vouchers_date (request_date),
@@ -53,3 +59,11 @@ CREATE TABLE IF NOT EXISTS payment_voucher_items (
   INDEX idx_payment_voucher_items_job (job_number),
   CONSTRAINT fk_payment_voucher_items_voucher FOREIGN KEY (voucher_id) REFERENCES payment_vouchers(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- Untuk database yang SUDAH punya tabel payment_vouchers (tanpa kolom approval), jalankan:
+-- ALTER TABLE payment_vouchers
+--   ADD COLUMN status ENUM('PENDING_MANAGER','APPROVED','REJECTED','PAID') NOT NULL DEFAULT 'PENDING_MANAGER' AFTER total_paid_amount,
+--   ADD COLUMN manager_note TEXT NULL AFTER status,
+--   ADD COLUMN reviewed_by VARCHAR(200) NULL AFTER manager_note,
+--   ADD COLUMN reviewed_at DATETIME(3) NULL AFTER reviewed_by,
+--   ADD COLUMN paid_by VARCHAR(200) NULL AFTER reviewed_at,
+--   ADD COLUMN paid_at DATETIME(3) NULL AFTER paid_by;

@@ -15,6 +15,9 @@ import { JobsEntryView } from './components/sales/JobsEntryView';
 import { ManagerOpsView } from './components/manager/ManagerOpsView';
 import { FDAView } from './components/fda/FDAView';
 import { PaymentVoucherView } from './components/fda/PaymentVoucherView';
+import { VoucherApprovalView } from './components/manager/VoucherApprovalView';
+import { VoucherHistoryView } from './components/fda/VoucherHistoryView';
+import { EditVoucherView } from './components/fda/EditVoucherView';
 import { FinanceView } from './components/finance/FinanceView';
 import { AccountsPayableView } from './components/finance/AccountsPayableView';
 import { FinancialHistoryView } from './components/finance/FinancialHistoryView';
@@ -492,12 +495,17 @@ export default function App() {
               />
             )}
 
+            {currentRole === 'FDA' && activeTab === 'FDA_EDIT_VOUCHER' && (
+              <EditVoucherView
+                jobCalls={roleVisibleJobCalls}
+                vendorPartners={data.vendorPartners || []}
+                paymentVouchers={data.paymentVouchers || []}
+                requestBy={currentUser?.name || ''}
+              />
+            )}
+
             {currentRole === 'FDA' && activeTab === 'FDA_PAYMENT_HISTORY' && (
-              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-                <div className="text-[10px] font-bold uppercase tracking-widest text-violet-600">Request Payment</div>
-                <h1 className="text-xl lg:text-2xl font-black text-slate-900">History</h1>
-                <p className="text-xs text-slate-500 mt-1">Halaman ini akan diisi pada tahap berikutnya.</p>
-              </div>
+              <VoucherHistoryView paymentVouchers={data.paymentVouchers || []} />
             )}
 
             {currentRole === 'FDA' && roleVisibleJobCalls.length > 0 && activeTab === 'FDA_QUOTES_PDA' && (
@@ -507,6 +515,10 @@ export default function App() {
                 onSelectJob={setSelectedJobId}
                 onDataSaved={notifySaved}
               />
+            )}
+
+            {currentRole === 'MANAGER_OPS' && activeTab === 'MANAGER_VOUCHER_APPROVAL' && (
+              <VoucherApprovalView paymentVouchers={data.paymentVouchers || []} reviewer={currentUser?.name || ''} />
             )}
 
             {/* 3. MANAGER OPS VIEWS */}
@@ -568,7 +580,7 @@ export default function App() {
 
             {/* 5. FINANCE VIEWS */}
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_ACCOUNTS_PAYABLE' && (
-              <AccountsPayableView paymentVouchers={data.paymentVouchers || []} />
+              <AccountsPayableView paymentVouchers={data.paymentVouchers || []} payer={currentUser?.name || ''} />
             )}
 
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_HISTORY_REPORT' && (

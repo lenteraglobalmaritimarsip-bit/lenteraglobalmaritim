@@ -313,7 +313,10 @@ class DatabaseService {
     if (apiAuth.enabled) {
       const snapshot = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
       this.apiSaveQueue = this.apiSaveQueue
-        .then(async () => { this.apiRevision = await dataApi.save(snapshot, this.apiRevision); })
+        .then(async () => {
+          if (!this.apiRevision) throw new Error('Data belum tersinkron dengan database (sesi login mungkin habis). Muat ulang halaman atau login ulang, lalu ulangi.');
+          this.apiRevision = await dataApi.save(snapshot, this.apiRevision);
+        })
         .catch((error: unknown) => {
           const message = error instanceof Error ? error.message : 'Database synchronization failed';
           console.error('Failed to synchronize database state:', error);
@@ -641,11 +644,45 @@ class DatabaseService {
 
   public async addPaymentVoucher(voucher: Omit<PaymentVoucher, 'id' | 'requestNumber' | 'createdAt'>): Promise<PaymentVoucher> {
     const requestNumber = this.getNextPaymentVoucherNumber(voucher.requestDate);
-    const newVoucher: PaymentVoucher = { ...voucher, id: `PV-${Date.now()}`, requestNumber, createdAt: new Date().toISOString() };
+    const newVoucher: PaymentVoucher = { ...voucher, status: 'PENDING_MANAGER', id: `PV-${Date.now()}`, requestNumber, createdAt: new Date().toISOString() };
     this.state.paymentVouchers = [newVoucher, ...(this.state.paymentVouchers || [])];
     this.audit('CREATE', 'PAYMENT_VOUCHER', `Created payment voucher ${requestNumber}`, newVoucher.id);
     await this.saveToStorage();
     return newVoucher;
+  }
+
+  public async updatePaymentVoucher(id: string, patch: Partial<Omit<PaymentVoucher, 'id' | 'requestNumber' | 'createdAt'>>): Promise<void> {
+    const existing = (this.state.paymentVouchers || []).find((v) => v.id === id);
+    if (!existing) throw new Error('Payment Voucher tidak ditemukan.');
+    const resubmit = existing.status === 'REJECTED';
+    this.state.paymentVouchers = this.state.paymentVouchers.map((v) => (v.id === id
+      ? { ...v, ...patch, ...(resubmit ? { status: 'PENDING_MANAGER' as const, managerNote: '', reviewedBy: '', reviewedAt: '' } : {}) }
+      : v));
+    this.audit('UPDATE', 'PAYMENT_VOUCHER', `Updated payment voucher ${existing.requestNumber}`, id);
+    await this.saveToStorage();
+  }
+
+  public async reviewPaymentVoucher(id: string, decision: 'APPROVED' | 'REJECTED', reviewer: string, note = ''): Promise<void> {
+    const existing = (this.state.paymentVouchers || []).find((v) => v.id === id);
+    if (!existing) throw new Error('Payment Voucher tidak ditemukan.');
+    if ((existing.status || 'PENDING_MANAGER') !== 'PENDING_MANAGER') throw new Error('Voucher ini tidak sedang menunggu persetujuan.');
+    if (decision === 'REJECTED' && !note.trim()) throw new Error('Alasan penolakan wajib diisi.');
+    this.state.paymentVouchers = this.state.paymentVouchers.map((v) => (v.id === id
+      ? { ...v, status: decision, managerNote: note.trim(), reviewedBy: reviewer, reviewedAt: new Date().toISOString() }
+      : v));
+    this.audit(decision === 'APPROVED' ? 'APPROVE' : 'REJECT', 'PAYMENT_VOUCHER', `Payment voucher ${existing.requestNumber} ${decision}`, id);
+    await this.saveToStorage();
+  }
+
+  public async payPaymentVoucher(id: string, payer: string): Promise<void> {
+    const existing = (this.state.paymentVouchers || []).find((v) => v.id === id);
+    if (!existing) throw new Error('Payment Voucher tidak ditemukan.');
+    if (existing.status !== 'APPROVED') throw new Error('Hanya voucher yang sudah disetujui yang dapat dibayar.');
+    this.state.paymentVouchers = this.state.paymentVouchers.map((v) => (v.id === id
+      ? { ...v, status: 'PAID' as const, paidBy: payer, paidAt: new Date().toISOString() }
+      : v));
+    this.audit('PAY', 'PAYMENT_VOUCHER', `Paid payment voucher ${existing.requestNumber}`, id);
+    await this.saveToStorage();
   }
 
   // --- JOB / VESSEL CALL LIFECYCLE ---
@@ -838,7 +875,7 @@ class DatabaseService {
       operationalData: {
         statementOfFacts: [
           {
-            id: 'SOF-INIT',
+            id: `SOF-INIT-${documentNumberJobId}`,
             timestamp: new Date().toISOString().slice(0, 16).replace('T', ' '),
             event: 'Job opened in MaritimPort system',
           },

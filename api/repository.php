@@ -4,8 +4,22 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/bootstrap.php';
 
+function tableColumns(PDO $pdo, string $table): ?array
+{
+    static $cache = [];
+    if (!array_key_exists($table, $cache)) {
+        try {
+            $cache[$table] = array_column($pdo->query("SHOW COLUMNS FROM `{$table}`")->fetchAll(), 'Field');
+        } catch (PDOException $error) {
+            $cache[$table] = null;
+        }
+    }
+    return $cache[$table];
+}
+
 function tableRows(string $table): array
 {
+    if (tableColumns(db(), $table) === null) return [];
     return db()->query("SELECT * FROM `{$table}`")->fetchAll();
 }
 
@@ -111,7 +125,10 @@ function loadAppState(): array
             'paidTo' => $row['paid_to'] ?? '', 'bankName' => $row['bank_name'] ?? '', 'accountNumber' => $row['account_number'] ?? '',
             'items' => array_map(static function (array $item): array { unset($item['line']); return $item; }, $items),
             'totalPaidAmount' => (float) $row['total_paid_amount'], 'createdAt' => appDateTime($row['created_at']),
-        ];
+                        'status' => $row['status'] ?? 'PENDING_MANAGER', 'managerNote' => $row['manager_note'] ?? '', 'reviewedBy' => $row['reviewed_by'] ?? '',
+                        'reviewedAt' => !empty($row['reviewed_at']) ? appDateTime($row['reviewed_at']) : '', 'paidBy' => $row['paid_by'] ?? '',
+                        'paidAt' => !empty($row['paid_at']) ? appDateTime($row['paid_at']) : '',
+                    ];
     }, tableRows('payment_vouchers'));
 
     $itemsByQuote = [];
@@ -202,9 +219,12 @@ function loadAppState(): array
 function insertRow(PDO $pdo, string $table, array $row): void
 {
     if (!$row) return;
+    $existing = tableColumns($pdo, $table);
+    if ($existing === null) return;
+    $row = array_intersect_key($row, array_flip($existing));
     $columns = array_keys($row);
     foreach ($columns as $column) {
-        if (!preg_match('/^[a-z_]+$/', $column)) throw new RuntimeException('Invalid database column');
+        if (!preg_match('/^[a-z][a-z0-9_]*$/', $column)) throw new RuntimeException('Invalid database column');
     }
     $quoted = implode(', ', array_map(static fn (string $column): string => "`{$column}`", $columns));
     $placeholders = implode(', ', array_map(static fn (string $column): string => ":{$column}", $columns));
@@ -220,13 +240,22 @@ function sqlDate(?string $value, bool $dateOnly = false): ?string
     return $dateOnly ? date('Y-m-d', $timestamp) : date('Y-m-d H:i:s', $timestamp);
 }
 
+function uniqueRecordId(array &$used, string $id, string $scope): string
+{
+    if (isset($used[$id])) $id = $id . '-' . $scope;
+    $used[$id] = true;
+    return $id;
+}
+
 function replaceAppState(array $state): void
 {
     $pdo = db();
     $pdo->beginTransaction();
+    $usedSofIds = [];
     try {
         $passwordHashes = indexBy($pdo->query('SELECT id, password_hash FROM users')->fetchAll(), 'id');
         foreach (['audit_logs', 'payment_voucher_items', 'payment_vouchers', 'principal_receipts', 'principal_invoices', 'closing_records', 'ar_items', 'ap_items', 'fda_records', 'actual_costs', 'statements_of_fact', 'operational_data', 'manager_approvals', 'crew_members', 'crew_change_plans', 'quotation_items', 'quotations', 'inquiries', 'vessel_calls', 'zones', 'fix_tariffs', 'expenses_items', 'vendor_partners', 'customers', 'vessels', 'ports', 'users'] as $table) {
+            if (tableColumns($pdo, $table) === null) continue;
             $pdo->exec("DELETE FROM `{$table}`");
         }
         foreach (($state['users'] ?? []) as $row) {
@@ -242,7 +271,7 @@ function replaceAppState(array $state): void
         foreach (($state['expensesItems'] ?? []) as $row) insertRow($pdo, 'expenses_items', ['id' => $row['id'], 'port_id' => $row['portId'] ?: null, 'code' => $row['code'], 'category' => $row['category'], 'name' => $row['name'], 'unit' => $row['unit'] ?? null, 'default_currency' => $row['defaultCurrency'], 'standard_cost_buy' => $row['standardCostBuy'], 'standard_cost_sell' => $row['standardCostSell'], 'rate_idr' => $row['rateIDR'] ?? null, 'rate_usd' => $row['rateUSD'] ?? null, 'preferred_vendor' => $row['preferredVendor'] ?? null, 'calculation_type' => $row['calculationType'] ?? null]);
         foreach (($state['vendorPartners'] ?? []) as $row) insertRow($pdo, 'vendor_partners', ['id' => $row['id'], 'vendor_name' => $row['vendorName'], 'bank_name' => $row['bankName'] ?? null, 'paid_name' => $row['paidName'] ?? null, 'account_number' => $row['accountNumber'] ?? null]);
         foreach (($state['paymentVouchers'] ?? []) as $voucher) {
-            insertRow($pdo, 'payment_vouchers', ['id' => $voucher['id'], 'request_number' => $voucher['requestNumber'], 'request_date' => sqlDate($voucher['requestDate'] ?? null, true) ?? date('Y-m-d'), 'job_info' => $voucher['jobInfo'], 'request_by' => $voucher['requestBy'] ?? '', 'vendor_partner_id' => !empty($voucher['vendorPartnerId']) ? $voucher['vendorPartnerId'] : null, 'vendor_name' => $voucher['vendorName'] ?? '', 'paid_to' => $voucher['paidTo'] ?? null, 'bank_name' => $voucher['bankName'] ?? null, 'account_number' => $voucher['accountNumber'] ?? null, 'total_paid_amount' => $voucher['totalPaidAmount'] ?? 0, 'created_at' => sqlDate($voucher['createdAt'] ?? null) ?? date('Y-m-d H:i:s')]);
+            insertRow($pdo, 'payment_vouchers', ['id' => $voucher['id'], 'request_number' => $voucher['requestNumber'], 'request_date' => sqlDate($voucher['requestDate'] ?? null, true) ?? date('Y-m-d'), 'job_info' => $voucher['jobInfo'], 'request_by' => $voucher['requestBy'] ?? '', 'vendor_partner_id' => !empty($voucher['vendorPartnerId']) ? $voucher['vendorPartnerId'] : null, 'vendor_name' => $voucher['vendorName'] ?? '', 'paid_to' => $voucher['paidTo'] ?? null, 'bank_name' => $voucher['bankName'] ?? null, 'account_number' => $voucher['accountNumber'] ?? null, 'total_paid_amount' => $voucher['totalPaidAmount'] ?? 0, 'status' => $voucher['status'] ?? 'PENDING_MANAGER', 'manager_note' => $voucher['managerNote'] ?? null, 'reviewed_by' => $voucher['reviewedBy'] ?? null, 'reviewed_at' => sqlDate($voucher['reviewedAt'] ?? null), 'paid_by' => $voucher['paidBy'] ?? null, 'paid_at' => sqlDate($voucher['paidAt'] ?? null), 'created_at' => sqlDate($voucher['createdAt'] ?? null) ?? date('Y-m-d H:i:s')]);
             foreach (($voucher['items'] ?? []) as $index => $item) {
                 insertRow($pdo, 'payment_voucher_items', ['id' => $item['id'], 'voucher_id' => $voucher['id'], 'line_no' => $index + 1, 'job_number' => $item['jobNumber'] ?? '', 'customer_name' => $item['customerName'] ?? '', 'item_service' => $item['itemService'] ?? '', 'amount' => $item['amount'] ?? 0, 'vat_applied' => !empty($item['vatApplied']) ? 1 : 0, 'vat_amount' => $item['vatAmount'] ?? 0, 'total' => $item['total'] ?? 0, 'pph23_applied' => !empty($item['pph23Applied']) ? 1 : 0, 'pph23_amount' => $item['pph23Amount'] ?? 0, 'pph21_applied' => !empty($item['pph21Applied']) ? 1 : 0, 'pph21_amount' => $item['pph21Amount'] ?? 0, 'paid_amount' => $item['paidAmount'] ?? 0]);
             }
@@ -265,7 +294,7 @@ function replaceAppState(array $state): void
             insertRow($pdo, 'manager_approvals', ['job_id' => $job['jobId'], 'status' => $approval['status'] ?? 'PENDING', 'approved_by_user_id' => null, 'approved_by_name' => $approval['approvedBy'] ?? null, 'approved_at' => sqlDate($approval['approvedAt'] ?? null), 'notes' => $approval['notes'] ?? null, 'allowed_margin_tolerance_pct' => $approval['allowedMarginTolerancePct'] ?? 0]);
             $operation = $job['operationalData'] ?? [];
             insertRow($pdo, 'operational_data', ['job_id' => $job['jobId'], 'ata' => sqlDate($operation['ata'] ?? null), 'atb' => sqlDate($operation['atb'] ?? null), 'atd' => sqlDate($operation['atd'] ?? null), 'pilot_on_board_time' => sqlDate($operation['pilotOnBoardTime'] ?? null), 'pilot_off_time' => sqlDate($operation['pilotOffTime'] ?? null), 'berth_zone_name' => $operation['berthZoneName'] ?? null, 'cargo_quantity_metric_tons' => $operation['cargoQuantityMetricTons'] ?? null, 'cargo_commodity' => $operation['cargoCommodity'] ?? null, 'harbor_master_clearance_no' => $operation['harborMasterClearanceNo'] ?? null]);
-            foreach (($operation['statementOfFacts'] ?? []) as $fact) insertRow($pdo, 'statements_of_fact', ['id' => $fact['id'], 'job_id' => $job['jobId'], 'event_time' => sqlDate($fact['timestamp'] ?? null), 'event' => $fact['event'], 'remarks' => $fact['remarks'] ?? null]);
+            foreach (($operation['statementOfFacts'] ?? []) as $fact) insertRow($pdo, 'statements_of_fact', ['id' => uniqueRecordId($usedSofIds, (string) $fact['id'], (string) $job['jobId']), 'job_id' => $job['jobId'], 'event_time' => sqlDate($fact['timestamp'] ?? null), 'event' => $fact['event'], 'remarks' => $fact['remarks'] ?? null]);
             foreach (($job['actualCosts'] ?? []) as $cost) insertRow($pdo, 'actual_costs', ['id' => $cost['id'], 'job_id' => $job['jobId'], 'item_code' => $cost['itemCode'], 'description' => $cost['description'], 'category' => $cost['category'], 'vendor_name' => $cost['vendorName'] ?? '', 'invoice_or_voucher_no' => $cost['invoiceOrVoucherNo'] ?? '', 'cost_date' => sqlDate($cost['date'] ?? null, true) ?? date('Y-m-d'), 'quantity' => $cost['quantity'] ?? null, 'amount' => $cost['amount'] ?? 0, 'currency' => $cost['currency'] ?? $job['currency'], 'tariff_type' => $cost['tariffType'] ?? null, 'calculation_basis' => $cost['calculationBasis'] ?? null, 'tariff_rate' => $cost['tariffRate'] ?? null, 'pda_amount_estimated' => $cost['pdaAmountEstimated'] ?? 0, 'variance_amount' => $cost['varianceAmount'] ?? 0, 'status' => $cost['status'] ?? 'PENDING_VERIFICATION', 'attachment_name' => $cost['attachmentName'] ?? null, 'attachment_data_url' => $cost['attachmentDataUrl'] ?? null, 'remarks' => $cost['remarks'] ?? null]);
             $fda = $job['fda'] ?? [];
             insertRow($pdo, 'fda_records', ['job_id' => $job['jobId'], 'fda_no' => $fda['fdaNo'] ?: $job['jobId'] . '-FDA', 'fda_date' => sqlDate($fda['date'] ?? null, true) ?? date('Y-m-d'), 'currency' => $fda['currency'] ?? $job['currency'], 'exchange_rate_usd_to_idr' => $fda['exchangeRateUSDToIDR'] ?? $job['exchangeRateUSDToIDR'] ?? 15800, 'total_estimated_buy' => $fda['totalEstimatedBuy'] ?? 0, 'total_estimated_sell' => $fda['totalEstimatedSell'] ?? 0, 'total_actual_cost' => $fda['totalActualCost'] ?? 0, 'final_billed_to_principal' => $fda['finalBilledToPrincipal'] ?? 0, 'variance_amount' => $fda['varianceAmount'] ?? 0, 'variance_percentage' => $fda['variancePercentage'] ?? 0, 'fda_approved' => $fda['fdaApproved'] ?? false, 'approval_status' => $fda['approvalStatus'] ?? 'DRAFT', 'submitted_by_user_id' => null, 'submitted_by_name' => $fda['submittedBy'] ?? null, 'submitted_at' => sqlDate($fda['submittedAt'] ?? null), 'approved_by_user_id' => null, 'approved_by_name' => $fda['approvedBy'] ?? null, 'approved_at' => sqlDate($fda['approvedAt'] ?? null), 'notes' => $fda['notes'] ?? null, 'pdf_file_name' => $fda['pdfFileName'] ?? null, 'pdf_data_url' => $fda['pdfDataUrl'] ?? null]);

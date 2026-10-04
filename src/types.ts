@@ -136,6 +136,8 @@ export interface PaymentVoucherItem {
   paidAmount: number;
 }
 
+export type PaymentVoucherStatus = 'PENDING_MANAGER' | 'APPROVED' | 'REJECTED' | 'PAID';
+
 export interface PaymentVoucher {
   id: string;
   requestNumber: string;
@@ -149,6 +151,12 @@ export interface PaymentVoucher {
   accountNumber: string;
   items: PaymentVoucherItem[];
   totalPaidAmount: number;
+  status?: PaymentVoucherStatus;
+  managerNote?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  paidBy?: string;
+  paidAt?: string;
   createdAt: string;
 }
 
@@ -466,6 +474,8 @@ export type ActiveTab =
   | 'FDA_QUOTES_PDA'
   | 'FDA_CREATE_VOUCHER'
   | 'FDA_PAYMENT_HISTORY'
+  | 'FDA_EDIT_VOUCHER'
+  | 'MANAGER_VOUCHER_APPROVAL'
   | 'JOBS_ENTRY'
   | 'ACTIVE_VESSEL_CALLS'
   | 'FDA_JOB_ID'

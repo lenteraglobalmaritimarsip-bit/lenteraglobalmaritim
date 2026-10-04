@@ -79,6 +79,7 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
           {item({label:'Dashboard',tab:'DASHBOARD',icon:LayoutDashboard})}
           {item({label:'Quotes Review',tab:'QUOTES_VIEW',icon:FileSpreadsheet})}
           {item({label:'Approval Center',tab:'APPROVAL',icon:CheckSquare})}
+          {item({label:'Voucher Approval',tab:'MANAGER_VOUCHER_APPROVAL',icon:ClipboardCheck})}
           {item({label:'Monitoring Vessel Calls',tab:'ACTIVE_VESSEL_CALLS',icon:Ship})}
         </>}
 
@@ -88,7 +89,9 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
           {item({label:'Create FDA',tab:'FDA_QUOTES_EPDA',icon:FileSpreadsheet})}
           <div className="maritim-nav-group-title"><Receipt/><span>Request Payment</span></div>
           <div className="maritim-subnav maritim-subnav-static">
-            {item({label:'Create Voucher',tab:'FDA_CREATE_VOUCHER',icon:FileText})}
+            {item({label:'Create Voucher',tab:'FDA_CREATE_VOUCHER',icon:FileText})
+}
+            {item({label:'Edit Voucher',tab:'FDA_EDIT_VOUCHER',icon:FileText})}
             {item({label:'History',tab:'FDA_PAYMENT_HISTORY',icon:ClipboardCheck})}
           </div>
           {item({label:'Monitoring Vessel Calls',tab:'ACTIVE_VESSEL_CALLS',icon:Ship})}
