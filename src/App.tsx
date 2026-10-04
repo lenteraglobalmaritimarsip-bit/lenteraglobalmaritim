@@ -14,7 +14,10 @@ import { QuotesPDAView } from './components/sales/QuotesPDAView';
 import { JobsEntryView } from './components/sales/JobsEntryView';
 import { ManagerOpsView } from './components/manager/ManagerOpsView';
 import { FDAView } from './components/fda/FDAView';
+import { PaymentVoucherView } from './components/fda/PaymentVoucherView';
 import { FinanceView } from './components/finance/FinanceView';
+import { AccountsPayableView } from './components/finance/AccountsPayableView';
+import { FinancialHistoryView } from './components/finance/FinancialHistoryView';
 import { AuthAccount, DEMO_ACCOUNTS, getStoredAccounts, saveStoredAccount } from './auth';
 import { LoginView } from './components/auth/LoginView';
 import { apiAuth } from './lib/api';
@@ -364,7 +367,8 @@ export default function App() {
               activeTab === 'VESSELS' ||
               activeTab === 'PORTS' ||
               activeTab === 'FIX_TARIFF' ||
-              activeTab === 'EXPENSES_ITEM') && (
+              activeTab === 'EXPENSES_ITEM' ||
+              activeTab === 'VENDOR_PARTNERS') && (
               <AdminMasterDataView
                 initialTab={activeTab}
                 users={data.users}
@@ -374,6 +378,7 @@ export default function App() {
                 zones={data.zones}
                 fixTariffs={data.fixTariffs}
                 expensesItems={data.expensesItems}
+                vendorPartners={data.vendorPartners || []}
                 onDataSaved={() => {
                   const latest = db.getState();
                   setData({
@@ -385,6 +390,7 @@ export default function App() {
                     zones: [...latest.zones],
                     fixTariffs: [...latest.fixTariffs],
                     expensesItems: [...latest.expensesItems],
+                    vendorPartners: [...(latest.vendorPartners || [])],
                   });
                   notifySaved(activeTab);
                 }}
@@ -478,6 +484,22 @@ export default function App() {
               />
             )}
 
+            {currentRole === 'FDA' && activeTab === 'FDA_CREATE_VOUCHER' && (
+              <PaymentVoucherView
+                jobCalls={roleVisibleJobCalls}
+                vendorPartners={data.vendorPartners || []}
+                requestBy={currentUser?.name || ''}
+              />
+            )}
+
+            {currentRole === 'FDA' && activeTab === 'FDA_PAYMENT_HISTORY' && (
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+                <div className="text-[10px] font-bold uppercase tracking-widest text-violet-600">Request Payment</div>
+                <h1 className="text-xl lg:text-2xl font-black text-slate-900">History</h1>
+                <p className="text-xs text-slate-500 mt-1">Halaman ini akan diisi pada tahap berikutnya.</p>
+              </div>
+            )}
+
             {currentRole === 'FDA' && roleVisibleJobCalls.length > 0 && activeTab === 'FDA_QUOTES_PDA' && (
               <QuotesPDAView
                 job={currentJob}
@@ -545,6 +567,14 @@ export default function App() {
             )}
 
             {/* 5. FINANCE VIEWS */}
+            {currentRole === 'FINANCE' && activeTab === 'FINANCE_ACCOUNTS_PAYABLE' && (
+              <AccountsPayableView paymentVouchers={data.paymentVouchers || []} />
+            )}
+
+            {currentRole === 'FINANCE' && activeTab === 'FINANCE_HISTORY_REPORT' && (
+              <FinancialHistoryView paymentVouchers={data.paymentVouchers || []} />
+            )}
+
             {currentRole === 'FINANCE' && (activeTab === 'FINANCE_DASHBOARD' ||
               activeTab === 'JOB_INVOICE_OPEN' ||
               activeTab === 'AP' ||

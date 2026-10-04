@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ArrowRight, Eye, EyeOff, LockKeyhole, UserRound } from 'lucide-react';
 import { AuthAccount, authenticate } from '../../auth';
 import { apiAuth } from '../../lib/api';
-import { formatDateDisplay } from '../../utils/date';
+import { formatDateLong } from '../../utils/date';
 
 interface LoginViewProps { onLogin: (account: AuthAccount, rememberMe?: boolean) => void; }
 
@@ -22,7 +22,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const today = formatDateDisplay(new Date());
+  const today = formatDateLong();
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();

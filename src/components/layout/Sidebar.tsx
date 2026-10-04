@@ -3,11 +3,10 @@ import {
   Users, Building2, Ship, MapPin, Coins, Receipt, LayoutDashboard,
   FileQuestion, FileSpreadsheet, FolderKanban, CheckSquare, ArrowDownToLine,
   ArrowUpFromLine, FileText, ChevronRight, ChevronDown,
-  ClipboardCheck, Calculator
+  ClipboardCheck, Calculator, Handshake
 } from 'lucide-react';
 import { UserRole, ActiveTab } from '../../types';
-import { formatDateDisplay } from '../../utils/date';
-            {formatDateDisplay(new Date())}
+import { formatDateLong } from '../../utils/date';
 
 interface SidebarProps {
   currentRole: UserRole;
@@ -64,6 +63,7 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
             {item({label:'Ports',tab:'PORTS',icon:MapPin})}
             {item({label:'Fix Tariff',tab:'FIX_TARIFF',icon:Coins})}
             {item({label:'Expenses Item',tab:'EXPENSES_ITEM',icon:Receipt})}
+            {item({label:'Vendor Patners',tab:'VENDOR_PARTNERS',icon:Handshake})}
           </div>
           {item({label:'Monitoring Vessel Calls',tab:'ACTIVE_VESSEL_CALLS',icon:Ship})}
         </>}
@@ -86,12 +86,19 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
           {item({label:'Dashboard',tab:'DASHBOARD',icon:LayoutDashboard})}
           {item({label:'Inquiries',tab:'FDA_INQUIRIES',icon:FileQuestion})}
           {item({label:'Create FDA',tab:'FDA_QUOTES_EPDA',icon:FileSpreadsheet})}
+          <div className="maritim-nav-group-title"><Receipt/><span>Request Payment</span></div>
+          <div className="maritim-subnav maritim-subnav-static">
+            {item({label:'Create Voucher',tab:'FDA_CREATE_VOUCHER',icon:FileText})}
+            {item({label:'History',tab:'FDA_PAYMENT_HISTORY',icon:ClipboardCheck})}
+          </div>
           {item({label:'Monitoring Vessel Calls',tab:'ACTIVE_VESSEL_CALLS',icon:Ship})}
         </>}
 
         {currentRole==='FINANCE' && <>
           {item({label:'Financial Overview',tab:'FINANCE_DASHBOARD',icon:LayoutDashboard})}
           {item({label:'JOB Invoice',tab:'JOB_INVOICE_OPEN',icon:FileText})}
+          {item({label:'Accounts Payable',tab:'FINANCE_ACCOUNTS_PAYABLE',icon:ArrowUpFromLine})}
+          {item({label:'History Laporan Keuangan',tab:'FINANCE_HISTORY_REPORT',icon:FileSpreadsheet})}
           {item({label:'JOB Closing',tab:'CLOSING',icon:CheckSquare})}
           {item({label:'Monitoring Vessel Calls',tab:'ACTIVE_VESSEL_CALLS',icon:Ship})}
         </>}
@@ -102,7 +109,7 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
         <div className="maritim-today-card">
           <div className="maritim-today-label">TODAY</div>
           <div className="maritim-today-date">
-            {formatDateDisplay(new Date())}
+            {formatDateLong()}
           </div>
         </div>
       </div>

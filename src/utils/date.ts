@@ -1,3 +1,15 @@
+const INDONESIAN_MONTHS = [
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+];
+
+// Formats a date as "DD Month YYYY" in Indonesian, e.g. "04 Oktober 2026".
+export const formatDateLong = (value: Date = new Date()): string => {
+  const day = String(value.getDate()).padStart(2, '0');
+  const month = INDONESIAN_MONTHS[value.getMonth()];
+  return `${day} ${month} ${value.getFullYear()}`;
+};
+
 export const formatDateDisplay = (value?: string | Date | null, includeTime = false): string => {
   if (!value) return '-';
   if (value instanceof Date) {

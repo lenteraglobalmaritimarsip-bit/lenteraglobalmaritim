@@ -112,6 +112,46 @@ export interface FixTariff {
   description: string;
 }
 
+export interface VendorPartner {
+  id: string;
+  vendorName: string;
+  bankName: string;
+  paidName: string;
+  accountNumber: string;
+}
+
+export interface PaymentVoucherItem {
+  id: string;
+  jobNumber: string;
+  customerName: string;
+  itemService: string;
+  amount: number;
+  vatApplied: boolean;
+  vatAmount: number;
+  total: number;
+  pph23Applied: boolean;
+  pph23Amount: number;
+  pph21Applied: boolean;
+  pph21Amount: number;
+  paidAmount: number;
+}
+
+export interface PaymentVoucher {
+  id: string;
+  requestNumber: string;
+  requestDate: string;
+  jobInfo: 'OPERASIONAL' | 'JOB_VESSEL';
+  requestBy: string;
+  vendorPartnerId: string;
+  vendorName: string;
+  paidTo: string;
+  bankName: string;
+  accountNumber: string;
+  items: PaymentVoucherItem[];
+  totalPaidAmount: number;
+  createdAt: string;
+}
+
 export interface ExpensesItem {
   id: string;
   portId?: string;
@@ -416,6 +456,7 @@ export type ActiveTab =
   | 'ZONES'
   | 'FIX_TARIFF'
   | 'EXPENSES_ITEM'
+  | 'VENDOR_PARTNERS'
   | 'INQUIRIES'
   | 'QUOTES_EPDA'
   | 'QUOTES_EPDA_DETAIL'
@@ -423,6 +464,8 @@ export type ActiveTab =
   | 'FDA_INQUIRIES'
   | 'FDA_QUOTES_EPDA'
   | 'FDA_QUOTES_PDA'
+  | 'FDA_CREATE_VOUCHER'
+  | 'FDA_PAYMENT_HISTORY'
   | 'JOBS_ENTRY'
   | 'ACTIVE_VESSEL_CALLS'
   | 'FDA_JOB_ID'
@@ -433,6 +476,8 @@ export type ActiveTab =
   | 'FINANCE_DASHBOARD'
   | 'JOB_INVOICE_OPEN'
   | 'AP'
+  | 'FINANCE_ACCOUNTS_PAYABLE'
+  | 'FINANCE_HISTORY_REPORT'
   | 'AR'
   | 'PRINCIPAL_INVOICE'
   | 'CLOSING';
@@ -445,6 +490,8 @@ export interface DatabaseState {
   zones: Zone[];
   fixTariffs: FixTariff[];
   expensesItems: ExpensesItem[];
+  vendorPartners: VendorPartner[];
+  paymentVouchers: PaymentVoucher[];
   jobCalls: JobCall[];
   currentRole: UserRole;
   selectedJobId: string;

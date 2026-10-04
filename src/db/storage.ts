@@ -6,6 +6,8 @@ import {
   Zone,
   FixTariff,
   ExpensesItem,
+  VendorPartner,
+  PaymentVoucher,
   JobCall,
   UserRole,
   AuditLog,
@@ -31,6 +33,8 @@ export interface DatabaseState {
   zones: Zone[];
   fixTariffs: FixTariff[];
   expensesItems: ExpensesItem[];
+  vendorPartners: VendorPartner[];
+  paymentVouchers: PaymentVoucher[];
   jobCalls: JobCall[];
   currentRole: UserRole;
   selectedJobId: string;
@@ -166,6 +170,8 @@ class DatabaseService {
       zones: INITIAL_ZONES,
       fixTariffs: INITIAL_FIX_TARIFFS,
       expensesItems: INITIAL_EXPENSES_ITEMS,
+      vendorPartners: [],
+      paymentVouchers: [],
       jobCalls: withoutRemovedJobCalls(LOCAL_INITIAL_JOB_CALLS),
       currentRole: 'ADMIN',
       selectedJobId: LOCAL_INITIAL_JOB_CALLS[0]?.jobId || '',
@@ -218,7 +224,9 @@ class DatabaseService {
         zones: Array.isArray(stored.zones) ? stored.zones : defaults.zones,
         fixTariffs: Array.isArray(stored.fixTariffs) ? stored.fixTariffs : defaults.fixTariffs,
         expensesItems: Array.isArray(stored.expensesItems) ? stored.expensesItems : defaults.expensesItems,
-        jobCalls,
+                vendorPartners: Array.isArray(stored.vendorPartners) ? stored.vendorPartners : defaults.vendorPartners,
+        paymentVouchers: Array.isArray(stored.paymentVouchers) ? stored.paymentVouchers : defaults.paymentVouchers,
+                jobCalls,
         auditLogs: Array.isArray(stored.auditLogs) ? stored.auditLogs : defaults.auditLogs,
       };
       if (repairedWorkflowState) {
@@ -367,6 +375,8 @@ class DatabaseService {
       zones: INITIAL_ZONES,
       fixTariffs: INITIAL_FIX_TARIFFS,
       expensesItems: INITIAL_EXPENSES_ITEMS,
+      vendorPartners: [],
+      paymentVouchers: [],
       jobCalls: withoutRemovedJobCalls(LOCAL_INITIAL_JOB_CALLS),
       currentRole: this.state.currentRole,
       selectedJobId: LOCAL_INITIAL_JOB_CALLS[0]?.jobId || '',
@@ -592,6 +602,50 @@ class DatabaseService {
   public async deleteExpensesItem(id: string): Promise<void> {
     this.state.expensesItems = this.state.expensesItems.filter((e) => e.id !== id);
     this.notifyAfterDelete();
+  }
+
+  // Vendor Partners
+  public async addVendorPartner(item: Omit<VendorPartner, 'id'>): Promise<VendorPartner> {
+    const list = this.state.vendorPartners || [];
+    const maxNumber = list.reduce((max, v) => Math.max(max, Number(v.id.replace(/\D/g, '')) || 0), 0);
+    const newItem: VendorPartner = { ...item, id: `VND-${String(maxNumber + 1).padStart(3, '0')}` };
+    this.state.vendorPartners = [...list, newItem];
+    this.audit('CREATE', 'VENDOR_PARTNER', `Created vendor partner ${newItem.vendorName}`, newItem.id);
+    await this.saveToStorage();
+    return newItem;
+  }
+
+  public async updateVendorPartner(id: string, updates: Partial<VendorPartner>): Promise<void> {
+    this.state.vendorPartners = (this.state.vendorPartners || []).map((v) => (v.id === id ? { ...v, ...updates, id } : v));
+    this.audit('UPDATE', 'VENDOR_PARTNER', `Updated vendor partner ${updates.vendorName || id}`, id);
+    await this.saveToStorage();
+  }
+
+  public async deleteVendorPartner(id: string): Promise<void> {
+    this.state.vendorPartners = (this.state.vendorPartners || []).filter((v) => v.id !== id);
+    this.audit('DELETE', 'VENDOR_PARTNER', `Deleted vendor partner ${id}`, id);
+    this.notifyAfterDelete();
+  }
+
+  // Payment Vouchers
+  public getNextPaymentVoucherNumber(requestDate: string): string {
+    const date = new Date(requestDate);
+    const valid = Number.isNaN(date.getTime()) ? new Date() : date;
+    const suffix = `${String(valid.getMonth() + 1).padStart(2, '0')}${String(valid.getFullYear()).slice(-2)}`;
+    const maxSequence = (this.state.paymentVouchers || []).reduce((max, v) => {
+      const match = /^OPS-(\d+)-(\d{4})$/.exec(v.requestNumber);
+      return match && match[2] === suffix ? Math.max(max, Number(match[1])) : max;
+    }, 0);
+    return `OPS-${String(maxSequence + 1).padStart(4, '0')}-${suffix}`;
+  }
+
+  public async addPaymentVoucher(voucher: Omit<PaymentVoucher, 'id' | 'requestNumber' | 'createdAt'>): Promise<PaymentVoucher> {
+    const requestNumber = this.getNextPaymentVoucherNumber(voucher.requestDate);
+    const newVoucher: PaymentVoucher = { ...voucher, id: `PV-${Date.now()}`, requestNumber, createdAt: new Date().toISOString() };
+    this.state.paymentVouchers = [newVoucher, ...(this.state.paymentVouchers || [])];
+    this.audit('CREATE', 'PAYMENT_VOUCHER', `Created payment voucher ${requestNumber}`, newVoucher.id);
+    await this.saveToStorage();
+    return newVoucher;
   }
 
   // --- JOB / VESSEL CALL LIFECYCLE ---

@@ -11,13 +11,15 @@ C:\xampp\php\php.exe api\create_admin.php
 
 If the one-time password was lost, reset it from the project root with `C:\xampp\php\php.exe api\reset_admin_password.php`. This generates and prints a new password once; it does not expose or recover the old password.
 
-3. Start the PHP API from the project root:
+3. Start the Vite app and PHP API together from the project root:
 
 ```powershell
-C:\xampp\php\php.exe -S localhost:8000 -t .
+npm run dev
 ```
 
-4. Set `VITE_API_AUTH_ENABLED=true` in the ignored `.env.local` file and restart Vite. The Vite dev server proxies `/api` to PHP at `localhost:8000`.
+On Windows, the dev server automatically detects PHP installed under Laragon or XAMPP. Otherwise, put `php` on `PATH` or set `PHP_EXECUTABLE` to the PHP executable path. The Vite dev server proxies `/api` to PHP at `localhost:8000`.
+
+4. Set `VITE_API_AUTH_ENABLED=true` in the ignored `.env.local` file and restart Vite.
 5. Sign in using the generated admin account. On an empty database, the first admin session seeds the app's initial master data. Add real role accounts in Admin > Users; demo password presets are hidden in API mode.
 
 The API uses `HttpOnly` PHP sessions, CSRF tokens, password hashes, PDO prepared statements, and a configurable allowed origin. Use HTTPS outside localhost.

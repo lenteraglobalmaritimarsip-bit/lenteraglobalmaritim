@@ -26,6 +26,7 @@ function applyNonAdminMasterData(array &$state, array $before, string $role): vo
     foreach (['users', 'customers', 'vessels', 'ports', 'zones'] as $key) {
         $state[$key] = $before[$key];
     }
+    $state['vendorPartners'] = $before['vendorPartners'] ?? [];
 
     $canAddItems = in_array($role, ['SALES', 'FDA'], true);
     foreach (['fixTariffs', 'expensesItems'] as $key) {

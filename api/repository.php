@@ -88,6 +88,31 @@ function loadAppState(): array
         'rateUSD' => $row['rate_usd'] === null ? undefined : (float) $row['rate_usd'], 'preferredVendor' => $row['preferred_vendor'],
         'calculationType' => $row['calculation_type'],
     ], tableRows('expenses_items'));
+    $vendorPartners = array_map(static fn (array $row): array => [
+        'id' => $row['id'], 'vendorName' => $row['vendor_name'], 'bankName' => $row['bank_name'] ?? '',
+        'paidName' => $row['paid_name'] ?? '', 'accountNumber' => $row['account_number'] ?? '',
+    ], tableRows('vendor_partners'));
+    $voucherItems = [];
+    foreach (tableRows('payment_voucher_items') as $row) {
+        $voucherItems[$row['voucher_id']][] = [
+            'line' => (int) $row['line_no'], 'id' => $row['id'], 'jobNumber' => $row['job_number'], 'customerName' => $row['customer_name'],
+            'itemService' => $row['item_service'], 'amount' => (float) $row['amount'], 'vatApplied' => (bool) $row['vat_applied'],
+            'vatAmount' => (float) $row['vat_amount'], 'total' => (float) $row['total'], 'pph23Applied' => (bool) $row['pph23_applied'],
+            'pph23Amount' => (float) $row['pph23_amount'], 'pph21Applied' => (bool) $row['pph21_applied'],
+            'pph21Amount' => (float) $row['pph21_amount'], 'paidAmount' => (float) $row['paid_amount'],
+        ];
+    }
+    $paymentVouchers = array_map(static function (array $row) use ($voucherItems): array {
+        $items = $voucherItems[$row['id']] ?? [];
+        usort($items, static fn (array $a, array $b): int => $a['line'] <=> $b['line']);
+        return [
+            'id' => $row['id'], 'requestNumber' => $row['request_number'], 'requestDate' => $row['request_date'], 'jobInfo' => $row['job_info'],
+            'requestBy' => $row['request_by'], 'vendorPartnerId' => $row['vendor_partner_id'] ?? '', 'vendorName' => $row['vendor_name'],
+            'paidTo' => $row['paid_to'] ?? '', 'bankName' => $row['bank_name'] ?? '', 'accountNumber' => $row['account_number'] ?? '',
+            'items' => array_map(static function (array $item): array { unset($item['line']); return $item; }, $items),
+            'totalPaidAmount' => (float) $row['total_paid_amount'], 'createdAt' => appDateTime($row['created_at']),
+        ];
+    }, tableRows('payment_vouchers'));
 
     $itemsByQuote = [];
     foreach (tableRows('quotation_items') as $row) {
@@ -171,7 +196,7 @@ function loadAppState(): array
     }
 
     $auditLogs = array_map(static fn (array $row): array => ['id' => $row['id'], 'timestamp' => appDateTime($row['logged_at']), 'actorId' => $row['actor_id'], 'actorName' => $row['actor_name'], 'role' => $row['actor_role'], 'action' => $row['action'], 'entity' => $row['entity'], 'entityId' => $row['entity_id'], 'description' => $row['description']], tableRows('audit_logs'));
-    return ['users' => $users, 'customers' => $customers, 'vessels' => $vessels, 'ports' => $ports, 'zones' => $zones, 'fixTariffs' => $fixTariffs, 'expensesItems' => $expensesItems, 'jobCalls' => $jobCalls, 'currentRole' => $_SESSION['user']['role'] ?? 'ADMIN', 'selectedJobId' => $jobCalls[0]['jobId'] ?? '', 'auditLogs' => $auditLogs];
+    return ['users' => $users, 'customers' => $customers, 'vessels' => $vessels, 'ports' => $ports, 'zones' => $zones, 'fixTariffs' => $fixTariffs, 'expensesItems' => $expensesItems, 'vendorPartners' => $vendorPartners, 'paymentVouchers' => $paymentVouchers, 'jobCalls' => $jobCalls, 'currentRole' => $_SESSION['user']['role'] ?? 'ADMIN', 'selectedJobId' => $jobCalls[0]['jobId'] ?? '', 'auditLogs' => $auditLogs];
 }
 
 function insertRow(PDO $pdo, string $table, array $row): void
@@ -201,7 +226,7 @@ function replaceAppState(array $state): void
     $pdo->beginTransaction();
     try {
         $passwordHashes = indexBy($pdo->query('SELECT id, password_hash FROM users')->fetchAll(), 'id');
-        foreach (['audit_logs', 'principal_receipts', 'principal_invoices', 'closing_records', 'ar_items', 'ap_items', 'fda_records', 'actual_costs', 'statements_of_fact', 'operational_data', 'manager_approvals', 'crew_members', 'crew_change_plans', 'quotation_items', 'quotations', 'inquiries', 'vessel_calls', 'zones', 'fix_tariffs', 'expenses_items', 'customers', 'vessels', 'ports', 'users'] as $table) {
+        foreach (['audit_logs', 'payment_voucher_items', 'payment_vouchers', 'principal_receipts', 'principal_invoices', 'closing_records', 'ar_items', 'ap_items', 'fda_records', 'actual_costs', 'statements_of_fact', 'operational_data', 'manager_approvals', 'crew_members', 'crew_change_plans', 'quotation_items', 'quotations', 'inquiries', 'vessel_calls', 'zones', 'fix_tariffs', 'expenses_items', 'vendor_partners', 'customers', 'vessels', 'ports', 'users'] as $table) {
             $pdo->exec("DELETE FROM `{$table}`");
         }
         foreach (($state['users'] ?? []) as $row) {
@@ -215,7 +240,13 @@ function replaceAppState(array $state): void
         foreach (($state['zones'] ?? []) as $row) insertRow($pdo, 'zones', ['id' => $row['id'], 'port_id' => $row['portId'], 'zone_code' => $row['zoneCode'], 'zone_name' => $row['zoneName'], 'zone_type' => $row['type'], 'max_draft_meters' => $row['maxDraftMeters'], 'description' => $row['description'] ?? null]);
         foreach (($state['fixTariffs'] ?? []) as $row) insertRow($pdo, 'fix_tariffs', ['id' => $row['id'], 'port_id' => $row['portId'], 'service_code' => $row['serviceCode'], 'service_name' => $row['serviceName'], 'cost_category' => $row['costCategory'] ?? null, 'grt' => $row['grt'] ?? null, 'grt_min' => $row['grtMin'] ?? null, 'grt_max' => $row['grtMax'] ?? null, 'dwt' => $row['dwt'] ?? null, 'calculation_basis' => $row['calculationBasis'], 'tariff_type' => $row['tariffType'] ?? null, 'currency' => $row['currency'], 'rate' => $row['rate'], 'rate_idr' => $row['rateIDR'] ?? null, 'rate_usd' => $row['rateUSD'] ?? null, 'min_charge' => $row['minCharge'], 'description' => $row['description']]);
         foreach (($state['expensesItems'] ?? []) as $row) insertRow($pdo, 'expenses_items', ['id' => $row['id'], 'port_id' => $row['portId'] ?: null, 'code' => $row['code'], 'category' => $row['category'], 'name' => $row['name'], 'unit' => $row['unit'] ?? null, 'default_currency' => $row['defaultCurrency'], 'standard_cost_buy' => $row['standardCostBuy'], 'standard_cost_sell' => $row['standardCostSell'], 'rate_idr' => $row['rateIDR'] ?? null, 'rate_usd' => $row['rateUSD'] ?? null, 'preferred_vendor' => $row['preferredVendor'] ?? null, 'calculation_type' => $row['calculationType'] ?? null]);
-
+        foreach (($state['vendorPartners'] ?? []) as $row) insertRow($pdo, 'vendor_partners', ['id' => $row['id'], 'vendor_name' => $row['vendorName'], 'bank_name' => $row['bankName'] ?? null, 'paid_name' => $row['paidName'] ?? null, 'account_number' => $row['accountNumber'] ?? null]);
+        foreach (($state['paymentVouchers'] ?? []) as $voucher) {
+            insertRow($pdo, 'payment_vouchers', ['id' => $voucher['id'], 'request_number' => $voucher['requestNumber'], 'request_date' => sqlDate($voucher['requestDate'] ?? null, true) ?? date('Y-m-d'), 'job_info' => $voucher['jobInfo'], 'request_by' => $voucher['requestBy'] ?? '', 'vendor_partner_id' => !empty($voucher['vendorPartnerId']) ? $voucher['vendorPartnerId'] : null, 'vendor_name' => $voucher['vendorName'] ?? '', 'paid_to' => $voucher['paidTo'] ?? null, 'bank_name' => $voucher['bankName'] ?? null, 'account_number' => $voucher['accountNumber'] ?? null, 'total_paid_amount' => $voucher['totalPaidAmount'] ?? 0, 'created_at' => sqlDate($voucher['createdAt'] ?? null) ?? date('Y-m-d H:i:s')]);
+            foreach (($voucher['items'] ?? []) as $index => $item) {
+                insertRow($pdo, 'payment_voucher_items', ['id' => $item['id'], 'voucher_id' => $voucher['id'], 'line_no' => $index + 1, 'job_number' => $item['jobNumber'] ?? '', 'customer_name' => $item['customerName'] ?? '', 'item_service' => $item['itemService'] ?? '', 'amount' => $item['amount'] ?? 0, 'vat_applied' => !empty($item['vatApplied']) ? 1 : 0, 'vat_amount' => $item['vatAmount'] ?? 0, 'total' => $item['total'] ?? 0, 'pph23_applied' => !empty($item['pph23Applied']) ? 1 : 0, 'pph23_amount' => $item['pph23Amount'] ?? 0, 'pph21_applied' => !empty($item['pph21Applied']) ? 1 : 0, 'pph21_amount' => $item['pph21Amount'] ?? 0, 'paid_amount' => $item['paidAmount'] ?? 0]);
+            }
+        }
         foreach (($state['jobCalls'] ?? []) as $job) {
             insertRow($pdo, 'vessel_calls', ['job_id' => $job['jobId'], 'vessel_id' => $job['vesselId'], 'port_id' => $job['portId'], 'customer_id' => $job['customerId'], 'currency' => $job['currency'], 'exchange_rate_usd_to_idr' => $job['exchangeRateUSDToIDR'] ?? 15800, 'eta' => sqlDate($job['eta'] ?? null), 'etd' => sqlDate($job['etd'] ?? null), 'purpose_of_call' => $job['purposeOfCall'], 'current_stage' => $job['currentStage'], 'status' => $job['status'], 'created_at' => sqlDate($job['createdAt'] ?? null) ?? date('Y-m-d H:i:s'), 'updated_at' => sqlDate($job['updatedAt'] ?? null) ?? date('Y-m-d H:i:s')]);
             $inquiry = $job['inquiry'] ?? [];
