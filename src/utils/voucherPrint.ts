@@ -24,7 +24,9 @@ export interface PrintableVoucher {
 // Returns an error message, or null when the print window opened.
 export const printPaymentVoucher = (voucher: PrintableVoucher): string | null => {
   const { requestNumber, requestBy, jobInfo } = voucher;
-  const formattedDate = new Date(`${String(voucher.requestDate).slice(0, 10)}T00:00:00`).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
+  const formattedDate = new Date(`${String(voucher.requestDate).slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const jobNumbers = [...new Set(voucher.items.map((item) => item.jobNumber.trim()).filter(Boolean))].join(', ');
+  const infoJob = jobInfo === 'JOB_VESSEL' ? 'JOB Vessel' : 'Operasional';
   const sum = (pick: (item: PrintableVoucher['items'][number]) => number) => voucher.items.reduce((total, item) => total + (pick(item) || 0), 0);
   const totalBeforePph = sum((item) => item.total);
   const totalPph23 = sum((item) => item.pph23Amount);
@@ -35,7 +37,7 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
   const logoUrl = `${window.location.origin}/lenteraglobalmaritim/lgm-logo.png`;
   const bodyRows = voucher.items.map((row, index) => `<tr><td class="c">${index + 1}</td><td>${escapeHtml(row.jobNumber)}</td><td>${escapeHtml(row.customerName)}</td><td>${escapeHtml(row.itemService)}</td><td class="r">${money(row.amount)}</td><td class="r">${money(row.vatAmount)}</td><td class="r">${money(row.total)}</td><td class="r">${money(row.pph23Amount)}</td><td class="r">${money(row.pph21Amount)}</td><td class="r b">${money(row.paidAmount)}</td></tr>`).join('');
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>Payment Voucher ${escapeHtml(requestNumber)}</title><style>
-    @page{size:A4 portrait;margin:12mm}
+    @page{size:A4 portrait;margin:12mm 12mm 40mm}
     body{font-family:Arial,sans-serif;font-size:10px;color:#172033;margin:0}
     .brand-row{text-align:center;margin-bottom:8px}
     .brand-wrap{display:inline-flex;align-items:center;gap:14px;text-align:left}
@@ -43,9 +45,11 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
     .brand{font-weight:700;font-size:21px;line-height:1.15}
     .tag{color:#666;font-size:13px;margin-top:5px}
     h2{text-align:center;background:#182a50;color:#fff;padding:8px;font-size:13px;margin:14px 0 12px;letter-spacing:1px}
-    .meta{width:100%;border-collapse:collapse;margin-bottom:12px}
+    .meta{width:100%;table-layout:fixed;border-collapse:collapse;margin-bottom:12px}
     .meta td{padding:2px 4px;vertical-align:top}
-    .meta td.k{width:80px;font-weight:bold}
+    .meta td.k{font-weight:bold}
+    .meta td:nth-child(1){width:20%}.meta td:nth-child(2){width:30%}
+    .meta td:nth-child(3){width:17%;padding-left:12px}.meta td:nth-child(4){width:33%}
     table.items{width:100%;border-collapse:collapse}
     table.items th,table.items td{border:1px solid #777;padding:4px 4px;font-size:9px}
     table.items th{background:#e8ecf2;text-transform:uppercase;font-size:8px;text-align:left}
@@ -54,9 +58,9 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
     .summary td{border:1px solid #777;padding:5px 7px;font-size:10px}
     .summary td.k{font-weight:bold;background:#e8ecf2}
     .summary tr.grand td{font-weight:bold;background:#182a50;color:#fff}
-    .sign{width:100%;margin-top:34px;border-collapse:collapse}
-    .sign td{width:33.33%;text-align:center;padding-top:4px}
-    .sign .space{height:60px}
+    .sign{position:fixed;bottom:0;right:0;width:65%;border-collapse:collapse;page-break-inside:avoid;font-size:9px}
+    .sign td{width:33.33%;height:5mm;border:1px solid #777;text-align:center;padding:2px}
+    .sign .space{height:16mm}
   </style></head><body>
     <div class="brand-row"><div class="brand-wrap"><img class="logo" src="${logoUrl}" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div>
     <h2>PAYMENT VOUCHER</h2>
@@ -65,7 +69,7 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
       <td class="k">Vendor Name</td><td>: ${escapeHtml(voucher.vendorName)}</td></tr><tr>
       <td class="k">Request Date</td><td>: ${escapeHtml(formattedDate)}</td>
       <td class="k">Paid To</td><td>: ${escapeHtml(voucher.paidTo)}</td></tr><tr>
-      <td class="k">Info JOB</td><td>: ${jobInfo === 'JOB_VESSEL' ? 'JOB Vessel' : 'Operasional'}</td>
+      <td class="k">Info JOB / JOB Number</td><td>: ${infoJob} / ${escapeHtml(jobNumbers || '-')}</td>
       <td class="k">Bank</td><td>: ${escapeHtml(voucher.bankName)}</td></tr><tr>
       <td class="k">Request By</td><td>: ${escapeHtml(requestBy)}</td>
       <td class="k">A/c Number</td><td>: ${escapeHtml(voucher.accountNumber)}</td></tr></table>
@@ -77,9 +81,11 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
       <tr><td class="k">PPh 21</td><td class="r">${totalPph21 ? '-' : ''}${money(totalPph21)}</td></tr>
       <tr class="grand"><td>Total Payment</td><td class="r">${money(totalPayment)}</td></tr>
     </table>
-    <table class="sign"><tr><td>Maker</td><td>Checker</td><td>Signer</td></tr>
-    <tr><td class="space"></td><td></td><td></td></tr>
-    <tr><td>( ${escapeHtml(requestBy)} )</td><td>( ${escapeHtml(checker || "                    ")} )</td><td>( ${escapeHtml(voucher.signerName || "                    ")} )</td></tr></table>
+    <table class="sign"><tbody>
+    <tr><td>Maker</td><td>Checker</td><td>Signer</td></tr>
+    <tr><td class="space"></td><td class="space"></td><td class="space"></td></tr>
+    <tr><td>( ${escapeHtml(requestBy)} )</td><td>( ${escapeHtml(checker || "                    ")} )</td><td>( ${escapeHtml(voucher.signerName || "                    ")} )</td></tr>
+    </tbody></table>
   </body></html>`;  const printWindow = window.open('', '_blank', 'width=1100,height=800');
   if (!printWindow) return 'Pop-up diblokir browser. Izinkan pop-up untuk mencetak voucher.';
   printWindow.document.open();

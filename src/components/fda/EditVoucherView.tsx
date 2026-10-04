@@ -85,7 +85,7 @@ export const EditVoucherView: React.FC<EditVoucherViewProps> = ({ jobCalls, vend
               <th className="p-3">No</th>
               <th className="p-3">Request Number</th>
               <th className="p-3">Request Date</th>
-              <th className="p-3">Info JOB</th>
+              <th className="p-3">Info JOB / JOB Number</th>
               <th className="p-3">Vendor Name</th>
               <th className="p-3">Paid To</th>
               <th className="p-3">Request By</th>
@@ -103,7 +103,10 @@ export const EditVoucherView: React.FC<EditVoucherViewProps> = ({ jobCalls, vend
                 <td className="p-3 text-slate-500">{index + 1}</td>
                 <td className="p-3 font-mono font-bold text-slate-900">{voucher.requestNumber}</td>
                 <td className="p-3 text-slate-600">{formatDate(voucher.requestDate)}</td>
-                <td className="p-3 text-slate-600">{voucher.jobInfo === 'JOB_VESSEL' ? 'JOB Vessel' : 'Operasional'}</td>
+                <td className="p-3 text-slate-600">
+                  <div>{voucher.jobInfo === 'JOB_VESSEL' ? 'JOB Vessel' : 'Operasional'}</div>
+                  <div className="mt-0.5 text-[10px] text-slate-500">{[...new Set(voucher.items.map((item) => item.jobNumber.trim()).filter(Boolean))].join(', ') || '-'}</div>
+                </td>
                 <td className="p-3 font-semibold text-slate-800">{voucher.vendorName}</td>
                 <td className="p-3 text-slate-600">{voucher.paidTo}</td>
                 <td className="p-3 text-slate-600">{voucher.requestBy}</td>
