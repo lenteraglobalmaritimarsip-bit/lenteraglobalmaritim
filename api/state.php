@@ -120,9 +120,6 @@ try {
                 $changedJobIds[] = $jobId;
                 continue;
             }
-            if ($actor['role'] === 'SALES' && branchCode((string) ($oldJob['inquiry']['createdByBranchCode'] ?? $oldJob['inquiry']['createdByBranch'] ?? '')) !== branchCode((string) ($actor['branch_code'] ?? $actor['branch_name'] ?? ''))) {
-                jsonResponse(['error' => 'Sales can only change jobs from their own branch'], 403);
-            }
             foreach (array_unique(array_merge(array_keys($oldJob), array_keys($newJob))) as $key) {
                 if (!in_array($key, $allowed, true) && json_encode($oldJob[$key] ?? null) !== json_encode($newJob[$key] ?? null)) {
                     jsonResponse(['error' => 'This role cannot change job field: ' . $key], 403);

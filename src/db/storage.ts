@@ -321,6 +321,7 @@ class DatabaseService {
           const message = error instanceof Error ? error.message : 'Database synchronization failed';
           console.error('Failed to synchronize database state:', error);
           if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('lgm:api-save-error', { detail: message }));
+          void this.refreshRemote().catch((refreshError) => console.error('API resync failed:', refreshError));
         });
     }
     this.notify();

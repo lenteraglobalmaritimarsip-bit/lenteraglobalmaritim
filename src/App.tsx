@@ -247,7 +247,7 @@ export default function App() {
     const handleApiSaveError = (event: Event) => {
       const message = (event as CustomEvent<string>).detail;
       setSaveToast(`Database gagal menyimpan perubahan: ${message}`);
-      window.setTimeout(() => setSaveToast(null), 6000);
+      window.setTimeout(() => setSaveToast(null), 15000);
     };
     window.addEventListener('lgm:api-save-error', handleApiSaveError);
     return () => window.removeEventListener('lgm:api-save-error', handleApiSaveError);
