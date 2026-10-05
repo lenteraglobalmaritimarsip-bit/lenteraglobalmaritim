@@ -145,7 +145,7 @@ export const VoucherHistoryView: React.FC<VoucherHistoryViewProps> = ({ paymentV
                         <table className="w-full text-left text-[11px]">
                           <thead className="text-[10px] uppercase text-slate-500">
                             <tr>
-                              <th className="p-2">No</th><th className="p-2">JOB Number</th><th className="p-2">Customer</th><th className="p-2">Item Service</th>
+                              <th className="p-2">No</th><th className="p-2">JOB Number</th><th className="p-2">{voucher.jobInfo === 'JOB_VESSEL' ? 'Vessel name' : 'Customer'}</th><th className="p-2">Item Service</th>
                               <th className="p-2 text-right">Amount</th><th className="p-2 text-right">Vat</th><th className="p-2 text-right">Total</th>
                               <th className="p-2 text-right">PPH 23</th><th className="p-2 text-right">PPH 21</th><th className="p-2 text-right">Paid Amount</th>
                             </tr>

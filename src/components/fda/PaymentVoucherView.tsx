@@ -87,11 +87,20 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
   const [jobInfo, setJobInfo] = useState<JobInfo>(editingVoucher?.jobInfo || initialDraft?.jobInfo || 'OPERASIONAL');
   const [vendorId, setVendorId] = useState(editingVoucher?.vendorPartnerId || initialDraft?.vendorId || '');
   const [draftRestored, setDraftRestored] = useState(!!initialDraft);
-  const [rows, setRows] = useState<VoucherRow[]>(() => !editingVoucher && initialDraft ? initialDraft.rows : editingVoucher && editingVoucher.items.length > 0
+  const [rows, setRows] = useState<VoucherRow[]>(() => !editingVoucher && initialDraft
+    ? initialDraft.rows.map((row) => ({
+        ...row,
+        customerName: initialDraft.jobInfo === 'JOB_VESSEL'
+          ? jobCalls.find((job) => job.jobId === row.jobNumber)?.vesselName || row.customerName
+          : row.customerName,
+      }))
+    : editingVoucher && editingVoucher.items.length > 0
     ? editingVoucher.items.map((item) => ({
         id: item.id,
         jobNumber: item.jobNumber,
-        customerName: item.customerName,
+        customerName: editingVoucher.jobInfo === 'JOB_VESSEL'
+          ? jobCalls.find((job) => job.jobId === item.jobNumber)?.vesselName || item.customerName
+          : item.customerName,
         itemService: item.itemService,
         amount: item.amount,
         vatApplied: !!item.vatApplied,
@@ -115,16 +124,6 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
   );
   const vendor = vendorPartners.find((item) => item.id === vendorId);
 
-  const servicesForJob = (jobNumber: string) => {
-    const job = activeJobs.find((item) => item.jobId === jobNumber);
-    if (!job) return [];
-    const names = [
-      ...(job.quotation?.epda?.items || []).map((item) => item.name),
-      ...(job.actualCosts || []).map((item) => item.description),
-    ].map((name) => (name || '').trim()).filter(Boolean);
-    return Array.from(new Set(names));
-  };
-
   const updateRow = (id: string, patch: Partial<VoucherRow>) =>
     setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)));
 
@@ -135,7 +134,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
 
   const selectJob = (rowId: string, jobNumber: string) => {
     const job = activeJobs.find((item) => item.jobId === jobNumber);
-    updateRow(rowId, { jobNumber, customerName: job?.customerName || '', itemService: '' });
+    updateRow(rowId, { jobNumber, customerName: job?.vesselName || '', itemService: '' });
   };
 
   const optionLabel = (value: string, item: VendorPartner, key: 'bankName' | 'paidName' | 'accountNumber') => {
@@ -199,7 +198,8 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
     }
     const invalidRow = rows.findIndex((row) => !row.jobNumber.trim() || !row.customerName.trim() || !row.itemService.trim() || row.amount <= 0);
     if (invalidRow >= 0) {
-      setError(`Baris ${invalidRow + 1}: JOB Number, Customer, Item Service, dan Amount (> 0) wajib diisi.`);
+      const partyLabel = jobInfo === 'JOB_VESSEL' ? 'Vessel name' : 'Customer';
+      setError(`Baris ${invalidRow + 1}: JOB Number, ${partyLabel}, Item Service, dan Amount (> 0) wajib diisi.`);
       return;
     }
     const items: PaymentVoucherItem[] = rows.map((row) => ({
@@ -332,7 +332,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
               <tr>
                 <th className="p-3">No</th>
                 <th className="p-3">JOB Number</th>
-                <th className="p-3">Customer</th>
+                <th className="p-3">{jobInfo === 'JOB_VESSEL' ? 'Vessel name' : 'Customer'}</th>
                 <th className="p-3">Item Service</th>
                 <th className="p-3 text-right">Amount</th>
                 <th className="p-3 text-right">Vat (11%)</th>
@@ -346,7 +346,6 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
             <tbody className="divide-y divide-slate-100">
               {rows.map((row, index) => {
                 const result = calculate(row);
-                const services = servicesForJob(row.jobNumber);
                 return (
                   <tr key={row.id} className="align-top">
                     <td className="p-3 font-mono text-slate-500">{index + 1}</td>
@@ -354,7 +353,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
                       {jobInfo === 'JOB_VESSEL' ? (
                         <select value={row.jobNumber} onChange={(e) => selectJob(row.id, e.target.value)} className={inputClass}>
                           <option value="">Pilih JOB</option>
-                          {activeJobs.map((job) => <option key={job.jobId} value={job.jobId}>{job.jobId} - {job.vesselName}</option>)}
+                          {activeJobs.map((job) => <option key={job.jobId} value={job.jobId}>{job.jobId}</option>)}
                         </select>
                       ) : (
                         <input value={row.jobNumber} onChange={(e) => updateRow(row.id, { jobNumber: e.target.value })} className={inputClass} placeholder="JOB Number" />
@@ -368,14 +367,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
                       )}
                     </td>
                     <td className="w-60 p-3">
-                      {jobInfo === 'JOB_VESSEL' ? (
-                        <select value={row.itemService} onChange={(e) => updateRow(row.id, { itemService: e.target.value })} disabled={!row.jobNumber} className={inputClass}>
-                          <option value="">{row.jobNumber ? 'Pilih item service' : 'Pilih JOB dulu'}</option>
-                          {services.map((name) => <option key={name} value={name}>{name}</option>)}
-                        </select>
-                      ) : (
-                        <input value={row.itemService} onChange={(e) => updateRow(row.id, { itemService: e.target.value })} className={inputClass} placeholder="Item service" />
-                      )}
+                      <input value={row.itemService} onChange={(e) => updateRow(row.id, { itemService: e.target.value })} className={inputClass} placeholder="Input item service" />
                     </td>
                     <td className="w-36 p-3">
                       <input

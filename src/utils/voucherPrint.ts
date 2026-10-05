@@ -36,6 +36,7 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
   const printedTime = printedAt.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
   const jobNumbers = [...new Set(voucher.items.map((item) => item.jobNumber.trim()).filter(Boolean))].join(', ');
   const infoJob = jobInfo === 'JOB_VESSEL' ? 'JOB Vessel' : 'Operasional';
+  const partyLabel = jobInfo === 'JOB_VESSEL' ? 'Vessel name' : 'Customer';
   const sum = (pick: (item: PrintableVoucher['items'][number]) => number) => voucher.items.reduce((total, item) => total + (pick(item) || 0), 0);
   const totalBeforePph = sum((item) => item.total);
   const totalPph23 = sum((item) => item.pph23Amount);
@@ -78,7 +79,7 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
     <div class="brand-row"><div class="brand-wrap"><img class="logo" src="${logoUrl}" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div>
     <h2>PAYMENT VOUCHER</h2>
     <table class="meta">${metaRows}</table>
-    <table class="items"><thead><tr><th>No</th><th>JOB Number</th><th>Customer</th><th>Item Service</th><th>Amount</th><th>Vat</th><th>Total</th><th>PPH 23 (2%)</th><th>PPH 21 (5%)</th><th>Paid Amount</th></tr></thead>
+    <table class="items"><thead><tr><th>No</th><th>JOB Number</th><th>${partyLabel}</th><th>Item Service</th><th>Amount</th><th>Vat</th><th>Total</th><th>PPH 23 (2%)</th><th>PPH 21 (5%)</th><th>Paid Amount</th></tr></thead>
     <tbody>${bodyRows}</tbody></table>
     <table class="summary">
       <tr><td class="k">Total</td><td class="r">${money(totalBeforePph)}</td></tr>
