@@ -120,18 +120,18 @@ export const Header: React.FC<HeaderProps> = ({
         } else if (fdaStatus !== 'SUBMITTED') {
           const pendingActual = (job.actualCosts || []).filter(x => x.status !== 'APPROVED_BY_FDA').length;
           const hasActualCost = (job.actualCosts || []).length > 0;
-          push({
-            id:`fda-${job.jobId}-${pendingActual}`,
-            title: !hasActualCost ? 'Actual Cost perlu diinput' : pendingActual ? 'FDA perlu verifikasi biaya' : 'FDA siap difinalisasi',
-            message: !hasActualCost
-              ? `${job.jobId} · ${job.vesselName} sudah Approved. Lengkapi Actual Cost terlebih dahulu.`
-              : pendingActual
-                ? `${job.jobId} memiliki ${pendingActual} actual cost yang belum diverifikasi.`
-                : `${job.jobId} · ${job.vesselName} memiliki biaya yang sudah diverifikasi dan siap dikirim ke Manager Ops untuk approval.`,
-            jobId:job.jobId,
-            tab: !hasActualCost || pendingActual ? 'ACTUAL_COST' : 'APPROVAL',
-            kind: !hasActualCost || pendingActual ? 'WARNING' : 'INFO'
-          });
+          if (!hasActualCost || pendingActual) {
+            push({
+              id:`fda-${job.jobId}-${pendingActual}`,
+              title: !hasActualCost ? 'Actual Cost perlu diinput' : 'FDA perlu verifikasi biaya',
+              message: !hasActualCost
+                ? `${job.jobId} · ${job.vesselName} sudah Approved. Lengkapi Actual Cost terlebih dahulu.`
+                : `${job.jobId} memiliki ${pendingActual} actual cost yang belum diverifikasi.`,
+              jobId:job.jobId,
+              tab:'ACTUAL_COST',
+              kind:'WARNING'
+            });
+          }
         }
       }
 

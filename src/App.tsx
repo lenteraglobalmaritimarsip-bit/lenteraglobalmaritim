@@ -13,6 +13,7 @@ import { QuotesEPDAView } from './components/sales/QuotesEPDAView';
 import { QuotesPDAView } from './components/sales/QuotesPDAView';
 import { JobsEntryView } from './components/sales/JobsEntryView';
 import { ManagerOpsView } from './components/manager/ManagerOpsView';
+import { ManagementVesselView } from './components/manager/ManagementVesselView';
 import { FDAView } from './components/fda/FDAView';
 import { PaymentVoucherView } from './components/fda/PaymentVoucherView';
 import { VoucherApprovalView } from './components/manager/VoucherApprovalView';
@@ -519,6 +520,14 @@ export default function App() {
 
             {currentRole === 'MANAGER_OPS' && activeTab === 'MANAGER_VOUCHER_APPROVAL' && (
               <VoucherApprovalView paymentVouchers={data.paymentVouchers || []} reviewer={currentUser?.name || ''} />
+            )}
+
+            {currentRole === 'MANAGER_OPS' && activeTab === 'MANAGEMENT_VESSEL' && (
+              <ManagementVesselView
+                jobCalls={data.jobCalls}
+                users={data.users}
+                paymentVouchers={data.paymentVouchers || []}
+              />
             )}
 
             {/* 3. MANAGER OPS VIEWS */}

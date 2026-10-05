@@ -80,6 +80,7 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
           {item({label:'Quotes Review',tab:'QUOTES_VIEW',icon:FileSpreadsheet})}
           {item({label:'Approval Center',tab:'APPROVAL',icon:CheckSquare})}
           {item({label:'Voucher Approval',tab:'MANAGER_VOUCHER_APPROVAL',icon:ClipboardCheck})}
+          {item({label:'Management Vessel',tab:'MANAGEMENT_VESSEL',icon:Ship})}
           {item({label:'Monitoring Vessel Calls',tab:'ACTIVE_VESSEL_CALLS',icon:Ship})}
         </>}
 
