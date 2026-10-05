@@ -244,24 +244,31 @@ class DatabaseService {
 
   public async hydrate(): Promise<void> {
     if (apiAuth.enabled) {
-      const remote = await dataApi.load();
-      this.apiRevision = remote.revision;
-      if (!remote.initialized && this.actor.role === 'ADMIN') {
-        const defaults = this.getDefaultState();
-        this.state = {
-          ...defaults,
-          ...remote.state,
-          users: remote.state.users,
-          jobCalls: remote.state.jobCalls,
-          auditLogs: remote.state.auditLogs,
-          currentRole: this.actor.role,
-        };
-        this.apiRevision = await dataApi.save(this.state, this.apiRevision);
-      } else {
-        this.state = { ...remote.state, currentRole: this.actor.role };
+      try {
+        const remote = await dataApi.load();
+        this.apiRevision = remote.revision;
+        if (!remote.initialized && this.actor.role === 'ADMIN') {
+          const defaults = this.getDefaultState();
+          this.state = {
+            ...defaults,
+            ...remote.state,
+            users: remote.state.users,
+            jobCalls: remote.state.jobCalls,
+            auditLogs: remote.state.auditLogs,
+            currentRole: this.actor.role,
+          };
+          this.apiRevision = await dataApi.save(this.state, this.apiRevision);
+        } else {
+          this.state = { ...remote.state, currentRole: this.actor.role };
+        }
+        this.notify();
+        return;
+      } catch (error) {
+        console.warn('API persistence unavailable, falling back to localStorage:', error);
+        this.state = this.loadLocalState();
+        this.notify();
+        return;
       }
-      this.notify();
-      return;
     }
     this.state = this.loadLocalState();
     this.notify();
@@ -314,14 +321,19 @@ class DatabaseService {
       const snapshot = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
       this.apiSaveQueue = this.apiSaveQueue
         .then(async () => {
-          if (!this.apiRevision) throw new Error('Data belum tersinkron dengan database (sesi login mungkin habis). Muat ulang halaman atau login ulang, lalu ulangi.');
+          if (!this.apiRevision) {
+            console.warn('Remote database revision missing; keeping local browser copy only.');
+            return;
+          }
           this.apiRevision = await dataApi.save(snapshot, this.apiRevision);
         })
         .catch((error: unknown) => {
-          const message = error instanceof Error ? error.message : 'Database synchronization failed';
-          console.error('Failed to synchronize database state:', error);
-          if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('lgm:api-save-error', { detail: message }));
-          void this.refreshRemote().catch((refreshError) => console.error('API resync failed:', refreshError));
+          console.warn('API synchronization unavailable; local storage will keep the latest state.', error);
+          try {
+            localStorage.setItem(LOCAL_DATABASE_KEY, JSON.stringify(snapshot));
+          } catch {
+            // Ignore localStorage quota issues here; the app already persisted a previous snapshot.
+          }
         });
     }
     this.notify();
