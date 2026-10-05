@@ -573,7 +573,7 @@ export default function App() {
               )}
 
             {currentRole === 'FDA' && roleVisibleJobCalls.length === 0 && (
-              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-5 text-sm font-semibold text-amber-200">
+              <div className="rounded-xl border border-slate-200 bg-white p-5 text-sm font-semibold text-slate-600">
                 Belum ada Job/Vessel Call yang disetujui Manager Ops. Job akan muncul di menu FDA setelah approval.
               </div>
             )}
