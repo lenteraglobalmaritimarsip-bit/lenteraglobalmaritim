@@ -28,8 +28,8 @@ interface VoucherRow {
 }
 
 const VAT_RATE = 0.11;
-const PPH23_RATE = 0.01;
-const PPH21_RATE = 0.02;
+const PPH23_RATE = 0.02;
+const PPH21_RATE = 0.05;
 
 const todayIso = () => {
   const now = new Date();
@@ -337,8 +337,8 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
                 <th className="p-3 text-right">Amount</th>
                 <th className="p-3 text-right">Vat (11%)</th>
                 <th className="p-3 text-right">Total</th>
-                <th className="p-3 text-right">PPH 23 (1%)</th>
-                <th className="p-3 text-right">PPH 21 (2%)</th>
+                <th className="p-3 text-right">PPH 23 (2%)</th>
+                <th className="p-3 text-right">PPH 21 (5%)</th>
                 <th className="p-3 text-right">Paid Amount</th>
                 <th className="p-3" />
               </tr>
