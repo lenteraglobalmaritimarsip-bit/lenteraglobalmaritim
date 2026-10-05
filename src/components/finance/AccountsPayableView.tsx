@@ -149,7 +149,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                               Bayar
                             </button>
                           )}
-                          <button type="button" title="Lihat Voucher (Cetak/PDF)" onClick={() => setError(printPaymentVoucher({ ...voucher, signerName: voucher.reviewedBy, paidBy: voucher.paidBy || payer }) || '')} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-blue-600">
+                          <button type="button" title="Lihat Voucher (Cetak/PDF)" onClick={() => setError(printPaymentVoucher({ ...voucher, signerName: voucher.reviewedBy, paidBy: voucher.paidBy || payer, includeFinancePrintDetails: true }) || '')} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-blue-600">
                             <Eye size={16} />
                           </button>
                         </div>
