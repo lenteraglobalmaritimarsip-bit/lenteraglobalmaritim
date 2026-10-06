@@ -233,6 +233,8 @@ button{ cursor:pointer; }
 .epda-form-root table.border-separate p,.fda-form-root table.border-separate p{margin:0}
 .epda-form-root table .epda-category-row td{height:auto;min-height:30px;padding:9px 12px!important;color:#fff!important;background:#303b4d!important;line-height:1.4!important;white-space:normal}
 .epda-form-root table .epda-category-row .epda-category-label{display:block!important;color:#fff!important;-webkit-text-fill-color:#fff!important;font-size:12px!important;font-weight:900!important;line-height:1.4!important;visibility:visible!important;opacity:1!important;overflow:visible!important;text-indent:0!important}
+.fda-form-root table .fda-category-row td{height:auto;min-height:30px;padding:9px 12px!important;color:#fff!important;background:#303b4d!important;line-height:1.4!important;white-space:normal}
+.fda-form-root table .fda-category-row .fda-category-label{display:block!important;color:#fff!important;-webkit-text-fill-color:#fff!important;font-size:12px!important;font-weight:900!important;line-height:1.4!important;visibility:visible!important;opacity:1!important;overflow:visible!important;text-indent:0!important}
 .maritim-main .text-2xl{font-size:25px;line-height:1.18}
 .maritim-main .text-xl{font-size:20px}
 .maritim-main .text-lg{font-size:17px}
@@ -274,6 +276,12 @@ button{ cursor:pointer; }
 .maritim-main button[class*="bg-emerald-500/20"],
 .maritim-main button[class*="bg-emerald-600/20"]{
   background:#eaf8f1 !important;color:#148257 !important;border-color:#ccebdc !important;
+}
+.maritim-main button.fda-continue-epda,
+.maritim-main button.fda-continue-epda:hover,
+.maritim-main button.fda-continue-epda:active,
+.maritim-main button.fda-continue-epda:focus{
+  background:#eaf3ff !important;color:#1769e8 !important;border-color:#cfe1fb !important;
 }
 
 /* Inputs/selects */

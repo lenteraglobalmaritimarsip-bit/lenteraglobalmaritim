@@ -96,6 +96,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     activeJob.fda?.currency || activeJob.actualCosts?.[0]?.currency || activeJob.quotation?.epda?.currency || activeJob.currency || 'USD'
   );
   const [exchangeRateInput, setExchangeRateInput] = useState<number>(activeJob.fda?.exchangeRateUSDToIDR || activeJob.exchangeRateUSDToIDR || 15800);
+  const exchangeRateRef = useRef(exchangeRateInput);
   const [jobMonthFilter, setJobMonthFilter] = useState<string>('');
   const [jobSearch, setJobSearch] = useState('');
   const [actualEntryMode, setActualEntryMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
@@ -138,8 +139,18 @@ export const FDAView: React.FC<FDAViewProps> = ({
   }, [activeJob.jobId, activeJob.fda?.currency, activeJob.actualCosts, activeJob.quotation?.epda?.currency, activeJob.currency]);
 
   useEffect(() => {
-    setExchangeRateInput(activeJob.fda?.exchangeRateUSDToIDR || activeJob.exchangeRateUSDToIDR || 15800);
+    const savedRate = activeJob.fda?.exchangeRateUSDToIDR || activeJob.exchangeRateUSDToIDR || 15800;
+    exchangeRateRef.current = savedRate;
+    setExchangeRateInput(savedRate);
   }, [activeJob.jobId, activeJob.fda?.exchangeRateUSDToIDR, activeJob.exchangeRateUSDToIDR]);
+
+  useEffect(() => () => {
+    const currentJob = db.getJob(activeJob.jobId);
+    if (!currentJob || isFDAReadOnly || exchangeRateRef.current <= 0) return;
+    db.updateJob(activeJob.jobId, {
+      fda: { ...currentJob.fda, exchangeRateUSDToIDR: exchangeRateRef.current },
+    });
+  }, [activeJob.jobId, subTab, isFDAReadOnly]);
 
   const effectiveExchangeRate = Number(exchangeRateInput || activeJob.exchangeRateUSDToIDR || 15800);
 
@@ -328,6 +339,32 @@ export const FDAView: React.FC<FDAViewProps> = ({
   });
 
   const totalActualBuy = actualList.reduce((s, i) => s + (i.amount || 0), 0);
+  const normalizeActualCategory = (category?: string) =>
+    (category || '').trim().toUpperCase().replace(/[\s-]+/g, '_');
+  const getActualCategory = (item: ActualCostItem) => {
+    if (/VAT[\s_-]*11\s*%?/i.test(item.description)) return 'VAT_11';
+    const category = normalizeActualCategory(item.category);
+    if (category) return category;
+
+    const itemName = item.description.trim().toLowerCase();
+    const epdaItem = activeJob.quotation?.epda?.items?.find(
+      (entry) => entry.name.trim().toLowerCase() === itemName
+    );
+    if (epdaItem?.category) return normalizeActualCategory(epdaItem.category);
+
+    const matchingTariff = fixTariffs.find((tariff) =>
+      tariff.serviceName.trim().toLowerCase() === itemName
+      && portMatches(tariff.portId, tariff.portName)
+      && tariff.costCategory
+    );
+    if (matchingTariff?.costCategory) return normalizeActualCategory(matchingTariff.costCategory);
+
+    const matchingExpense = expensesItems.find((expense) =>
+      expense.name.trim().toLowerCase() === itemName
+      && portMatches(expense.portId, expense.portName)
+    );
+    return matchingExpense?.category ? normalizeActualCategory(matchingExpense.category) : 'UNCATEGORIZED';
+  };
   const getActualTariff = (item: ActualCostItem) => {
     const serviceDescription = describeTariffService(item.description);
     const itemCurrency = item.currency || viewCurrency;
@@ -349,7 +386,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   };
   const fdaResultRows = actualList.map((item) => ({
     id: item.id,
-    category: item.category,
+    category: getActualCategory(item),
     description: item.description,
     amount: item.amount || 0,
     currency: item.currency || viewCurrency,
@@ -379,9 +416,16 @@ export const FDAView: React.FC<FDAViewProps> = ({
     const labelMap: Record<string, string> = {
       PORT_EXPENSES: 'PORT EXPENSES',
       PORT_SERVICE: 'PORT SERVICE',
+      PORT_DUES: 'PORT DUES',
+      PILOTAGE_TOWAGE: 'PILOTAGE / TOWAGE',
+      BERTHING: 'BERTHING',
       CLEARANCE: 'CLEARANCE IN/OUT',
+      IMMIGRATION_CUSTOMS: 'IMMIGRATION / CUSTOMS',
       GENERAL_EXPENSES: 'GENERAL EXPENSES',
+      LOGISTICS_SUPPLIES: 'LOGISTICS / SUPPLIES',
+      SUNDRY: 'SUNDRY',
       CREW_EXPENSES: 'CREW EXPENSES',
+      CREW_CHANGE: 'CREW CHANGE',
       AGENCY_FEE: 'AGENCY FEE',
       OWNER_MATTER: 'OWNER MATTER',
       TAX_CONTINGENCY: 'TAX & CONTINGENCY',
@@ -412,12 +456,13 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const handleExchangeRateChange = (nextValue: string) => {
     if (isFDAReadOnly) return;
     const numericValue = Number(nextValue);
-    const safeRate = Number.isFinite(numericValue) && numericValue > 0 ? numericValue : 0;
-    setExchangeRateInput(safeRate || 15800);
+    if (!Number.isFinite(numericValue) || numericValue <= 0) return;
+    exchangeRateRef.current = numericValue;
+    setExchangeRateInput(numericValue);
     const currentJob = db.getJob(activeJob.jobId);
     if (!currentJob) return;
     db.updateJob(activeJob.jobId, {
-      fda: { ...currentJob.fda, exchangeRateUSDToIDR: safeRate || 15800 },
+      fda: { ...currentJob.fda, exchangeRateUSDToIDR: numericValue },
     });
   };
   const totalCost = jobCalls.reduce((sum, job) => sum + normalizeGrandTotalToIDR(job), 0);
@@ -692,7 +737,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       jobId: activeJob.jobId,
       itemCode: it.expenseItemId || `EPDA-${idx + 1}`,
       description: it.name,
-      category: it.category,
+      category: /VAT[\s_-]*11\s*%?/i.test(it.name) ? 'VAT_11' : it.category,
       vendorName: '',
       invoiceOrVoucherNo: '',
       date: new Date().toISOString().slice(0, 10),
@@ -720,102 +765,11 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const activeBranchName = getCurrentBranchName();
   const fdaNo = buildBranchAwareFDANumber(activeJob.jobId, activeBranchName, fdaDate);
 
-  const buildEPDAHtml = () => {
-    const epda = activeJob.quotation?.epda || { quoteNo: 'EPDA', items: [], totalSellRate: 0, currency: 'USD' };
-    const epdaItems = Array.isArray(epda.items) ? epda.items : [];
-    const epdaNo = formatEPDAQuoteNoForDisplay(epda.quoteNo, activeJob.jobId, getCurrentBranchName(), new Date(activeJob.quotation?.epda?.date || activeJob.inquiry?.date || activeJob.createdAt));
-    const categoryRank: Record<string, number> = {
-      PORT_EXPENSES: 1,
-      PORT_SERVICE: 1,
-      PORT_DUES: 1,
-      BERTHING: 1,
-      PILOTAGE_TOWAGE: 1,
-      CLEARANCE: 2,
-      IMMIGRATION_CUSTOMS: 2,
-      GENERAL_EXPENSES: 3,
-      LOGISTICS_SUPPLIES: 3,
-      SUNDRY: 3,
-      CREW_EXPENSES: 4,
-      CREW_CHANGE: 4,
-      AGENCY_FEE: 5,
-    };
-    const categoryLabel = (category: string) => category.replaceAll('_', ' ');
-    const amount = (value: number) => new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
-    const escapeHtml = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    const amountHeaderLabel = `AMOUNT ${epda.currency || 'USD'}`;
-    const orderedItems = [...epdaItems];
-    const groupedItems = orderedItems.reduce<Array<{ category: string; items: any[] }>>((groups, item) => {
-      const existing = groups.find((group) => group.category === item.category);
-      if (existing) existing.items.push(item);
-      else groups.push({ category: item.category, items: [item] });
-      return groups;
-    }, []);
-
-    const rows = groupedItems.map((group) => {
-      const groupRows = group.items.map((it, idx) => `<tr class="item-row"><td>${idx + 1}</td><td>${escapeHtml(it.name || '')}</td><td style="text-align:center">${escapeHtml(describeTariffFormula({ description: it.name, category: it.category, basis: it.calculationBasis || it.basis, quantity: it.quantity, cargoQuantity: Number(activeJob.inquiry?.cargoQuantity || 0), absoluteValue: vesselMaster?.grt, rate: it.tariffRate ?? it.unitSellRate, tariffType: it.tariffType }))}</td><td style="text-align:right">${amount(it.totalSellRate || 0)}</td><td>${escapeHtml(it.remarks || '')}</td></tr>`).join('');
-      const subtotal = group.items.reduce((sum, item) => sum + (item.totalSellRate || 0), 0);
-      return `<tr style="background:#808080;color:#fff;font-weight:700;text-transform:uppercase"><td colspan="5" style="text-align:left;padding-left:0">${escapeHtml(categoryLabel(group.category))}</td></tr>${groupRows}<tr class="subtotal" style="background:#dbe8f2;font-weight:700"><td colspan="3" style="text-align:right">SUB TOTAL</td><td class="amount" style="text-align:right">${amount(subtotal)}</td><td></td></tr>`;
-    }).join('');
-
-    const total = groupedItems.reduce((sum, group) => sum + group.items.reduce((inner, item) => inner + (item.totalSellRate || 0), 0), 0);
-    const dynamicTableHeader = `<th style="width:5%">NO.</th><th style="width:20%">DESCRIPTION</th><th style="width:35%">TARIFF</th><th style="width:12%">${amountHeaderLabel}</th><th style="width:28%">REMARKS</th>`;
-
-    return `<!doctype html><html><head><meta charset="utf-8"><title>${epdaNo}</title><style>@page{size:A4;margin:14mm}body{font-family:Arial,sans-serif;color:#172033;font-size:11px}.brand-row{text-align:center;margin-bottom:10px}.brand-wrap{display:inline-flex;align-items:center;gap:14px;text-align:left}.logo{width:76px;height:58px;object-fit:contain}.brand{font-weight:700;font-size:21px;line-height:1.15}.tag{color:#666;font-size:13px;margin-top:5px}h2{text-align:center;background:#182a50;color:white;padding:8px;font-size:13px;margin:18px 0 12px}.meta{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px 34px;margin-bottom:12px}.meta-col{display:flex;flex-direction:column;gap:4px}.meta-col.right{justify-self:stretch}.meta-row{display:grid;grid-template-columns:125px 10px minmax(0,1fr);line-height:1.35}.meta-row .label{font-weight:700}.meta-row .colon{text-align:center}.meta-col.right .meta-row{grid-template-columns:85px 10px minmax(0,1fr)}table{width:100%;border-collapse:collapse}th,td{border:1px solid #777;padding:6px 7px}th{background:#e8ecf2;text-align:left}.grand{font-weight:700}.sign{margin-top:34px;text-align:right}.footer{position:fixed;bottom:0;width:100%;text-align:center;font-size:8px;color:#666}</style></head><body><div class="brand-row"><div class="brand-wrap"><img class="logo" src="/lenteraglobalmaritim/lgm-logo.png" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div><h2>ESTIMATE PORT DISBURSEMENT OF ACCOUNT</h2><div class="meta"><div class="meta-col"><div class="meta-row"><span class="label">No.</span><span class="colon">:</span><span>${epdaNo}</span></div><div class="meta-row"><span class="label">Date Inquiry</span><span class="colon">:</span><span>${new Date(activeJob.inquiry?.date || activeJob.createdAt).toLocaleDateString('id-ID')}</span></div><div class="meta-row"><span class="label">Principal</span><span class="colon">:</span><span>${escapeHtml(activeJob.customerName)}</span></div><div class="meta-row"><span class="label">Job/Vessel Call ID</span><span class="colon">:</span><span>${activeJob.jobId}</span></div></div><div class="meta-col right"><div class="meta-row"><span class="label">Port</span><span class="colon">:</span><span>${escapeHtml(activeJob.portName)}</span></div><div class="meta-row"><span class="label">Vessel</span><span class="colon">:</span><span>${escapeHtml(activeJob.vesselName)}</span></div><div class="meta-row"><span class="label">ETA</span><span class="colon">:</span><span>${escapeHtml(activeJob.eta || '')}</span></div><div class="meta-row"><span class="label">GRT</span><span class="colon">:</span><span>${escapeHtml(activeJob.grt || activeJob.inquiry?.cargoQuantity || '')}</span></div></div></div><table><thead><tr><th style="width:7%">NO.</th><th>DESCRIPTION</th><th style="width:20%">AMOUNT IDR</th><th style="width:20%">REMARKS</th></tr></thead><tbody>${rows}<tr class="grand"><td colspan="2" style="text-align:right">GRAND TOTAL</td><td style="text-align:right">${amount(total)}</td><td></td></tr></tbody></table><div class="sign"><div>Banjarjarmasin, ${new Date().toLocaleDateString('id-ID')}</div><div style="margin-top:16px">PT. Lentera Global Maritim</div></div><div class="footer">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span class="contact" style="color:#dc2626;text-decoration:underline">email : <a style="color:#dc2626" href="mailto:maritim@lentera-global.com">maritim@lentera-global.com</a> / web : <span style="color:#dc2626">www.lentera-global.com</span></span></div></body></html>`;
-  };
-
-  const previewEPDA = () => {
-    const vessel = vessels.find((item) => item.id === activeJob.vesselId);
-    const dynamicTableHeader = `<th style="width:5%">NO.</th><th style="width:20%">DESCRIPTION</th><th style="width:35%">TARIFF</th><th style="width:12%">AMOUNT ${viewCurrency}</th><th style="width:28%">REMARKS</th>`;
-    const inquiryMeta = `<div class="meta"><div class="meta-col"><div class="meta-row"><span class="label">No EPDA</span><span class="colon">:</span><span>${fdaEpdaDisplayNo}</span></div><div class="meta-row"><span class="label">Date Inquiry</span><span class="colon">:</span><span>${new Date(activeJob.inquiry?.date || activeJob.createdAt).toLocaleDateString('id-ID')}</span></div><div class="meta-row"><span class="label">Principal</span><span class="colon">:</span><span>${activeJob.customerName}</span></div><div class="meta-row"><span class="label">GRT</span><span class="colon">:</span><span>${vessel?.grt?.toLocaleString('id-ID') || '-'}</span></div><div class="meta-row"><span class="label">Port</span><span class="colon">:</span><span>${activeJob.portName}</span></div><div class="meta-row"><span class="label">ETA</span><span class="colon">:</span><span>${activeJob.eta || '-'}</span></div></div><div class="meta-col right"><div class="meta-row"><span class="label">Vessel</span><span class="colon">:</span><span>${activeJob.vesselName}</span></div><div class="meta-row"><span class="label">Estimated Day</span><span class="colon">:</span><span>${activeJob.inquiry?.estimatedDays || '-'}</span></div><div class="meta-row"><span class="label">Flag</span><span class="colon">:</span><span>${vessel?.flag || '-'}</span></div><div class="meta-row"><span class="label">Cargo Details</span><span class="colon">:</span><span>${activeJob.inquiry?.cargoDetails || '-'}</span></div><div class="meta-row"><span class="label">IMO</span><span class="colon">:</span><span>${vessel?.imoNumber || '-'}</span></div></div></div>`;
-    const compactHtml = buildEPDAHtml().replaceAll('>CURRENCY<', '>TARIFF<').replace('</style>', '@page{size:A4;margin:7mm}body{font-size:9px}.brand-row{margin-bottom:5px}.brand-wrap{min-height:55px;gap:10px}.logo{width:70px;height:52px}.brand{font-size:17px}.tag{font-size:10px;margin-top:2px}h2{font-size:10px;padding:4px;margin:5px 0 7px}.meta{gap:1px 20px;margin-bottom:6px}.meta-col{gap:1px}.meta-row{line-height:1.15}.meta-row .label{font-size:9px}table{page-break-inside:avoid;table-layout:fixed}table th:first-child,table td:first-child{width:5%}table th:nth-child(2),table td:nth-child(2){width:38%}table th:nth-child(3),table td:nth-child(3){width:12%}table th:nth-child(4),table td:nth-child(4){width:17%}table th:nth-child(5),table td:nth-child(5){width:28%}tr{page-break-inside:avoid}th,td{padding:3px 4px;font-size:8px}.bank{margin-top:10px;padding:5px;font-size:7px;line-height:1.2}.footer{margin-top:7px;font-size:8px;line-height:1.2}</style>')
-      .replace('<th style="width:7%">NO.</th><th>DESCRIPTION</th><th style="width:20%">AMOUNT IDR</th><th style="width:20%">REMARKS</th>', dynamicTableHeader)
-      .replace('<tr class="grand"><td colspan="2" style="text-align:right">GRAND TOTAL</td><td style="text-align:right">', '<tr class="grand"><td colspan="3" style="text-align:right">GRAND TOTAL</td><td style="text-align:right">')
-      .replace(/<div class="sign">[\s\S]*?<\/div>/, '')
-      .replace(/<div class="meta">[\s\S]*?(?=<table(?:\s|>))/i, inquiryMeta)
-      .replaceAll('>No.</span>', '>No EPDA</span>');
-    const centeredCompactHtml = compactHtml.replace('</style>', 'table th{text-align:center!important}table tr.item-row td:nth-child(3){text-align:center!important}</style>');
-    const windowRef = window.open('', '_blank', 'width=900,height=1100');
-    if (!windowRef) return;
-    windowRef.document.write(centeredCompactHtml.replaceAll('.meta-col.right{justify-self:stretch}', '.meta-col.right{justify-self:end;width:100%;padding-left:0;transform:translateX(35%)}'));
-    windowRef.document.close();
-  };
-
-  const buildFDAHtml = () => {
-    const formatMoney = (value: number, currency: 'USD' | 'IDR' = 'USD') => {
-      if (currency === 'IDR') {
-        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'IDR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
-      }
-      return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
-    };
-
-    const categoryOrder = Array.from(new Set(actualList.map((it) => it.category || 'UNKNOWN')));
-    const groups = actualList.reduce<Record<string, ActualCostItem[]>>((acc, item) => {
-      const key = item.category || 'UNKNOWN';
-      acc[key] = acc[key] || [];
-      acc[key].push(item);
-      return acc;
-    }, {});
-    const grandCurrency = actualList[0]?.currency || viewCurrency || 'USD';
-    const amountHeaderLabel = `AMOUNT ${grandCurrency}`;
-
-    const groupHtml = categoryOrder.map((category) => {
-      const rows = groups[category] || [];
-      const subtotal = rows.reduce((sum, it) => sum + (it.amount || 0), 0);
-      const currency = rows[0]?.currency || 'USD';
-      const safeCategory = String(category ?? 'UNKNOWN');
-      return `<tr class="section"><td colspan="5">${safeCategory.replace(/_/g, ' ')}</td></tr>${rows.map((it, i) => `<tr class="item-row"><td style="text-align:center">${i + 1}</td><td>${it.description}</td><td style="text-align:center">${getActualTariff(it)}</td><td style="text-align:right">${formatMoney(it.amount, it.currency || 'USD')}</td><td>${it.remarks || ''}</td></tr>`).join('')}<tr class="subtotal"><td colspan="3" style="text-align:right">SUB TOTAL</td><td class="amount" style="text-align:right">${formatMoney(subtotal, currency)}</td><td></td></tr>`;
-    }).join('');
-
-    const rowMeta = `<div><b>Date</b> : ${activeJob.fda?.date || new Date().toLocaleDateString('id-ID')}</div><div><b>Number</b> : ${fdaNo}</div><div><b>To</b> : ${activeJob.customerName}</div><div><b>Vessel</b> : ${activeJob.vesselName}</div><div><b>TA / TD</b> : ${activeJob.eta}</div><div><b>Port</b> : ${activeJob.portName}</div><div><b>Job ID</b> : ${activeJob.jobId}</div><div><b>Next Port</b> : -</div>`;
-
-    return `<!doctype html><html><head><meta charset="utf-8"><title>${fdaNo}</title><style>@page{size:A4;margin:14mm}body{font-family:Arial,sans-serif;color:#172033;font-size:11px}.brand-row{text-align:center;margin-bottom:10px}.brand-wrap{display:inline-flex;align-items:center;gap:14px;text-align:left}.logo{width:76px;height:58px;object-fit:contain}.brand{font-weight:700;font-size:21px;line-height:1.15}.muted{color:#666;font-size:13px;margin-top:5px}.brand-row .muted{font-size:13px}.document-title{text-align:center;background:#182a50;color:#fff;padding:8px;font-size:13px;margin:18px 0 12px}.meta{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px 34px;margin-bottom:12px}.meta-col{display:flex;flex-direction:column;gap:4px}.meta-row{display:grid;grid-template-columns:85px 10px minmax(0,1fr);line-height:1.35}.meta-row .label{font-weight:700}.meta-row .colon{text-align:center}table{width:100%;border-collapse:collapse}th,td{border:1px solid #777;padding:6px 7px}th{text-align:center;background:#e8ecf2}.section td{background:#4b5563;color:#fff;font-weight:700;text-align:left;text-transform:uppercase}.subtotal{font-weight:700;background:#f1f3f6}.grand{font-weight:800;font-size:11px}.amount{text-align:right}.bank{margin-top:18px;border:1px solid #777;padding:10px}.footer{margin-top:22px;text-align:center;font-size:8px;line-height:1.45;color:#111;font-weight:600}.footer .contact{color:#e11d48;text-decoration:underline}</style></head><body><div class="brand-row"><div class="brand-wrap"><img class="logo" src="/lenteraglobalmaritim/lgm-logo.png" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="muted">Seamless Agent, Global Reach</div></div></div></div><h2 class="document-title">Final Disbursement Account (FDA)</h2><div class="meta"><div class="meta-col"><div class="meta-row"><span class="label">Date</span><span class="colon">:</span><span>${activeJob.fda?.date || new Date().toLocaleDateString('id-ID')}</span></div><div class="meta-row"><span class="label">Number</span><span class="colon">:</span><span>${fdaNo}</span></div><div class="meta-row"><span class="label">To</span><span class="colon">:</span><span>${activeJob.customerName}</span></div><div class="meta-row"><span class="label">Vessel</span><span class="colon">:</span><span>${activeJob.vesselName}</span></div></div><div class="meta-col"><div class="meta-row"><span class="label">TA / TD</span><span class="colon">:</span><span>${activeJob.eta}</span></div><div class="meta-row"><span class="label">Port</span><span class="colon">:</span><span>${activeJob.portName}</span></div><div class="meta-row"><span class="label">Job ID</span><span class="colon">:</span><span>${activeJob.jobId}</span></div><div class="meta-row"><span class="label">Next Port</span><span class="colon">:</span><span>-</span></div></div></div><table><thead><tr><th style="width:6%">NO.</th><th>DESCRIPTION</th><th style="width:15%">CURRENCY</th><th style="width:23%">AMOUNT</th><th>REMARKS</th></tr></thead><tbody>${groupHtml}<tr class="grand"><td colspan="3" style="text-align:right">GRAND TOTAL</td><td class="amount">${formatMoney(totalActualBuy, grandCurrency)}</td><td></td></tr></tbody></table><div class="bank"><b>Please kindly remit to our Bank Account</b><br>PT. Lentera Global Maritim - Finance</div><div class="footer"><div>Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan</div><div>Kota Adm Jakarta Selatan, DKI Jakarta - 12810</div><div class="contact">email : <a style="color:#e11d48" href="mailto:maritim@lentera-global.com">maritim@lentera-global.com</a> / web : <span>www.lentera-global.com</span></div></div></body></html>`;
-  };
-
   const buildFDAHtmlSalesTemplate = (print: boolean) => {
     const escape = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    const orderedActualList = [...actualList];
+    const orderedActualList = actualList.map((item) => ({ ...item, category: getActualCategory(item) }));
     const categories = Array.from(new Set(orderedActualList.map((item) => item.category || 'UNKNOWN')));
-    const groups = categories.map((category) => ({ category, items: orderedActualList.filter((item) => (item.category || 'UNKNOWN') === category) }));
+    const groups = categories.map((category) => ({ category, items: orderedActualList.filter((item) => item.category === category) }));
     const money = (value: number, currency: 'USD' | 'IDR') => currency === 'IDR'
       ? new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
       : new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
@@ -870,7 +824,13 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const normalizeFDAExportLayoutBase = (html: string) => pushFinanceSignatureDown(formatFDAExportDates(html.replaceAll('>CURRENCY<', '>TARIFF<').replace('</style>', 'h2{background:#28598e!important;color:#fff!important;text-align:center!important}.section td{background:#566270!important;color:#fff!important}.subtotal,.grand{background:#dbe8f2!important}.grand{color:#f00!important}.bank,.signature{box-sizing:border-box}.signature-main{display:block}.signature-role{display:block;margin-top:120px;padding-top:12px}.meta-col.right{justify-self:end;width:100%;padding-left:0;transform:translateX(35%)}table th:nth-child(2),table td:nth-child(2){width:20%!important}table th:nth-child(3),table td:nth-child(3){width:35%!important;text-align:center!important;white-space:nowrap}table th:nth-child(4),table td:nth-child(4){width:12%!important;white-space:nowrap}</style>')));
 
   const normalizeFDAExportLayout = (html: string) => normalizeFDAExportLayoutBase(html).replace('</style>', 'table th{text-align:center!important}table tr.item-row td:nth-child(1){text-align:center!important}table tr.item-row td:nth-child(2),table tr.item-row td:nth-child(5){text-align:left!important}table tr.item-row td:nth-child(3){text-align:center!important}table tr.item-row td:nth-child(4){text-align:right!important}table tr.section td{text-align:left!important}table tr.subtotal td:first-child{font-weight:700;text-align:right!important}table tr.grand td:first-child{text-align:right!important}table tr.subtotal td.amount,table tr.grand td.amount{font-variant-numeric:tabular-nums;text-align:right!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}</style>');
-  const centerFDAExportColumns = (html: string) => normalizeFDAExportLayout(html).replace('</style>', 'table th,table td{text-align:center!important}</style>');
+  const addCargoQuantityAfterIMO = (html: string) => html.replace(
+    /(<div class="meta-row"><b>IMO<\/b><span>:\<\/span><span>.*?<\/span><\/div>)/,
+    (imoRow) => `${imoRow}<div class="meta-row"><b>Cargo Quantity</b><span>:</span><span>${activeJob.inquiry?.cargoQuantity || 0} ${activeJob.inquiry?.quantityUnit || 'TON'}</span></div>`
+  );
+  const centerFDAExportColumns = (html: string) => addCargoQuantityAfterIMO(
+    normalizeFDAExportLayout(html.replace(/<div class="meta-row"><b>Estimated Day<\/b><span>:\<\/span><span>.*?<\/span><\/div>/, ''))
+  ).replace('</style>', 'table th,table td{text-align:center!important}</style>');
 
   const openFDAWindow = (print = false, getHtml = false): string | undefined => {
     const onePageHtml = pushFinanceSignatureDown(buildFDAHtmlSalesTemplate(false).replace('</style>', '@page{size:A4;margin:14mm}body{font-size:9px}.brand-row{margin:0 0 2px}.brand-wrap{min-height:48px;gap:10px}.logo{width:70px;height:52px}.brand{font-size:17px}.tag{font-size:10px;margin-top:2px}h2{font-size:10px;padding:4px;margin:2px 0 4px}.meta{gap:1px 20px;margin-bottom:3px}.meta-col{gap:1px}.meta-row{line-height:1.15}.meta-row .label{font-size:9px}table{page-break-inside:avoid;table-layout:fixed}table th:first-child,table td:first-child{width:5%;text-align:center!important}table th:nth-child(2),table td:nth-child(2){width:42%;text-align:center!important}table th:nth-child(3),table td:nth-child(3){width:8%;text-align:center!important}table th:nth-child(4),table td:nth-child(4){width:17%;text-align:center!important;white-space:nowrap}table th:nth-child(5),table td:nth-child(5){width:28%;text-align:center!important}tr{page-break-inside:avoid}th,td{padding:3px 4px;font-size:8px}.subtotal td:first-child,.grand td:first-child{font-weight:700;text-align:center!important}.subtotal td.amount,.grand td.amount,.subtotal td:nth-child(2),.grand td:nth-child(2){font-variant-numeric:tabular-nums;text-align:center!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}.section td{padding-left:0!important}.bank{display:inline-block;width:42%;margin-top:24px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.signature-main{display:block}.signature-role{display:block;margin-top:22px;padding-top:4px}.office-footer{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center;font-size:8px;line-height:1.2;font-weight:600;color:#111;z-index:3}.office-footer span{color:#e11d48;text-decoration:underline}</style>'));
@@ -1509,8 +1469,18 @@ export const FDAView: React.FC<FDAViewProps> = ({
                 <span className="text-xs text-slate-400">Melihat hasil entry Final Cost FDA</span>
               </div>
               <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={previewEPDA} title="Review data hasil EPDA dari Sales" aria-label="Review data hasil EPDA dari Sales" className="px-3 py-2 rounded-lg bg-slate-800 text-slate-200 text-xs font-bold flex items-center gap-1.5"><Eye className="w-3.5 h-3.5"/>Lihat Hasil EPDA</button>
-                <button type="button" onClick={() => openFDAWindow(false)} className="px-3 py-2 rounded-lg bg-slate-800 text-slate-200 text-xs font-bold flex items-center gap-1.5"><Eye className="w-3.5 h-3.5"/>Lihat Hasil FDA</button>
+                {activeJob.quotation?.epda?.items?.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={createActualFromEPDA}
+                    disabled={isFDAReadOnly || activeJob.managerApproval?.status !== 'APPROVED'}
+                    title="Tambahkan item EPDA ke tabel Hasil FDA"
+                    className="fda-continue-epda px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Lanjutkan dari EPDA
+                  </button>
+                )}
                 <label className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-cyan-600/20 text-cyan-200 border border-cyan-500/30 text-xs font-bold ${isFDAReadOnly ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
                   <Upload className="w-3.5 h-3.5"/>
                   <span>Upload File</span>
@@ -1553,9 +1523,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
                     const categoryCurrency = categoryRows[0]?.currency || viewCurrency;
                     return (
                       <React.Fragment key={category}>
-                        <tr className="bg-slate-600 font-bold">
-                          <td colSpan={5} style={{ color: '#fff', backgroundColor: '#4b5563', textIndent: '1em' }} className="border-l border-slate-700 p-2.5 text-left font-black uppercase tracking-[0.16em]">
-                            {formatCategoryCost(category)}
+                        <tr className="fda-category-row">
+                          <td colSpan={5} className="border-l border-slate-700 text-left">
+                            <span className="fda-category-label">{formatCategoryCost(category)}</span>
                           </td>
                         </tr>
                         {categoryRows.map((it, idx) => (
@@ -1814,7 +1784,6 @@ export const FDAView: React.FC<FDAViewProps> = ({
                 {isFDASubmitted && <span className="inline-flex items-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-xs font-bold text-amber-800"><CheckCircle2 className="h-4 w-4"/>TERKIRIM · MENUNGGU MANAGER OPS</span>}
                 {activeJob.fda?.fdaApproved && (
                   <>
-                    <button onClick={() => openFDAWindow(false)} className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-200 text-xs font-bold transition flex items-center gap-2"><Eye className="w-4 h-4"/>Lihat Hasil FDA</button>
                     <button onClick={downloadFDAExcel} className="px-4 py-2.5 rounded-xl bg-emerald-600/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition flex items-center gap-2"><Download className="w-4 h-4"/>Download Excel</button>
                     <button onClick={() => openFDAWindow(true)} className="px-4 py-2.5 rounded-xl bg-white text-slate-900 hover:bg-slate-100 text-xs font-bold transition flex items-center gap-2"><Printer className="w-4 h-4" /> Cetak / PDF FDA</button>
                   </>
