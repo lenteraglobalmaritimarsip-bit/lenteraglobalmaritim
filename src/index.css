@@ -142,7 +142,7 @@ button{ cursor:pointer; }
 .maritim-job-card-id{font-family:ui-monospace,monospace;font-size:11px;color:#fff;font-weight:800;margin-top:4px}
 .maritim-job-card-stage{font-size:9px;color:#7d8ba3;margin-top:2px}
 
-.maritim-main{flex:1;min-width:0;overflow:auto;padding:22px;background:#eef4fb}
+.maritim-main{flex:1;min-width:0;overflow:visible;padding:22px;background:#eef4fb}
 .maritim-content{max-width:1260px;margin:0 auto}
 .admin-master-actions{max-width:100%;}
 @media(max-width:900px){
@@ -231,6 +231,8 @@ button{ cursor:pointer; }
 .epda-form-root table.border-separate,.fda-form-root table.border-separate{line-height:1}
 .epda-form-root table.border-separate th,.epda-form-root table.border-separate td,.fda-form-root table.border-separate th,.fda-form-root table.border-separate td{line-height:1;margin:0;padding-top:6px;padding-bottom:6px}
 .epda-form-root table.border-separate p,.fda-form-root table.border-separate p{margin:0}
+.epda-form-root table .epda-category-row td{height:auto;min-height:30px;padding:9px 12px!important;color:#fff!important;background:#303b4d!important;line-height:1.4!important;white-space:normal}
+.epda-form-root table .epda-category-row .epda-category-label{display:block!important;color:#fff!important;-webkit-text-fill-color:#fff!important;font-size:12px!important;font-weight:900!important;line-height:1.4!important;visibility:visible!important;opacity:1!important;overflow:visible!important;text-indent:0!important}
 .maritim-main .text-2xl{font-size:25px;line-height:1.18}
 .maritim-main .text-xl{font-size:20px}
 .maritim-main .text-lg{font-size:17px}

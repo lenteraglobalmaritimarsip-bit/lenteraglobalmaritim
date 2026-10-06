@@ -58,8 +58,8 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   })));
   const [exchangeRate, setExchangeRate] = useState<number>(job.quotation.epda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800);
   const [isSaved, setIsSaved] = useState(false);
-  const [editingAmountId, setEditingAmountId] = useState<string | null>(null);
-  const [amountDraft, setAmountDraft] = useState('');
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [itemEditDraft, setItemEditDraft] = useState({ description: '', tariff: '', amount: '', remarks: '' });
   const [itemEntryMode, setItemEntryMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
   const [manualTariffText, setManualTariffText] = useState('');
   const [newItem, setNewItem] = useState({
@@ -239,6 +239,22 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     return true;
   };
 
+  const saveExchangeRate = () => {
+    if (isReviewOnly || isEPDALockedInDatabase()) return;
+    const currentJob = db.getJob(job.jobId);
+    if (!currentJob) return;
+    db.updateJob(job.jobId, {
+      quotation: {
+        ...currentJob.quotation,
+        epda: {
+          ...currentJob.quotation?.epda,
+          exchangeRateUSDToIDR: Number(exchangeRate) || 15800,
+        },
+      },
+    });
+    onDataSaved?.();
+  };
+
   const autosaveItems = (nextItems: DisbursementItem[]) => {
     if (isReviewOnly || isEPDALockedInDatabase()) return;
     const manualItems = nextItems.map((item) => ({
@@ -260,26 +276,39 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     onDataSaved?.();
   };
 
-  const startEditAmount = (item: DisbursementItem) => {
+  const startEditItem = (item: DisbursementItem) => {
     if (isReviewOnly || isEPDALockedInDatabase()) return;
-    setEditingAmountId(item.id);
-    setAmountDraft(formatEntryAmount(item.totalSellRate));
+    setEditingItemId(item.id);
+    setItemEditDraft({
+      description: item.name,
+      tariff: formatEntryAmount(Number(item.tariffRate ?? item.unitSellRate)),
+      amount: formatEntryAmount(item.totalSellRate),
+      remarks: item.remarks || '',
+    });
   };
 
-  const saveEditedAmount = (itemId: string) => {
+  const saveEditedItem = (itemId: string) => {
     if (isReviewOnly || isEPDALockedInDatabase()) return;
-    const amount = parseEntryAmount(amountDraft);
-    if (amount === '') return;
+    const tariff = parseEntryAmount(itemEditDraft.tariff);
+    const amount = parseEntryAmount(itemEditDraft.amount);
+    if (!itemEditDraft.description.trim() || tariff === '' || amount === '') return;
     autosaveItems(items.map((item) => item.id === itemId
-      ? { ...item, totalSellRate: amount, unitSellRate: amount / (Number(item.quantity) || 1) }
+      ? {
+          ...item,
+          name: itemEditDraft.description.trim(),
+          tariffRate: tariff,
+          totalSellRate: amount,
+          unitSellRate: amount / (Number(item.quantity) || 1),
+          remarks: itemEditDraft.remarks,
+        }
       : item));
-    setEditingAmountId(null);
-    setAmountDraft('');
+    setEditingItemId(null);
+    setItemEditDraft({ description: '', tariff: '', amount: '', remarks: '' });
   };
 
-  const cancelEditAmount = () => {
-    setEditingAmountId(null);
-    setAmountDraft('');
+  const cancelEditItem = () => {
+    setEditingItemId(null);
+    setItemEditDraft({ description: '', tariff: '', amount: '', remarks: '' });
   };
 
   const handleQuickAddMasterData = () => {
@@ -436,6 +465,28 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     setTimeout(() => setIsSaved(false), 3500);
   };
 
+  const normalizeCategory = (category: string) => category.trim().toUpperCase().replace(/[\s-]+/g, '_');
+  const resolveItemCategory = (item: DisbursementItem) => {
+    if (/VAT[\s_-]*11\s*%?/i.test(item.name)) return 'VAT_11';
+    const category = normalizeCategory(item.category || '');
+    if (category) return category;
+
+    const itemName = item.name.trim().toLowerCase();
+    const matchingTariff = fixTariffs.find((tariff) =>
+      tariff.serviceName.trim().toLowerCase() === itemName
+      && portMatches(tariff.portId, tariff.portName)
+    );
+    if (matchingTariff) return normalizeCategory(matchingTariff.costCategory || 'PORT_EXPENSES');
+
+    const matchingExpense = expensesItems.find((expense) =>
+      expense.name.trim().toLowerCase() === itemName
+      && portMatches(expense.portId, expense.portName)
+    );
+    if (matchingExpense) return normalizeCategory(matchingExpense.category);
+
+    if (itemName.startsWith('port service')) return 'PORT_SERVICE';
+    return '';
+  };
   const categoryLabel = (category: string) => {
     const map: Record<string, string> = {
       PORT_EXPENSES: 'PORT EXPENSES',
@@ -449,13 +500,15 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       VAT_11: 'VAT 11%',
       PPH_INCOME_TAX: 'PPH / INCOME TAX',
     };
-    return map[category] || category.replaceAll('_', ' ');
+    const normalizedCategory = normalizeCategory(category);
+    return map[normalizedCategory] || normalizedCategory.replaceAll('_', ' ') || 'UNCATEGORIZED';
   };
   const categoryTone = { screen: 'bg-slate-600 text-white', background: '#4b5563' };
   const groupedItems = items.reduce<Array<{ category: string; items: DisbursementItem[] }>>((groups, item) => {
-    const existing = groups.find((group) => group.category === item.category);
+    const category = resolveItemCategory(item);
+    const existing = groups.find((group) => group.category === category);
     if (existing) existing.items.push(item);
-    else groups.push({ category: item.category, items: [item] });
+    else groups.push({ category, items: [item] });
     return groups;
   }, []);
   const getItemTariff = (item: DisbursementItem) => {
@@ -473,14 +526,14 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       quantity: item.quantity,
       cargoQuantity: Number(job.inquiry?.cargoQuantity || 0),
       absoluteValue: vesselMaster?.grt,
-      rate: masterOption?.rate ?? item.tariffRate ?? item.unitSellRate,
+      rate: item.tariffRate ?? masterOption?.rate ?? item.unitSellRate,
       tariffType: item.tariffType || masterOption?.tariffType,
     });
   };
   const escapeHtml = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const getBankFooterByCurrency = (currency: Currency) => currency === 'USD'
-    ? '<div class="bank"><div>Please kindly remit to our Bank Account</div><div>Bank Account Detail of PT. Lentera Global Maritim asf:</div><br><b>BANK MANDIRI (Persero) Tbk</b><br>Address:<br>BANK MANDIRI TEBET SUPOMO<br>Jl. Prof. Dr.Supomo SH No 43, Tebet, RT.04/RW.03<br>Tebet barat , Kec. Tebet, Kota Jakarta Selatan,<br>Daerah Khusus Ibukota Jakarta 12810<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number (USD) : 120-00-5575599-0</b><br><b>Swift Code Bank : BMRIIDJAXXX</b></div><div class="signature"><div class="signature-main">Sincerely,<br>PT. Lentera Global Maritim</div><div class="signature-role">Finance</div></div>'
-    : '<div class="bank"><div>Please kindly remit to our Bank Account</div><div>Bank Account Detail of PT. Lentera Global Maritim asf:</div><br><b>BANK NEGARA INDONESIA (Persero) Tbk</b><br>Address:<br>BNI BIDAKARA<br>Jl. Gatot Subroto Kab 71-73, RT.12/RW.5, Tebet Timur,<br>Kec. Tebet, Kota Jakarta Selatan, Daerah Khusus Ibukota Jakarta 12820<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number : 2824-1212-09</b><br><b>Swift Code Bank : BNINIDJAXXX</b></div><div class="signature"><div class="signature-main">Sincerely,<br>PT. Lentera Global Maritim</div><div class="signature-role">Finance</div></div>';
+    ? '<div class="bank"><div>Please kindly remit to our Bank Account</div><div>Bank Account Detail of PT. Lentera Global Maritim asf:</div><br><b>BANK MANDIRI (Persero) Tbk</b><br>Address:<br>BANK MANDIRI TEBET SUPOMO<br>Jl. Prof. Dr.Supomo SH No 43, Tebet, RT.04/RW.03<br>Tebet barat , Kec. Tebet, Kota Jakarta Selatan,<br>Daerah Khusus Ibukota Jakarta 12810<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number (USD) : 120-00-5575599-0</b><br><b>Swift Code Bank : BMRIIDJAXXX</b></div>'
+    : '<div class="bank"><div>Please kindly remit to our Bank Account</div><div>Bank Account Detail of PT. Lentera Global Maritim asf:</div><br><b>BANK NEGARA INDONESIA (Persero) Tbk</b><br>Address:<br>BNI BIDAKARA<br>Jl. Gatot Subroto Kab 71-73, RT.12/RW.5, Tebet Timur,<br>Kec. Tebet, Kota Jakarta Selatan, Daerah Khusus Ibukota Jakarta 12820<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number : 2824-1212-09</b><br><b>Swift Code Bank : BNINIDJAXXX</b></div>';
   const officeFooter = '<div class="office-footer" style="position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center;font-size:9px;line-height:1.45;font-weight:600;color:#111;z-index:3;">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span style="color:#dc2626;text-decoration:underline">email : maritim@lentera-global.com / web : www.lentera-global.com</span></div>';
   const printFooter = getBankFooterByCurrency(viewCurrency);
   const pushFinanceSignatureDown = (html: string) => html
@@ -508,7 +561,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     .replace(/<thead><tr>[\s\S]*?<\/tr><\/thead>/g, `<thead><tr><th>NO.</th><th>DESCRIPTION</th><th>TARIFF</th><th>AMOUNT ${viewCurrency}</th><th>REMARKS</th></tr></thead>`)
     .replaceAll('<table>', '<table style="width:100%;table-layout:fixed">')
     .replaceAll('<tr class="grand"><td colspan="2"', '<tr class="grand"><td colspan="3"')
-    .replaceAll('</style>', 'table{table-layout:fixed!important}table th,table td{box-sizing:border-box!important}table th:nth-child(1),table td:nth-child(1){width:5%!important;text-align:center!important}table th:nth-child(2),table td:nth-child(2){width:20%!important;text-align:center!important}table th:nth-child(3),table td:nth-child(3){width:35%!important;text-align:center!important;white-space:nowrap}table th:nth-child(4),table td:nth-child(4){width:12%!important;text-align:center!important;white-space:nowrap}table th:nth-child(5),table td:nth-child(5){width:28%!important;text-align:center!important}table th{text-align:center!important}table td:nth-child(1){text-align:center!important}table td:nth-child(2),table td:nth-child(3),table td:nth-child(4),table td:nth-child(5){text-align:center!important}table tr[style*="background:#4b5563"] td:first-child{padding-left:0!important;text-align:center!important}table tr.subtotal td:first-child,table tr.grand td:first-child{font-weight:700;text-align:center!important}table tr.subtotal td.amount,table tr.grand td.amount,table tr.subtotal td:nth-child(2),table tr.grand td:nth-child(2){font-variant-numeric:tabular-nums;text-align:center!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}.sign{display:none!important}</style>')
+    .replaceAll('</style>', 'table{table-layout:fixed!important}table th,table td{box-sizing:border-box!important}table th:nth-child(1),table td:nth-child(1){width:5%!important;text-align:center!important}table th:nth-child(2),table td:nth-child(2){width:20%!important;text-align:center!important}table th:nth-child(3),table td:nth-child(3){width:35%!important;text-align:center!important;white-space:nowrap}table th:nth-child(4),table td:nth-child(4){width:12%!important;text-align:center!important;white-space:nowrap}table th:nth-child(5),table td:nth-child(5){width:28%!important;text-align:center!important}table th{text-align:center!important}table td:nth-child(1){text-align:center!important}table td:nth-child(2),table td:nth-child(3),table td:nth-child(4),table td:nth-child(5){text-align:center!important}table tr[style*="background:#4b5563"] td:first-child{padding-left:1em!important;text-align:left!important}table tr.subtotal td:first-child,table tr.grand td:first-child{font-weight:700;text-align:center!important}table tr.subtotal td.amount,table tr.grand td.amount,table tr.subtotal td:nth-child(2),table tr.grand td:nth-child(2){font-variant-numeric:tabular-nums;text-align:center!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}.sign{display:none!important}</style>')
     .replace(/<div class="sign">[\s\S]*?<\/div>/, '');
 
   const formatExportTable = (html: string) => formatExportTableBase(html).replace('</style>', 'body table tr.item-row td:nth-child(1){text-align:center!important}body table tr.item-row td:nth-child(2),body table tr.item-row td:nth-child(5){text-align:left!important}body table tr.item-row td:nth-child(3){text-align:center!important}body table tr.item-row td:nth-child(4){text-align:right!important}body table tr[style*="background:"] td[colspan="5"]{text-align:left!important}body table tr.subtotal td:first-child,body table tr.grand td:first-child{font-weight:700;text-align:right!important}body table tr.subtotal td.amount,body table tr.grand td.amount,body table tr.grand td:nth-child(2){font-variant-numeric:tabular-nums;text-align:right!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}</style>');
@@ -520,7 +573,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     const rows = groupedItems.map((group) => {
       const groupRows = group.items.map((it, index) => `<tr class="item-row"><td>${index + 1}</td><td>${escapeHtml(it.name)}</td><td>${escapeHtml(getItemTariff(it))}</td><td style="text-align:right">${amount(it.totalSellRate)}</td><td>${escapeHtml(it.remarks || '')}</td></tr>`).join('');
       const subtotal = group.items.reduce((sum, item) => sum + item.totalSellRate, 0);
-      return `<tr style="background:${categoryTone.background};color:#fff;font-weight:700;text-transform:uppercase"><td colspan="5" style="text-align:left;padding-left:0">${escapeHtml(categoryLabel(group.category))}</td></tr>${groupRows}<tr class="subtotal" style="background:#f1f3f6;font-weight:700"><td colspan="3" style="text-align:right">SUBTOTAL</td><td class="amount" style="text-align:right">${amount(subtotal)}</td><td></td></tr>`;
+      return `<tr class="category-row" style="background:${categoryTone.background};color:#fff;font-weight:700;text-transform:uppercase"><td colspan="5" style="text-align:left;padding:7px 10px 7px 1em;background:${categoryTone.background};color:#fff!important;font-size:10px;font-weight:900;line-height:1.4">${escapeHtml(categoryLabel(group.category))}</td></tr>${groupRows}<tr class="subtotal" style="background:#f1f3f6;font-weight:700"><td colspan="3" style="text-align:right">SUBTOTAL</td><td class="amount" style="text-align:right">${amount(subtotal)}</td><td></td></tr>`;
     }).join('');
     return `<!doctype html><html><head><meta charset="utf-8"><title>${epdaNo}</title><style>@page{size:A4;margin:14mm}body{font-family:Arial,sans-serif;color:#172033;font-size:11px}.brand-row{text-align:center;margin-bottom:10px}.brand-wrap{display:inline-flex;align-items:center;gap:14px;text-align:left}.logo{width:76px;height:58px;object-fit:contain}.brand{font-weight:700;font-size:21px;line-height:1.15}.tag{color:#666;font-size:13px;margin-top:5px}h2{text-align:center;background:#182a50;color:white;padding:8px;font-size:13px;margin:18px 0 12px}.meta{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px 34px;margin-bottom:12px}.meta-col{display:flex;flex-direction:column;gap:4px}.meta-col.right{justify-self:stretch}.meta-row{display:grid;grid-template-columns:125px 10px minmax(0,1fr);line-height:1.35}.meta-row .label{font-weight:700}.meta-row .colon{text-align:center}.meta-col.right .meta-row{grid-template-columns:85px 10px minmax(0,1fr)}table{width:100%;border-collapse:collapse}th,td{border:1px solid #777;padding:6px 7px}th{background:#e8ecf2;text-align:left}.grand{font-weight:700}.sign{margin-top:34px;text-align:right}.footer{position:fixed;bottom:0;width:100%;text-align:center;font-size:8px;color:#666}</style></head><body><div class="brand-row"><div class="brand-wrap"><img class="logo" src="/lenteraglobalmaritim/lgm-logo.png" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div><h2>ESTIMATE PORT DISBURSEMENT OF ACCOUNT</h2><div class="meta"><div class="meta-col"><div class="meta-row"><span class="label">No.</span><span class="colon">:</span><span>${epdaNo}</span></div><div class="meta-row"><span class="label">Date Inquiry</span><span class="colon">:</span><span>${job.inquiry.date}</span></div><div class="meta-row"><span class="label">Principal</span><span class="colon">:</span><span>${escapeHtml(job.customerName)}</span></div><div class="meta-row"><span class="label">Job/Vessel Call ID</span><span class="colon">:</span><span>${job.jobId}</span></div></div><div class="meta-col right"><div class="meta-row"><span class="label">Port</span><span class="colon">:</span><span>${escapeHtml(job.portName)}</span></div><div class="meta-row"><span class="label">Vessel</span><span class="colon">:</span><span>${escapeHtml(job.vesselName)}</span></div><div class="meta-row"><span class="label">ETA</span><span class="colon">:</span><span>${job.eta}</span></div><div class="meta-row"><span class="label">GRT</span><span class="colon">:</span><span>${vesselMaster?.grt?.toLocaleString() || '-'}</span></div></div></div><table><thead><tr><th>NO.</th><th>DESCRIPTION</th><th>AMOUNT ${viewCurrency}</th><th>REMARKS</th></tr></thead><tbody>${rows}</tbody><tfoot><tr class="grand"><td colspan="2" style="text-align:right">GRAND TOTAL</td><td style="text-align:right">${amount(totalSellUSD)}</td><td></td></tr></tfoot></table><div class="sign">Banjarmasin, ${new Date().toLocaleDateString('id-ID')}<br><br><br><b>PT. Lentera Global Maritim</b></div><div class="footer">PT Lentera Global Maritim • Shipping Agency • ${epdaNo}</div></body></html>`;
   };
@@ -532,6 +585,41 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     const html = formatExportTable(enhanceExportHeader(buildDocument())).replace(/<div class="footer">PT Lentera Global Maritim • Shipping Agency • [^<]*<\/div>/, '').replaceAll('class="meta-col right"', 'class="meta-col right" style="padding-right:18px"').replaceAll('>No.</span>', '>No EPDA</span>');
     const onePageHtml = html.replace('</style>', '@page{size:A4;margin:10mm}body{font-family:Arial,sans-serif;font-size:10px;color:#172033}.brand-row{margin-bottom:8px}.brand-wrap{min-height:58px;gap:12px}.logo{width:78px;height:58px}.brand{font-size:20px;color:#3562a8}.tag{font-size:11px;color:#3562a8;margin-top:3px}h2{background:#214f84;font-size:12px;padding:5px;margin:8px 0 9px}.meta{gap:2px 28px;margin-bottom:9px}.meta-col{gap:2px}.meta-row{line-height:1.25}.meta-row .label{font-size:10px}table{page-break-inside:avoid;table-layout:fixed;border:1px solid #9ca3af;border-collapse:collapse}tr{page-break-inside:avoid}th,td{padding:4px 5px;font-size:9px;border:1px solid #9ca3af!important}thead th,table thead th{background:#dbe8f2!important;text-align:center!important;border-bottom:1px solid #9ca3af!important}table th:nth-child(1),table td:nth-child(1){width:5%!important;text-align:center!important}table th:nth-child(2),table td:nth-child(2){width:42%!important;text-align:center!important}table th:nth-child(3),table td:nth-child(3){width:8%!important;text-align:center!important}table th:nth-child(4),table td:nth-child(4){width:17%!important;text-align:center!important;white-space:nowrap}table th:nth-child(5),table td:nth-child(5){width:28%!important;text-align:center!important}thead th:nth-child(1),thead th:nth-child(2),thead th:nth-child(3),thead th:nth-child(4),thead th:nth-child(5){text-align:center!important}.item-row td{background:#fff!important;border:1px solid #9ca3af!important}.subtotal{background:#dbe8f2!important;font-weight:700}.subtotal td{border-top:1px solid #9ca3af!important}.grand{background:#dbe8f2!important;color:#f00;font-weight:800}.grand td{border-top:1px solid #9ca3af!important}.subtotal td:first-child,.grand td:first-child{text-align:center!important}.subtotal td.amount,.grand td.amount{padding-left:0!important;padding-right:4px!important;text-align:center!important;white-space:nowrap}.bank{display:inline-block;width:42%;margin-top:16px;border:1px solid #777;padding:8px;font-size:8px;line-height:1.3;vertical-align:top}.signature{display:inline-block;width:42%;margin:16px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.footer{margin-top:16px;text-align:center;font-size:9px;line-height:1.35;font-weight:600}.footer .contact{color:#e11d48;text-decoration:underline}</style>');
     w.document.write(onePageHtml.replace(/<div class="meta">[\s\S]*?(?=<table(?:\s|>))/i, inquiryMeta).replaceAll('width:42%!important', 'width:20%!important').replaceAll('width:8%!important', 'width:35%!important').replaceAll('width:17%!important', 'width:12%!important').replaceAll('text-align:center!important}table th:nth-child(3)', 'text-align:center!important;white-space:nowrap}table th:nth-child(3)'));
+    w.document.head.insertAdjacentHTML('beforeend', `<style>
+      @media screen {
+        html, body { min-height: 100%; height: auto; overflow: visible; }
+        body { box-sizing: border-box; max-width: 1100px; margin: 0 auto; padding: 24px; }
+        .office-footer { position: static !important; left: auto !important; bottom: auto !important; transform: none !important; margin: 20px auto 0; }
+      }
+      table th:nth-child(2), table td:nth-child(2) {
+        width: 35% !important;
+        text-align: left !important;
+        white-space: normal !important;
+        overflow-wrap: anywhere;
+      }
+      table th:nth-child(3), table td:nth-child(3) {
+        width: 20% !important;
+        white-space: normal !important;
+        overflow-wrap: anywhere;
+      }
+      table td:nth-child(5) {
+        white-space: normal !important;
+        overflow-wrap: anywhere;
+      }
+      @media print {
+        @page { size: A4 portrait; margin: 12mm 12mm 20mm; }
+        html, body { height: auto; min-height: 0; overflow: visible; }
+        body { max-width: none; margin: 0; padding: 0; }
+        table { page-break-inside: auto !important; break-inside: auto !important; overflow: visible !important; }
+        thead { display: table-header-group; }
+        tfoot { display: table-footer-group; }
+        tbody { display: table-row-group; }
+        tbody tr { page-break-inside: avoid !important; break-inside: avoid !important; }
+        tbody tr.category-row { page-break-after: avoid !important; break-after: avoid-page !important; }
+        .office-footer { position: fixed !important; left: 50% !important; bottom: 0 !important; transform: translateX(-50%) !important; }
+        .bank, .signature { page-break-inside: avoid; break-inside: avoid; }
+      }
+    </style>`);
     w.document.close();
     if (print) w.onload = () => { w.focus(); w.print(); };
   };
@@ -559,7 +647,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800"><button onClick={() => handleViewCurrencyChange('IDR')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${viewCurrency==='IDR'?'bg-emerald-600 text-white':'text-slate-400'}`}>IDR (Rp)</button><button onClick={() => handleViewCurrencyChange('USD')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${viewCurrency==='USD'?'bg-emerald-600 text-white':'text-slate-400'}`}>USD ($)</button></div>
-          <div className="text-xs text-slate-400 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">Kurs USD <input value={exchangeRate} readOnly={isReviewOnly} onChange={e=>setExchangeRate(Number(e.target.value)||0)} className="w-20 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-white text-right"/></div>
+          <div className="text-xs text-slate-400 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">Kurs USD <input value={exchangeRate} readOnly={isReviewOnly} onChange={e=>setExchangeRate(Number(e.target.value)||0)} onBlur={saveExchangeRate} className="w-20 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-white text-right"/></div>
           {!isReviewOnly && <button onClick={handleSubmit} className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5"><Send className="w-4 h-4"/>Kirim ke Manager OPS</button>}
           {isReviewOnly && <span className="px-3.5 py-2 rounded-xl border border-blue-200 bg-blue-100 text-blue-700 text-xs font-bold">{isManagerApproved ? 'VIEW ONLY · APPROVED' : 'TERKIRIM · MENUNGGU APPROVAL'}</span>}
         </div>
@@ -618,7 +706,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
 
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4"><div><h2 className="text-base font-bold text-white uppercase tracking-wider">Hasil Quotes EPDA</h2><span className="text-xs text-slate-400">Hasil entry data manual Estimasi Biaya</span></div><div className="flex flex-wrap gap-2"><button onClick={()=>openPreview(false)} className="px-3 py-2 rounded-lg bg-slate-800 text-slate-200 text-xs font-bold flex items-center gap-1.5"><Eye className="w-3.5 h-3.5"/>Lihat Hasil EPDA</button><button onClick={downloadExcel} className="px-3 py-2 rounded-lg bg-emerald-600/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold flex items-center gap-1.5"><Download className="w-3.5 h-3.5"/>Download Excel</button><button onClick={()=>openPreview(true)} className="px-3 py-2 rounded-lg bg-white text-slate-900 text-xs font-bold flex items-center gap-1.5"><Printer className="w-3.5 h-3.5"/>Cetak / PDF</button></div></div>
-        <div className="overflow-x-auto"><table className="w-full text-left text-xs border-separate border-spacing-0"><thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider"><tr><th className="p-3.5 border-l border-slate-700">No</th><th className="p-3.5 border-l border-slate-700">Description</th><th className="p-3.5 border-l border-slate-700">Tariff</th><th className="p-3.5 text-right border-l border-slate-700">Amount ({viewCurrency})</th><th className="p-3.5 border-l border-slate-700">Remark</th></tr></thead><tbody className="divide-y divide-slate-800">{groupedItems.map((group) => <React.Fragment key={group.category}><tr className={`${categoryTone.screen} font-bold`}><td colSpan={5} style={{ color: '#fff', backgroundColor: '#4b5563' }} className="p-2.5 font-black uppercase tracking-[0.16em] border-l border-slate-700">{categoryLabel(group.category)}</td></tr>{group.items.map((it, index) => <tr key={it.id} className="transition-colors hover:bg-slate-700/40"><td className="p-3.5 font-mono text-slate-300 border-l border-slate-800">{index + 1}</td><td className="p-3.5 font-bold text-white border-l border-slate-800">{it.name}</td><td className="p-3.5 font-mono text-cyan-300 border-l border-slate-800">{getItemTariff(it)}</td><td className="p-3.5 text-right font-mono font-bold text-white border-l border-slate-800"><div className="flex items-center justify-end gap-2">{editingAmountId === it.id ? <><input autoFocus inputMode="decimal" value={amountDraft} onChange={(event) => setAmountDraft(event.target.value)} aria-label={`Amount ${it.name}`} className="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1 text-right text-white"/><button type="button" onClick={() => saveEditedAmount(it.id)} className="rounded p-1 text-emerald-300 hover:bg-emerald-500/20" title="Simpan amount" aria-label={`Simpan amount ${it.name}`}><Check className="h-4 w-4"/></button><button type="button" onClick={cancelEditAmount} className="rounded p-1 text-slate-400 hover:bg-slate-700" title="Batal edit" aria-label="Batal edit amount"><X className="h-4 w-4"/></button></> : formatAmount(it.totalSellRate)}</div></td><td className="p-3.5 text-slate-300 border-l border-slate-800"><div className="flex items-center justify-between gap-3"><span>{it.remarks || '-'}</span><div className="flex items-center gap-1"><>{!isReviewOnly && !isEPDALockedInDatabase() && editingAmountId !== it.id && <button type="button" onClick={() => startEditAmount(it)} className="rounded p-1.5 text-cyan-300 hover:bg-cyan-500/20" title="Edit amount" aria-label={`Edit amount ${it.name}`}><Pencil className="h-3.5 w-3.5"/></button>}<button type="button" onClick={() => autosaveItems(items.filter((item) => item.id !== it.id))} className="p-1.5 rounded-md text-rose-300 hover:bg-rose-500/20 hover:text-rose-200" title="Hapus item EPDA" aria-label={`Hapus ${it.name}`}><Trash2 className="w-3.5 h-3.5" /></button></></div></div></td></tr>)}<tr className="bg-slate-950/70"><td colSpan={3} className="p-2.5 text-right font-bold uppercase tracking-wider text-slate-200 border-l border-slate-800">SUB TOTAL</td><td className="p-2.5 text-right font-mono font-bold text-white border-l border-slate-800">{formatAmount(group.items.reduce((sum, item) => sum + item.totalSellRate, 0))}</td><td className="border-l border-slate-800" /></tr></React.Fragment>)}</tbody><tfoot className="bg-slate-950"><tr><td colSpan={3} className="p-3.5 text-right font-black uppercase tracking-wider text-white border-l border-slate-800">GRAND TOTAL</td><td className="p-3.5 text-right font-mono text-lg font-black text-white border-l border-slate-800">{formatAmount(totalSellUSD)}</td><td className="border-l border-slate-800"/></tr></tfoot></table></div>
+        <div className="overflow-x-auto"><table className="w-full text-left text-xs border-separate border-spacing-0"><thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider"><tr><th className="p-3.5 border-l border-slate-700">No</th><th className="p-3.5 border-l border-slate-700">Description</th><th className="p-3.5 border-l border-slate-700">Tariff</th><th className="p-3.5 text-right border-l border-slate-700">Amount ({viewCurrency})</th><th className="p-3.5 border-l border-slate-700">Remark</th></tr></thead><tbody className="divide-y divide-slate-800">{groupedItems.map((group) => <React.Fragment key={group.category}><tr className={`epda-category-row ${categoryTone.screen} font-bold`}><td colSpan={5} className="font-black uppercase tracking-[0.16em] border-l border-slate-700"><span className="epda-category-label">{categoryLabel(group.category)}</span></td></tr>{group.items.map((it, index) => <tr key={it.id} className="transition-colors hover:bg-slate-700/40"><td className="p-3.5 font-mono text-slate-300 border-l border-slate-800">{index + 1}</td><td className="p-3.5 font-bold text-white border-l border-slate-800">{editingItemId === it.id ? <input value={itemEditDraft.description} onChange={(event) => setItemEditDraft({ ...itemEditDraft, description: event.target.value })} aria-label={`Description ${it.name}`} className="w-full rounded border border-slate-600 bg-slate-950 px-2 py-1 text-white"/> : it.name}</td><td className="p-3.5 font-mono text-cyan-300 border-l border-slate-800">{editingItemId === it.id ? <input inputMode="decimal" value={itemEditDraft.tariff} onChange={(event) => setItemEditDraft({ ...itemEditDraft, tariff: event.target.value })} aria-label={`Tariff ${it.name}`} className="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1 text-white"/> : getItemTariff(it)}</td><td className="p-3.5 text-right font-mono font-bold text-white border-l border-slate-800"><div className="flex items-center justify-end gap-2">{editingItemId === it.id ? <><input autoFocus inputMode="decimal" value={itemEditDraft.amount} onChange={(event) => setItemEditDraft({ ...itemEditDraft, amount: event.target.value })} aria-label={`Amount ${it.name}`} className="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1 text-right text-white"/><button type="button" onClick={() => saveEditedItem(it.id)} className="rounded p-1 text-emerald-300 hover:bg-emerald-500/20" title="Simpan amount" aria-label={`Simpan amount ${it.name}`}><Check className="h-4 w-4"/></button><button type="button" onClick={cancelEditItem} className="rounded p-1 text-slate-400 hover:bg-slate-700" title="Batal edit amount"><X className="h-4 w-4"/></button></> : formatAmount(it.totalSellRate)}</div></td><td className="p-3.5 text-slate-300 border-l border-slate-800"><div className="flex items-center justify-between gap-3">{editingItemId === it.id ? <input value={itemEditDraft.remarks} onChange={(event) => setItemEditDraft({ ...itemEditDraft, remarks: event.target.value })} aria-label={`Remark ${it.name}`} className="w-full rounded border border-slate-600 bg-slate-950 px-2 py-1 text-white"/> : <span>{it.remarks || '-'}</span>}<div className="flex items-center gap-1"><>{!isReviewOnly && !isEPDALockedInDatabase() && editingItemId !== it.id && <button type="button" onClick={() => startEditItem(it)} className="rounded p-1.5 text-cyan-300 hover:bg-cyan-500/20" title="Edit item" aria-label={`Edit ${it.name}`}><Pencil className="h-3.5 w-3.5"/></button>}<button type="button" onClick={() => autosaveItems(items.filter((item) => item.id !== it.id))} className="p-1.5 rounded-md text-rose-300 hover:bg-rose-500/20 hover:text-rose-200" title="Hapus item EPDA" aria-label={`Hapus ${it.name}`}><Trash2 className="w-3.5 h-3.5" /></button></></div></div></td></tr>)}<tr className="bg-slate-950/70"><td colSpan={3} className="p-2.5 text-right font-bold uppercase tracking-wider text-slate-200 border-l border-slate-800">SUB TOTAL</td><td className="p-2.5 text-right font-mono font-bold text-white border-l border-slate-800">{formatAmount(group.items.reduce((sum, item) => sum + item.totalSellRate, 0))}</td><td className="border-l border-slate-800" /></tr></React.Fragment>)}</tbody><tfoot className="bg-slate-950"><tr><td colSpan={3} className="p-3.5 text-right font-black uppercase tracking-wider text-white border-l border-slate-800">GRAND TOTAL</td><td className="p-3.5 text-right font-mono text-lg font-black text-white border-l border-slate-800">{formatAmount(totalSellUSD)}</td><td className="border-l border-slate-800"/></tr></tfoot></table></div>
       </div>
 
       {!isReviewOnly && <div className="rounded-2xl border border-slate-300 bg-[#edf2f4] p-5 shadow-sm">

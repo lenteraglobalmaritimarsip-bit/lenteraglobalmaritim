@@ -73,7 +73,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const [showAddActualModal, setShowAddActualModal] = useState(false);
   const [editingActualId, setEditingActualId] = useState<string | null>(null);
   const [editingResultAmountId, setEditingResultAmountId] = useState<string | null>(null);
-  const [resultAmountDraft, setResultAmountDraft] = useState('');
+  const [resultAmountDraft, setResultAmountDraft] = useState({ description: '', tariff: '', amount: '', remarks: '' });
   const [msg, setMsg] = useState<string | null>(null);
   const [showPdfPreview, setShowPdfPreview] = useState(false);
   const [previewDocument, setPreviewDocument] = useState<string | null>(null);
@@ -629,15 +629,29 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const startEditResultAmount = (item: typeof fdaResultRows[number]) => {
     if (isFDAReadOnly || activeJob.managerApproval?.status !== 'APPROVED') return;
     setEditingResultAmountId(item.id);
-    setResultAmountDraft(formatAccountingNumber(item.amount, item.currency));
+    const actualItem = actualList.find((actual) => actual.id === item.id);
+    setResultAmountDraft({
+      description: item.description,
+      tariff: String(actualItem?.tariffRate ?? item.amount),
+      amount: String(item.amount),
+      remarks: actualItem?.remarks || '',
+    });
   };
 
   const saveResultAmount = (actualId: string) => {
     if (isFDAReadOnly || activeJob.managerApproval?.status !== 'APPROVED') return;
-    const amount = parseTariffNumber(resultAmountDraft, Number.NaN);
-    if (!Number.isFinite(amount) || amount < 0) return;
+    const tariff = parseTariffNumber(resultAmountDraft.tariff, Number.NaN);
+    const amount = parseTariffNumber(resultAmountDraft.amount, Number.NaN);
+    if (!resultAmountDraft.description.trim() || !Number.isFinite(tariff) || tariff < 0 || !Number.isFinite(amount) || amount < 0) return;
     const updated = actualList.map((item) => item.id === actualId
-      ? { ...item, amount, varianceAmount: amount - (item.pdaAmountEstimated || 0) }
+      ? {
+          ...item,
+          description: resultAmountDraft.description.trim(),
+          tariffRate: tariff,
+          amount,
+          varianceAmount: amount - (item.pdaAmountEstimated || 0),
+          remarks: resultAmountDraft.remarks,
+        }
       : item);
     setActualList(updated);
     db.updateJob(activeJob.jobId, { actualCosts: updated, currentStage: 'ACTUAL_COST' });
@@ -647,7 +661,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   const cancelEditResultAmount = () => {
     setEditingResultAmountId(null);
-    setResultAmountDraft('');
+    setResultAmountDraft({ description: '', tariff: '', amount: '', remarks: '' });
   };
 
   const handleInlineInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -1369,6 +1383,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                   value={exchangeRateInput}
                   readOnly={isFDAReadOnly}
                   onChange={(e) => handleExchangeRateChange(e.target.value)}
+                  onBlur={() => handleExchangeRateChange(String(exchangeRateInput))}
                   className="w-24 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-right text-xs text-white"
                 />
               </label>
@@ -1521,13 +1536,21 @@ export const FDAView: React.FC<FDAViewProps> = ({
                         {categoryRows.map((it, idx) => (
                           <tr key={it.id} className="transition-colors hover:bg-slate-700/40">
                             <td className="border-l border-slate-800 p-3.5 font-mono text-slate-300">{idx + 1}</td>
-                            <td className="border-l border-slate-800 p-3.5 font-bold text-white">{it.description}</td>
-                            <td className="border-l border-slate-800 p-3.5 font-mono text-cyan-300">{it.tariff}</td>
+                            <td className="border-l border-slate-800 p-3.5 font-bold text-white">
+                              {editingResultAmountId === it.id
+                                ? <input value={resultAmountDraft.description} onChange={(event) => setResultAmountDraft({ ...resultAmountDraft, description: event.target.value })} aria-label={`Description ${it.description}`} className="w-full rounded border border-slate-600 bg-slate-950 px-2 py-1 text-white" />
+                                : it.description}
+                            </td>
+                            <td className="border-l border-slate-800 p-3.5 font-mono text-cyan-300">
+                              {editingResultAmountId === it.id
+                                ? <input inputMode="decimal" value={resultAmountDraft.tariff} onChange={(event) => setResultAmountDraft({ ...resultAmountDraft, tariff: event.target.value })} aria-label={`Tariff ${it.description}`} className="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1 text-white" />
+                                : it.tariff}
+                            </td>
                             <td className="border-l border-slate-800 p-3.5 text-right font-mono font-bold text-white">
                               <div className="flex items-center justify-end gap-2">
                                 {editingResultAmountId === it.id ? (
                                   <>
-                                    <input autoFocus inputMode="decimal" value={resultAmountDraft} onChange={(event) => setResultAmountDraft(event.target.value)} aria-label={`Amount ${it.description}`} className="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1 text-right text-white" />
+                                    <input autoFocus inputMode="decimal" value={resultAmountDraft.amount} onChange={(event) => setResultAmountDraft({ ...resultAmountDraft, amount: event.target.value })} aria-label={`Amount ${it.description}`} className="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1 text-right text-white" />
                                     <button type="button" onClick={() => saveResultAmount(it.id)} className="rounded p-1 text-emerald-300 hover:bg-emerald-500/20" title="Simpan amount" aria-label={`Simpan amount ${it.description}`}><Check className="h-4 w-4" /></button>
                                     <button type="button" onClick={cancelEditResultAmount} className="rounded p-1 text-slate-400 hover:bg-slate-700" title="Batal edit" aria-label="Batal edit amount"><X className="h-4 w-4" /></button>
                                   </>
@@ -1540,9 +1563,11 @@ export const FDAView: React.FC<FDAViewProps> = ({
                             </td>
                             <td className="border-l border-slate-800 p-3.5 text-slate-300">
                               <div className="flex items-center justify-between gap-3">
-                                <span>{it.remarks}</span>
+                                {editingResultAmountId === it.id
+                                  ? <input value={resultAmountDraft.remarks} onChange={(event) => setResultAmountDraft({ ...resultAmountDraft, remarks: event.target.value })} aria-label={`Remark ${it.description}`} className="w-full rounded border border-slate-600 bg-slate-950 px-2 py-1 text-white" />
+                                  : <span>{it.remarks}</span>}
                                 <div className="flex items-center gap-1">
-                                  {!isFDAReadOnly && activeJob.managerApproval?.status === 'APPROVED' && editingResultAmountId !== it.id && <button type="button" onClick={() => startEditResultAmount(it)} className="rounded-md p-1.5 text-cyan-300 hover:bg-cyan-500/20" title="Edit amount" aria-label={`Edit amount ${it.description}`}><Pencil className="h-3.5 w-3.5" /></button>}
+                                  {!isFDAReadOnly && activeJob.managerApproval?.status === 'APPROVED' && editingResultAmountId !== it.id && <button type="button" onClick={() => startEditResultAmount(it)} className="rounded-md p-1.5 text-cyan-300 hover:bg-cyan-500/20" title="Edit item" aria-label={`Edit ${it.description}`}><Pencil className="h-3.5 w-3.5" /></button>}
                                   {!isFDAReadOnly && <button type="button" onClick={() => deleteActualCost(it.id)} className="rounded-md p-1.5 text-rose-300 hover:bg-rose-500/20 hover:text-rose-200" title="Hapus item FDA" aria-label={`Hapus ${it.description}`}><Trash2 className="h-3.5 w-3.5" /></button>}
                                 </div>
                               </div>
