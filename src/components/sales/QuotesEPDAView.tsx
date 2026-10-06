@@ -140,6 +140,25 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       || (!!currentPortName && !!targetPortName && currentPortName.toLowerCase() === targetPortName.toLowerCase());
   };
   const buildAutoServiceOptions = (currency: Currency) => {
+    const categoryOrder: Record<string, number> = {
+      PORT_SERVICE: 0,
+      PORT_EXPENSES: 1,
+      PORT_DUES: 2,
+      BERTHING: 3,
+      PILOTAGE_TOWAGE: 4,
+      CLEARANCE: 5,
+      IMMIGRATION_CUSTOMS: 6,
+      GENERAL_EXPENSES: 7,
+      LOGISTICS_SUPPLIES: 8,
+      SUNDRY: 9,
+      CREW_EXPENSES: 10,
+      CREW_CHANGE: 11,
+      AGENCY_FEE: 12,
+      OWNER_MATTER: 13,
+      TAX_CONTINGENCY: 14,
+      PPH_INCOME_TAX: 16,
+      VAT_11: 17,
+    };
     const serviceKey = (name: string, category: string) => `${name.trim().toLowerCase()}|${category.trim().toUpperCase()}`;
     const currentCurrencyFixTariffs = fixTariffs.filter((tariff) =>
       portMatches(tariff.portId, tariff.portName)
@@ -154,7 +173,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       vesselMaster?.grt,
     );
 
-    return selectPreferredTariffOptions([
+    const options = selectPreferredTariffOptions([
     ...applicableFixTariffs
       .map((tariff) => ({
         name: tariff.serviceName,
@@ -197,6 +216,10 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
           source: 'EXPENSES_ITEM' as const,
       })),
           ]);
+    return options.sort((a, b) =>
+      (categoryOrder[a.category] ?? 15) - (categoryOrder[b.category] ?? 15)
+      || a.name.localeCompare(b.name)
+    );
         };
   const autoServiceOptions = buildAutoServiceOptions(viewCurrency);
 
@@ -513,7 +536,28 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     if (existing) existing.items.push(item);
     else groups.push({ category, items: [item] });
     return groups;
-  }, []);
+  }, []).sort((a, b) => {
+    const order: Record<string, number> = {
+      PORT_SERVICE: 0,
+      PORT_EXPENSES: 1,
+      PORT_DUES: 2,
+      BERTHING: 3,
+      PILOTAGE_TOWAGE: 4,
+      CLEARANCE: 5,
+      IMMIGRATION_CUSTOMS: 6,
+      GENERAL_EXPENSES: 7,
+      LOGISTICS_SUPPLIES: 8,
+      SUNDRY: 9,
+      CREW_EXPENSES: 10,
+      CREW_CHANGE: 11,
+      AGENCY_FEE: 12,
+      OWNER_MATTER: 13,
+      TAX_CONTINGENCY: 14,
+      VAT_11: 100,
+      PPH_INCOME_TAX: 101,
+    };
+    return (order[a.category] ?? 50) - (order[b.category] ?? 50) || a.category.localeCompare(b.category);
+  });
   const getItemTariff = (item: DisbursementItem) => {
     const serviceDescription = describeTariffService(item.name);
     const currency = item.currency || viewCurrency;
@@ -799,16 +843,16 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
             <div>
               <label className="mb-1 block text-slate-600">Category Cost</label>
               <select value={newItem.category} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500">
-                <option value="PORT_EXPENSES">PORT EXPENSES</option>
                 <option value="PORT_SERVICE">PORT SERVICE</option>
+                <option value="PORT_EXPENSES">PORT EXPENSES</option>
                 <option value="CLEARANCE">CLEARANCE IN/OUT</option>
                 <option value="GENERAL_EXPENSES">GENERAL EXPENSES</option>
                 <option value="CREW_EXPENSES">CREW EXPENSES</option>
                 <option value="AGENCY_FEE">AGENCY FEE</option>
-                <option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option>
                 <option value="OWNER_MATTER">OWNER MATTER</option>
-                <option value="VAT_11">VAT 11%</option>
+                <option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option>
                 <option value="PPH_INCOME_TAX">PPH / INCOME TAX</option>
+                <option value="VAT_11">VAT 11%</option>
               </select>
             </div>
             <div>
@@ -851,16 +895,16 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
             <div>
               <label className="mb-1 block text-slate-600">Category Cost</label>
               <select value={newItem.category} onChange={e => setNewItem({ ...newItem, category: e.target.value })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none">
-                <option value="PORT_EXPENSES">PORT EXPENSES</option>
                 <option value="PORT_SERVICE">PORT SERVICE</option>
+                <option value="PORT_EXPENSES">PORT EXPENSES</option>
                 <option value="CLEARANCE">CLEARANCE IN/OUT</option>
                 <option value="GENERAL_EXPENSES">GENERAL EXPENSES</option>
                 <option value="CREW_EXPENSES">CREW EXPENSES</option>
                 <option value="AGENCY_FEE">AGENCY FEE</option>
-                <option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option>
                 <option value="OWNER_MATTER">OWNER MATTER</option>
-                <option value="VAT_11">VAT 11%</option>
+                <option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option>
                 <option value="PPH_INCOME_TAX">PPH / INCOME TAX</option>
+                <option value="VAT_11">VAT 11%</option>
               </select>
             </div>
             <div>

@@ -223,6 +223,25 @@ export const FDAView: React.FC<FDAViewProps> = ({
       || (!!currentPortName && !!targetPortName && currentPortName.toLowerCase() === targetPortName.toLowerCase());
   };
   const buildAutoServiceOptions = (currency: Currency) => {
+    const categoryOrder: Record<string, number> = {
+      PORT_SERVICE: 0,
+      PORT_EXPENSES: 1,
+      PORT_DUES: 2,
+      BERTHING: 3,
+      PILOTAGE_TOWAGE: 4,
+      CLEARANCE: 5,
+      IMMIGRATION_CUSTOMS: 6,
+      GENERAL_EXPENSES: 7,
+      LOGISTICS_SUPPLIES: 8,
+      SUNDRY: 9,
+      CREW_EXPENSES: 10,
+      CREW_CHANGE: 11,
+      AGENCY_FEE: 12,
+      OWNER_MATTER: 13,
+      TAX_CONTINGENCY: 14,
+      PPH_INCOME_TAX: 16,
+      VAT_11: 17,
+    };
     const serviceKey = (name: string, category: string) => `${name.trim().toLowerCase()}|${category.trim().toUpperCase()}`;
     const currentCurrencyFixTariffs = fixTariffs.filter((tariff) =>
       portMatches(tariff.portId, tariff.portName)
@@ -237,7 +256,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       vesselMaster?.grt,
     );
 
-    return selectPreferredTariffOptions([
+    const options = selectPreferredTariffOptions([
     ...applicableFixTariffs
       .map((tariff) => ({
         name: tariff.serviceName,
@@ -280,6 +299,10 @@ export const FDAView: React.FC<FDAViewProps> = ({
           source: 'EXPENSES_ITEM' as const,
       })),
           ]);
+    return options.sort((a, b) =>
+      (categoryOrder[a.category] ?? 15) - (categoryOrder[b.category] ?? 15)
+      || a.name.localeCompare(b.name)
+    );
         };
   const autoServiceOptions = buildAutoServiceOptions(viewCurrency);
 
@@ -341,15 +364,21 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const totalActualBuy = actualList.reduce((s, i) => s + (i.amount || 0), 0);
   const normalizeActualCategory = (category?: string) =>
     (category || '').trim().toUpperCase().replace(/[\s-]+/g, '_');
+  const isVAT11Category = (category: string) =>
+    /VAT.*11|11.*VAT/i.test(normalizeActualCategory(category));
   const getActualCategory = (item: ActualCostItem) => {
-    if (/VAT[\s_-]*11\s*%?/i.test(item.description)) return 'VAT_11';
-    const category = normalizeActualCategory(item.category);
-    if (category) return category;
-
     const itemName = item.description.trim().toLowerCase();
     const epdaItem = activeJob.quotation?.epda?.items?.find(
       (entry) => entry.name.trim().toLowerCase() === itemName
     );
+    const category = normalizeActualCategory(item.category);
+    if (
+      /VAT.*11|11.*VAT/i.test(item.description)
+      || isVAT11Category(category)
+      || isVAT11Category(normalizeActualCategory(epdaItem?.category))
+    ) return 'VAT_11';
+    if (category) return category;
+
     if (epdaItem?.category) return normalizeActualCategory(epdaItem.category);
 
     const matchingTariff = fixTariffs.find((tariff) =>
@@ -366,8 +395,12 @@ export const FDAView: React.FC<FDAViewProps> = ({
     return matchingExpense?.category ? normalizeActualCategory(matchingExpense.category) : 'UNCATEGORIZED';
   };
   const getActualTariff = (item: ActualCostItem) => {
+    if (item.tariffDescription !== undefined) return item.tariffDescription;
     const serviceDescription = describeTariffService(item.description);
     const itemCurrency = item.currency || viewCurrency;
+    const epdaItem = activeJob.quotation?.epda?.items?.find(
+      (entry) => entry.name.trim().toLowerCase() === item.description.trim().toLowerCase()
+    );
     const masterOption = buildAutoServiceOptions(itemCurrency).find((option) =>
       option.name.trim().toLowerCase() === item.description.trim().toLowerCase()
       && option.category === item.category
@@ -377,11 +410,11 @@ export const FDAView: React.FC<FDAViewProps> = ({
       description: item.description,
       category: item.category,
       basis: item.calculationBasis || masterOption?.calculationBasis,
-      quantity: item.quantity,
+      quantity: Number(item.quantity) > 0 ? Number(item.quantity) : (Number(epdaItem?.quantity) > 0 ? Number(epdaItem.quantity) : 1),
       cargoQuantity: Number(activeJob.inquiry?.cargoQuantity || 0),
       absoluteValue: vesselMaster?.grt,
-      rate: item.tariffRate ?? masterOption?.rate ?? (item.quantity ? item.amount / item.quantity : item.amount),
-      tariffType: item.tariffType || masterOption?.tariffType,
+      rate: item.tariffRate ?? epdaItem?.tariffRate ?? masterOption?.rate ?? epdaItem?.unitBuyRate ?? (item.quantity ? item.amount / item.quantity : item.amount),
+      tariffType: item.tariffType || epdaItem?.tariffType || masterOption?.tariffType,
     });
   };
   const fdaResultRows = actualList.map((item) => ({
@@ -394,24 +427,33 @@ export const FDAView: React.FC<FDAViewProps> = ({
     remarks: item.remarks || '-',
   }));
   const categoryRank: Record<string, number> = {
+    PORT_SERVICE: 0,
     PORT_EXPENSES: 1,
-    PORT_SERVICE: 1,
-    PORT_DUES: 1,
-    BERTHING: 1,
-    PILOTAGE_TOWAGE: 1,
-    CLEARANCE: 2,
-    IMMIGRATION_CUSTOMS: 2,
-    GENERAL_EXPENSES: 3,
-    LOGISTICS_SUPPLIES: 3,
-    SUNDRY: 3,
-    CREW_EXPENSES: 4,
-    CREW_CHANGE: 4,
-    AGENCY_FEE: 5,
-    OWNER_MATTER: 6,
-    TAX_CONTINGENCY: 7,
+    PORT_DUES: 2,
+    BERTHING: 3,
+    PILOTAGE_TOWAGE: 4,
+    CLEARANCE: 5,
+    IMMIGRATION_CUSTOMS: 6,
+    GENERAL_EXPENSES: 7,
+    LOGISTICS_SUPPLIES: 8,
+    SUNDRY: 9,
+    CREW_EXPENSES: 10,
+    CREW_CHANGE: 11,
+    AGENCY_FEE: 12,
+    OWNER_MATTER: 13,
+    TAX_CONTINGENCY: 14,
+    VAT_11: 100,
+    PPH_INCOME_TAX: 101,
   };
+  const sortFDACategories = (categories: string[]) => [...categories].sort((a, b) => {
+    const aIsVAT11 = isVAT11Category(a);
+    const bIsVAT11 = isVAT11Category(b);
+    if (aIsVAT11 !== bIsVAT11) return aIsVAT11 ? 1 : -1;
+    const rankDifference = (categoryRank[a] ?? 8) - (categoryRank[b] ?? 8);
+    return rankDifference || a.localeCompare(b);
+  });
   const orderedFDAResultRows = [...fdaResultRows];
-  const fdaResultCategories: string[] = Array.from(new Set<string>(orderedFDAResultRows.map((item) => item.category)));
+  const fdaResultCategories = sortFDACategories(Array.from(new Set<string>(orderedFDAResultRows.map((item) => item.category))));
   const formatCategoryCost = (category: string) => {
     const labelMap: Record<string, string> = {
       PORT_EXPENSES: 'PORT EXPENSES',
@@ -683,7 +725,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     const actualItem = actualList.find((actual) => actual.id === item.id);
     setResultAmountDraft({
       description: item.description,
-      tariff: String(actualItem?.tariffRate ?? item.amount),
+      tariff: actualItem?.tariffDescription ?? item.tariff,
       amount: String(item.amount),
       remarks: actualItem?.remarks || '',
     });
@@ -691,14 +733,13 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   const saveResultAmount = (actualId: string) => {
     if (isFDAReadOnly || activeJob.managerApproval?.status !== 'APPROVED') return;
-    const tariff = parseTariffNumber(resultAmountDraft.tariff, Number.NaN);
     const amount = parseTariffNumber(resultAmountDraft.amount, Number.NaN);
-    if (!resultAmountDraft.description.trim() || !Number.isFinite(tariff) || tariff < 0 || !Number.isFinite(amount) || amount < 0) return;
+    if (!resultAmountDraft.description.trim() || !resultAmountDraft.tariff.trim() || !Number.isFinite(amount) || amount < 0) return;
     const updated = actualList.map((item) => item.id === actualId
       ? {
           ...item,
           description: resultAmountDraft.description.trim(),
-          tariffRate: tariff,
+          tariffDescription: resultAmountDraft.tariff.trim(),
           amount,
           varianceAmount: amount - (item.pdaAmountEstimated || 0),
           remarks: resultAmountDraft.remarks,
@@ -738,6 +779,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       itemCode: it.expenseItemId || `EPDA-${idx + 1}`,
       description: it.name,
       category: /VAT[\s_-]*11\s*%?/i.test(it.name) ? 'VAT_11' : it.category,
+      quantity: Number(it.quantity) > 0 ? Number(it.quantity) : 1,
       vendorName: '',
       invoiceOrVoucherNo: '',
       date: new Date().toISOString().slice(0, 10),
@@ -768,7 +810,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const buildFDAHtmlSalesTemplate = (print: boolean) => {
     const escape = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     const orderedActualList = actualList.map((item) => ({ ...item, category: getActualCategory(item) }));
-    const categories = Array.from(new Set(orderedActualList.map((item) => item.category || 'UNKNOWN')));
+    const categories = sortFDACategories(Array.from(new Set<string>(orderedActualList.map((item) => item.category || 'UNKNOWN'))));
     const groups = categories.map((category) => ({ category, items: orderedActualList.filter((item) => item.category === category) }));
     const money = (value: number, currency: 'USD' | 'IDR') => currency === 'IDR'
       ? new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
@@ -1538,7 +1580,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                             </td>
                             <td className="border-l border-slate-800 p-3.5 font-mono text-cyan-300">
                               {editingResultAmountId === it.id
-                                ? <input inputMode="decimal" value={resultAmountDraft.tariff} onChange={(event) => setResultAmountDraft({ ...resultAmountDraft, tariff: event.target.value })} aria-label={`Tariff ${it.description}`} className="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1 text-white" />
+                                ? <input type="text" value={resultAmountDraft.tariff} onChange={(event) => setResultAmountDraft({ ...resultAmountDraft, tariff: event.target.value })} aria-label={`Tariff ${it.description}`} className="w-full min-w-48 rounded border border-slate-600 bg-slate-950 px-2 py-1 text-white" />
                                 : it.tariff}
                             </td>
                             <td className="border-l border-slate-800 p-3.5 text-right font-mono font-bold text-white">
@@ -1642,7 +1684,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
             {actualEntryMode === 'AUTO' ? (
               <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2 lg:grid-cols-6">
                 <div className="lg:col-span-2"><label className="mb-1 block text-slate-600">Item Service</label>{autoServiceOptions.length > 0 ? <select value={autoServiceOptionKey(newActual.description, newActual.category)} onChange={(e) => applySelectedAutoService(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="">Pilih item service</option>{autoServiceOptions.map((option) => <option key={autoServiceOptionKey(option.name, option.category)} value={autoServiceOptionKey(option.name, option.category)}>{option.name}</option>)}</select> : <input required value={newActual.description} onChange={(e) => setNewActual({ ...newActual, description: e.target.value })} placeholder="Nama biaya final otomatis" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none" />}</div>
-                <div><label className="mb-1 block text-slate-600">Category Cost</label><select value={newActual.category} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="PORT_SERVICE">PORT SERVICE</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="AGENCY_FEE">AGENCY FEE</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option><option value="VAT_11">VAT 11%</option><option value="PPH_INCOME_TAX">PPH / INCOME TAX</option></select></div>
+                <div><label className="mb-1 block text-slate-600">Category Cost</label><select value={newActual.category} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"><option value="PORT_SERVICE">PORT SERVICE</option><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="AGENCY_FEE">AGENCY FEE</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option><option value="PPH_INCOME_TAX">PPH / INCOME TAX</option><option value="VAT_11">VAT 11%</option></select></div>
                 <div><label className="mb-1 block text-slate-600">Type</label><select value={newActual.tariffType === 'RANGE' ? 'QTY_CARGO' : newActual.tariffType} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="QTY_CARGO">QTY_CARGO</option></select></div>
                 <div><label className="mb-1 block text-slate-600">Rate</label><input type="text" inputMode="decimal" readOnly value={formatRateAmount(Number(newActual.rate) || 0)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
                 <div><label className="mb-1 block text-slate-600">QTY</label><input type="number" min="1" value={actualQuantity} onChange={(e) => setActualQuantity(Math.max(1, Number(e.target.value) || 1))} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>
@@ -1655,7 +1697,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
             ) : (
               <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2 lg:grid-cols-6">
                 <div className="lg:col-span-2"><label className="mb-1 block text-slate-600">Item Service</label><input required value={newActual.description} onChange={(e) => setNewActual({ ...newActual, description: e.target.value })} placeholder="Nama biaya final manual" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none" /></div>
-                <div><label className="mb-1 block text-slate-600">Category Cost</label><select value={newActual.category} onChange={(e) => setNewActual({ ...newActual, category: e.target.value })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="PORT_SERVICE">PORT SERVICE</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="AGENCY_FEE">AGENCY FEE</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option><option value="VAT_11">VAT 11%</option><option value="PPH_INCOME_TAX">PPH / INCOME TAX</option></select></div>
+                <div><label className="mb-1 block text-slate-600">Category Cost</label><select value={newActual.category} onChange={(e) => setNewActual({ ...newActual, category: e.target.value })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="PORT_SERVICE">PORT SERVICE</option><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="AGENCY_FEE">AGENCY FEE</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option><option value="PPH_INCOME_TAX">PPH / INCOME TAX</option><option value="VAT_11">VAT 11%</option></select></div>
                 <div><label className="mb-1 block text-slate-600">Type</label><select value={newActual.tariffType === 'RANGE' ? 'QTY_CARGO' : newActual.tariffType} onChange={(e) => setNewActual({ ...newActual, tariffType: e.target.value as 'FIXED' | 'VARIABLE' | 'QTY_CARGO' })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="QTY_CARGO">QTY_CARGO</option></select></div>
                 <div><label className="mb-1 block text-slate-600">QTY</label><input type="number" min="1" value={actualQuantity} onChange={(e) => setActualQuantity(Math.max(1, Number(e.target.value) || 1))} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>
                 <div><label className="mb-1 block text-slate-600">Tarif ({viewCurrency})</label><input type="text" inputMode="decimal" placeholder="0.0000" value={manualTariffText} onChange={(e) => { const text = e.target.value; setManualTariffText(text); setNewActual({ ...newActual, amountBuy: parseTariffInput(text) }); }} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>
@@ -1802,7 +1844,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
             <p className="text-[11px] text-slate-400 mb-4">Sesuai revisi PDF, user FDA fokus mengisi Amount aktual untuk 1 Job/Vessel Call. Data vendor dan nomor voucher dibuat otomatis bila kosong.</p>
             <form onSubmit={(e) => { e.preventDefault(); e.stopPropagation(); handleAddActualCost(); }} className="space-y-3 text-xs">
               <div><label className="text-slate-400 block mb-1">Description:</label><input type="text" required value={newActual.description} onChange={e=>setNewActual({...newActual,description:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"/></div>
-              <div><label className="text-slate-400 block mb-1">Category:</label><select value={newActual.category} onChange={e=>setNewActual({...newActual,category:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="PORT_SERVICE">PORT SERVICE</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="AGENCY_FEE">AGENCY FEE</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option><option value="VAT_11">VAT 11%</option><option value="PPH_INCOME_TAX">PPH / INCOME TAX</option></select></div>
+              <div><label className="text-slate-400 block mb-1">Category:</label><select value={newActual.category} onChange={e=>setNewActual({...newActual,category:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"><option value="PORT_SERVICE">PORT SERVICE</option><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="AGENCY_FEE">AGENCY FEE</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option><option value="PPH_INCOME_TAX">PPH / INCOME TAX</option><option value="VAT_11">VAT 11%</option></select></div>
               <div><label className="text-slate-400 block mb-1">Tarif ({viewCurrency}):</label><input type="text" inputMode="decimal" required value={formatTariffInput(newActual.amountBuy)} onChange={e=>setNewActual({...newActual,amountBuy:parseTariffInput(e.target.value),amountSellBilled:parseTariffInput(e.target.value)})} className="w-full bg-slate-950 border border-cyan-700 rounded-lg p-2.5 text-white font-mono text-lg"/></div>
               <div><label className="text-slate-400 block mb-1">Remark (opsional):</label><input value={newActual.notes} onChange={e=>setNewActual({...newActual,notes:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"/></div>
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800"><button type="button" onClick={()=>{setShowAddActualModal(false);setEditingActualId(null)}} className="px-3.5 py-1.5 rounded-lg bg-slate-800 text-slate-300">Batal</button><button type="submit" className="px-4 py-1.5 rounded-lg bg-cyan-600 text-white font-bold">Simpan Amount</button></div>

@@ -256,6 +256,7 @@ export interface ActualCostItem {
   pdaAmountEstimated: number;
   calculationBasis?: 'PER_GRT' | 'PER_DAY' | 'LUMP_SUM' | 'PER_HOUR' | 'PER_MOVE';
   tariffRate?: number;
+  tariffDescription?: string;
   varianceAmount: number; // actual - estimated
   status: 'PENDING_VERIFICATION' | 'VERIFIED' | 'APPROVED_BY_FDA';
   attachmentName?: string;
