@@ -669,7 +669,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                           </div>
                           <div className="rounded-lg border border-slate-800 bg-slate-900 p-2.5">
                             <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Quantity</div>
-                            <div className="mt-1 font-semibold text-white">{job.inquiry?.quantity ?? '-'} {job.inquiry?.quantityUnit === 'MATRIX_TON' ? 'MT' : job.inquiry?.quantityUnit === 'TON' ? 'T' : '-'}</div>
+                            <div className="mt-1 font-semibold text-white">{job.inquiry?.cargoQuantity ?? '-'} {job.inquiry?.quantityUnit === 'MATRIX_TON' ? 'MT' : job.inquiry?.quantityUnit === 'TON' ? 'T' : '-'}</div>
                           </div>
                           <div className="rounded-lg border border-slate-800 bg-slate-900 p-2.5">
                             <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Customer</div>

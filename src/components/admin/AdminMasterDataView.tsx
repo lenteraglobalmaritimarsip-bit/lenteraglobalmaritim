@@ -94,6 +94,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     type: 'CUSTOMERS' | 'VESSELS' | 'PORTS' | 'FIX_TARIFF' | 'EXPENSES_ITEM' | 'VENDOR_PARTNERS' | 'BANK_ACCOUNT',
     item: Customer | Vessel | Port | FixTariff | ExpensesItem | VendorPartner | BankAccount
   ) => {
+    setShowAddModal(false);
+    setAddFormError('');
     setEditingMaster({ type, id: item.id });
     setEditMasterForm({ ...item });
   };
@@ -101,6 +103,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   const closeMasterEditor = () => {
     setEditingMaster(null);
     setEditMasterForm({});
+    setAddFormError('');
   };
 
   const saveMasterEditor = async (e: React.FormEvent | null) => {
@@ -123,6 +126,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         }
         const tariffUpdate = {
           ...editMasterForm,
+          tariffType: editMasterForm.tariffType === 'RANGE' ? 'QTY_CARGO' : editMasterForm.tariffType,
           portName: port?.name || editMasterForm.portName || '',
           rateIDR,
           rateUSD,
@@ -166,6 +170,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         const selectedRate = rateUSD || rateIDR || parseTariffNumber(editMasterForm.standardCostSell) || parseTariffNumber(editMasterForm.standardCostBuy);
         await db.updateExpensesItem(id, {
           ...editMasterForm,
+          calculationType: editMasterForm.calculationType === 'RANGE' ? 'QTY_CARGO' : editMasterForm.calculationType,
           rateIDR,
           rateUSD,
           defaultCurrency: rateUSD ? 'USD' : 'IDR',
@@ -183,6 +188,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   };
 
   const openUserEditor = (user: User) => {
+    setShowAddModal(false);
+    setAddFormError('');
     setEditingUser(user);
     setUserEditError('');
     setEditUserForm({ ...user, newPassword: '' });
@@ -338,10 +345,17 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       portId: portId || current.portId || match.portId || '',
       portName: portId ? ports.find((p) => p.id === portId)?.name || current.portName || '' : match.portName || current.portName || '',
       costCategory: match.category,
+      tariffType: match.calculationType === 'FIXED'
+        ? 'FIXED'
+        : match.calculationType === 'QTY_CARGO' || match.calculationType === 'RANGE'
+          ? 'QTY_CARGO'
+          : match.calculationType === 'VARIABLE'
+            ? 'VARIABLE'
+            : current.tariffType || 'VARIABLE',
       currency: match.defaultCurrency || current.currency || 'USD',
       rate: Number(match.standardCostSell || match.standardCostBuy || current.rate || 0),
       minCharge: Number(match.standardCostBuy || match.standardCostSell || current.minCharge || 0),
-      calculationBasis: match.calculationType === 'QTY_RATE'
+      calculationBasis: match.calculationType === 'QTY_RATE' || match.calculationType === 'QTY_CARGO'
         ? 'PER_MOVE'
         : match.calculationType === 'PERCENTAGE'
           ? 'PER_GRT'
@@ -477,6 +491,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     const aliases: Record<string, string> = {
       'CLEARANCE_IN/OUT': 'CLEARANCE',
       CLEARANCE_IN_OUT: 'CLEARANCE',
+      'PORT SERVICE': 'PORT_SERVICE',
       POST_EXPENSES: 'PORT_EXPENSES',
       PORT_TARIFF: 'PORT_EXPENSES',
       PORT_TARIFFS: 'PORT_EXPENSES',
@@ -488,7 +503,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   };
 
   const uploadTariffCategories = new Set([
-    'PORT_EXPENSES', 'CLEARANCE', 'GENERAL_EXPENSES', 'CREW_EXPENSES',
+    'PORT_EXPENSES', 'PORT_SERVICE', 'CLEARANCE', 'GENERAL_EXPENSES', 'CREW_EXPENSES',
     'AGENCY_FEE', 'TAX_CONTINGENCY', 'OWNER_MATTER', 'VAT_11',
     'PPH_INCOME_TAX',
   ]);
@@ -538,13 +553,13 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     const portIds = ports.map((port) => port.id);
     const portNames = ports.map((port) => port.name);
     const categories = [
-      'PORT_EXPENSES', 'CLEARANCE', 'GENERAL_EXPENSES', 'CREW_EXPENSES',
+      'PORT_EXPENSES', 'PORT_SERVICE', 'CLEARANCE', 'GENERAL_EXPENSES', 'CREW_EXPENSES',
       'AGENCY_FEE', 'TAX_CONTINGENCY', 'OWNER_MATTER', 'VAT_11',
       'PPH_INCOME_TAX',
     ];
     const currencies = ['USD', 'IDR'];
-    const expenseCalculationTypes = ['FIXED', 'VARIABLE', 'QTY_RATE', 'PERCENTAGE', 'RANGE'];
-    const tariffTypes = ['FIXED', 'VARIABLE', 'RANGE'];
+    const expenseCalculationTypes = ['FIXED', 'VARIABLE', 'QTY_RATE', 'PERCENTAGE', 'QTY_CARGO'];
+    const tariffTypes = ['FIXED', 'VARIABLE', 'QTY_CARGO'];
     const tariffBases = ['PER_GRT', 'PER_DAY', 'LUMP_SUM', 'PER_HOUR', 'PER_MOVE'];
     const listColumns = [portIds, portNames, categories, expenseCalculationTypes, currencies, tariffTypes, tariffBases];
     listColumns.forEach((values, columnIndex) => {
@@ -696,9 +711,10 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
             return;
           }
           const dwt = uploadNumber(readUploadValue(row, 'dwt', 'DWT'));
-          const uploadedTariffType = String(readUploadValue(row, 'tariffType', 'tariff_type', 'type')).trim().toUpperCase() as FixTariff['tariffType'] || 'FIXED';
+          const rawUploadedTariffType = String(readUploadValue(row, 'tariffType', 'tariff_type', 'type')).trim().toUpperCase();
+          const uploadedTariffType = (rawUploadedTariffType === 'RANGE' ? 'QTY_CARGO' : rawUploadedTariffType) as FixTariff['tariffType'] || 'FIXED';
           const uploadedCalculationBasis = String(readUploadValue(row, 'calculationBasis', 'calculation_basis', 'basis')).trim().toUpperCase() as FixTariff['calculationBasis']
-            || (uploadedTariffType === 'VARIABLE' || uploadedTariffType === 'RANGE' ? 'PER_GRT' : 'LUMP_SUM');
+            || (uploadedTariffType === 'VARIABLE' ? 'PER_GRT' : uploadedTariffType === 'QTY_CARGO' ? 'PER_MOVE' : 'LUMP_SUM');
           if (!serviceName || !['USD', 'IDR'].includes(resolvedCurrency) || resolvedRate < 0) {
             markInvalid('serviceName / currency / rate tidak valid');
             return;
@@ -783,7 +799,9 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           rateIDR,
           rateUSD,
           preferredVendor: String(readUploadValue(row, 'preferredVendor', 'preferred_vendor')).trim(),
-          calculationType: String(readUploadValue(row, 'calculationType', 'calculation_type', 'type')).trim().toUpperCase() as ExpensesItem['calculationType'] || 'FIXED',
+          calculationType: (['RANGE', 'QTY_CARGO'].includes(String(readUploadValue(row, 'calculationType', 'calculation_type', 'type')).trim().toUpperCase())
+            ? 'QTY_CARGO'
+            : String(readUploadValue(row, 'calculationType', 'calculation_type', 'type')).trim().toUpperCase()) as ExpensesItem['calculationType'] || 'FIXED',
         };
         importedExpenses.push(expense);
         imported += 1;
@@ -952,6 +970,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
 
   const formatCostCategory = (category?: string) => ({
     PORT_EXPENSES: 'PORT EXPENSES',
+    PORT_SERVICE: 'PORT SERVICE',
     CLEARANCE: 'CLEARANCE IN/OUT',
     GENERAL_EXPENSES: 'GENERAL EXPENSES',
     CREW_EXPENSES: 'CREW EXPENSES',
@@ -961,6 +980,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
 
   const formatExpenseCategory = (category?: string) => ({
     PORT_EXPENSES: 'PORT EXPENSES',
+    PORT_SERVICE: 'PORT SERVICE',
     CLEARANCE: 'CLEARANCE IN/OUT',
     GENERAL_EXPENSES: 'GENERAL EXPENSES',
     CREW_EXPENSES: 'CREW EXPENSES',
@@ -974,6 +994,24 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     LOGISTICS_SUPPLIES: 'GENERAL EXPENSES',
     SUNDRY: 'GENERAL EXPENSES',
   } as Record<string, string>)[category || ''] || category || '-';
+  const isUserFormOpen = activeTab === 'USERS' && (showAddModal || editingUser !== null);
+  const isMasterFormOpen = activeTab !== 'USERS' && (showAddModal || editingMaster !== null);
+  const isFormOpen = isUserFormOpen || isMasterFormOpen;
+  const userForm = editingUser ? editUserForm : newUser;
+  const updateUserForm = (updates: Partial<User> & { newPassword?: string }) => {
+    if (editingUser) {
+      setEditUserForm((current) => ({ ...current, ...updates }));
+    } else {
+      setNewUser((current) => ({ ...current, ...updates }));
+    }
+  };
+  const closeUserForm = () => {
+    setEditingUser(null);
+    setEditUserForm({});
+    setUserEditError('');
+    resetNewUser();
+    setShowAddModal(false);
+  };
 
   return (
     <div className="space-y-5">
@@ -994,7 +1032,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           </div>
 
           <div className="admin-master-actions flex flex-wrap items-center justify-end gap-2 self-start sm:self-auto">
-            {(activeTab === 'FIX_TARIFF' || activeTab === 'EXPENSES_ITEM') && (
+            {!isFormOpen && (activeTab === 'FIX_TARIFF' || activeTab === 'EXPENSES_ITEM') && (
               <>
                 <input ref={uploadInputRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleMasterDataUpload} className="hidden" />
                 <button
@@ -1008,6 +1046,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 <button
                   type="button"
                   onClick={() => uploadInputRef.current?.click()}
+                  disabled={isFormOpen}
                   className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-[11px] font-bold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
                 >
                   <Upload className="w-4 h-4" />
@@ -1015,21 +1054,123 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 </button>
               </>
             )}
-            <button
-              onClick={() => { resetNewUser(); setShowAddModal(true); }}
-              className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-slate-300 bg-slate-200 px-3.5 py-2 text-[11px] font-bold text-slate-700 shadow-sm transition hover:bg-slate-300"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Tambah Data {activeTab.replace('_', ' ')}</span>
-            </button>
+            {!isFormOpen && (
+              <button
+                onClick={() => {
+                  resetNewUser();
+                  setEditingUser(null);
+                  setUserEditError('');
+                  setEditingMaster(null);
+                  setShowAddModal(true);
+                }}
+                className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-slate-300 bg-slate-200 px-3.5 py-2 text-[11px] font-bold text-slate-700 shadow-sm transition hover:bg-slate-300"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Tambah Data {activeTab.replace('_', ' ')}</span>
+              </button>
+            )}
           </div>
         </div>
 
         <div className="mt-5 border-t border-slate-200" />
       </div>
 
+      {isUserFormOpen && (
+        <section className="admin-add-modal rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-5 border-b border-slate-200 pb-4">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-violet-600">User Management</div>
+            <h2 className="mt-1 text-lg font-black text-slate-900">{editingUser ? 'Edit Data User' : 'Tambah Data User'}</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              {editingUser ? 'Perubahan disimpan ke database dan akun login.' : 'Lengkapi informasi akun dan akses user.'}
+            </p>
+          </div>
+          <form
+            noValidate
+            onSubmit={editingUser ? saveUserEditor : handleSaveItem}
+            className="space-y-4 text-xs text-slate-700"
+          >
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <label className="block">
+                <span className="font-semibold text-slate-600">User / Username</span>
+                <input required value={userForm.username || ''} onChange={(e) => updateUserForm({ username: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-slate-800" placeholder="contoh: budi.admin" />
+              </label>
+              <label className="block">
+                <span className="font-semibold text-slate-600">{editingUser ? 'Password Baru' : 'Password'}</span>
+                <input
+                  required={!editingUser}
+                  type="password"
+                  inputMode={apiAuth.enabled ? 'numeric' : undefined}
+                  maxLength={apiAuth.enabled ? 8 : undefined}
+                  placeholder={editingUser ? (apiAuth.enabled ? '8 digit angka; kosongkan jika tidak diubah' : 'Kosongkan jika tidak diubah') : (apiAuth.enabled ? '8 digit angka' : 'minimal 6 karakter')}
+                  value={editingUser ? editUserForm.newPassword || '' : newUser.password || ''}
+                  onChange={(e) => {
+                    const password = apiAuth.enabled ? e.target.value.replace(/\D/g, '').slice(0, 8) : e.target.value;
+                    updateUserForm(editingUser ? { newPassword: password } : { password });
+                  }}
+                  className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-slate-800"
+                />
+              </label>
+              <label className="block">
+                <span className="font-semibold text-slate-600">Nama Pemegang User</span>
+                <input required value={userForm.name || ''} onChange={(e) => updateUserForm({ name: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-slate-800" />
+              </label>
+              <label className="block">
+                <span className="font-semibold text-slate-600">Role</span>
+                <select required value={userForm.role || ''} onChange={(e) => updateUserForm({ role: e.target.value as UserRole })} className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-slate-800">
+                  <option value="">Pilih role</option>
+                  <option value="ADMIN">ADMIN</option>
+                  <option value="SALES">SALES</option>
+                  <option value="MANAGER_OPS">MANAGER_OPS</option>
+                  <option value="FDA">FDA</option>
+                  <option value="FINANCE">FINANCE</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="font-semibold text-slate-600">Jabatan</span>
+                <input required value={userForm.position || ''} onChange={(e) => updateUserForm({ position: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-slate-800" />
+              </label>
+              <label className="block">
+                <span className="font-semibold text-slate-600">Email</span>
+                <input required type="email" value={userForm.email || ''} onChange={(e) => updateUserForm({ email: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-slate-800" />
+              </label>
+              <label className="block">
+                <span className="font-semibold text-slate-600">Status</span>
+                <select required value={userForm.status || ''} onChange={(e) => updateUserForm({ status: e.target.value as User['status'] })} className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-slate-800">
+                  <option value="">Pilih status</option>
+                  <option value="ACTIVE">ACTIVE</option>
+                  <option value="INACTIVE">INACTIVE</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="font-semibold text-slate-600">Branch</span>
+                <input required value={userForm.branch || ''} onChange={(e) => updateUserForm({ branch: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-slate-800" placeholder="contoh: JKT, Head Office, Surabaya" />
+              </label>
+              <label className="block">
+                <span className="font-semibold text-slate-600">Departemen</span>
+                <input required value={userForm.department || ''} onChange={(e) => updateUserForm({ department: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-slate-800" />
+              </label>
+              <label className="block">
+                <span className="font-semibold text-slate-600">Phone</span>
+                <input value={userForm.phone || ''} onChange={(e) => updateUserForm({ phone: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-slate-800" />
+              </label>
+            </div>
+            {(editingUser ? userEditError : addFormError) && (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                {editingUser ? userEditError : addFormError}
+              </div>
+            )}
+            <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
+              <button type="button" onClick={closeUserForm} className="master-data-cancel rounded-lg px-4 py-2 font-semibold">Batal</button>
+              <button type="submit" className="master-data-submit rounded-lg px-4 py-2 font-semibold">
+                {editingUser ? 'Simpan Perubahan' : 'Simpan Data User'}
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
+
       {/* Filter and Search Bar */}
-      <div className="flex items-center justify-between gap-4 bg-white border border-slate-200 p-3 rounded-xl shadow-sm">
+      {!isFormOpen && <div className="flex items-center justify-between gap-4 bg-white border border-slate-200 p-3 rounded-xl shadow-sm">
         <div className="relative flex-1 max-w-md">
           <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
           <input
@@ -1043,16 +1184,16 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         <span className="text-xs text-slate-500">
           Tersimpan di Relational Database Browser Storage
         </span>
-      </div>
+      </div>}
 
-      {uploadMessage && (activeTab === 'FIX_TARIFF' || activeTab === 'EXPENSES_ITEM') && (
+      {!isFormOpen && uploadMessage && (activeTab === 'FIX_TARIFF' || activeTab === 'EXPENSES_ITEM') && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-700">
           {uploadMessage}
         </div>
       )}
 
       {/* Tables for each Tab */}
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+      {!isFormOpen && <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
         {/* USERS TABLE */}
         {activeTab === 'USERS' && (
           <div className="overflow-x-auto">
@@ -1376,12 +1517,11 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
             </table>
           </div>
         )}
-      </div>
+      </div>}
 
       {/* Generic Master Data Edit Modal */}
       {editingMaster && (
-        <div className="fixed inset-0 z-[60] flex min-h-screen !items-start !justify-center overflow-y-auto bg-slate-950/70 p-4 pt-4 backdrop-blur-sm" onMouseDown={(e) => { if (e.target === e.currentTarget) closeMasterEditor(); }}>
-          <div className="admin-modal-panel admin-add-modal !m-0 max-h-[calc(100dvh-2rem)] w-full max-w-[500px] overflow-y-auto rounded-2xl border border-slate-300 bg-slate-50 p-6 shadow-2xl">
+        <section className="admin-add-modal rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3 mb-5">
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-widest text-violet-600">Master Data</div>
@@ -1393,7 +1533,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
               <button type="button" onClick={closeMasterEditor} className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500"><X className="w-5 h-5" /></button>
             </div>
 
-            <form onSubmit={saveMasterEditor} className="admin-modal-form space-y-4 text-xs">
+            <form onSubmit={saveMasterEditor} className="space-y-4 text-xs">
               {editingMaster.type === 'CUSTOMERS' && (
                 <>
                   <div className="grid grid-cols-2 gap-3">
@@ -1460,10 +1600,10 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 <>
                   <div className="grid grid-cols-2 gap-3">
                     <label className="block"><span className="text-slate-500 font-semibold">Port</span><select value={editMasterForm.portId || ''} onChange={e=>setEditMasterForm({...editMasterForm,portId:e.target.value})} className="master-edit-input">{ports.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-                    <label className="block"><span className="text-slate-500 font-semibold">Category Cost</span><select value={editMasterForm.costCategory || 'PORT_EXPENSES'} onChange={e=>setEditMasterForm({...editMasterForm,costCategory:e.target.value})} className="master-edit-input"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="AGENCY_FEE">AGENCY FEE</option></select></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">Category Cost</span><select value={editMasterForm.costCategory || 'PORT_EXPENSES'} onChange={e=>setEditMasterForm({...editMasterForm,costCategory:e.target.value})} className="master-edit-input"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="PORT_SERVICE">PORT SERVICE</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="AGENCY_FEE">AGENCY FEE</option></select></label>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <label className="block"><span className="text-slate-500 font-semibold">Tariff Type</span><select value={editMasterForm.tariffType || 'VARIABLE'} onChange={e=>setEditMasterForm({...editMasterForm,tariffType:e.target.value})} className="master-edit-input"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="RANGE">Range</option></select></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">Tariff Type</span><select value={editMasterForm.tariffType === 'RANGE' ? 'QTY_CARGO' : editMasterForm.tariffType || 'VARIABLE'} onChange={e=>setEditMasterForm({...editMasterForm,tariffType:e.target.value})} className="master-edit-input"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="QTY_CARGO">QTY_CARGO</option></select></label>
                     <label className="block"><span className="text-slate-500 font-semibold">Item Service</span><input required value={editMasterForm.serviceName || ''} onChange={e=>setEditMasterForm({...editMasterForm,serviceName:e.target.value})} className="master-edit-input" /></label>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
@@ -1484,14 +1624,14 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 <>
                   <div className="grid grid-cols-2 gap-3">
                     <label className="block"><span className="text-slate-500 font-semibold">Port</span><select value={editMasterForm.portId || ''} onChange={e=>setEditMasterForm({...editMasterForm,portId:e.target.value,portName: ports.find((p) => p.id === e.target.value)?.name || ''})} className="master-edit-input">{ports.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-                    <label className="block"><span className="text-slate-500 font-semibold">Category</span><select required value={editMasterForm.category || 'PORT_EXPENSES'} onChange={e=>setEditMasterForm({...editMasterForm,category:e.target.value})} className="master-edit-input"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="AGENCY_FEE">AGENCY FEE</option></select></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">Category</span><select required value={editMasterForm.category || 'PORT_EXPENSES'} onChange={e=>setEditMasterForm({...editMasterForm,category:e.target.value})} className="master-edit-input"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="PORT_SERVICE">PORT SERVICE</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="AGENCY_FEE">AGENCY FEE</option></select></label>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <label className="block"><span className="text-slate-500 font-semibold">Item Name</span><input required value={editMasterForm.name || ''} onChange={e=>setEditMasterForm({...editMasterForm,name:e.target.value})} className="master-edit-input" /></label>
                     <label className="block"><span className="text-slate-500 font-semibold">Unit</span><select value={editMasterForm.unit || 'job'} onChange={e=>setEditMasterForm({...editMasterForm,unit:e.target.value})} className="master-edit-input"><option value="job">job</option><option value="hour">hour</option><option value="day">day</option><option value="qty">qty</option><option value="GRT">GRT</option></select></label>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <label className="block"><span className="text-slate-500 font-semibold">Calculation Type</span><select value={editMasterForm.calculationType || 'FIXED'} onChange={e=>setEditMasterForm({...editMasterForm,calculationType:e.target.value})} className="master-edit-input"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="QTY_RATE">Qty_rate</option><option value="PERCENTAGE">Percentage</option><option value="RANGE">Range</option></select></label>
+                    <label className="block"><span className="text-slate-500 font-semibold">Calculation Type</span><select value={editMasterForm.calculationType === 'RANGE' ? 'QTY_CARGO' : editMasterForm.calculationType || 'FIXED'} onChange={e=>setEditMasterForm({...editMasterForm,calculationType:e.target.value})} className="master-edit-input"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="QTY_RATE">Qty_rate</option><option value="PERCENTAGE">Percentage</option><option value="QTY_CARGO">QTY_CARGO</option></select></label>
                     <label className="block"><span className="text-slate-500 font-semibold">Unit</span><select value={editMasterForm.unit || 'job'} onChange={e=>setEditMasterForm({...editMasterForm,unit:e.target.value})} className="master-edit-input"><option value="job">job</option><option value="hour">hour</option><option value="day">day</option><option value="qty">qty</option><option value="GRT">GRT</option></select></label>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -1521,90 +1661,29 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
 
               {addFormError && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{addFormError}</div>}
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
-                <button type="button" onClick={closeMasterEditor} className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 font-semibold">Batal</button>
-                <button type="submit" className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold">Simpan Perubahan</button>
+                <button type="button" onClick={closeMasterEditor} className="master-data-cancel px-4 py-2 rounded-lg font-semibold">Batal</button>
+                <button type="submit" className="master-data-submit px-4 py-2 rounded-lg text-xs font-semibold">Simpan Perubahan</button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* Edit User Modal */}
-      {editingUser && (
-        <div className="fixed inset-0 z-[60] flex min-h-screen !items-start !justify-center overflow-y-auto bg-slate-950/70 p-4 pt-4 backdrop-blur-sm" onMouseDown={(e) => { if (e.target === e.currentTarget) setEditingUser(null); }}>
-          <div className="admin-modal-panel admin-add-modal !m-0 max-h-[calc(100dvh-2rem)] w-full max-w-[500px] overflow-y-auto rounded-2xl border border-slate-300 bg-slate-50 p-6 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3 mb-5">
-              <div><div className="text-[10px] font-bold uppercase tracking-widest text-violet-600">User Management</div><h3 className="text-lg font-black text-slate-900">Edit Data User</h3><p className="text-xs text-slate-500">Perubahan disimpan ke database browser dan akun login.</p></div>
-              <button type="button" onClick={() => setEditingUser(null)} className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500"><X className="w-5 h-5" /></button>
-            </div>
-            <form onSubmit={saveUserEditor} className="admin-modal-form space-y-4 text-xs text-slate-700">
-              <div className="grid grid-cols-2 gap-3">
-                <label className="block"><span className="text-slate-500 font-semibold">User / Username</span><input value={editUserForm.username || ''} onChange={e => setEditUserForm({...editUserForm, username:e.target.value})} className="mt-1 w-full border border-slate-200 rounded-lg p-2.5 text-slate-800" /></label>
-                <label className="block"><span className="text-slate-500 font-semibold">Nama Pemegang User</span><input value={editUserForm.name || ''} onChange={e => setEditUserForm({...editUserForm, name:e.target.value})} className="mt-1 w-full border border-slate-200 rounded-lg p-2.5 text-slate-800" /></label>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <label className="block"><span className="text-slate-500 font-semibold">Role</span><select value={editUserForm.role || 'SALES'} onChange={e => setEditUserForm({...editUserForm, role:e.target.value as UserRole})} className="mt-1 w-full border border-slate-200 rounded-lg p-2.5 text-slate-800"><option value="ADMIN">ADMIN</option><option value="SALES">SALES</option><option value="MANAGER_OPS">MANAGER_OPS</option><option value="FDA">FDA</option><option value="FINANCE">FINANCE</option></select></label>
-                <label className="block"><span className="text-slate-500 font-semibold">Jabatan</span><input value={editUserForm.position || ''} onChange={e => setEditUserForm({...editUserForm, position:e.target.value})} className="mt-1 w-full border border-slate-200 rounded-lg p-2.5 text-slate-800" /></label>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <label className="block"><span className="text-slate-500 font-semibold">Email</span><input type="email" value={editUserForm.email || ''} onChange={e => setEditUserForm({...editUserForm, email:e.target.value})} className="mt-1 w-full border border-slate-200 rounded-lg p-2.5 text-slate-800" /></label>
-                <label className="block"><span className="text-slate-500 font-semibold">Status</span><select value={editUserForm.status || 'ACTIVE'} onChange={e => setEditUserForm({...editUserForm, status:e.target.value as User['status']})} className="mt-1 w-full border border-slate-200 rounded-lg p-2.5 text-slate-800"><option value="ACTIVE">ACTIVE</option><option value="INACTIVE">INACTIVE</option></select></label>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <label className="block"><span className="text-slate-500 font-semibold">Departemen</span><input value={editUserForm.department || ''} onChange={e => setEditUserForm({...editUserForm, department:e.target.value})} className="mt-1 w-full border border-slate-200 rounded-lg p-2.5 text-slate-800" /></label>
-                <label className="block md:col-span-2"><span className="text-slate-500 font-semibold">Branch</span><input required value={editUserForm.branch || ''} onChange={e => setEditUserForm({...editUserForm, branch:e.target.value})} className="mt-1 w-full border border-slate-200 rounded-lg p-2.5 text-slate-800" /></label>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <label className="block"><span className="text-slate-500 font-semibold">Phone</span><input value={editUserForm.phone || ''} onChange={e => setEditUserForm({...editUserForm, phone:e.target.value})} className="mt-1 w-full border border-slate-200 rounded-lg p-2.5 text-slate-800" /></label>
-                <label className="block"><span className="text-slate-500 font-semibold">Password Baru</span><input type="password" inputMode={apiAuth.enabled?'numeric':undefined} maxLength={apiAuth.enabled?8:undefined} placeholder={apiAuth.enabled?'8 digit angka; kosongkan jika tidak diubah':'Kosongkan jika tidak diubah'} value={editUserForm.newPassword || ''} onChange={e => setEditUserForm({...editUserForm, newPassword:apiAuth.enabled?e.target.value.replace(/\D/g,'').slice(0,8):e.target.value})} className="mt-1 w-full border border-slate-200 rounded-lg p-2.5 text-slate-800" /></label>
-              </div>
-              {userEditError && <div className="rounded-lg bg-rose-50 border border-rose-200 text-rose-600 px-3 py-2">{userEditError}</div>}
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200"><button type="button" onClick={() => setEditingUser(null)} className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600">Batal</button><button type="submit" className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold">Simpan Perubahan</button></div>
-            </form>
-          </div>
-        </div>
+        </section>
       )}
 
       {/* Add Item Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-50 flex min-h-screen !items-start !justify-center overflow-y-auto bg-slate-900/40 p-4 pt-4 backdrop-blur-sm">
-          <div className="admin-modal-panel admin-add-modal !m-0 max-h-[calc(100dvh-2rem)] w-full max-w-[500px] overflow-y-auto rounded-2xl border border-slate-300 bg-slate-50 p-6 shadow-2xl">
+      {showAddModal && activeTab !== 'USERS' && (
+        <section className="admin-add-modal rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between border-b border-slate-300 pb-2 mb-3">
               <h3 className="text-base font-bold text-slate-900">
                 Tambah Master: {activeTab.replace('_', ' ')}
               </h3>
                   <button
                 onClick={() => { resetNewUser(); setShowAddModal(false); }}
-                className="p-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-500 hover:text-slate-800"
+                className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form noValidate onSubmit={handleSaveItem} className="admin-modal-form space-y-2.5 text-xs text-slate-700">
-              {activeTab === 'USERS' && (
-                <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><label className="text-slate-400 block mb-1">User / Username:</label><input required value={newUser.username} onChange={e=>setNewUser({...newUser,username:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" placeholder="contoh: budi.admin" /></div>
-                    <div><label className="text-slate-400 block mb-1">Password:</label><input required type="password" inputMode={apiAuth.enabled?'numeric':undefined} maxLength={apiAuth.enabled?8:undefined} value={newUser.password} onChange={e=>setNewUser({...newUser,password:apiAuth.enabled?e.target.value.replace(/\D/g,'').slice(0,8):e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" placeholder={apiAuth.enabled?'8 digit angka':'minimal 6 karakter'} /></div>
-                  </div>
-                  <div><label className="text-slate-400 block mb-1">Nama Pemegang User:</label><input required value={newUser.name} onChange={e=>setNewUser({...newUser,name:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" /></div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><label className="text-slate-400 block mb-1">Role:</label><select value={newUser.role || ''} onChange={e=>setNewUser({...newUser,role:e.target.value as UserRole})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"><option value="">Pilih role</option><option value="ADMIN">ADMIN</option><option value="SALES">SALES</option><option value="MANAGER_OPS">MANAGER_OPS</option><option value="FDA">FDA</option><option value="FINANCE">FINANCE</option></select></div>
-                    <div><label className="text-slate-400 block mb-1">Jabatan:</label><input required value={newUser.position} onChange={e=>setNewUser({...newUser,position:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" /></div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><label className="text-slate-400 block mb-1">Email:</label><input required type="email" value={newUser.email} onChange={e=>setNewUser({...newUser,email:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" /></div>
-                    <div><label className="text-slate-400 block mb-1">Status:</label><select value={newUser.status || ''} onChange={e=>setNewUser({...newUser,status:e.target.value as User['status']})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"><option value="">Pilih status</option><option value="ACTIVE">ACTIVE</option><option value="INACTIVE">INACTIVE</option></select></div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="md:col-span-2"><label className="text-slate-400 block mb-1">Branch:</label><input required value={newUser.branch || ''} onChange={e=>setNewUser({...newUser,branch:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" placeholder="contoh: JKT, Head Office, Surabaya" /></div>
-                    <div><label className="text-slate-400 block mb-1">Departemen:</label><input required value={newUser.department} onChange={e=>setNewUser({...newUser,department:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" /></div>
-                    <div><label className="text-slate-400 block mb-1">Phone:</label><input value={newUser.phone} onChange={e=>setNewUser({...newUser,phone:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" /></div>
-                  </div>
-                </>
-              )}
-
+            <form noValidate onSubmit={handleSaveItem} className="space-y-4 text-xs text-slate-700">
               {activeTab === 'CUSTOMERS' && (
                 <>
                   <div className="grid grid-cols-2 gap-3">
@@ -1918,6 +1997,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
                       >
                         <option value="PORT_EXPENSES">PORT EXPENSES</option>
+                        <option value="PORT_SERVICE">PORT SERVICE</option>
                         <option value="CLEARANCE">CLEARANCE IN/OUT</option>
                         <option value="GENERAL_EXPENSES">GENERAL EXPENSES</option>
                         <option value="CREW_EXPENSES">CREW EXPENSES</option>
@@ -1931,14 +2011,15 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                   <div>
                     <label className="text-slate-400 block mb-1">Tariff Type:</label>
                     <select
-                      value={newTariff.tariffType}
+                      value={newTariff.tariffType === 'RANGE' ? 'QTY_CARGO' : newTariff.tariffType}
                       onChange={(e) => setNewTariff({ ...newTariff, tariffType: e.target.value as any })}
                       className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
                     >
                       <option value="FIXED">Fixed</option>
                       <option value="VARIABLE">Variabel</option>
-                      <option value="RANGE">Range</option>
+                      <option value="QTY_CARGO">QTY_CARGO</option>
                     </select>
+                    <p className="mt-1 text-[10px] text-slate-400">FIXED = Tarif; VARIABLE = GRT x Tarif; QTY_CARGO = Quantity Cargo x Tarif.</p>
                   </div>
 
                   <div>
@@ -2041,6 +2122,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
                       >
                         <option value="PORT_EXPENSES">PORT EXPENSES</option>
+                        <option value="PORT_SERVICE">PORT SERVICE</option>
                         <option value="CLEARANCE">CLEARANCE IN/OUT</option>
                         <option value="GENERAL_EXPENSES">GENERAL EXPENSES</option>
                         <option value="CREW_EXPENSES">CREW EXPENSES</option>
@@ -2053,8 +2135,9 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                   <div>
                     <label className="text-slate-400 block mb-1">Calculation Type:</label>
                     <select value={newExpense.calculationType} onChange={(e) => setNewExpense({ ...newExpense, calculationType: e.target.value as any })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white mb-3">
-                      <option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="QTY_RATE">Qty_rate</option><option value="PERCENTAGE">Percentage</option><option value="RANGE">Range</option>
+                      <option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="QTY_RATE">Qty_rate</option><option value="PERCENTAGE">Percentage</option><option value="QTY_CARGO">QTY_CARGO</option>
                     </select>
+                    <p className="mt-1 text-[10px] text-slate-400">QTY_CARGO dihitung dari Quantity Cargo x Tarif x QTY.</p>
                     <label className="text-slate-400 block mb-1">Item Name:</label>
                     <input
                       type="text"
@@ -2156,21 +2239,20 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-600 text-xs font-semibold"
+                  onClick={() => { setShowAddModal(false); setAddFormError(''); }}
+                  className="master-data-cancel px-4 py-2 rounded-lg text-xs font-semibold"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-600 text-xs font-semibold"
+                  className="master-data-submit px-4 py-2 rounded-lg text-xs font-semibold"
                 >
                   Simpan ke Database
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </section>
       )}
     </div>
   );

@@ -102,7 +102,7 @@ CREATE TABLE fix_tariffs (
   grt_max DECIMAL(18,4),
   dwt DECIMAL(18,4),
   calculation_basis ENUM('PER_GRT', 'PER_DAY', 'LUMP_SUM', 'PER_HOUR', 'PER_MOVE') NOT NULL,
-  tariff_type ENUM('FIXED', 'VARIABLE', 'RANGE'),
+  tariff_type ENUM('FIXED', 'VARIABLE', 'QTY_CARGO', 'RANGE'),
   currency ENUM('IDR', 'USD') NOT NULL,
   rate DECIMAL(30,12) NOT NULL DEFAULT 0,
   rate_idr DECIMAL(30,12),
@@ -133,7 +133,7 @@ CREATE TABLE expenses_items (
   rate_idr DECIMAL(30,12),
   rate_usd DECIMAL(30,12),
   preferred_vendor VARCHAR(200),
-  calculation_type ENUM('FIXED', 'VARIABLE', 'QTY_RATE', 'PERCENTAGE', 'RANGE'),
+  calculation_type ENUM('FIXED', 'VARIABLE', 'QTY_RATE', 'PERCENTAGE', 'QTY_CARGO', 'RANGE'),
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   CHECK (standard_cost_buy >= 0),
@@ -236,7 +236,7 @@ CREATE TABLE inquiries (
   inquiry_date DATE NOT NULL,
   eta_remarks TEXT,
   etd_remarks TEXT,
-  quantity DECIMAL(18,4),
+  cargo_quantity DECIMAL(18,4),
   quantity_unit ENUM('MATRIX_TON', 'TON'),
   cargo_details TEXT NOT NULL,
   estimated_days DECIMAL(12,4) NOT NULL DEFAULT 0 CHECK (estimated_days >= 0),
@@ -274,7 +274,7 @@ CREATE TABLE quotation_items (
   fix_tariff_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin,
   entry_order INT NOT NULL,
   name VARCHAR(200) NOT NULL,
-  category ENUM('PORT_EXPENSES', 'CLEARANCE', 'GENERAL_EXPENSES', 'CREW_EXPENSES', 'OWNER_MATTER', 'AGENCY_FEE', 'TAX_CONTINGENCY', 'PORT_DUES', 'PILOTAGE_TOWAGE', 'BERTHING', 'CREW_CHANGE', 'IMMIGRATION_CUSTOMS', 'LOGISTICS_SUPPLIES', 'SUNDRY') NOT NULL,
+  category ENUM('PORT_EXPENSES', 'PORT_SERVICE', 'CLEARANCE', 'GENERAL_EXPENSES', 'CREW_EXPENSES', 'OWNER_MATTER', 'AGENCY_FEE', 'TAX_CONTINGENCY', 'PORT_DUES', 'PILOTAGE_TOWAGE', 'BERTHING', 'CREW_CHANGE', 'IMMIGRATION_CUSTOMS', 'LOGISTICS_SUPPLIES', 'SUNDRY') NOT NULL,
   basis TEXT,
   quantity DECIMAL(18,6) NOT NULL DEFAULT 1,
   unit_buy_rate DECIMAL(30,12) NOT NULL DEFAULT 0,
@@ -282,7 +282,7 @@ CREATE TABLE quotation_items (
   total_buy_rate DECIMAL(30,12) NOT NULL DEFAULT 0,
   total_sell_rate DECIMAL(30,12) NOT NULL DEFAULT 0,
   currency ENUM('IDR', 'USD') NOT NULL,
-  tariff_type ENUM('FIXED', 'VARIABLE', 'RANGE'),
+  tariff_type ENUM('FIXED', 'VARIABLE', 'QTY_CARGO', 'RANGE'),
   calculation_basis ENUM('PER_GRT', 'PER_DAY', 'LUMP_SUM', 'PER_HOUR', 'PER_MOVE'),
   tariff_rate DECIMAL(30,12),
   remarks TEXT,
@@ -372,7 +372,7 @@ CREATE TABLE actual_costs (
   quantity DECIMAL(18,6),
   amount DECIMAL(30,12) NOT NULL DEFAULT 0,
   currency ENUM('IDR', 'USD') NOT NULL,
-  tariff_type ENUM('FIXED', 'VARIABLE', 'RANGE'),
+  tariff_type ENUM('FIXED', 'VARIABLE', 'QTY_CARGO', 'RANGE'),
   calculation_basis ENUM('PER_GRT', 'PER_DAY', 'LUMP_SUM', 'PER_HOUR', 'PER_MOVE'),
   tariff_rate DECIMAL(30,12),
   pda_amount_estimated DECIMAL(30,12) NOT NULL DEFAULT 0,
@@ -502,3 +502,50 @@ CREATE TABLE audit_logs (
   INDEX idx_audit_logs_entity (entity, entity_id),
   CONSTRAINT fk_audit_logs_actor FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+/*
+ * Upgrade notes for existing databases.
+ * Do not run these statements after importing the complete schema above.
+ * Run only the statements required by the current database structure.
+ *
+ * Rename inquiries.quantity while preserving existing values:
+ * ALTER TABLE inquiries
+ *   CHANGE COLUMN quantity cargo_quantity DECIMAL(18,4) NULL;
+ *
+ * Add the bank account branch column if it is not present:
+ * ALTER TABLE bank_accounts
+ *   ADD COLUMN branch VARCHAR(150) NULL AFTER bank_name;
+ *
+ * The CREATE TABLE definitions for vendor_partners, bank_accounts,
+ * payment_vouchers, and payment_voucher_items above include the columns
+ * and relationships introduced by the vendor/payment voucher migration.
+ *
+ * For an existing payment_vouchers table without approval columns, run only
+ * if those columns are not already present:
+ * ALTER TABLE payment_vouchers
+ *   ADD COLUMN status ENUM('PENDING_MANAGER','APPROVED','REJECTED','PAID')
+ *     NOT NULL DEFAULT 'PENDING_MANAGER' AFTER total_paid_amount,
+ *   ADD COLUMN manager_note TEXT NULL AFTER status,
+ *   ADD COLUMN reviewed_by VARCHAR(200) NULL AFTER manager_note,
+ *   ADD COLUMN reviewed_at DATETIME(3) NULL AFTER reviewed_by,
+ *   ADD COLUMN paid_by VARCHAR(200) NULL AFTER reviewed_at,
+ *   ADD COLUMN paid_at DATETIME(3) NULL AFTER paid_by;
+ *
+ * Allow PORT_SERVICE on an existing quotation_items table:
+ * ALTER TABLE quotation_items
+ *   MODIFY COLUMN category ENUM('PORT_EXPENSES', 'PORT_SERVICE', 'CLEARANCE',
+ *     'GENERAL_EXPENSES', 'CREW_EXPENSES', 'OWNER_MATTER', 'AGENCY_FEE',
+ *     'TAX_CONTINGENCY', 'PORT_DUES', 'PILOTAGE_TOWAGE', 'BERTHING',
+ *     'CREW_CHANGE', 'IMMIGRATION_CUSTOMS', 'LOGISTICS_SUPPLIES', 'SUNDRY')
+ *     NOT NULL;
+ *
+ * Allow QTY_CARGO as a tariff/calculation type on an existing database:
+ * ALTER TABLE fix_tariffs
+ *   MODIFY COLUMN tariff_type ENUM('FIXED','VARIABLE','QTY_CARGO','RANGE') NULL;
+ * ALTER TABLE expenses_items
+ *   MODIFY COLUMN calculation_type ENUM('FIXED','VARIABLE','QTY_RATE','PERCENTAGE','QTY_CARGO','RANGE') NULL;
+ * ALTER TABLE quotation_items
+ *   MODIFY COLUMN tariff_type ENUM('FIXED','VARIABLE','QTY_CARGO','RANGE') NULL;
+ * ALTER TABLE actual_costs
+ *   MODIFY COLUMN tariff_type ENUM('FIXED','VARIABLE','QTY_CARGO','RANGE') NULL;
+ */

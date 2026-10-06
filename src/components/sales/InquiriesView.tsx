@@ -12,6 +12,7 @@ import {
   FileSpreadsheet,
   Eye,
   Trash2,
+  ChevronDown,
 } from 'lucide-react';
 import { JobCall, Vessel, Port, Customer } from '../../types';
 import { db } from '../../db/storage';
@@ -29,6 +30,103 @@ interface InquiriesViewProps {
   onDataSaved?: () => void;
 }
 
+interface SearchableMasterSelectProps {
+  value: string;
+  options: { id: string; label: string }[];
+  placeholder: string;
+  className?: string;
+  onChange: (value: string) => void;
+}
+
+const SearchableMasterSelect: React.FC<SearchableMasterSelectProps> = ({
+  value,
+  options,
+  placeholder,
+  className = '',
+  onChange,
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const selectedOption = options.find((option) => option.id === value);
+  const filteredOptions = options.filter((option) =>
+    option.label.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
+  );
+
+  const selectOption = (option: SearchableMasterSelectProps['options'][number]) => {
+    onChange(option.id);
+    setQuery(option.label);
+    setIsOpen(false);
+  };
+
+  return (
+    <div
+      className="relative"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setIsOpen(false);
+        }
+      }}
+    >
+      <div className="relative">
+        <input
+          type="text"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={isOpen}
+          aria-controls={`master-options-${placeholder.replace(/[^a-z0-9]/gi, '-')}`}
+          placeholder={placeholder}
+          value={isOpen ? query : selectedOption?.label || query}
+          onFocus={(event) => {
+            setIsOpen(true);
+            setQuery('');
+            event.currentTarget.select();
+          }}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            onChange('');
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              setIsOpen(false);
+              setQuery(selectedOption?.label || '');
+            } else if (event.key === 'Enter' && isOpen && filteredOptions[0]) {
+              event.preventDefault();
+              selectOption(filteredOptions[0]);
+            }
+          }}
+          className={`w-full bg-slate-950 border border-slate-800 rounded-lg p-2 pr-9 text-white focus:outline-none focus:border-emerald-500 ${className}`}
+        />
+        <ChevronDown
+          aria-hidden="true"
+          className={`pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+        />
+      </div>
+      {isOpen && (
+        <ul
+          id={`master-options-${placeholder.replace(/[^a-z0-9]/gi, '-')}`}
+          role="listbox"
+          className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-700 bg-slate-900 py-1 shadow-xl"
+        >
+          {filteredOptions.length ? filteredOptions.map((option) => (
+            <li key={option.id} role="option" aria-selected={option.id === value}>
+              <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => selectOption(option)}
+                className={`w-full px-3 py-2 text-left text-xs transition hover:bg-slate-800 ${option.id === value ? 'bg-slate-800 text-emerald-300' : 'text-slate-200'}`}
+              >
+                {option.label}
+              </button>
+            </li>
+          )) : (
+            <li className="px-3 py-2 text-xs text-slate-400">Tidak ada data yang cocok.</li>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+};
+
 export const InquiriesView: React.FC<InquiriesViewProps> = ({
   jobCalls,
   vessels,
@@ -39,10 +137,11 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
   onNavigateToQuotes,
   onDataSaved,
 }) => {
-  const [showNewModal, setShowNewModal] = useState(false);
+  const [showNewForm, setShowNewForm] = useState(false);
   const [search, setSearch] = useState('');
   const [inquiryMonth, setInquiryMonth] = useState('ALL');
   const [quantityError, setQuantityError] = useState('');
+  const [masterDataError, setMasterDataError] = useState('');
 
   const getJobStatus = (job: JobCall): { label: string; color: string } => {
     if (currentUser.role === 'FDA') {
@@ -79,11 +178,11 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
     etd: new Date(Date.now() + 86400000 * 6).toISOString().slice(0, 16),
     etaRemarks: '',
     etdRemarks: '',
-    quantity: '' as number | '',
-    quantityUnit: 'TON' as 'MATRIX_TON' | 'TON',
+    cargoQuantity: '' as number | '',
+    quantityUnit: 'TON' as 'MT' | 'TON',
     purposeOfCall: 'CARGO_DISCHARGE' as const,
     cargoDetails: '',
-    estimatedDays: 3,
+    estimatedDays: '3',
     specialRequirements: '',
   });
 
@@ -108,11 +207,16 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
   const handleCreateInquiry = (e: React.FormEvent) => {
     e.preventDefault();
     if (currentUser.role === 'FDA') return;
-    if (form.quantity === '' || !Number.isFinite(Number(form.quantity))) {
+    if (!form.customerId || !form.vesselId || !form.portId) {
+      setMasterDataError('Pilih Customer, Kapal, dan Pelabuhan dari daftar master data.');
+      return;
+    }
+    setMasterDataError('');
+    if (form.cargoQuantity === '' || !Number.isFinite(Number(form.cargoQuantity))) {
       setQuantityError('Berat muatan wajib diisi.');
       return;
     }
-    if (Number(form.quantity) < 0) {
+    if (Number(form.cargoQuantity) < 0) {
       setQuantityError('Berat muatan tidak boleh minus.');
       return;
     }
@@ -146,10 +250,10 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
         date: form.inquiryDate,
         etaRemarks: form.etaRemarks,
         etdRemarks: form.etdRemarks,
-        quantity: Number(form.quantity),
+        cargoQuantity: Number(form.cargoQuantity),
         quantityUnit: form.quantityUnit,
         cargoDetails: form.cargoDetails || 'General bulk shipment',
-        estimatedDays: form.estimatedDays,
+        estimatedDays: Number(form.estimatedDays),
         specialRequirements: form.specialRequirements || 'Standard agency services',
         status: 'CONVERTED',
         createdBy: `${currentUser.name} (${currentUser.role})`,
@@ -160,7 +264,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
       },
     });
 
-    setShowNewModal(false);
+    setShowNewForm(false);
     onSelectJob(createdJob.jobId);
     onDataSaved?.();
     onNavigateToQuotes();
@@ -168,6 +272,8 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
 
   return (
     <div className="space-y-5">
+      {!showNewForm && (
+        <>
       {/* Banner */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -185,7 +291,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
 
         {currentUser.role !== 'FDA' && (
           <button
-            onClick={() => setShowNewModal(true)}
+            onClick={() => setShowNewForm(true)}
             className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-lg shadow-blue-900/20 transition flex items-center gap-2 self-start sm:self-auto"
           >
             <Plus className="w-4 h-4" />
@@ -316,28 +422,30 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
           </tbody>
         </table>
       </div>
+        </>
+      )}
 
-      {/* New Inquiry Modal */}
-      {showNewModal && currentUser.role !== 'FDA' && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex justify-center p-3 sm:p-4">
-          <div className="admin-add-modal bg-slate-100 border border-slate-300 rounded-2xl w-full max-w-5xl shadow-2xl p-4 h-[82vh] overflow-y-auto self-start">
-            <div className="flex items-center justify-between border-b border-slate-300 pb-3 mb-3">
+      {showNewForm && currentUser.role !== 'FDA' && (
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl p-4 sm:p-6">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
               <div className="w-full">
-                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-violet-600">Inquiry Management</div>
-                <h3 className="text-base font-bold text-slate-900 mt-1">
+                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-400">Inquiry Management</div>
+                <h3 className="text-lg font-bold text-white mt-1">
                   Buat Inquiry & Register Job Call ID Baru
                 </h3>
               </div>
               <button
                 type="button"
-                onClick={() => setShowNewModal(false)}
+                onClick={() => setShowNewForm(false)}
+                aria-label="Kembali ke daftar inquiry"
+                title="Kembali ke daftar inquiry"
                 className="p-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-500 hover:text-slate-800 shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateInquiry} autoComplete="off" className="space-y-2 text-xs text-slate-700 overflow-hidden w-full max-w-full bg-slate-100">
+            <form onSubmit={handleCreateInquiry} autoComplete="off" className="space-y-2 text-xs text-slate-700 overflow-hidden w-full max-w-full bg-slate-100 rounded-xl p-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
                 <div className="w-full">
                   <label className="text-slate-500 block mb-1 font-semibold">Date Inquiry</label>
@@ -366,17 +474,18 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                 </div>
                 <div>
                   <label className="text-slate-500 block mb-1 font-semibold">Customer / Principal / Charterer</label>
-                  <select
+                  <SearchableMasterSelect
                     value={form.customerId}
-                    onChange={(e) => setForm({ ...form, customerId: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
-                  >
-                    {customers.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.companyName} ({c.type})
-                      </option>
-                    ))}
-                  </select>
+                    options={customers.map((customer) => ({
+                      id: customer.id,
+                      label: `${customer.companyName} (${customer.type})`,
+                    }))}
+                    placeholder="Cari customer / principal / charterer..."
+                    onChange={(customerId) => {
+                      setMasterDataError('');
+                      setForm({ ...form, customerId });
+                    }}
+                  />
                 </div>
                 <div>
                   <label className="text-slate-500 block mb-1 font-semibold">Branch</label>
@@ -401,33 +510,41 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
                 <div className="w-full">
                   <label className="text-slate-500 block mb-1 font-semibold">Pilih Kapal (Vessel Master)</label>
-                  <select
+                  <SearchableMasterSelect
                     value={form.vesselId}
-                    onChange={(e) => setForm({ ...form, vesselId: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
-                  >
-                    {vessels.map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.name} ({v.vesselType})
-                      </option>
-                    ))}
-                  </select>
+                    options={vessels.map((vessel) => ({
+                      id: vessel.id,
+                      label: `${vessel.name} (${vessel.vesselType})`,
+                    }))}
+                    placeholder="Cari nama kapal..."
+                    className="font-mono"
+                    onChange={(vesselId) => {
+                      setMasterDataError('');
+                      setForm({ ...form, vesselId });
+                    }}
+                  />
                 </div>
                 <div>
                   <label className="text-slate-500 block mb-1 font-semibold">Pelabuhan Tujuan</label>
-                  <select
+                  <SearchableMasterSelect
                     value={form.portId}
-                    onChange={(e) => setForm({ ...form, portId: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
-                  >
-                    {ports.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.code})
-                      </option>
-                    ))}
-                  </select>
+                    options={ports.map((port) => ({
+                      id: port.id,
+                      label: `${port.name} (${port.code})`,
+                    }))}
+                    placeholder="Cari nama atau kode pelabuhan..."
+                    onChange={(portId) => {
+                      setMasterDataError('');
+                      setForm({ ...form, portId });
+                    }}
+                  />
                 </div>
               </div>
+              {masterDataError && (
+                <p role="alert" className="text-xs font-semibold text-rose-600">
+                  {masterDataError}
+                </p>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full">
                 <div className="w-full">
@@ -461,11 +578,11 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                   <label className="block mb-1 font-semibold">GRT (Gross Tonnage)</label>
                   <input readOnly value={selectedVessel?.grt?.toLocaleString() || '-'} className="w-full h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-white font-mono" />
                   <div className="mt-2">
-                    <label className="block mb-1 font-semibold">Quantity</label>
-                    <input type="number" min="0" step="0.01" required value={form.quantity} onChange={(e) => { const value = e.target.value; setQuantityError(''); setForm({ ...form, quantity: value === '' ? '' : Number(value) }); }} className="w-full h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-white font-mono" aria-invalid={!!quantityError} />
+                    <label className="block mb-1 font-semibold">Cargo Quantity</label>
+                    <input type="text" inputMode="decimal" pattern="[0-9]*[.]?[0-9]*" required value={form.cargoQuantity} onChange={(e) => { const value = e.target.value; setQuantityError(''); setForm({ ...form, cargoQuantity: value === '' ? '' : Number(value) }); }} className="w-full h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-white font-mono" aria-invalid={!!quantityError} />
                     {quantityError && <span className="block mt-1 text-[10px] text-rose-400">{quantityError}</span>}
                     <div className="flex items-center gap-2 mt-2 text-[10px] text-slate-300">
-                      <label className="inline-flex items-center gap-1"><input type="radio" name="quantityUnit" value="MATRIX_TON" checked={form.quantityUnit === 'MATRIX_TON'} onChange={() => setForm({ ...form, quantityUnit: 'MATRIX_TON' })} /> Matrix Ton</label>
+                      <label className="inline-flex items-center gap-1"><input type="radio" name="quantityUnit" value="MT" checked={form.quantityUnit === 'MT'} onChange={() => setForm({ ...form, quantityUnit: 'MT' })} /> MT</label>
                       <label className="inline-flex items-center gap-1"><input type="radio" name="quantityUnit" value="TON" checked={form.quantityUnit === 'TON'} onChange={() => setForm({ ...form, quantityUnit: 'TON' })} /> Ton</label>
                     </div>
                   </div>
@@ -547,17 +664,17 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                     <option value="MAINTENANCE_WASTE_MANAGEMENT">Maintenance & Waste Management</option>
                     <option value="ADMINISTRATIVE_SERVICES">Administrative Services</option>
                     <option value="BUNKERING">Bunkering BBM / Air Tawar</option>
-                    <option value="CREW_CHANGE_ONLY">Crew Change Saja</option>
                     <option value="REPAIR_MAINTENANCE">Perbaikan / Docking</option>
                   </select>
                 </div>
                 <div>
                   <label className="text-slate-500 block mb-1 font-semibold">Estimasi Port Stay (Hari)</label>
                   <input
-                    type="number"
-                    min="1"
+                    type="text"
+                    inputMode="decimal"
+                    pattern="[0-9]*[.]?[0-9]*"
                     value={form.estimatedDays}
-                    onChange={(e) => setForm({ ...form, estimatedDays: Number(e.target.value) })}
+                    onChange={(e) => setForm({ ...form, estimatedDays: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
                   />
                 </div>
@@ -589,7 +706,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
                 <button
                   type="button"
-                  onClick={() => setShowNewModal(false)}
+                  onClick={() => setShowNewForm(false)}
                   className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 font-semibold"
                 >
                   Batal
@@ -603,8 +720,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </section>
       )}
     </div>
   );

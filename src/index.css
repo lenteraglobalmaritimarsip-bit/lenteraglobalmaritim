@@ -84,8 +84,8 @@ button{ cursor:pointer; }
 .maritim-user-name{font-size:12px;font-weight:800;line-height:1.1}
 .maritim-user-role{font-size:9px;opacity:.72;margin-top:2px}
 .admin-add-modal label{color:#475569}
-.admin-add-modal input,.admin-add-modal select,.admin-add-modal textarea{background:#fff!important;color:#1e293b!important;border-color:#fff!important}
-.fixed.z-50 .admin-add-modal input,.fixed.z-50 .admin-add-modal select,.fixed.z-50 .admin-add-modal textarea{background:#fff!important;color:#1e293b!important;border-color:#fff!important}
+.admin-add-modal input,.admin-add-modal select,.admin-add-modal textarea{background:#fff!important;color:#1e293b!important;border-color:#dbe3ef!important}
+.fixed.z-50 .admin-add-modal input,.fixed.z-50 .admin-add-modal select,.fixed.z-50 .admin-add-modal textarea{background:#fff!important;color:#1e293b!important;border-color:#dbe3ef!important}
 .admin-add-modal input::placeholder,.admin-add-modal textarea::placeholder{color:#9aa8b8!important}
 .admin-add-modal select option{background:#fff;color:#1e293b}
 .admin-modal-panel{max-height:calc(100vh - 6rem);overflow:hidden;display:flex;flex-direction:column}

@@ -50,6 +50,25 @@ const DEMO_JOB_IDS = new Set(['VC-2026-0095', 'VC-2026-0098', 'VC-2026-0099']);
 const withoutRemovedJobCalls = (jobCalls: JobCall[]): JobCall[] =>
   jobCalls.filter((job) => !DEMO_JOB_IDS.has(job.jobId));
 
+const migrateInquiryCargoQuantity = (jobCalls: JobCall[]): { jobCalls: JobCall[]; migrated: boolean } => {
+  let migrated = false;
+  const normalizedJobCalls = jobCalls.map((job) => {
+    const inquiry = job.inquiry as (JobCall['inquiry'] & { quantity?: number }) | undefined;
+    if (!inquiry || !Object.prototype.hasOwnProperty.call(inquiry, 'quantity')) return job;
+
+    const { quantity, ...currentInquiry } = inquiry;
+    migrated = true;
+    return {
+      ...job,
+      inquiry: {
+        ...currentInquiry,
+        cargoQuantity: currentInquiry.cargoQuantity ?? quantity,
+      },
+    };
+  });
+  return { jobCalls: normalizedJobCalls, migrated };
+};
+
 const syncActualFDAInvoice = (job: JobCall): JobCall => {
   const actualTotal = (job.actualCosts || []).reduce((sum, item) => sum + (item.amount || 0), 0);
   if (!actualTotal || !job.fda?.fdaApproved) return job;
@@ -190,8 +209,9 @@ class DatabaseService {
       const stored = JSON.parse(localStorage.getItem(LOCAL_DATABASE_KEY) || 'null') as Partial<DatabaseState> | null;
       if (!stored || typeof stored !== 'object') return defaults;
       const storedJobCalls = Array.isArray(stored.jobCalls) ? stored.jobCalls : defaults.jobCalls;
-      let repairedWorkflowState = false;
-      const jobCalls = storedJobCalls.map((job) => {
+      const migration = migrateInquiryCargoQuantity(storedJobCalls);
+      let repairedWorkflowState = migration.migrated;
+      const jobCalls = migration.jobCalls.map((job) => {
         const isClosed = job.closing?.isClosed || job.status === 'CLOSED' || job.currentStage === 'CLOSED';
         const managerApproved = job.managerApproval?.status === 'APPROVED';
         const needsEPDARepair = managerApproved && job.quotation?.epda?.status !== 'APPROVED';
@@ -263,7 +283,15 @@ class DatabaseService {
           };
           this.apiRevision = await dataApi.save(this.state, this.apiRevision);
         } else {
-          this.state = { ...remote.state, currentRole: this.actor.role };
+          const migration = migrateInquiryCargoQuantity(remote.state.jobCalls);
+          this.state = {
+            ...remote.state,
+            jobCalls: migration.jobCalls,
+            currentRole: this.actor.role,
+          };
+          if (migration.migrated) {
+            this.apiRevision = await dataApi.save(this.state, this.apiRevision);
+          }
         }
         this.notify();
         return;
@@ -284,8 +312,16 @@ class DatabaseService {
     const version = this.stateVersion;
     const remote = await dataApi.load();
     if (version !== this.stateVersion) return;
-    this.state = { ...remote.state, currentRole: this.actor.role };
+    const migration = migrateInquiryCargoQuantity(remote.state.jobCalls);
+    this.state = {
+      ...remote.state,
+      jobCalls: migration.jobCalls,
+      currentRole: this.actor.role,
+    };
     this.apiRevision = remote.revision;
+    if (migration.migrated) {
+      this.apiRevision = await dataApi.save(this.state, this.apiRevision);
+    }
     this.notify();
   }
 
@@ -423,9 +459,11 @@ class DatabaseService {
     try {
       const data = JSON.parse(jsonString);
       if (Array.isArray(data.jobCalls) && Array.isArray(data.users)) {
+        const migration = migrateInquiryCargoQuantity(data.jobCalls);
         this.state = {
           ...this.state,
           ...data,
+          jobCalls: migration.jobCalls,
         };
         this.saveToStorage();
         return true;
@@ -862,7 +900,7 @@ class DatabaseService {
         inquiryNo: `INQ-${year}-${String(documentSequence).padStart(4, '0')}`,
         date: jobData.inquiry?.date || new Date().toISOString().slice(0, 10),
         cargoDetails: jobData.inquiry?.cargoDetails || 'General Cargo Inspection / Port Call',
-        estimatedDays: jobData.inquiry?.estimatedDays || 3,
+        estimatedDays: jobData.inquiry?.estimatedDays ?? 3,
         specialRequirements: jobData.inquiry?.specialRequirements || 'Standard agency services requested',
         status: jobData.inquiry?.status || 'RECEIVED',
         createdBy: jobData.inquiry?.createdBy || 'Sarah Wijaya (SALES)',

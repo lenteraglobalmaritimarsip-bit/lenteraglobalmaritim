@@ -1,11 +1,12 @@
 export type CalculationBasis = 'PER_GRT' | 'PER_DAY' | 'LUMP_SUM' | 'PER_HOUR' | 'PER_MOVE';
-export type TariffType = 'FIXED' | 'VARIABLE' | 'RANGE';
+export type TariffType = 'FIXED' | 'VARIABLE' | 'QTY_CARGO' | 'RANGE';
 
 export interface TariffFormulaDescriptionInput {
   description?: string;
   category?: string;
   basis?: string;
   quantity?: number;
+  cargoQuantity?: number;
   absoluteValue?: number;
   rate?: number;
   tariffType?: TariffType;
@@ -35,7 +36,7 @@ export function describeTariffQuantityUnit(description: string): string | undefi
   return undefined;
 }
 
-export function describeTariffFormula({ description = '', category = '', basis = '', quantity = 1, absoluteValue, rate = 0, tariffType }: TariffFormulaDescriptionInput): string {
+export function describeTariffFormula({ description = '', category = '', basis = '', quantity = 1, cargoQuantity = 0, absoluteValue, rate = 0, tariffType }: TariffFormulaDescriptionInput): string {
   const source = `${basis} ${category} ${description}`.toUpperCase();
   const normalizedBasis = basis.toUpperCase();
   const normalizedCategory = category.toUpperCase().replaceAll(' ', '_');
@@ -45,11 +46,15 @@ export function describeTariffFormula({ description = '', category = '', basis =
   const isFixed = tariffType === 'FIXED' || normalizedBasis.includes('LUMP_SUM') || source.includes('FIXED');
   const rateLabel = Number(rate || 0).toLocaleString('en-US', { maximumFractionDigits: 6 });
 
+  if (tariffType === 'QTY_CARGO' || tariffType === 'RANGE') {
+    return `${formatNumber(cargoQuantity)} x ${rateLabel} x ${quantityLabel}`;
+  }
+
   if (isFixed) {
     return `${rateLabel} x ${quantityLabel}`;
   }
 
-  if (tariffType === 'VARIABLE' || tariffType === 'RANGE') {
+  if (tariffType === 'VARIABLE') {
     const absoluteGRT = Number(absoluteValue || 0);
     return absoluteGRT > 0
       ? `${formatNumber(absoluteGRT)} x ${rateLabel} x ${quantityLabel}`
@@ -83,6 +88,7 @@ export function describeTariffFormula({ description = '', category = '', basis =
 
 export interface TariffCalculationInput {
   vesselGRT?: number;
+  cargoQuantity?: number;
   estimatedDays?: number;
   hours?: number;
   moveCount?: number;
@@ -286,6 +292,7 @@ export function getTariffBasisValue({
 
 export function calculateTariffForJob({
   vesselGRT = 0,
+  cargoQuantity = 0,
   estimatedDays = 0,
   hours = 0,
   moveCount = 0,
@@ -297,6 +304,10 @@ export function calculateTariffForJob({
 
   if (resolvedType === 'FIXED') {
     return rate;
+  }
+
+  if (resolvedType === 'QTY_CARGO' || resolvedType === 'RANGE') {
+    return cargoQuantity * rate;
   }
 
   return vesselGRT * rate;

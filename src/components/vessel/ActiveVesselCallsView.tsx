@@ -51,7 +51,7 @@ const emptyInquiry = {
   createdByBranch: 'Head Office',
   etaRemarks: '-',
   etdRemarks: '-',
-  quantity: 0,
+  cargoQuantity: 0,
   quantityUnit: 'TON' as const,
 };
 
@@ -156,7 +156,7 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,onSelec
     setSelectedDetailId(id);
   };
 
-  const exportHeaders = ['NO', 'VESSEL CALL', 'INQUIRY NO', 'TANGGAL INQUIRY', 'DIBUAT OLEH', 'BRANCH', 'VESSEL', 'IMO', 'CALL SIGN', 'FLAG', 'TYPE', 'GT', 'NT', 'LOA (M)', 'BEAM (M)', 'QUANTITY', 'SATUAN QUANTITY', 'CUSTOMER / PRINCIPAL', 'PELABUHAN', 'ETA', 'KETERANGAN ETA', 'ETD', 'KETERANGAN ETD', 'TUJUAN KUNJUNGAN', 'ESTIMASI DURASI (HARI)', 'CARGO / PURPOSE DETAILS', 'SPECIAL REQUIREMENTS', 'OVERALL STATUS', 'KESIMPULAN', 'EPDA', 'PDA', 'CREW CHANGE', 'MANAGER APPROVAL', 'OPERATIONAL DATA', 'ACTUAL COST', 'FDA', 'FINANCE (AP / AR / INVOICE)', 'CLOSING'];
+  const exportHeaders = ['NO', 'VESSEL CALL', 'INQUIRY NO', 'TANGGAL INQUIRY', 'DIBUAT OLEH', 'BRANCH', 'VESSEL', 'IMO', 'CALL SIGN', 'FLAG', 'TYPE', 'GT', 'NT', 'LOA (M)', 'BEAM (M)', 'CARGO QUANTITY', 'SATUAN CARGO QUANTITY', 'CUSTOMER / PRINCIPAL', 'PELABUHAN', 'ETA', 'KETERANGAN ETA', 'ETD', 'KETERANGAN ETD', 'TUJUAN KUNJUNGAN', 'ESTIMASI DURASI (HARI)', 'CARGO / PURPOSE DETAILS', 'SPECIAL REQUIREMENTS', 'OVERALL STATUS', 'KESIMPULAN', 'EPDA', 'PDA', 'CREW CHANGE', 'MANAGER APPROVAL', 'OPERATIONAL DATA', 'ACTUAL COST', 'FDA', 'FINANCE (AP / AR / INVOICE)', 'CLOSING'];
   const exportRows = rows.map((j, index) => {
     const vessel = vessels.find(v => v.id === j.vesselId);
     const statuses = getManagementStatus(j);
@@ -166,7 +166,7 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,onSelec
     return [
       index + 1, j.jobId, inquiry.inquiryNo, formatDateDisplay(inquiry.date), owner.createdBy, owner.branch, j.vesselName,
       vessel?.imoNumber || '-', vessel?.callSign || '-', vessel?.flag || '-', vessel?.vesselType || '-',
-      vessel?.grt ?? '-', vessel?.nrt ?? '-', vessel?.loa ?? '-', vessel?.beam ?? '-', inquiry.quantity ?? '-', inquiry.quantityUnit === 'MATRIX_TON' ? 'MT' : 'T', j.customerName,
+      vessel?.grt ?? '-', vessel?.nrt ?? '-', vessel?.loa ?? '-', vessel?.beam ?? '-', inquiry.cargoQuantity ?? '-', inquiry.quantityUnit === 'MATRIX_TON' ? 'MT' : 'T', j.customerName,
       j.portName, formatDateDisplay(j.eta, true), inquiry.etaRemarks || '-', formatDateDisplay(j.etd, true), inquiry.etdRemarks || '-', (j.purposeOfCall || '').replace(/_/g, ' ') || '-',
       inquiry.estimatedDays, inquiry.cargoDetails, inquiry.specialRequirements || '-', statusLabel[j.status] || j.status,
       statusByLabel.KESIMPULAN || '-', statusByLabel.EPDA || '-', statusByLabel.PDA || '-', statusByLabel['Crew Change'] || '-',
@@ -258,7 +258,7 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,onSelec
 
           <div><small>ETD</small><strong>{formatDateDisplay(selectedJob.etd, true)}</strong></div>
           <div><small>KETERANGAN ETD</small><strong>{inquiry.etdRemarks || '-'}</strong></div>
-          <div><small>QUANTITY</small><strong>{inquiry.quantity ?? '-'} {inquiry.quantityUnit === 'MATRIX_TON' ? 'MT' : 'T'}</strong></div>
+          <div><small>CARGO QUANTITY</small><strong>{inquiry.cargoQuantity ?? '-'} {inquiry.quantityUnit === 'MATRIX_TON' ? 'MT' : 'T'}</strong></div>
           <div><small>ESTIMASI DURASI</small><strong>{inquiry.estimatedDays ?? 0} hari</strong></div>
 
           <div><small>VESSEL TYPE</small><strong>{selectedVessel?.vesselType || '-'}</strong></div>

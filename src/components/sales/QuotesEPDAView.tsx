@@ -72,7 +72,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     amount: 0,
     remarks: '',
     calculationBasis: 'PER_GRT' as CalculationBasis,
-    tariffType: 'VARIABLE' as 'FIXED' | 'VARIABLE' | 'RANGE',
+    tariffType: 'VARIABLE' as 'FIXED' | 'VARIABLE' | 'QTY_CARGO' | 'RANGE',
     rate: 0,
     minCharge: 0,
   });
@@ -114,6 +114,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   const vesselMaster = vessels.find((vessel) => vessel.id === job.vesselId);
   const manualTariffPreview = calculateTariffForJob({
     vesselGRT: vesselMaster?.grt || 0,
+    cargoQuantity: Number(job.inquiry?.cargoQuantity || 0),
     estimatedDays: Number(job.inquiry?.estimatedDays || 0),
     hours: 1,
     moveCount: 1,
@@ -156,7 +157,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       .map((tariff) => ({
         name: tariff.serviceName,
         category: tariff.costCategory || 'PORT_EXPENSES',
-        tariffType: tariff.tariffType || (tariff.calculationBasis === 'LUMP_SUM' ? 'FIXED' : 'VARIABLE'),
+        tariffType: tariff.tariffType === 'RANGE' ? 'QTY_CARGO' : tariff.tariffType || (tariff.calculationBasis === 'LUMP_SUM' ? 'FIXED' : 'VARIABLE'),
         calculationBasis: tariff.calculationBasis === 'LUMP_SUM' && (tariff.tariffType === 'VARIABLE' || tariff.tariffType === 'RANGE')
           ? 'PER_GRT'
           : tariff.calculationBasis,
@@ -180,7 +181,11 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
         name: item.name,
         category: item.category,
         calculationBasis: 'PER_GRT' as CalculationBasis,
-        tariffType: item.calculationType === 'FIXED' ? 'FIXED' : 'VARIABLE',
+        tariffType: item.calculationType === 'FIXED'
+          ? 'FIXED'
+          : item.calculationType === 'QTY_CARGO' || item.calculationType === 'RANGE'
+            ? 'QTY_CARGO'
+            : 'VARIABLE',
         rate: rateForCurrency(currency, item.rateIDR, item.rateUSD, item.standardCostSell || 0, item.defaultCurrency),
         rateIDR: item.rateIDR,
         rateUSD: item.rateUSD,
@@ -366,6 +371,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     const autoMinCharge = Number(newItem.minCharge) || 0;
     const tariffRate = itemEntryMode === 'AUTO' ? calculateTariffForJob({
       vesselGRT: vesselMaster?.grt || 0,
+      cargoQuantity: Number(job.inquiry?.cargoQuantity || 0),
       estimatedDays: Number(job.inquiry?.estimatedDays || 0),
       hours: 1,
       moveCount: 1,
@@ -375,6 +381,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       tariffType: selectedType,
     }) : calculateTariffForJob({
       vesselGRT: vesselMaster?.grt || 0,
+      cargoQuantity: Number(job.inquiry?.cargoQuantity || 0),
       estimatedDays: Number(job.inquiry?.estimatedDays || 0),
       hours: 1,
       moveCount: 1,
@@ -432,6 +439,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   const categoryLabel = (category: string) => {
     const map: Record<string, string> = {
       PORT_EXPENSES: 'PORT EXPENSES',
+      PORT_SERVICE: 'PORT SERVICE',
       CLEARANCE: 'CLEARANCE IN/OUT',
       GENERAL_EXPENSES: 'GENERAL EXPENSES',
       CREW_EXPENSES: 'CREW EXPENSES',
@@ -457,12 +465,13 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       option.name.trim().toLowerCase() === item.name.trim().toLowerCase()
       && option.category === item.category
     );
-    if (!serviceDescription) return '';
+    if (!serviceDescription && item.tariffType !== 'QTY_CARGO' && item.tariffType !== 'RANGE' && masterOption?.tariffType !== 'QTY_CARGO') return '';
     return describeTariffFormula({
       description: item.name,
       category: item.category,
       basis: item.calculationBasis || masterOption?.calculationBasis || item.basis,
       quantity: item.quantity,
+      cargoQuantity: Number(job.inquiry?.cargoQuantity || 0),
       absoluteValue: vesselMaster?.grt,
       rate: masterOption?.rate ?? item.tariffRate ?? item.unitSellRate,
       tariffType: item.tariffType || masterOption?.tariffType,
@@ -592,7 +601,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
 
           <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Keterangan ETA</div><div className="mt-1 font-bold text-white">{job.inquiry.etaRemarks || '-'}</div></div>
           <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Keterangan ETD</div><div className="mt-1 font-bold text-white">{job.inquiry.etdRemarks || '-'}</div></div>
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Quantity</div><div className="mt-1 font-bold text-white">{job.inquiry.quantity || 0} {job.inquiry.quantityUnit || 'TON'}</div></div>
+          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Cargo Quantity</div><div className="mt-1 font-bold text-white">{job.inquiry.cargoQuantity || 0} {job.inquiry.quantityUnit || 'TON'}</div></div>
           <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Purpose</div><div className="mt-1 font-bold text-white">{job.purposeOfCall}</div></div>
 
           <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Estimated Days</div><div className="mt-1 font-bold text-white">{job.inquiry.estimatedDays || 0} hari</div></div>
@@ -646,8 +655,8 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
 
         <p className="mb-2 text-xs text-slate-500">
           {itemEntryMode === 'AUTO'
-            ? 'Mode otomatis: Type VARIABLE dihitung dengan rumus GRT x tarif x QTY.'
-            : 'Mode manual: data diisi langsung. Jika Type VARIABLE, rumusnya GRT x tarif x QTY.'}
+            ? 'Otomatis: FIXED = Tarif x QTY; VARIABLE = GRT x Tarif x QTY; QTY_CARGO = Quantity Cargo x Tarif x QTY.'
+            : 'Manual: FIXED = Tarif x QTY; VARIABLE = GRT x Tarif x QTY; QTY_CARGO = Quantity Cargo x Tarif x QTY.'}
         </p>
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] text-amber-800">
           Format angka: 1,500.50 (koma untuk ribuan, titik untuk desimal).
@@ -676,6 +685,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
               <label className="mb-1 block text-slate-600">Category Cost</label>
               <select value={newItem.category} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500">
                 <option value="PORT_EXPENSES">PORT EXPENSES</option>
+                <option value="PORT_SERVICE">PORT SERVICE</option>
                 <option value="CLEARANCE">CLEARANCE IN/OUT</option>
                 <option value="GENERAL_EXPENSES">GENERAL EXPENSES</option>
                 <option value="CREW_EXPENSES">CREW EXPENSES</option>
@@ -688,10 +698,10 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
             </div>
             <div>
               <label className="mb-1 block text-slate-600">Type</label>
-              <select value={newItem.tariffType} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500">
+              <select value={newItem.tariffType === 'RANGE' ? 'QTY_CARGO' : newItem.tariffType} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500">
                 <option value="FIXED">Fixed</option>
                 <option value="VARIABLE">Variabel</option>
-                <option value="RANGE">Range</option>
+                <option value="QTY_CARGO">QTY_CARGO</option>
               </select>
             </div>
             <div>
@@ -705,11 +715,11 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
             <div className="lg:col-span-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
               <div>
                 <label className="mb-1 block text-slate-600">Tarif ({viewCurrency})</label>
-                <input readOnly value={formatEntryAmount(calculateTariffForJob({ vesselGRT: vesselMaster?.grt || 0, estimatedDays: Number(job.inquiry?.estimatedDays || 0), hours: 1, moveCount: 1, rate: Number(newItem.rate) || 0, minCharge: Number(newItem.minCharge) || 0, calculationBasis: newItem.calculationBasis }))} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"/>
+                <input readOnly value={formatEntryAmount(calculateTariffForJob({ vesselGRT: vesselMaster?.grt || 0, cargoQuantity: Number(job.inquiry?.cargoQuantity || 0), estimatedDays: Number(job.inquiry?.estimatedDays || 0), hours: 1, moveCount: 1, rate: Number(newItem.rate) || 0, minCharge: Number(newItem.minCharge) || 0, calculationBasis: newItem.calculationBasis, tariffType: newItem.tariffType }))} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"/>
               </div>
               <div>
                 <label className="mb-1 block text-slate-600">Amount ({viewCurrency})</label>
-                <input readOnly value={formatEntryAmount((Number(newItem.quantity) || 1) * calculateTariffForJob({ vesselGRT: vesselMaster?.grt || 0, estimatedDays: Number(job.inquiry?.estimatedDays || 0), hours: 1, moveCount: 1, rate: Number(newItem.rate) || 0, minCharge: Number(newItem.minCharge) || 0, calculationBasis: newItem.calculationBasis }))} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"/>
+                <input readOnly value={formatEntryAmount((Number(newItem.quantity) || 1) * calculateTariffForJob({ vesselGRT: vesselMaster?.grt || 0, cargoQuantity: Number(job.inquiry?.cargoQuantity || 0), estimatedDays: Number(job.inquiry?.estimatedDays || 0), hours: 1, moveCount: 1, rate: Number(newItem.rate) || 0, minCharge: Number(newItem.minCharge) || 0, calculationBasis: newItem.calculationBasis, tariffType: newItem.tariffType }))} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"/>
               </div>
             </div>
             <div className="lg:col-span-6">
@@ -727,6 +737,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
               <label className="mb-1 block text-slate-600">Category Cost</label>
               <select value={newItem.category} onChange={e => setNewItem({ ...newItem, category: e.target.value })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none">
                 <option value="PORT_EXPENSES">PORT EXPENSES</option>
+                <option value="PORT_SERVICE">PORT SERVICE</option>
                 <option value="CLEARANCE">CLEARANCE IN/OUT</option>
                 <option value="GENERAL_EXPENSES">GENERAL EXPENSES</option>
                 <option value="CREW_EXPENSES">CREW EXPENSES</option>
@@ -739,10 +750,10 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
             </div>
             <div>
               <label className="mb-1 block text-slate-600">Type</label>
-              <select value={newItem.tariffType} onChange={e => setNewItem({ ...newItem, tariffType: e.target.value as 'FIXED' | 'VARIABLE' | 'RANGE' })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none">
+              <select value={newItem.tariffType === 'RANGE' ? 'QTY_CARGO' : newItem.tariffType} onChange={e => setNewItem({ ...newItem, tariffType: e.target.value as 'FIXED' | 'VARIABLE' | 'QTY_CARGO' })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none">
                 <option value="FIXED">Fixed</option>
                 <option value="VARIABLE">Variabel</option>
-                <option value="RANGE">Range</option>
+                <option value="QTY_CARGO">QTY_CARGO</option>
               </select>
             </div>
             <div>

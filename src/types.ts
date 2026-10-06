@@ -102,8 +102,8 @@ export interface FixTariff {
   grtMax?: number;
   dwt?: number;
   calculationBasis: 'PER_GRT' | 'PER_DAY' | 'LUMP_SUM' | 'PER_HOUR' | 'PER_MOVE';
-  /** PDF master-data field: Fixed / Variabel / Range. Optional for legacy records. */
-  tariffType?: 'FIXED' | 'VARIABLE' | 'RANGE';
+  /** RANGE remains accepted for older records; new entries use QTY_CARGO. */
+  tariffType?: 'FIXED' | 'VARIABLE' | 'QTY_CARGO' | 'RANGE';
   currency: Currency;
   rate: number;
   rateIDR?: number;
@@ -175,6 +175,7 @@ export interface ExpensesItem {
   code: string;
   category:
     | 'PORT_EXPENSES'
+    | 'PORT_SERVICE'
     | 'CLEARANCE'
     | 'GENERAL_EXPENSES'
     | 'CREW_EXPENSES'
@@ -196,8 +197,8 @@ export interface ExpensesItem {
   rateIDR?: number;
   rateUSD?: number;
   preferredVendor?: string;
-  /** PDF master-data field: Fixed / Variabel / Qty_rate / Percentage / Range. Optional for legacy records. */
-  calculationType?: 'FIXED' | 'VARIABLE' | 'QTY_RATE' | 'PERCENTAGE' | 'RANGE';
+  /** RANGE remains accepted for older records; new entries use QTY_CARGO. */
+  calculationType?: 'FIXED' | 'VARIABLE' | 'QTY_RATE' | 'PERCENTAGE' | 'QTY_CARGO' | 'RANGE';
 }
 
 export interface DisbursementItem {
@@ -212,7 +213,7 @@ export interface DisbursementItem {
   totalBuyRate: number;
   totalSellRate: number;
   currency: Currency;
-  tariffType?: 'FIXED' | 'VARIABLE' | 'RANGE';
+  tariffType?: 'FIXED' | 'VARIABLE' | 'QTY_CARGO' | 'RANGE';
   calculationBasis?: 'PER_GRT' | 'PER_DAY' | 'LUMP_SUM' | 'PER_HOUR' | 'PER_MOVE';
   tariffRate?: number;
   remarks?: string;
@@ -251,7 +252,7 @@ export interface ActualCostItem {
   quantity?: number;
   amount: number;
   currency: Currency;
-  tariffType?: 'FIXED' | 'VARIABLE' | 'RANGE';
+  tariffType?: 'FIXED' | 'VARIABLE' | 'QTY_CARGO' | 'RANGE';
   pdaAmountEstimated: number;
   calculationBasis?: 'PER_GRT' | 'PER_DAY' | 'LUMP_SUM' | 'PER_HOUR' | 'PER_MOVE';
   tariffRate?: number;
@@ -324,7 +325,7 @@ export interface JobCall {
     date: string;
     etaRemarks?: string;
     etdRemarks?: string;
-    quantity?: number;
+    cargoQuantity?: number;
     quantityUnit?: 'MATRIX_TON' | 'TON';
     cargoDetails: string;
     estimatedDays: number;

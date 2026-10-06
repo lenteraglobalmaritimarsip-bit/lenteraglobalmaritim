@@ -152,7 +152,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     notes: '',
     attachmentName: '',
     calculationBasis: 'PER_GRT' as CalculationBasis,
-    tariffType: 'VARIABLE' as 'FIXED' | 'VARIABLE' | 'RANGE',
+    tariffType: 'VARIABLE' as 'FIXED' | 'VARIABLE' | 'QTY_CARGO' | 'RANGE',
     rate: 0,
     minCharge: 0,
   });
@@ -229,7 +229,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       .map((tariff) => ({
         name: tariff.serviceName,
         category: tariff.costCategory || 'PORT_EXPENSES',
-        tariffType: tariff.tariffType || (tariff.calculationBasis === 'LUMP_SUM' ? 'FIXED' : 'VARIABLE'),
+        tariffType: tariff.tariffType === 'RANGE' ? 'QTY_CARGO' : tariff.tariffType || (tariff.calculationBasis === 'LUMP_SUM' ? 'FIXED' : 'VARIABLE'),
         calculationBasis: tariff.calculationBasis === 'LUMP_SUM' && (tariff.tariffType === 'VARIABLE' || tariff.tariffType === 'RANGE')
           ? 'PER_GRT'
           : tariff.calculationBasis,
@@ -253,7 +253,11 @@ export const FDAView: React.FC<FDAViewProps> = ({
         name: item.name,
         category: item.category,
         calculationBasis: 'PER_GRT' as CalculationBasis,
-        tariffType: item.calculationType === 'FIXED' ? 'FIXED' : 'VARIABLE',
+        tariffType: item.calculationType === 'FIXED'
+          ? 'FIXED'
+          : item.calculationType === 'QTY_CARGO' || item.calculationType === 'RANGE'
+            ? 'QTY_CARGO'
+            : 'VARIABLE',
         rate: rateForCurrency(currency, item.rateIDR, item.rateUSD, item.standardCostSell || 0, item.defaultCurrency),
         rateIDR: item.rateIDR,
         rateUSD: item.rateUSD,
@@ -329,12 +333,13 @@ export const FDAView: React.FC<FDAViewProps> = ({
       option.name.trim().toLowerCase() === item.description.trim().toLowerCase()
       && option.category === item.category
     );
-    if (!serviceDescription) return '';
+    if (!serviceDescription && item.tariffType !== 'QTY_CARGO' && item.tariffType !== 'RANGE' && masterOption?.tariffType !== 'QTY_CARGO') return '';
     return describeTariffFormula({
       description: item.description,
       category: item.category,
       basis: item.calculationBasis || masterOption?.calculationBasis,
       quantity: item.quantity,
+      cargoQuantity: Number(activeJob.inquiry?.cargoQuantity || 0),
       absoluteValue: vesselMaster?.grt,
       rate: item.tariffRate ?? masterOption?.rate ?? (item.quantity ? item.amount / item.quantity : item.amount),
       tariffType: item.tariffType || masterOption?.tariffType,
@@ -351,6 +356,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   }));
   const categoryRank: Record<string, number> = {
     PORT_EXPENSES: 1,
+    PORT_SERVICE: 1,
     PORT_DUES: 1,
     BERTHING: 1,
     PILOTAGE_TOWAGE: 1,
@@ -370,6 +376,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const formatCategoryCost = (category: string) => {
     const labelMap: Record<string, string> = {
       PORT_EXPENSES: 'PORT EXPENSES',
+      PORT_SERVICE: 'PORT SERVICE',
       CLEARANCE: 'CLEARANCE IN/OUT',
       GENERAL_EXPENSES: 'GENERAL EXPENSES',
       CREW_EXPENSES: 'CREW EXPENSES',
@@ -414,6 +421,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const currentTariffType = newActual.tariffType || (newActual.calculationBasis === 'LUMP_SUM' ? 'FIXED' : 'VARIABLE');
   const autoTariffPreview = calculateTariffForJob({
     vesselGRT: vesselMaster?.grt || 0,
+    cargoQuantity: Number(activeJob.inquiry?.cargoQuantity || 0),
     estimatedDays: Number(activeJob.inquiry?.estimatedDays || 0),
     hours: 1,
     moveCount: 1,
@@ -424,6 +432,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   });
   const manualTariffPreview = calculateTariffForJob({
     vesselGRT: vesselMaster?.grt || 0,
+    cargoQuantity: Number(activeJob.inquiry?.cargoQuantity || 0),
     estimatedDays: Number(activeJob.inquiry?.estimatedDays || 0),
     hours: 1,
     moveCount: 1,
@@ -498,7 +507,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
         rateIDR: viewCurrency === 'IDR' ? rateValue : 0,
         rateUSD: viewCurrency === 'USD' ? rateValue : 0,
         preferredVendor: newActual.vendorName || '',
-        calculationType: newActual.tariffType || 'FIXED',
+        calculationType: newActual.tariffType === 'RANGE' ? 'QTY_CARGO' : newActual.tariffType || 'FIXED',
       });
     }
 
@@ -517,6 +526,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     const quantity = Number(actualQuantity) || 1;
     const autoTariffValue = calculateTariffForJob({
       vesselGRT: vesselMaster?.grt || 0,
+      cargoQuantity: Number(activeJob.inquiry?.cargoQuantity || 0),
       estimatedDays: Number(activeJob.inquiry?.estimatedDays || 0),
       hours: 1,
       moveCount: 1,
@@ -696,6 +706,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     const epdaNo = formatEPDAQuoteNoForDisplay(epda.quoteNo, activeJob.jobId, getCurrentBranchName(), new Date(activeJob.quotation?.epda?.date || activeJob.inquiry?.date || activeJob.createdAt));
     const categoryRank: Record<string, number> = {
       PORT_EXPENSES: 1,
+      PORT_SERVICE: 1,
       PORT_DUES: 1,
       BERTHING: 1,
       PILOTAGE_TOWAGE: 1,
@@ -721,7 +732,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     }, []);
 
     const rows = groupedItems.map((group) => {
-      const groupRows = group.items.map((it, idx) => `<tr class="item-row"><td>${idx + 1}</td><td>${escapeHtml(it.name || '')}</td><td style="text-align:center">${escapeHtml(describeTariffFormula({ description: it.name, category: it.category, basis: it.calculationBasis || it.basis, quantity: it.quantity, absoluteValue: vesselMaster?.grt, rate: it.tariffRate ?? it.unitSellRate, tariffType: it.tariffType }))}</td><td style="text-align:right">${amount(it.totalSellRate || 0)}</td><td>${escapeHtml(it.remarks || '')}</td></tr>`).join('');
+      const groupRows = group.items.map((it, idx) => `<tr class="item-row"><td>${idx + 1}</td><td>${escapeHtml(it.name || '')}</td><td style="text-align:center">${escapeHtml(describeTariffFormula({ description: it.name, category: it.category, basis: it.calculationBasis || it.basis, quantity: it.quantity, cargoQuantity: Number(activeJob.inquiry?.cargoQuantity || 0), absoluteValue: vesselMaster?.grt, rate: it.tariffRate ?? it.unitSellRate, tariffType: it.tariffType }))}</td><td style="text-align:right">${amount(it.totalSellRate || 0)}</td><td>${escapeHtml(it.remarks || '')}</td></tr>`).join('');
       const subtotal = group.items.reduce((sum, item) => sum + (item.totalSellRate || 0), 0);
       return `<tr style="background:#808080;color:#fff;font-weight:700;text-transform:uppercase"><td colspan="5" style="text-align:left;padding-left:0">${escapeHtml(categoryLabel(group.category))}</td></tr>${groupRows}<tr class="subtotal" style="background:#dbe8f2;font-weight:700"><td colspan="3" style="text-align:right">SUB TOTAL</td><td class="amount" style="text-align:right">${amount(subtotal)}</td><td></td></tr>`;
     }).join('');
@@ -729,7 +740,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     const total = groupedItems.reduce((sum, group) => sum + group.items.reduce((inner, item) => inner + (item.totalSellRate || 0), 0), 0);
     const dynamicTableHeader = `<th style="width:5%">NO.</th><th style="width:20%">DESCRIPTION</th><th style="width:35%">TARIFF</th><th style="width:12%">${amountHeaderLabel}</th><th style="width:28%">REMARKS</th>`;
 
-    return `<!doctype html><html><head><meta charset="utf-8"><title>${epdaNo}</title><style>@page{size:A4;margin:14mm}body{font-family:Arial,sans-serif;color:#172033;font-size:11px}.brand-row{text-align:center;margin-bottom:10px}.brand-wrap{display:inline-flex;align-items:center;gap:14px;text-align:left}.logo{width:76px;height:58px;object-fit:contain}.brand{font-weight:700;font-size:21px;line-height:1.15}.tag{color:#666;font-size:13px;margin-top:5px}h2{text-align:center;background:#182a50;color:white;padding:8px;font-size:13px;margin:18px 0 12px}.meta{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px 34px;margin-bottom:12px}.meta-col{display:flex;flex-direction:column;gap:4px}.meta-col.right{justify-self:stretch}.meta-row{display:grid;grid-template-columns:125px 10px minmax(0,1fr);line-height:1.35}.meta-row .label{font-weight:700}.meta-row .colon{text-align:center}.meta-col.right .meta-row{grid-template-columns:85px 10px minmax(0,1fr)}table{width:100%;border-collapse:collapse}th,td{border:1px solid #777;padding:6px 7px}th{background:#e8ecf2;text-align:left}.grand{font-weight:700}.sign{margin-top:34px;text-align:right}.footer{position:fixed;bottom:0;width:100%;text-align:center;font-size:8px;color:#666}</style></head><body><div class="brand-row"><div class="brand-wrap"><img class="logo" src="/lenteraglobalmaritim/lgm-logo.png" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div><h2>ESTIMATE PORT DISBURSEMENT OF ACCOUNT</h2><div class="meta"><div class="meta-col"><div class="meta-row"><span class="label">No.</span><span class="colon">:</span><span>${epdaNo}</span></div><div class="meta-row"><span class="label">Date Inquiry</span><span class="colon">:</span><span>${new Date(activeJob.inquiry?.date || activeJob.createdAt).toLocaleDateString('id-ID')}</span></div><div class="meta-row"><span class="label">Principal</span><span class="colon">:</span><span>${escapeHtml(activeJob.customerName)}</span></div><div class="meta-row"><span class="label">Job/Vessel Call ID</span><span class="colon">:</span><span>${activeJob.jobId}</span></div></div><div class="meta-col right"><div class="meta-row"><span class="label">Port</span><span class="colon">:</span><span>${escapeHtml(activeJob.portName)}</span></div><div class="meta-row"><span class="label">Vessel</span><span class="colon">:</span><span>${escapeHtml(activeJob.vesselName)}</span></div><div class="meta-row"><span class="label">ETA</span><span class="colon">:</span><span>${escapeHtml(activeJob.eta || '')}</span></div><div class="meta-row"><span class="label">GRT</span><span class="colon">:</span><span>${escapeHtml(activeJob.grt || activeJob.inquiry?.quantity || '')}</span></div></div></div><table><thead><tr><th style="width:7%">NO.</th><th>DESCRIPTION</th><th style="width:20%">AMOUNT IDR</th><th style="width:20%">REMARKS</th></tr></thead><tbody>${rows}<tr class="grand"><td colspan="2" style="text-align:right">GRAND TOTAL</td><td style="text-align:right">${amount(total)}</td><td></td></tr></tbody></table><div class="sign"><div>Banjarjarmasin, ${new Date().toLocaleDateString('id-ID')}</div><div style="margin-top:16px">PT. Lentera Global Maritim</div></div><div class="footer">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span class="contact" style="color:#dc2626;text-decoration:underline">email : <a style="color:#dc2626" href="mailto:maritim@lentera-global.com">maritim@lentera-global.com</a> / web : <span style="color:#dc2626">www.lentera-global.com</span></span></div></body></html>`;
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${epdaNo}</title><style>@page{size:A4;margin:14mm}body{font-family:Arial,sans-serif;color:#172033;font-size:11px}.brand-row{text-align:center;margin-bottom:10px}.brand-wrap{display:inline-flex;align-items:center;gap:14px;text-align:left}.logo{width:76px;height:58px;object-fit:contain}.brand{font-weight:700;font-size:21px;line-height:1.15}.tag{color:#666;font-size:13px;margin-top:5px}h2{text-align:center;background:#182a50;color:white;padding:8px;font-size:13px;margin:18px 0 12px}.meta{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px 34px;margin-bottom:12px}.meta-col{display:flex;flex-direction:column;gap:4px}.meta-col.right{justify-self:stretch}.meta-row{display:grid;grid-template-columns:125px 10px minmax(0,1fr);line-height:1.35}.meta-row .label{font-weight:700}.meta-row .colon{text-align:center}.meta-col.right .meta-row{grid-template-columns:85px 10px minmax(0,1fr)}table{width:100%;border-collapse:collapse}th,td{border:1px solid #777;padding:6px 7px}th{background:#e8ecf2;text-align:left}.grand{font-weight:700}.sign{margin-top:34px;text-align:right}.footer{position:fixed;bottom:0;width:100%;text-align:center;font-size:8px;color:#666}</style></head><body><div class="brand-row"><div class="brand-wrap"><img class="logo" src="/lenteraglobalmaritim/lgm-logo.png" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div><h2>ESTIMATE PORT DISBURSEMENT OF ACCOUNT</h2><div class="meta"><div class="meta-col"><div class="meta-row"><span class="label">No.</span><span class="colon">:</span><span>${epdaNo}</span></div><div class="meta-row"><span class="label">Date Inquiry</span><span class="colon">:</span><span>${new Date(activeJob.inquiry?.date || activeJob.createdAt).toLocaleDateString('id-ID')}</span></div><div class="meta-row"><span class="label">Principal</span><span class="colon">:</span><span>${escapeHtml(activeJob.customerName)}</span></div><div class="meta-row"><span class="label">Job/Vessel Call ID</span><span class="colon">:</span><span>${activeJob.jobId}</span></div></div><div class="meta-col right"><div class="meta-row"><span class="label">Port</span><span class="colon">:</span><span>${escapeHtml(activeJob.portName)}</span></div><div class="meta-row"><span class="label">Vessel</span><span class="colon">:</span><span>${escapeHtml(activeJob.vesselName)}</span></div><div class="meta-row"><span class="label">ETA</span><span class="colon">:</span><span>${escapeHtml(activeJob.eta || '')}</span></div><div class="meta-row"><span class="label">GRT</span><span class="colon">:</span><span>${escapeHtml(activeJob.grt || activeJob.inquiry?.cargoQuantity || '')}</span></div></div></div><table><thead><tr><th style="width:7%">NO.</th><th>DESCRIPTION</th><th style="width:20%">AMOUNT IDR</th><th style="width:20%">REMARKS</th></tr></thead><tbody>${rows}<tr class="grand"><td colspan="2" style="text-align:right">GRAND TOTAL</td><td style="text-align:right">${amount(total)}</td><td></td></tr></tbody></table><div class="sign"><div>Banjarjarmasin, ${new Date().toLocaleDateString('id-ID')}</div><div style="margin-top:16px">PT. Lentera Global Maritim</div></div><div class="footer">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span class="contact" style="color:#dc2626;text-decoration:underline">email : <a style="color:#dc2626" href="mailto:maritim@lentera-global.com">maritim@lentera-global.com</a> / web : <span style="color:#dc2626">www.lentera-global.com</span></span></div></body></html>`;
   };
 
   const previewEPDA = () => {
@@ -1436,7 +1447,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Keterangan ETA</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.etaRemarks || '-'}</div></div>
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Keterangan ETD</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.etdRemarks || '-'}</div></div>
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Quantity</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.quantity || 0} {activeJob.inquiry?.quantityUnit || 'TON'}</div></div>
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Cargo Quantity</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.cargoQuantity || 0} {activeJob.inquiry?.quantityUnit || 'TON'}</div></div>
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Purpose</div><div className="mt-1 font-bold text-white">{activeJob.purposeOfCall || '-'}</div></div>
 
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Estimated Days</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.estimatedDays || 0} hari</div></div>
@@ -1611,8 +1622,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
             {actualEntryMode === 'AUTO' ? (
               <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2 lg:grid-cols-6">
                 <div className="lg:col-span-2"><label className="mb-1 block text-slate-600">Item Service</label>{autoServiceOptions.length > 0 ? <select value={autoServiceOptionKey(newActual.description, newActual.category)} onChange={(e) => applySelectedAutoService(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="">Pilih item service</option>{autoServiceOptions.map((option) => <option key={autoServiceOptionKey(option.name, option.category)} value={autoServiceOptionKey(option.name, option.category)}>{option.name}</option>)}</select> : <input required value={newActual.description} onChange={(e) => setNewActual({ ...newActual, description: e.target.value })} placeholder="Nama biaya final otomatis" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none" />}</div>
-                <div><label className="mb-1 block text-slate-600">Category Cost</label><select value={newActual.category} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="AGENCY_FEE">AGENCY FEE</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option><option value="VAT_11">VAT 11%</option><option value="PPH_INCOME_TAX">PPH / INCOME TAX</option></select></div>
-                <div><label className="mb-1 block text-slate-600">Type</label><select value={newActual.tariffType} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="RANGE">Range</option></select></div>
+                <div><label className="mb-1 block text-slate-600">Category Cost</label><select value={newActual.category} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="PORT_SERVICE">PORT SERVICE</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="AGENCY_FEE">AGENCY FEE</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option><option value="VAT_11">VAT 11%</option><option value="PPH_INCOME_TAX">PPH / INCOME TAX</option></select></div>
+                <div><label className="mb-1 block text-slate-600">Type</label><select value={newActual.tariffType === 'RANGE' ? 'QTY_CARGO' : newActual.tariffType} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="QTY_CARGO">QTY_CARGO</option></select></div>
                 <div><label className="mb-1 block text-slate-600">Rate</label><input type="text" inputMode="decimal" readOnly value={formatRateAmount(Number(newActual.rate) || 0)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
                 <div><label className="mb-1 block text-slate-600">QTY</label><input type="number" min="1" value={actualQuantity} onChange={(e) => setActualQuantity(Math.max(1, Number(e.target.value) || 1))} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>
                 <div className="lg:col-span-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -1624,8 +1635,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
             ) : (
               <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2 lg:grid-cols-6">
                 <div className="lg:col-span-2"><label className="mb-1 block text-slate-600">Item Service</label><input required value={newActual.description} onChange={(e) => setNewActual({ ...newActual, description: e.target.value })} placeholder="Nama biaya final manual" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none" /></div>
-                <div><label className="mb-1 block text-slate-600">Category Cost</label><select value={newActual.category} onChange={(e) => setNewActual({ ...newActual, category: e.target.value })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="AGENCY_FEE">AGENCY FEE</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option><option value="VAT_11">VAT 11%</option><option value="PPH_INCOME_TAX">PPH / INCOME TAX</option></select></div>
-                <div><label className="mb-1 block text-slate-600">Type</label><select value={newActual.tariffType} onChange={(e) => setNewActual({ ...newActual, tariffType: e.target.value as 'FIXED' | 'VARIABLE' | 'RANGE' })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="RANGE">Range</option></select></div>
+                <div><label className="mb-1 block text-slate-600">Category Cost</label><select value={newActual.category} onChange={(e) => setNewActual({ ...newActual, category: e.target.value })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="PORT_SERVICE">PORT SERVICE</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="AGENCY_FEE">AGENCY FEE</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option><option value="VAT_11">VAT 11%</option><option value="PPH_INCOME_TAX">PPH / INCOME TAX</option></select></div>
+                <div><label className="mb-1 block text-slate-600">Type</label><select value={newActual.tariffType === 'RANGE' ? 'QTY_CARGO' : newActual.tariffType} onChange={(e) => setNewActual({ ...newActual, tariffType: e.target.value as 'FIXED' | 'VARIABLE' | 'QTY_CARGO' })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="QTY_CARGO">QTY_CARGO</option></select></div>
                 <div><label className="mb-1 block text-slate-600">QTY</label><input type="number" min="1" value={actualQuantity} onChange={(e) => setActualQuantity(Math.max(1, Number(e.target.value) || 1))} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>
                 <div><label className="mb-1 block text-slate-600">Tarif ({viewCurrency})</label><input type="text" inputMode="decimal" placeholder="0.0000" value={manualTariffText} onChange={(e) => { const text = e.target.value; setManualTariffText(text); setNewActual({ ...newActual, amountBuy: parseTariffInput(text) }); }} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>
                 <div><label className="mb-1 block text-slate-600">Amount ({viewCurrency})</label><input readOnly value={formatAccountingNumber(actualAmount, viewCurrency)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
@@ -1635,8 +1646,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
             <div className="mt-3 text-[10px] text-slate-500">
               {actualEntryMode === 'AUTO'
-                ? 'Tarif VARIABLE otomatis dihitung dari GRT x rate, lalu dikalikan QTY.'
-                : 'Untuk Type VARIABLE, amount dihitung dari GRT x tarif x QTY dan dicatat sebagai biaya final FDA.'}
+                ? 'Otomatis: FIXED = Tarif x QTY; VARIABLE = GRT x Tarif x QTY; QTY_CARGO = Quantity Cargo x Tarif x QTY.'
+                : 'Manual: FIXED = Tarif x QTY; VARIABLE = GRT x Tarif x QTY; QTY_CARGO = Quantity Cargo x Tarif x QTY.'}
             </div>
             </fieldset>
           </div>
@@ -1772,7 +1783,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
             <p className="text-[11px] text-slate-400 mb-4">Sesuai revisi PDF, user FDA fokus mengisi Amount aktual untuk 1 Job/Vessel Call. Data vendor dan nomor voucher dibuat otomatis bila kosong.</p>
             <form onSubmit={(e) => { e.preventDefault(); e.stopPropagation(); handleAddActualCost(); }} className="space-y-3 text-xs">
               <div><label className="text-slate-400 block mb-1">Description:</label><input type="text" required value={newActual.description} onChange={e=>setNewActual({...newActual,description:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"/></div>
-              <div><label className="text-slate-400 block mb-1">Category:</label><select value={newActual.category} onChange={e=>setNewActual({...newActual,category:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="AGENCY_FEE">AGENCY FEE</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option><option value="VAT_11">VAT 11%</option><option value="PPH_INCOME_TAX">PPH / INCOME TAX</option></select></div>
+              <div><label className="text-slate-400 block mb-1">Category:</label><select value={newActual.category} onChange={e=>setNewActual({...newActual,category:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="PORT_SERVICE">PORT SERVICE</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="AGENCY_FEE">AGENCY FEE</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option><option value="VAT_11">VAT 11%</option><option value="PPH_INCOME_TAX">PPH / INCOME TAX</option></select></div>
               <div><label className="text-slate-400 block mb-1">Tarif ({viewCurrency}):</label><input type="text" inputMode="decimal" required value={formatTariffInput(newActual.amountBuy)} onChange={e=>setNewActual({...newActual,amountBuy:parseTariffInput(e.target.value),amountSellBilled:parseTariffInput(e.target.value)})} className="w-full bg-slate-950 border border-cyan-700 rounded-lg p-2.5 text-white font-mono text-lg"/></div>
               <div><label className="text-slate-400 block mb-1">Remark (opsional):</label><input value={newActual.notes} onChange={e=>setNewActual({...newActual,notes:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"/></div>
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800"><button type="button" onClick={()=>{setShowAddActualModal(false);setEditingActualId(null)}} className="px-3.5 py-1.5 rounded-lg bg-slate-800 text-slate-300">Batal</button><button type="submit" className="px-4 py-1.5 rounded-lg bg-cyan-600 text-white font-bold">Simpan Amount</button></div>
