@@ -1,5 +1,5 @@
 import { formatDateDisplay } from '../../utils/date';
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { FileSpreadsheet, Plus, Trash2, Save, Ship, Building, CheckCircle2, Download, Printer, Eye, Send, Pencil, Check, X } from 'lucide-react';
 import { JobCall, DisbursementItem, Currency, User, Vessel, FixTariff, ExpensesItem } from '../../types';
 import { db, getCurrentBranchName, buildBranchAwareEPDANumber } from '../../db/storage';
@@ -14,9 +14,10 @@ interface QuotesEPDAViewProps {
   fixTariffs?: FixTariff[];
   expensesItems?: ExpensesItem[];
   onDataSaved?: () => void;
+  printPreviewOnly?: boolean;
 }
 
-export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, users, fixTariffs = [], expensesItems = [], onDataSaved }) => {
+export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, users, fixTariffs = [], expensesItems = [], onDataSaved, printPreviewOnly = false }) => {
   if (!job) {
     return (
       <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-5 text-sm text-amber-200">
@@ -57,6 +58,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     unitSellRate: Number(item.unitSellRate || item.unitBuyRate || 0),
   })));
   const [exchangeRate, setExchangeRate] = useState<number>(job.quotation.epda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800);
+  const previewFrameRef = useRef<HTMLIFrameElement>(null);
   const [isSaved, setIsSaved] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [itemEditDraft, setItemEditDraft] = useState({ description: '', tariff: '', amount: '', remarks: '' });
@@ -239,16 +241,17 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     return true;
   };
 
-  const saveExchangeRate = () => {
+  const saveExchangeRate = (value: string) => {
     if (isReviewOnly || isEPDALockedInDatabase()) return;
     const currentJob = db.getJob(job.jobId);
     if (!currentJob) return;
+    const parsedRate = Number(value);
     db.updateJob(job.jobId, {
       quotation: {
         ...currentJob.quotation,
         epda: {
           ...currentJob.quotation?.epda,
-          exchangeRateUSDToIDR: Number(exchangeRate) || 15800,
+          exchangeRateUSDToIDR: Number.isFinite(parsedRate) && parsedRate > 0 ? parsedRate : 15800,
         },
       },
     });
@@ -578,14 +581,12 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     return `<!doctype html><html><head><meta charset="utf-8"><title>${epdaNo}</title><style>@page{size:A4;margin:14mm}body{font-family:Arial,sans-serif;color:#172033;font-size:11px}.brand-row{text-align:center;margin-bottom:10px}.brand-wrap{display:inline-flex;align-items:center;gap:14px;text-align:left}.logo{width:76px;height:58px;object-fit:contain}.brand{font-weight:700;font-size:21px;line-height:1.15}.tag{color:#666;font-size:13px;margin-top:5px}h2{text-align:center;background:#182a50;color:white;padding:8px;font-size:13px;margin:18px 0 12px}.meta{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px 34px;margin-bottom:12px}.meta-col{display:flex;flex-direction:column;gap:4px}.meta-col.right{justify-self:stretch}.meta-row{display:grid;grid-template-columns:125px 10px minmax(0,1fr);line-height:1.35}.meta-row .label{font-weight:700}.meta-row .colon{text-align:center}.meta-col.right .meta-row{grid-template-columns:85px 10px minmax(0,1fr)}table{width:100%;border-collapse:collapse}th,td{border:1px solid #777;padding:6px 7px}th{background:#e8ecf2;text-align:left}.grand{font-weight:700}.sign{margin-top:34px;text-align:right}.footer{position:fixed;bottom:0;width:100%;text-align:center;font-size:8px;color:#666}</style></head><body><div class="brand-row"><div class="brand-wrap"><img class="logo" src="/lenteraglobalmaritim/lgm-logo.png" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div><h2>ESTIMATE PORT DISBURSEMENT OF ACCOUNT</h2><div class="meta"><div class="meta-col"><div class="meta-row"><span class="label">No.</span><span class="colon">:</span><span>${epdaNo}</span></div><div class="meta-row"><span class="label">Date Inquiry</span><span class="colon">:</span><span>${job.inquiry.date}</span></div><div class="meta-row"><span class="label">Principal</span><span class="colon">:</span><span>${escapeHtml(job.customerName)}</span></div><div class="meta-row"><span class="label">Job/Vessel Call ID</span><span class="colon">:</span><span>${job.jobId}</span></div></div><div class="meta-col right"><div class="meta-row"><span class="label">Port</span><span class="colon">:</span><span>${escapeHtml(job.portName)}</span></div><div class="meta-row"><span class="label">Vessel</span><span class="colon">:</span><span>${escapeHtml(job.vesselName)}</span></div><div class="meta-row"><span class="label">ETA</span><span class="colon">:</span><span>${job.eta}</span></div><div class="meta-row"><span class="label">GRT</span><span class="colon">:</span><span>${vesselMaster?.grt?.toLocaleString() || '-'}</span></div></div></div><table><thead><tr><th>NO.</th><th>DESCRIPTION</th><th>AMOUNT ${viewCurrency}</th><th>REMARKS</th></tr></thead><tbody>${rows}</tbody><tfoot><tr class="grand"><td colspan="2" style="text-align:right">GRAND TOTAL</td><td style="text-align:right">${amount(totalSellUSD)}</td><td></td></tr></tfoot></table><div class="sign">Banjarmasin, ${new Date().toLocaleDateString('id-ID')}<br><br><br><b>PT. Lentera Global Maritim</b></div><div class="footer">PT Lentera Global Maritim • Shipping Agency • ${epdaNo}</div></body></html>`;
   };
 
-  const openPreview = (print = false) => {
-    const w = window.open('', '_blank', 'width=900,height=1100');
-    if (!w) return;
+  const buildPreviewHtml = () => {
     const inquiryMeta = `<div class="meta"><div class="meta-col"><div class="meta-row"><span class="label">No EPDA</span><span class="colon">:</span><span>${epdaNo}</span></div><div class="meta-row"><span class="label">Date Inquiry</span><span class="colon">:</span><span>${formatDate(job.inquiry.date)}</span></div><div class="meta-row"><span class="label">Principal</span><span class="colon">:</span><span>${escapeHtml(job.customerName)}</span></div><div class="meta-row"><span class="label">GRT</span><span class="colon">:</span><span>${vesselMaster?.grt?.toLocaleString('id-ID') || '-'}</span></div><div class="meta-row"><span class="label">Port</span><span class="colon">:</span><span>${escapeHtml(job.portName)}</span></div><div class="meta-row"><span class="label">ETA</span><span class="colon">:</span><span>${escapeHtml(job.eta || '-')}</span></div></div><div class="meta-col right"><div class="meta-row"><span class="label">Vessel</span><span class="colon">:</span><span>${escapeHtml(job.vesselName)}</span></div><div class="meta-row"><span class="label">Estimated Day</span><span class="colon">:</span><span>${job.inquiry.estimatedDays || '-'}</span></div><div class="meta-row"><span class="label">Flag</span><span class="colon">:</span><span>${escapeHtml(vesselMaster?.flag || '-')}</span></div><div class="meta-row"><span class="label">Cargo Details</span><span class="colon">:</span><span>${escapeHtml(job.inquiry.cargoDetails || '-')}</span></div><div class="meta-row"><span class="label">IMO</span><span class="colon">:</span><span>${escapeHtml(vesselMaster?.imoNumber || '-')}</span></div></div></div>`;
     const html = formatExportTable(enhanceExportHeader(buildDocument())).replace(/<div class="footer">PT Lentera Global Maritim • Shipping Agency • [^<]*<\/div>/, '').replaceAll('class="meta-col right"', 'class="meta-col right" style="padding-right:18px"').replaceAll('>No.</span>', '>No EPDA</span>');
     const onePageHtml = html.replace('</style>', '@page{size:A4;margin:10mm}body{font-family:Arial,sans-serif;font-size:10px;color:#172033}.brand-row{margin-bottom:8px}.brand-wrap{min-height:58px;gap:12px}.logo{width:78px;height:58px}.brand{font-size:20px;color:#3562a8}.tag{font-size:11px;color:#3562a8;margin-top:3px}h2{background:#214f84;font-size:12px;padding:5px;margin:8px 0 9px}.meta{gap:2px 28px;margin-bottom:9px}.meta-col{gap:2px}.meta-row{line-height:1.25}.meta-row .label{font-size:10px}table{page-break-inside:avoid;table-layout:fixed;border:1px solid #9ca3af;border-collapse:collapse}tr{page-break-inside:avoid}th,td{padding:4px 5px;font-size:9px;border:1px solid #9ca3af!important}thead th,table thead th{background:#dbe8f2!important;text-align:center!important;border-bottom:1px solid #9ca3af!important}table th:nth-child(1),table td:nth-child(1){width:5%!important;text-align:center!important}table th:nth-child(2),table td:nth-child(2){width:42%!important;text-align:center!important}table th:nth-child(3),table td:nth-child(3){width:8%!important;text-align:center!important}table th:nth-child(4),table td:nth-child(4){width:17%!important;text-align:center!important;white-space:nowrap}table th:nth-child(5),table td:nth-child(5){width:28%!important;text-align:center!important}thead th:nth-child(1),thead th:nth-child(2),thead th:nth-child(3),thead th:nth-child(4),thead th:nth-child(5){text-align:center!important}.item-row td{background:#fff!important;border:1px solid #9ca3af!important}.subtotal{background:#dbe8f2!important;font-weight:700}.subtotal td{border-top:1px solid #9ca3af!important}.grand{background:#dbe8f2!important;color:#f00;font-weight:800}.grand td{border-top:1px solid #9ca3af!important}.subtotal td:first-child,.grand td:first-child{text-align:center!important}.subtotal td.amount,.grand td.amount{padding-left:0!important;padding-right:4px!important;text-align:center!important;white-space:nowrap}.bank{display:inline-block;width:42%;margin-top:16px;border:1px solid #777;padding:8px;font-size:8px;line-height:1.3;vertical-align:top}.signature{display:inline-block;width:42%;margin:16px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.footer{margin-top:16px;text-align:center;font-size:9px;line-height:1.35;font-weight:600}.footer .contact{color:#e11d48;text-decoration:underline}</style>');
-    w.document.write(onePageHtml.replace(/<div class="meta">[\s\S]*?(?=<table(?:\s|>))/i, inquiryMeta).replaceAll('width:42%!important', 'width:20%!important').replaceAll('width:8%!important', 'width:35%!important').replaceAll('width:17%!important', 'width:12%!important').replaceAll('text-align:center!important}table th:nth-child(3)', 'text-align:center!important;white-space:nowrap}table th:nth-child(3)'));
-    w.document.head.insertAdjacentHTML('beforeend', `<style>
+    const previewHtml = onePageHtml.replace(/<div class="meta">[\s\S]*?(?=<table(?:\s|>))/i, inquiryMeta).replaceAll('width:42%!important', 'width:20%!important').replaceAll('width:8%!important', 'width:35%!important').replaceAll('width:17%!important', 'width:12%!important').replaceAll('text-align:center!important}table th:nth-child(3)', 'text-align:center!important;white-space:nowrap}table th:nth-child(3)');
+    const printStyles = `<style>
       @media screen {
         html, body { min-height: 100%; height: auto; overflow: visible; }
         body { box-sizing: border-box; max-width: 1100px; margin: 0 auto; padding: 24px; }
@@ -619,9 +620,16 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
         .office-footer { position: fixed !important; left: 50% !important; bottom: 0 !important; transform: translateX(-50%) !important; }
         .bank, .signature { page-break-inside: avoid; break-inside: avoid; }
       }
-    </style>`);
-    w.document.close();
-    if (print) w.onload = () => { w.focus(); w.print(); };
+    </style>`;
+    return previewHtml.replace('</head>', `${printStyles}</head>`);
+  };
+
+  const openPreview = (print = false) => {
+    const preview = window.open('', '_blank', 'width=900,height=1100');
+    if (!preview) return;
+    preview.document.write(buildPreviewHtml());
+    preview.document.close();
+    if (print) preview.onload = () => { preview.focus(); preview.print(); };
   };
 
   const downloadExcel = () => {
@@ -637,6 +645,25 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${epdaNo.replaceAll('/', '-')}.xls`; a.click(); URL.revokeObjectURL(url);
   };
 
+  if (printPreviewOnly) {
+    return (
+      <div className="space-y-3">
+        <div className="flex justify-end">
+          <button type="button" onClick={() => previewFrameRef.current?.contentWindow?.print()} className="flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white hover:bg-blue-600">
+            <Printer className="h-4 w-4" />
+            Cetak / Simpan PDF
+          </button>
+        </div>
+        <iframe
+          ref={previewFrameRef}
+          title={`Pratinjau EPDA ${job.jobId}`}
+          srcDoc={buildPreviewHtml()}
+          className="h-[75vh] min-h-[560px] w-full rounded-lg border border-slate-300 bg-white"
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 epda-form-root" aria-readonly={isReviewOnly}>
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -647,7 +674,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800"><button onClick={() => handleViewCurrencyChange('IDR')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${viewCurrency==='IDR'?'bg-emerald-600 text-white':'text-slate-400'}`}>IDR (Rp)</button><button onClick={() => handleViewCurrencyChange('USD')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${viewCurrency==='USD'?'bg-emerald-600 text-white':'text-slate-400'}`}>USD ($)</button></div>
-          <div className="text-xs text-slate-400 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">Kurs USD <input value={exchangeRate} readOnly={isReviewOnly} onChange={e=>setExchangeRate(Number(e.target.value)||0)} onBlur={saveExchangeRate} className="w-20 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-white text-right"/></div>
+          <div className="text-xs text-slate-400 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">Kurs USD <input value={exchangeRate} readOnly={isReviewOnly} onChange={e=>setExchangeRate(Number(e.target.value)||0)} onBlur={e => saveExchangeRate(e.currentTarget.value)} className="w-20 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-white text-right"/></div>
           {!isReviewOnly && <button onClick={handleSubmit} className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5"><Send className="w-4 h-4"/>Kirim ke Manager OPS</button>}
           {isReviewOnly && <span className="px-3.5 py-2 rounded-xl border border-blue-200 bg-blue-100 text-blue-700 text-xs font-bold">{isManagerApproved ? 'VIEW ONLY · APPROVED' : 'TERKIRIM · MENUNGGU APPROVAL'}</span>}
         </div>

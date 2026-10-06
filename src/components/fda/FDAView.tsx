@@ -27,6 +27,7 @@ import { formatDateDisplay } from '../../utils/date';
 
 interface FDAViewProps {
   initialTab?: 'DASHBOARD' | 'JOB_ID' | 'ACTUAL_COST' | 'QUOTES_VIEW' | 'APPROVAL';
+  printPreviewOnly?: boolean;
   jobCalls: JobCall[];
   vessels: Vessel[];
   activeJob: JobCall;
@@ -38,6 +39,7 @@ interface FDAViewProps {
 
 export const FDAView: React.FC<FDAViewProps> = ({
   initialTab = 'DASHBOARD',
+  printPreviewOnly = false,
   jobCalls,
   vessels,
   activeJob,
@@ -412,7 +414,11 @@ export const FDAView: React.FC<FDAViewProps> = ({
     const numericValue = Number(nextValue);
     const safeRate = Number.isFinite(numericValue) && numericValue > 0 ? numericValue : 0;
     setExchangeRateInput(safeRate || 15800);
-    db.updateJob(activeJob.jobId, { fda: { ...activeJob.fda, exchangeRateUSDToIDR: safeRate || 15800 } });
+    const currentJob = db.getJob(activeJob.jobId);
+    if (!currentJob) return;
+    db.updateJob(activeJob.jobId, {
+      fda: { ...currentJob.fda, exchangeRateUSDToIDR: safeRate || 15800 },
+    });
   };
   const totalCost = jobCalls.reduce((sum, job) => sum + normalizeGrandTotalToIDR(job), 0);
   const approvedJobs = jobCalls.filter((job) => job.managerApproval?.status === 'APPROVED');
@@ -866,8 +872,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const normalizeFDAExportLayout = (html: string) => normalizeFDAExportLayoutBase(html).replace('</style>', 'table th{text-align:center!important}table tr.item-row td:nth-child(1){text-align:center!important}table tr.item-row td:nth-child(2),table tr.item-row td:nth-child(5){text-align:left!important}table tr.item-row td:nth-child(3){text-align:center!important}table tr.item-row td:nth-child(4){text-align:right!important}table tr.section td{text-align:left!important}table tr.subtotal td:first-child{font-weight:700;text-align:right!important}table tr.grand td:first-child{text-align:right!important}table tr.subtotal td.amount,table tr.grand td.amount{font-variant-numeric:tabular-nums;text-align:right!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}</style>');
   const centerFDAExportColumns = (html: string) => normalizeFDAExportLayout(html).replace('</style>', 'table th,table td{text-align:center!important}</style>');
 
-  const openFDAWindow = (print = false) => {
+  const openFDAWindow = (print = false, getHtml = false): string | undefined => {
     const onePageHtml = pushFinanceSignatureDown(buildFDAHtmlSalesTemplate(false).replace('</style>', '@page{size:A4;margin:14mm}body{font-size:9px}.brand-row{margin:0 0 2px}.brand-wrap{min-height:48px;gap:10px}.logo{width:70px;height:52px}.brand{font-size:17px}.tag{font-size:10px;margin-top:2px}h2{font-size:10px;padding:4px;margin:2px 0 4px}.meta{gap:1px 20px;margin-bottom:3px}.meta-col{gap:1px}.meta-row{line-height:1.15}.meta-row .label{font-size:9px}table{page-break-inside:avoid;table-layout:fixed}table th:first-child,table td:first-child{width:5%;text-align:center!important}table th:nth-child(2),table td:nth-child(2){width:42%;text-align:center!important}table th:nth-child(3),table td:nth-child(3){width:8%;text-align:center!important}table th:nth-child(4),table td:nth-child(4){width:17%;text-align:center!important;white-space:nowrap}table th:nth-child(5),table td:nth-child(5){width:28%;text-align:center!important}tr{page-break-inside:avoid}th,td{padding:3px 4px;font-size:8px}.subtotal td:first-child,.grand td:first-child{font-weight:700;text-align:center!important}.subtotal td.amount,.grand td.amount,.subtotal td:nth-child(2),.grand td:nth-child(2){font-variant-numeric:tabular-nums;text-align:center!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}.section td{padding-left:0!important}.bank{display:inline-block;width:42%;margin-top:24px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.signature-main{display:block}.signature-role{display:block;margin-top:22px;padding-top:4px}.office-footer{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center;font-size:8px;line-height:1.2;font-weight:600;color:#111;z-index:3}.office-footer span{color:#e11d48;text-decoration:underline}</style>'));
+    if (getHtml) return centerFDAExportColumns(onePageHtml);
     const windowRef = window.open('', '_blank', 'width=900,height=1100');
     if (!windowRef) return;
     windowRef.document.write(centerFDAExportColumns(onePageHtml));
@@ -980,6 +987,24 @@ export const FDAView: React.FC<FDAViewProps> = ({
     setMsg('Final Disbursement Account (FDA) berhasil dikirim untuk approval Manager Ops.');
     setTimeout(() => setMsg(null), 3500);
   };
+
+  if (printPreviewOnly) {
+    return (
+      <div className="space-y-3">
+        <div className="flex justify-end">
+          <button type="button" onClick={() => iframePreviewRef.current?.contentWindow?.print()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white hover:bg-blue-600">
+            Cetak / Simpan PDF
+          </button>
+        </div>
+        <iframe
+          ref={iframePreviewRef}
+          title={`Pratinjau FDA ${activeJob.jobId}`}
+          srcDoc={openFDAWindow(false, true) || ''}
+          className="h-[75vh] min-h-[560px] w-full rounded-lg border border-slate-300 bg-white"
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 fda-form-root" aria-readonly={isFDAReadOnly}>
@@ -1383,7 +1408,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                   value={exchangeRateInput}
                   readOnly={isFDAReadOnly}
                   onChange={(e) => handleExchangeRateChange(e.target.value)}
-                  onBlur={() => handleExchangeRateChange(String(exchangeRateInput))}
+                  onBlur={(e) => handleExchangeRateChange(e.currentTarget.value)}
                   className="w-24 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-right text-xs text-white"
                 />
               </label>

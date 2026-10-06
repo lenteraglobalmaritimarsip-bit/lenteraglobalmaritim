@@ -18,6 +18,8 @@ import {
 import { JobCall, ActiveTab, Vessel } from '../../types';
 import { db } from '../../db/storage';
 import { formatDateDisplay } from '../../utils/date';
+import { QuotesEPDAView } from '../sales/QuotesEPDAView';
+import { FDAView } from '../fda/FDAView';
 
 interface ManagerOpsViewProps {
   initialTab?: 'DASHBOARD' | 'QUOTES_VIEW' | 'APPROVAL';
@@ -45,6 +47,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
   const [approvalNotes, setApprovalNotes] = useState<{ [key: string]: string }>({});
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [expandedDetailJobId, setExpandedDetailJobId] = useState<string | null>(null);
+  const [expandedFDAApprovalJobId, setExpandedFDAApprovalJobId] = useState<string | null>(null);
   const [expandedQuoteDetail, setExpandedQuoteDetail] = useState<string | null>(null);
 
   const pendingApprovals = jobCalls.filter(
@@ -116,6 +119,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
   const formatEPDACategory = (category: string) => {
     const labels: Record<string, string> = {
       PORT_EXPENSES: 'PORT EXPENSES',
+      PORT_SERVICE: 'PORT SERVICE',
       CLEARANCE: 'CLEARANCE IN/OUT',
       GENERAL_EXPENSES: 'GENERAL EXPENSES',
       CREW_EXPENSES: 'CREW EXPENSES',
@@ -478,8 +482,6 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                     const epdaKey = `${job.jobId}:EPDA`;
                     const fdaKey = `${job.jobId}:FDA`;
                     const closingKey = `${job.jobId}:CLOSING`;
-                    const epdaGrandTotal = job.quotation.epda.items.reduce((sum, item) => sum + Number(item.totalSellRate || 0), 0);
-                    const fdaGrandTotal = (job.actualCosts || []).reduce((sum, item) => sum + Number(item.amount || 0), 0);
                     const epdaOpen = expandedQuoteDetail === epdaKey;
                     const fdaOpen = expandedQuoteDetail === fdaKey;
                     const closingOpen = expandedQuoteDetail === closingKey;
@@ -524,14 +526,31 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                         </tr>
                         {epdaOpen && (
                           <tr><td colSpan={9} className="bg-slate-950 p-4">
-                            <div className="mb-2 text-xs font-bold uppercase tracking-wider text-cyan-300">Entry EPDA: {job.jobId}</div>
-                            <div className="overflow-x-auto"><table className="w-full text-left text-[11px]"><thead className="text-slate-500 uppercase"><tr><th className="p-2">No</th><th className="p-2">Description Cost</th><th className="p-2">Category</th><th className="p-2">Qty</th><th className="p-2 text-right">Total EPDA</th></tr></thead><tbody className="divide-y divide-slate-800">{job.quotation.epda.items.map((item, itemIndex) => <tr key={item.id}><td className="p-2 text-slate-400">{itemIndex + 1}</td><td className="p-2 font-semibold text-white">{item.name}</td><td className="p-2 text-slate-300">{formatEPDACategory(item.category)}</td><td className="p-2 text-slate-300">{item.quantity}</td><td className="p-2 text-right font-mono text-cyan-300">{formatEPDAAmount(item.totalSellRate, item.currency || job.quotation.epda.currency)}</td></tr>)}</tbody><tfoot><tr className="border-t border-slate-700"><td colSpan={4} className="p-2 text-right font-bold uppercase text-slate-200">GRAND TOTAL</td><td className="p-2 text-right font-mono font-bold text-cyan-300">{formatEPDAAmount(epdaGrandTotal, job.quotation.epda.currency)}</td></tr></tfoot></table></div>
+                            <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950 p-3">
+                              <QuotesEPDAView
+                                job={job}
+                                vessels={vessels}
+                                onSelectJob={onSelectJob}
+                                allJobs={jobCalls}
+                                users={users}
+                                printPreviewOnly
+                              />
+                            </div>
                           </td></tr>
                         )}
                         {fdaOpen && (
                           <tr><td colSpan={9} className="bg-slate-950 p-4">
-                            <div className="mb-2 text-xs font-bold uppercase tracking-wider text-emerald-300">Entry FDA: {job.jobId}</div>
-                            {job.actualCosts?.length ? <div className="overflow-x-auto"><table className="w-full text-left text-[11px]"><thead className="text-slate-500 uppercase"><tr><th className="p-2">No</th><th className="p-2">Description Cost</th><th className="p-2">Category</th><th className="p-2">Qty</th><th className="p-2 text-right">Amount FDA</th></tr></thead><tbody className="divide-y divide-slate-800">{job.actualCosts.map((item, itemIndex) => <tr key={item.id}><td className="p-2 text-slate-400">{itemIndex + 1}</td><td className="p-2 font-semibold text-white">{item.description}</td><td className="p-2 text-slate-300">{formatEPDACategory(item.category)}</td><td className="p-2 text-slate-300">{item.quantity ?? 1}</td><td className="p-2 text-right font-mono text-emerald-300">{formatEPDAAmount(item.amount, item.currency)}</td></tr>)}</tbody><tfoot><tr className="border-t border-slate-700"><td colSpan={4} className="p-2 text-right font-bold uppercase text-slate-200">GRAND TOTAL</td><td className="p-2 text-right font-mono font-bold text-emerald-300">{formatEPDAAmount(fdaGrandTotal, job.actualCosts[0]?.currency || job.quotation.epda.currency)}</td></tr></tfoot></table></div> : <p className="text-xs text-slate-400">Belum ada entry FDA untuk job ini.</p>}
+                            <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950 p-3">
+                              <FDAView
+                                initialTab="APPROVAL"
+                                printPreviewOnly
+                                jobCalls={jobCalls}
+                                vessels={vessels}
+                                activeJob={job}
+                                onSelectJob={onSelectJob}
+                                onNavigate={onNavigate}
+                              />
+                            </div>
                           </td></tr>
                         )}
                         {closingOpen && (
@@ -632,115 +651,23 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                         }}
                         className="text-indigo-400 hover:text-indigo-300 underline font-semibold"
                       >
-                        {expandedDetailJobId === job.jobId ? 'Tutup Rincian Item' : 'Lihat Rincian Item'}
+                        {expandedDetailJobId === job.jobId ? 'Tutup EPDA' : 'Lihat EPDA Cetak/PDF'}
                       </button>
                     </div>
  
                     {expandedDetailJobId === job.jobId && (
-                      <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950 p-3 space-y-3">
-                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 text-[11px] text-slate-300">
-                          <div className="rounded-lg border border-slate-800 bg-slate-900 p-2.5">
-                            <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Reg Inquiry</div>
-                            <div className="mt-1 font-semibold text-white">{job.inquiry?.inquiryNo || '-'}</div>
-                          </div>
-                          <div className="rounded-lg border border-slate-800 bg-slate-900 p-2.5">
-                            <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">User Create EPDA</div>
-                            <div className="mt-1 font-semibold text-white">{resolveCreatedByMeta(job).user}</div>
-                          </div>
-                          <div className="rounded-lg border border-slate-800 bg-slate-900 p-2.5">
-                            <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Branch</div>
-                            <div className="mt-1 font-semibold text-white">{resolveCreatedByMeta(job).branch}</div>
-                          </div>
-                          <div className="rounded-lg border border-slate-800 bg-slate-900 p-2.5">
-                            <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Vessel</div>
-                            <div className="mt-1 font-semibold text-white">{job.vesselName}</div>
-                          </div>
-                          <div className="rounded-lg border border-slate-800 bg-slate-900 p-2.5">
-                            <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Port</div>
-                            <div className="mt-1 font-semibold text-white">{job.portName}</div>
-                          </div>
-                          <div className="rounded-lg border border-slate-800 bg-slate-900 p-2.5">
-                            <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">ETA</div>
-                            <div className="mt-1 font-semibold text-white">{formatDateDisplay(job.eta, true)}</div>
-                          </div>
-                          <div className="rounded-lg border border-slate-800 bg-slate-900 p-2.5">
-                            <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">ETD</div>
-                            <div className="mt-1 font-semibold text-white">{formatDateDisplay(job.etd, true)}</div>
-                          </div>
-                          <div className="rounded-lg border border-slate-800 bg-slate-900 p-2.5">
-                            <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Quantity</div>
-                            <div className="mt-1 font-semibold text-white">{job.inquiry?.cargoQuantity ?? '-'} {job.inquiry?.quantityUnit === 'MATRIX_TON' ? 'MT' : job.inquiry?.quantityUnit === 'TON' ? 'T' : '-'}</div>
-                          </div>
-                          <div className="rounded-lg border border-slate-800 bg-slate-900 p-2.5">
-                            <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Customer</div>
-                            <div className="mt-1 font-semibold text-white">{job.customerName}</div>
-                          </div>
-                          <div className="rounded-lg border border-slate-800 bg-slate-900 p-2.5">
-                            <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Purpose</div>
-                            <div className="mt-1 font-semibold text-white">{job.purposeOfCall?.replace(/_/g, ' ') || '-'}</div>
-                          </div>
-                          <div className="rounded-lg border border-slate-800 bg-slate-900 p-2.5">
-                            <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Status</div>
-                            <div className="mt-1 font-semibold text-white">{job.inquiry?.status || '-'}</div>
-                          </div>
-                          <div className="rounded-lg border border-slate-800 bg-slate-900 p-2.5 md:col-span-2 xl:col-span-3">
-                            <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Cargo / Keterangan</div>
-                            <div className="mt-1 text-white">{job.inquiry?.cargoDetails || '-'}</div>
-                          </div>
-                          <div className="rounded-lg border border-slate-800 bg-slate-900 p-2.5 md:col-span-2 xl:col-span-3">
-                            <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Special Requirements</div>
-                            <div className="mt-1 text-white">{job.inquiry?.specialRequirements || '-'}</div>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between mb-2">
-                          <h5 className="text-xs font-bold uppercase tracking-[0.18em] text-slate-300">Rincian Biaya EPDA</h5>
-                          <span className="text-[10px] text-slate-400">{job.quotation.epda.items.length} item</span>
-                        </div>
-                        {job.quotation.epda.items.length === 0 ? (
-                          <p className="text-xs text-slate-400">Belum ada item biaya yang dibuat di EPDA.</p>
-                        ) : (
-                          <div className="overflow-x-auto">
-                            {(() => {
-                              const epdaItems = job.quotation.epda.items;
-                              const epdaTotal = epdaItems.reduce((sum, item) => sum + Number(item.totalSellRate || 0), 0);
-                              const epdaCurrency = job.quotation.epda.currency;
-                              return (
-                            <table className="min-w-full text-left text-[11px]">
-                              <thead className="bg-slate-900 text-slate-400 uppercase tracking-wider">
-                                <tr>
-                                  <th className="px-2 py-1.5 text-center">No</th>
-                                  <th className="px-2 py-1.5">Description Cost</th>
-                                  <th className="px-2 py-1.5">Category</th>
-                                  <th className="px-2 py-1.5">Qty</th>
-                                  <th className="px-2 py-1.5 text-right">Total EPDA</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-800">
-                                {job.quotation.epda.items.map((item, index) => (
-                                  <tr key={item.id} className="align-top text-slate-200">
-                                    <td className="px-2 py-1.5 text-center font-mono">{index + 1}</td>
-                                    <td className="px-2 py-1.5 font-medium">{item.name}</td>
-                                    <td className="px-2 py-1.5">{formatEPDACategory(item.category)}</td>
-                                    <td className="px-2 py-1.5">{item.quantity}</td>
-                                    <td className="px-2 py-1.5 text-right font-semibold text-cyan-300">{formatEPDAAmount(item.totalSellRate, item.currency || job.quotation.epda.currency)}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                              <tfoot>
-                                <tr className="border-t border-slate-800">
-                                  <td colSpan={4} className="px-2 py-1.5 text-right font-bold text-slate-200">Total EPDA</td>
-                                  <td className="px-2 py-1.5 text-right font-bold text-cyan-300">{formatEPDAAmount(epdaTotal, epdaCurrency)}</td>
-                                </tr>
-                              </tfoot>
-                            </table>
-                              );
-                            })()}
-                          </div>
-                        )}
+                      <div className="mt-3 overflow-hidden rounded-xl border border-slate-800 bg-slate-950 p-3">
+                        <QuotesEPDAView
+                          job={job}
+                          vessels={vessels}
+                          onSelectJob={onSelectJob}
+                          allJobs={jobCalls}
+                          users={[]}
+                          printPreviewOnly
+                        />
                       </div>
                     )}
- 
+
                     <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
                       <input
                         type="text"
@@ -806,17 +733,30 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                     <div className="rounded-lg border border-slate-800 bg-slate-900 p-3"><span className="text-slate-400">Tagihan Principal</span><strong className="mt-1 block font-mono text-emerald-300">{formatEPDAAmount(job.fda.finalBilledToPrincipal || 0, currency)}</strong></div>
                   </div>
 
-                  <div className="overflow-x-auto rounded-lg border border-slate-800">
-                    <table className="w-full min-w-[650px] text-left text-[11px]">
-                      <thead className="bg-slate-900 text-[10px] uppercase tracking-wider text-slate-400"><tr><th className="p-2">No</th><th className="p-2">Description</th><th className="p-2">Category</th><th className="p-2">Vendor</th><th className="p-2 text-right">Amount</th></tr></thead>
-                      <tbody className="divide-y divide-slate-800">{job.actualCosts.map((item, index) => <tr key={item.id}><td className="p-2 text-slate-400">{index + 1}</td><td className="p-2 font-semibold text-white">{item.description}</td><td className="p-2 text-slate-300">{formatEPDACategory(item.category)}</td><td className="p-2 text-slate-300">{item.vendorName || '-'}</td><td className="p-2 text-right font-mono text-emerald-300">{formatEPDAAmount(item.amount, item.currency || currency)}</td></tr>)}</tbody>
-                      <tfoot className="border-t border-slate-700 bg-slate-900/80">
-                        <tr>
-                          <td colSpan={4} className="p-2 text-right font-bold uppercase text-slate-200">GRAND TOTAL</td>
-                          <td className="p-2 text-right font-mono font-bold text-emerald-300">{formatEPDAAmount(actualCostTotal, currency)}</td>
-                        </tr>
-                      </tfoot>
-                    </table>
+                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setExpandedFDAApprovalJobId(expandedFDAApprovalJobId === job.jobId ? null : job.jobId);
+                        onSelectJob(job.jobId);
+                      }}
+                      className="text-xs font-semibold text-emerald-300 underline hover:text-emerald-200"
+                    >
+                      {expandedFDAApprovalJobId === job.jobId ? 'Tutup FDA' : 'Lihat FDA Cetak/PDF'}
+                    </button>
+                    {expandedFDAApprovalJobId === job.jobId && (
+                      <div className="mt-3 overflow-hidden rounded-xl border border-slate-800 bg-slate-950 p-3">
+                        <FDAView
+                          initialTab="APPROVAL"
+                          printPreviewOnly
+                          jobCalls={jobCalls}
+                          vessels={vessels}
+                          activeJob={job}
+                          onSelectJob={onSelectJob}
+                          onNavigate={onNavigate}
+                        />
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex flex-col items-center gap-3 pt-1 sm:flex-row">
