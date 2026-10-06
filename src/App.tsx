@@ -372,7 +372,8 @@ export default function App() {
               activeTab === 'PORTS' ||
               activeTab === 'FIX_TARIFF' ||
               activeTab === 'EXPENSES_ITEM' ||
-              activeTab === 'VENDOR_PARTNERS') && (
+              activeTab === 'VENDOR_PARTNERS' ||
+              activeTab === 'BANK_ACCOUNT') && (
               <AdminMasterDataView
                 initialTab={activeTab}
                 users={data.users}
@@ -383,6 +384,7 @@ export default function App() {
                 fixTariffs={data.fixTariffs}
                 expensesItems={data.expensesItems}
                 vendorPartners={data.vendorPartners || []}
+                bankAccounts={data.bankAccounts || []}
                 onDataSaved={() => {
                   const latest = db.getState();
                   setData({
@@ -395,6 +397,7 @@ export default function App() {
                     fixTariffs: [...latest.fixTariffs],
                     expensesItems: [...latest.expensesItems],
                     vendorPartners: [...(latest.vendorPartners || [])],
+                    bankAccounts: [...(latest.bankAccounts || [])],
                   });
                   notifySaved(activeTab);
                 }}
@@ -589,7 +592,11 @@ export default function App() {
 
             {/* 5. FINANCE VIEWS */}
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_ACCOUNTS_PAYABLE' && (
-              <AccountsPayableView paymentVouchers={data.paymentVouchers || []} payer={currentUser?.name || ''} />
+              <AccountsPayableView
+                paymentVouchers={data.paymentVouchers || []}
+                payer={currentUser?.name || ''}
+                bankAccounts={data.bankAccounts || []}
+              />
             )}
 
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_HISTORY_REPORT' && (

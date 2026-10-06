@@ -28,6 +28,7 @@ import {
   FixTariff,
   ExpensesItem,
   VendorPartner,
+  BankAccount,
   UserRole,
   ActiveTab,
 } from '../../types';
@@ -37,7 +38,7 @@ import { apiAuth } from '../../lib/api';
 import { formatTariffNumber, getTariffRateForCurrency, parseTariffNumber } from '../../utils/tariff';
 
 interface AdminMasterDataViewProps {
-  initialTab?: 'USERS' | 'CUSTOMERS' | 'VESSELS' | 'PORTS' | 'ZONES' | 'FIX_TARIFF' | 'EXPENSES_ITEM' | 'VENDOR_PARTNERS';
+  initialTab?: 'USERS' | 'CUSTOMERS' | 'VESSELS' | 'PORTS' | 'ZONES' | 'FIX_TARIFF' | 'EXPENSES_ITEM' | 'VENDOR_PARTNERS' | 'BANK_ACCOUNT';
   users: User[];
   customers: Customer[];
   vessels: Vessel[];
@@ -46,6 +47,7 @@ interface AdminMasterDataViewProps {
   fixTariffs: FixTariff[];
   expensesItems: ExpensesItem[];
   vendorPartners?: VendorPartner[];
+  bankAccounts?: BankAccount[];
   onDataSaved?: (returnToTab?: ActiveTab) => void;
 }
 
@@ -59,6 +61,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   fixTariffs,
   expensesItems,
   vendorPartners = [],
+  bankAccounts = [],
   onDataSaved,
 }) => {
   const formatMasterRate = (value: unknown) => {
@@ -83,13 +86,13 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   const [editUserForm, setEditUserForm] = useState<Partial<User> & { newPassword?: string }>({});
   const [userEditError, setUserEditError] = useState('');
   const [editingMaster, setEditingMaster] = useState<
-    { type: 'CUSTOMERS' | 'VESSELS' | 'PORTS' | 'FIX_TARIFF' | 'EXPENSES_ITEM' | 'VENDOR_PARTNERS'; id: string } | null
+    { type: 'CUSTOMERS' | 'VESSELS' | 'PORTS' | 'FIX_TARIFF' | 'EXPENSES_ITEM' | 'VENDOR_PARTNERS' | 'BANK_ACCOUNT'; id: string } | null
   >(null);
   const [editMasterForm, setEditMasterForm] = useState<any>({});
 
   const openMasterEditor = (
-    type: 'CUSTOMERS' | 'VESSELS' | 'PORTS' | 'FIX_TARIFF' | 'EXPENSES_ITEM' | 'VENDOR_PARTNERS',
-    item: Customer | Vessel | Port | FixTariff | ExpensesItem | VendorPartner
+    type: 'CUSTOMERS' | 'VESSELS' | 'PORTS' | 'FIX_TARIFF' | 'EXPENSES_ITEM' | 'VENDOR_PARTNERS' | 'BANK_ACCOUNT',
+    item: Customer | Vessel | Port | FixTariff | ExpensesItem | VendorPartner | BankAccount
   ) => {
     setEditingMaster({ type, id: item.id });
     setEditMasterForm({ ...item });
@@ -143,6 +146,18 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           bankName: (editMasterForm.bankName || '').trim(),
           paidName: (editMasterForm.paidName || '').trim(),
           accountNumber: (editMasterForm.accountNumber || '').trim(),
+        });
+      }
+      if (type === 'BANK_ACCOUNT') {
+        if (!editMasterForm.bankName?.trim() || !editMasterForm.accountName?.trim() || !editMasterForm.accountNumber?.trim()) {
+          setAddFormError('Bank Name, A/C Name, dan A/C Number wajib diisi sebelum menyimpan.');
+          return;
+        }
+        await db.updateBankAccount(id, {
+          bankName: editMasterForm.bankName.trim(),
+          branch: (editMasterForm.branch || '').trim(),
+          accountName: editMasterForm.accountName.trim(),
+          accountNumber: editMasterForm.accountNumber.trim(),
         });
       }
       if (type === 'EXPENSES_ITEM') {
@@ -237,6 +252,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   const resetNewUser = () => {
     setNewUser({ name: '', email: '', department: '', branch: '', phone: '', username: '', password: '', position: '' });
     setNewVendor({ vendorName: '', bankName: '', paidName: '', accountNumber: '' });
+    setNewBankAccount({ bankName: '', branch: '', accountName: '', accountNumber: '' });
     setAddFormError('');
   };
 
@@ -355,6 +371,12 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
 
   const emptyVendor = { vendorName: '', bankName: '', paidName: '', accountNumber: '' };
   const [newVendor, setNewVendor] = useState<Omit<VendorPartner, 'id'>>(emptyVendor);
+  const [newBankAccount, setNewBankAccount] = useState<Omit<BankAccount, 'id'>>({
+    bankName: '',
+    branch: '',
+    accountName: '',
+    accountNumber: '',
+  });
 
   const deleteVendorPartner = async (id: string) => {
     try {
@@ -362,6 +384,15 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       onDataSaved?.(activeTab);
     } catch (error) {
       setUploadMessage(error instanceof Error ? error.message : 'Vendor partner gagal dihapus.');
+    }
+  };
+
+  const deleteBankAccount = async (id: string) => {
+    try {
+      await db.deleteBankAccount(id);
+      onDataSaved?.(activeTab);
+    } catch (error) {
+      setUploadMessage(error instanceof Error ? error.message : 'Bank account gagal dihapus.');
     }
   };
 
@@ -891,6 +922,18 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           accountNumber: newVendor.accountNumber.trim(),
         });
         setNewVendor(emptyVendor);
+      } else if (activeTab === 'BANK_ACCOUNT') {
+        if (!newBankAccount.bankName.trim() || !newBankAccount.accountName.trim() || !newBankAccount.accountNumber.trim()) {
+          setAddFormError('Bank Name, A/C Name, dan A/C Number wajib diisi sebelum menyimpan.');
+          return;
+        }
+        await db.addBankAccount({
+          bankName: newBankAccount.bankName.trim(),
+          branch: (newBankAccount.branch || '').trim(),
+          accountName: newBankAccount.accountName.trim(),
+          accountNumber: newBankAccount.accountNumber.trim(),
+        });
+        setNewBankAccount({ bankName: '', branch: '', accountName: '', accountNumber: '' });
       } else {
         setAddFormError('Menu master data tidak dikenali.');
         return;
@@ -1294,6 +1337,45 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
             </table>
           </div>
         )}
+
+        {activeTab === 'BANK_ACCOUNT' && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-200">
+                <tr>
+                  <th className="p-3.5">No</th>
+                  <th className="p-3.5">Bank Name</th>
+                  <th className="p-3.5">Branch</th>
+                  <th className="p-3.5">A/c Name</th>
+                  <th className="p-3.5">A/c Number</th>
+                  <th className="p-3.5 text-right">Aksi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {bankAccounts
+                  .filter((item) => `${item.bankName} ${item.branch || ''} ${item.accountName} ${item.accountNumber}`.toLowerCase().includes(searchQuery.toLowerCase()))
+                  .map((item, index) => (
+                    <tr key={item.id} className="hover:bg-slate-50">
+                      <td className="p-3.5 font-mono text-slate-500">{index + 1}</td>
+                      <td className="p-3.5 font-bold text-slate-900">{item.bankName}</td>
+                      <td className="p-3.5 text-slate-700">{item.branch || '-'}</td>
+                      <td className="p-3.5 text-slate-700">{item.accountName || '-'}</td>
+                      <td className="p-3.5 font-mono text-slate-700">{item.accountNumber || '-'}</td>
+                      <td className="p-3.5 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button onClick={() => openMasterEditor('BANK_ACCOUNT', item)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500" title="Edit Bank Account"><Edit2 className="w-3.5 h-3.5"/></button>
+                          <button onClick={() => void deleteBankAccount(item.id)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-500" title="Hapus Bank Account"><Trash2 className="w-3.5 h-3.5"/></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                {bankAccounts.length === 0 && (
+                  <tr><td colSpan={6} className="p-6 text-center text-slate-400">Belum ada data bank account.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Generic Master Data Edit Modal */}
@@ -1304,7 +1386,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-widest text-violet-600">Master Data</div>
                 <h3 className="text-lg font-black text-slate-900">
-                  Edit {editingMaster.type === 'CUSTOMERS' ? 'Customer' : editingMaster.type === 'VESSELS' ? 'Vessel' : editingMaster.type === 'PORTS' ? 'Port' : editingMaster.type === 'FIX_TARIFF' ? 'Fix Tariff' : editingMaster.type === 'VENDOR_PARTNERS' ? 'Vendor Partner' : 'Expense Item'}
+                  Edit {editingMaster.type === 'CUSTOMERS' ? 'Customer' : editingMaster.type === 'VESSELS' ? 'Vessel' : editingMaster.type === 'PORTS' ? 'Port' : editingMaster.type === 'FIX_TARIFF' ? 'Fix Tariff' : editingMaster.type === 'VENDOR_PARTNERS' ? 'Vendor Partner' : editingMaster.type === 'BANK_ACCOUNT' ? 'Bank Account' : 'Expense Item'}
                 </h3>
                 <p className="text-xs text-slate-500">Perubahan langsung disimpan ke database portal.</p>
               </div>
@@ -1425,6 +1507,15 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                   <label className="block"><span className="text-slate-500 font-semibold">Bank Name</span><input value={editMasterForm.bankName || ''} onChange={e=>setEditMasterForm({...editMasterForm,bankName:e.target.value})} className="master-edit-input" /></label>
                   <label className="block"><span className="text-slate-500 font-semibold">Paid Name</span><input value={editMasterForm.paidName || ''} onChange={e=>setEditMasterForm({...editMasterForm,paidName:e.target.value})} className="master-edit-input" /></label>
                   <label className="block"><span className="text-slate-500 font-semibold">A/C Number</span><input value={editMasterForm.accountNumber || ''} onChange={e=>setEditMasterForm({...editMasterForm,accountNumber:e.target.value})} className="master-edit-input" /></label>
+                </>
+              )}
+
+              {editingMaster.type === 'BANK_ACCOUNT' && (
+                <>
+                  <label className="block"><span className="text-slate-500 font-semibold">Bank Name</span><input required value={editMasterForm.bankName || ''} onChange={e=>setEditMasterForm({...editMasterForm,bankName:e.target.value})} className="master-edit-input" /></label>
+                  <label className="block"><span className="text-slate-500 font-semibold">Branch</span><input value={editMasterForm.branch || ''} onChange={e=>setEditMasterForm({...editMasterForm,branch:e.target.value})} className="master-edit-input" /></label>
+                  <label className="block"><span className="text-slate-500 font-semibold">A/C Name</span><input required value={editMasterForm.accountName || ''} onChange={e=>setEditMasterForm({...editMasterForm,accountName:e.target.value})} className="master-edit-input" /></label>
+                  <label className="block"><span className="text-slate-500 font-semibold">A/C Number</span><input required value={editMasterForm.accountNumber || ''} onChange={e=>setEditMasterForm({...editMasterForm,accountNumber:e.target.value})} className="master-edit-input" /></label>
                 </>
               )}
 
@@ -2035,6 +2126,28 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                   <div>
                     <label className="text-slate-400 block mb-1">A/C Number:</label>
                     <input value={newVendor.accountNumber} onChange={(e) => setNewVendor({ ...newVendor, accountNumber: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono" placeholder="Nomor rekening" />
+                  </div>
+                  {addFormError && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{addFormError}</div>}
+                </>
+              )}
+
+              {activeTab === 'BANK_ACCOUNT' && (
+                <>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Bank Name:</label>
+                    <input required value={newBankAccount.bankName} onChange={(e) => setNewBankAccount({ ...newBankAccount, bankName: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" placeholder="e.g. Bank Mandiri" />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Branch:</label>
+                    <input value={newBankAccount.branch || ''} onChange={(e) => setNewBankAccount({ ...newBankAccount, branch: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" placeholder="Nama cabang bank" />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">A/c Name:</label>
+                    <input required value={newBankAccount.accountName} onChange={(e) => setNewBankAccount({ ...newBankAccount, accountName: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" placeholder="Nama rekening" />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">A/c Number:</label>
+                    <input required value={newBankAccount.accountNumber} onChange={(e) => setNewBankAccount({ ...newBankAccount, accountNumber: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono" placeholder="Nomor rekening" />
                   </div>
                   {addFormError && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{addFormError}</div>}
                 </>

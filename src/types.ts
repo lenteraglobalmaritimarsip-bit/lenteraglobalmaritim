@@ -120,6 +120,14 @@ export interface VendorPartner {
   accountNumber: string;
 }
 
+export interface BankAccount {
+  id: string;
+  bankName: string;
+  branch?: string;
+  accountName: string;
+  accountNumber: string;
+}
+
 export interface PaymentVoucherItem {
   id: string;
   jobNumber: string;
@@ -465,6 +473,7 @@ export type ActiveTab =
   | 'FIX_TARIFF'
   | 'EXPENSES_ITEM'
   | 'VENDOR_PARTNERS'
+  | 'BANK_ACCOUNT'
   | 'INQUIRIES'
   | 'QUOTES_EPDA'
   | 'QUOTES_EPDA_DETAIL'
@@ -502,6 +511,7 @@ export interface DatabaseState {
   fixTariffs: FixTariff[];
   expensesItems: ExpensesItem[];
   vendorPartners: VendorPartner[];
+  bankAccounts: BankAccount[];
   paymentVouchers: PaymentVoucher[];
   jobCalls: JobCall[];
   currentRole: UserRole;

@@ -153,6 +153,17 @@ CREATE TABLE vendor_partners (
   INDEX idx_vendor_partners_name (vendor_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE bank_accounts (
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  bank_name VARCHAR(200) NOT NULL,
+  branch VARCHAR(150),
+  account_name VARCHAR(200) NOT NULL,
+  account_number VARCHAR(80) NOT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  INDEX idx_bank_accounts_name (bank_name, account_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE payment_vouchers (
   id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
   request_number VARCHAR(50) NOT NULL UNIQUE,

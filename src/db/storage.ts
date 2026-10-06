@@ -7,6 +7,7 @@ import {
   FixTariff,
   ExpensesItem,
   VendorPartner,
+  BankAccount,
   PaymentVoucher,
   JobCall,
   UserRole,
@@ -34,6 +35,7 @@ export interface DatabaseState {
   fixTariffs: FixTariff[];
   expensesItems: ExpensesItem[];
   vendorPartners: VendorPartner[];
+  bankAccounts: BankAccount[];
   paymentVouchers: PaymentVoucher[];
   jobCalls: JobCall[];
   currentRole: UserRole;
@@ -171,6 +173,7 @@ class DatabaseService {
       fixTariffs: INITIAL_FIX_TARIFFS,
       expensesItems: INITIAL_EXPENSES_ITEMS,
       vendorPartners: [],
+      bankAccounts: [],
       paymentVouchers: [],
       jobCalls: withoutRemovedJobCalls(LOCAL_INITIAL_JOB_CALLS),
       currentRole: 'ADMIN',
@@ -224,9 +227,10 @@ class DatabaseService {
         zones: Array.isArray(stored.zones) ? stored.zones : defaults.zones,
         fixTariffs: Array.isArray(stored.fixTariffs) ? stored.fixTariffs : defaults.fixTariffs,
         expensesItems: Array.isArray(stored.expensesItems) ? stored.expensesItems : defaults.expensesItems,
-                vendorPartners: Array.isArray(stored.vendorPartners) ? stored.vendorPartners : defaults.vendorPartners,
+        vendorPartners: Array.isArray(stored.vendorPartners) ? stored.vendorPartners : defaults.vendorPartners,
+        bankAccounts: Array.isArray(stored.bankAccounts) ? stored.bankAccounts : defaults.bankAccounts,
         paymentVouchers: Array.isArray(stored.paymentVouchers) ? stored.paymentVouchers : defaults.paymentVouchers,
-                jobCalls,
+        jobCalls,
         auditLogs: Array.isArray(stored.auditLogs) ? stored.auditLogs : defaults.auditLogs,
       };
       if (repairedWorkflowState) {
@@ -392,6 +396,7 @@ class DatabaseService {
       fixTariffs: INITIAL_FIX_TARIFFS,
       expensesItems: INITIAL_EXPENSES_ITEMS,
       vendorPartners: [],
+      bankAccounts: [],
       paymentVouchers: [],
       jobCalls: withoutRemovedJobCalls(LOCAL_INITIAL_JOB_CALLS),
       currentRole: this.state.currentRole,
@@ -640,6 +645,29 @@ class DatabaseService {
   public async deleteVendorPartner(id: string): Promise<void> {
     this.state.vendorPartners = (this.state.vendorPartners || []).filter((v) => v.id !== id);
     this.audit('DELETE', 'VENDOR_PARTNER', `Deleted vendor partner ${id}`, id);
+    this.notifyAfterDelete();
+  }
+
+  // Bank Accounts
+  public async addBankAccount(item: Omit<BankAccount, 'id'>): Promise<BankAccount> {
+    const list = this.state.bankAccounts || [];
+    const maxNumber = list.reduce((max, v) => Math.max(max, Number(v.id.replace(/\D/g, '')) || 0), 0);
+    const newItem: BankAccount = { ...item, id: `BANK-${String(maxNumber + 1).padStart(3, '0')}` };
+    this.state.bankAccounts = [...list, newItem];
+    this.audit('CREATE', 'BANK_ACCOUNT', `Created bank account ${newItem.bankName}`, newItem.id);
+    await this.saveToStorage();
+    return newItem;
+  }
+
+  public async updateBankAccount(id: string, updates: Partial<BankAccount>): Promise<void> {
+    this.state.bankAccounts = (this.state.bankAccounts || []).map((account) => (account.id === id ? { ...account, ...updates, id } : account));
+    this.audit('UPDATE', 'BANK_ACCOUNT', `Updated bank account ${updates.bankName || id}`, id);
+    await this.saveToStorage();
+  }
+
+  public async deleteBankAccount(id: string): Promise<void> {
+    this.state.bankAccounts = (this.state.bankAccounts || []).filter((account) => account.id !== id);
+    this.audit('DELETE', 'BANK_ACCOUNT', `Deleted bank account ${id}`, id);
     this.notifyAfterDelete();
   }
 

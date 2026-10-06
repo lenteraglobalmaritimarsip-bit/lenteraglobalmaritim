@@ -30,6 +30,7 @@ export const AdminDashboardView: React.FC<Props> = ({ data, onNavigate }) => {
     ['PORTS', 'Ports', 'Port, UN/LOCODE & operasi', MapPin],
     ['FIX_TARIFF', 'Fix Tariff', 'Tarif layanan berdasarkan port', FileCheck2],
     ['EXPENSES_ITEM', 'Expenses Item', 'Komponen biaya dan vendor', Database],
+    ['BANK_ACCOUNT', 'Bank Account', 'Data rekening bank', Database],
   ] as const;
 
   return (

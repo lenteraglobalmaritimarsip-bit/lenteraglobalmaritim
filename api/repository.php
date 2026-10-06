@@ -106,6 +106,10 @@ function loadAppState(): array
         'id' => $row['id'], 'vendorName' => $row['vendor_name'], 'bankName' => $row['bank_name'] ?? '',
         'paidName' => $row['paid_name'] ?? '', 'accountNumber' => $row['account_number'] ?? '',
     ], tableRows('vendor_partners'));
+    $bankAccounts = array_map(static fn (array $row): array => [
+        'id' => $row['id'], 'bankName' => $row['bank_name'], 'accountName' => $row['account_name'],
+        'branch' => $row['branch'] ?? '', 'accountNumber' => $row['account_number'],
+    ], tableRows('bank_accounts'));
     $voucherItems = [];
     foreach (tableRows('payment_voucher_items') as $row) {
         $voucherItems[$row['voucher_id']][] = [
@@ -213,7 +217,7 @@ function loadAppState(): array
     }
 
     $auditLogs = array_map(static fn (array $row): array => ['id' => $row['id'], 'timestamp' => appDateTime($row['logged_at']), 'actorId' => $row['actor_id'], 'actorName' => $row['actor_name'], 'role' => $row['actor_role'], 'action' => $row['action'], 'entity' => $row['entity'], 'entityId' => $row['entity_id'], 'description' => $row['description']], tableRows('audit_logs'));
-    return ['users' => $users, 'customers' => $customers, 'vessels' => $vessels, 'ports' => $ports, 'zones' => $zones, 'fixTariffs' => $fixTariffs, 'expensesItems' => $expensesItems, 'vendorPartners' => $vendorPartners, 'paymentVouchers' => $paymentVouchers, 'jobCalls' => $jobCalls, 'currentRole' => $_SESSION['user']['role'] ?? 'ADMIN', 'selectedJobId' => $jobCalls[0]['jobId'] ?? '', 'auditLogs' => $auditLogs];
+    return ['users' => $users, 'customers' => $customers, 'vessels' => $vessels, 'ports' => $ports, 'zones' => $zones, 'fixTariffs' => $fixTariffs, 'expensesItems' => $expensesItems, 'vendorPartners' => $vendorPartners, 'bankAccounts' => $bankAccounts, 'paymentVouchers' => $paymentVouchers, 'jobCalls' => $jobCalls, 'currentRole' => $_SESSION['user']['role'] ?? 'ADMIN', 'selectedJobId' => $jobCalls[0]['jobId'] ?? '', 'auditLogs' => $auditLogs];
 }
 
 function insertRow(PDO $pdo, string $table, array $row): void
@@ -254,7 +258,7 @@ function replaceAppState(array $state): void
     $usedSofIds = [];
     try {
         $passwordHashes = indexBy($pdo->query('SELECT id, password_hash FROM users')->fetchAll(), 'id');
-        foreach (['audit_logs', 'payment_voucher_items', 'payment_vouchers', 'principal_receipts', 'principal_invoices', 'closing_records', 'ar_items', 'ap_items', 'fda_records', 'actual_costs', 'statements_of_fact', 'operational_data', 'manager_approvals', 'crew_members', 'crew_change_plans', 'quotation_items', 'quotations', 'inquiries', 'vessel_calls', 'zones', 'fix_tariffs', 'expenses_items', 'vendor_partners', 'customers', 'vessels', 'ports', 'users'] as $table) {
+        foreach (['audit_logs', 'payment_voucher_items', 'payment_vouchers', 'principal_receipts', 'principal_invoices', 'closing_records', 'ar_items', 'ap_items', 'fda_records', 'actual_costs', 'statements_of_fact', 'operational_data', 'manager_approvals', 'crew_members', 'crew_change_plans', 'quotation_items', 'quotations', 'inquiries', 'vessel_calls', 'zones', 'fix_tariffs', 'expenses_items', 'vendor_partners', 'bank_accounts', 'customers', 'vessels', 'ports', 'users'] as $table) {
             if (tableColumns($pdo, $table) === null) continue;
             $pdo->exec("DELETE FROM `{$table}`");
         }
@@ -270,6 +274,7 @@ function replaceAppState(array $state): void
         foreach (($state['fixTariffs'] ?? []) as $row) insertRow($pdo, 'fix_tariffs', ['id' => $row['id'], 'port_id' => $row['portId'], 'service_code' => $row['serviceCode'], 'service_name' => $row['serviceName'], 'cost_category' => $row['costCategory'] ?? null, 'grt' => $row['grt'] ?? null, 'grt_min' => $row['grtMin'] ?? null, 'grt_max' => $row['grtMax'] ?? null, 'dwt' => $row['dwt'] ?? null, 'calculation_basis' => $row['calculationBasis'], 'tariff_type' => $row['tariffType'] ?? null, 'currency' => $row['currency'], 'rate' => $row['rate'], 'rate_idr' => $row['rateIDR'] ?? null, 'rate_usd' => $row['rateUSD'] ?? null, 'min_charge' => $row['minCharge'], 'description' => $row['description']]);
         foreach (($state['expensesItems'] ?? []) as $row) insertRow($pdo, 'expenses_items', ['id' => $row['id'], 'port_id' => $row['portId'] ?: null, 'code' => $row['code'], 'category' => $row['category'], 'name' => $row['name'], 'unit' => $row['unit'] ?? null, 'default_currency' => $row['defaultCurrency'], 'standard_cost_buy' => $row['standardCostBuy'], 'standard_cost_sell' => $row['standardCostSell'], 'rate_idr' => $row['rateIDR'] ?? null, 'rate_usd' => $row['rateUSD'] ?? null, 'preferred_vendor' => $row['preferredVendor'] ?? null, 'calculation_type' => $row['calculationType'] ?? null]);
         foreach (($state['vendorPartners'] ?? []) as $row) insertRow($pdo, 'vendor_partners', ['id' => $row['id'], 'vendor_name' => $row['vendorName'], 'bank_name' => $row['bankName'] ?? null, 'paid_name' => $row['paidName'] ?? null, 'account_number' => $row['accountNumber'] ?? null]);
+        foreach (($state['bankAccounts'] ?? []) as $row) insertRow($pdo, 'bank_accounts', ['id' => $row['id'], 'bank_name' => $row['bankName'], 'branch' => $row['branch'] ?? null, 'account_name' => $row['accountName'], 'account_number' => $row['accountNumber']]);
         foreach (($state['paymentVouchers'] ?? []) as $voucher) {
             insertRow($pdo, 'payment_vouchers', ['id' => $voucher['id'], 'request_number' => $voucher['requestNumber'], 'request_date' => sqlDate($voucher['requestDate'] ?? null, true) ?? date('Y-m-d'), 'job_info' => $voucher['jobInfo'], 'request_by' => $voucher['requestBy'] ?? '', 'vendor_partner_id' => !empty($voucher['vendorPartnerId']) ? $voucher['vendorPartnerId'] : null, 'vendor_name' => $voucher['vendorName'] ?? '', 'paid_to' => $voucher['paidTo'] ?? null, 'bank_name' => $voucher['bankName'] ?? null, 'account_number' => $voucher['accountNumber'] ?? null, 'total_paid_amount' => $voucher['totalPaidAmount'] ?? 0, 'status' => $voucher['status'] ?? 'PENDING_MANAGER', 'manager_note' => $voucher['managerNote'] ?? null, 'reviewed_by' => $voucher['reviewedBy'] ?? null, 'reviewed_at' => sqlDate($voucher['reviewedAt'] ?? null), 'paid_by' => $voucher['paidBy'] ?? null, 'paid_at' => sqlDate($voucher['paidAt'] ?? null), 'created_at' => sqlDate($voucher['createdAt'] ?? null) ?? date('Y-m-d H:i:s')]);
             foreach (($voucher['items'] ?? []) as $index => $item) {
