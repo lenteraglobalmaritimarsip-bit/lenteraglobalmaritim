@@ -160,20 +160,22 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
             .items th:nth-child(n+5), .items td:nth-child(n+5) { width: 9%; }
             .center { text-align: center; }.amount { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
             .muted { color: #64748b; font-size: 8px; }
-            .lower { display: flex; gap: 18px; margin-top: 15px; }
-            .bank { background: #f8fafc; border: 1px solid #cbd5e1; flex: 1; padding: 10px; }
-            .bank-title { color: #315db2; font-size: 9px; font-weight: 700; margin-bottom: 7px; text-transform: uppercase; }
-            .bank-line { margin: 4px 0; }.bank-line b { display: inline-block; min-width: 82px; }
-            .totals { border-collapse: collapse; width: 42%; }
+            .lower { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 10px; margin-top: 15px; align-items: start; }
+            .bank { background: #f8fafc; border: 1px solid #cbd5e1; min-width: 0; padding: 5px 6px; }
+            .bank-title { align-items: center; color: #315db2; display: flex; font-size: 8px; font-weight: 700; gap: 5px; margin-bottom: 5px; text-transform: uppercase; }
+            .bank-icon { color: #315db2; flex: 0 0 15px; height: 15px; width: 15px; }
+            .bank-line { display: grid; font-size: 7px; gap: 2px; grid-template-columns: 68px 4px minmax(0, 1fr); line-height: 1.3; margin: 2px 0; overflow-wrap: anywhere; }
+            .bank-line b { color: #64748b; font-size: 6.5px; }
+            .bank-line i { font-style: normal; text-align: center; }
+            .bank-line span { min-width: 0; }
+            .totals { border-collapse: collapse; table-layout: fixed; width: 100%; }
             .totals td { border-bottom: 1px solid #e2e8f0; padding: 5px 3px; }
             .totals td:last-child { font-variant-numeric: tabular-nums; text-align: right; }
             .totals .grand td { background: #182a50; border: 0; color: #fff; font-size: 11px; font-weight: 700; padding: 8px 6px; }
             .signatures { border-collapse: collapse; margin-top: 24px; page-break-inside: avoid; table-layout: fixed; width: 100%; }
             .signatures th, .signatures td { border: 1px solid #94a3b8; text-align: center; width: 33.33%; }
             .signatures th { background: #f1f5f9; color: #334155; font-size: 9px; height: 26px; padding: 6px; text-transform: uppercase; }
-            .signatures .signature-space td { height: 72px; padding: 6px; vertical-align: bottom; }
-            .signature-line { border-top: 1px solid #64748b; display: block; margin: 0 auto 3px; width: 72%; }
-            .signatures .name td { font-size: 9px; font-weight: 600; height: 26px; padding: 6px; }
+            .signatures .name td { font-size: 9px; font-weight: 600; height: 100px; padding: 72px 6px 6px; vertical-align: bottom; }
             .watermark { bottom: 5mm; color: #94a3b8; font-size: 8px; left: 0; position: fixed; right: 0; text-align: center; }
             @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
           </style>
@@ -184,22 +186,22 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
             <div class="doc-type">FINANCE<br />ACCOUNTS PAYABLE</div>
           </header>
           <h1>PAYMENT VOUCHER</h1>
-          <div class="subtitle">Dokumen permohonan pembayaran vendor</div>
+          <div class="subtitle">Payment authorization document</div>
           <table class="meta"><tbody>
             <tr><td class="label">Voucher Number</td><td class="value">${escapeHtml(voucherNumber)}</td><td class="label">Request Number</td><td class="value">${escapeHtml(paymentFormVoucher.requestNumber)}</td></tr>
             <tr><td class="label">Payment Date</td><td class="value">${escapeHtml(formatDisplayDate(paymentDate))}</td><td class="label">Vendor</td><td class="value">${escapeHtml(paymentFormVoucher.vendorName)}</td></tr>
-            <tr><td class="label">Paid To</td><td class="value">${escapeHtml(paymentFormVoucher.paidTo || '-')}</td><td class="label">Bank</td><td class="value">${escapeHtml(paymentFormVoucher.bankName || '-')}</td></tr>
-            <tr><td class="label">Request By</td><td class="value">${escapeHtml(paymentFormVoucher.requestBy || payer)}</td><td class="label">A/C Number</td><td class="value">${escapeHtml(paymentFormVoucher.accountNumber || '-')}</td></tr>
+            <tr><td class="label">Paid To</td><td class="value">${escapeHtml(paymentFormVoucher.paidTo || '-')}</td><td class="label">Bank (Paid To Account)</td><td class="value">${escapeHtml(paymentFormVoucher.bankName || '-')}</td></tr>
+            <tr><td class="label">Request By</td><td class="value">${escapeHtml(paymentFormVoucher.requestBy || payer)}</td><td class="label">A/C Number (Paid To Account)</td><td class="value">${escapeHtml(paymentFormVoucher.accountNumber || '-')}</td></tr>
           </tbody></table>
           <div class="description"><b>Description:</b> ${escapeHtml(paymentDescription || paymentFormVoucher.requestNumber)}</div>
           <div class="section-title">Rincian Pembayaran</div>
           <table class="items"><thead><tr><th>No</th><th>JOB Number</th><th>${paymentFormVoucher.jobInfo === 'JOB_VESSEL' ? 'Vessel Name' : 'Customer'}</th><th>Item Service</th><th>Amount</th><th>VAT (11%)</th><th>Total</th><th>PPH 23 (2%)</th><th>PPH 21 (5%)</th><th>Paid Amount</th></tr></thead><tbody>${items}</tbody></table>
           <div class="lower">
-            <section class="bank"><div class="bank-title">Bank Pengirim</div>
-              <div class="bank-line"><b>Bank</b> ${escapeHtml(senderBank?.bankName || '-')}</div>
-              <div class="bank-line"><b>Nama Rekening</b> ${escapeHtml(senderBank?.accountName || '-')}</div>
-              <div class="bank-line"><b>No. Rekening</b> ${escapeHtml(senderBank?.accountNumber || '-')}</div>
-              <div class="bank-line"><b>Cabang</b> ${escapeHtml(senderBank?.branch || '-')}</div>
+            <section class="bank"><div class="bank-title"><svg class="bank-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9 9-6 9 6"/><path d="M4 10h16M5 10v9m4-9v9m6-9v9m4-9v9M3 21h18M2 19h20"/></svg><span>Remitting Bank</span></div>
+              <div class="bank-line"><b>Bank</b><i>:</i><span>${escapeHtml(senderBank?.bankName || '-')}</span></div>
+              <div class="bank-line"><b>Nama Rekening</b><i>:</i><span>${escapeHtml(senderBank?.accountName || '-')}</span></div>
+              <div class="bank-line"><b>No. Rekening</b><i>:</i><span>${escapeHtml(senderBank?.accountNumber || '-')}</span></div>
+              <div class="bank-line"><b>Cabang</b><i>:</i><span>${escapeHtml(senderBank?.branch || '-')}</span></div>
             </section>
             <table class="totals"><tbody>
               <tr><td>Total</td><td>${money(itemTotals.total)}</td></tr>
@@ -210,8 +212,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
             </tbody></table>
           </div>
           <table class="signatures"><thead><tr><th>Maker</th><th>Checker</th><th>Signer</th></tr></thead><tbody>
-            <tr class="signature-space"><td><span class="signature-line"></span></td><td><span class="signature-line"></span></td><td><span class="signature-line"></span></td></tr>
-            <tr class="name"><td>${escapeHtml(paymentFormVoucher.requestBy || payer)}</td><td>${escapeHtml(paymentFormVoucher.reviewedBy || '-')}</td><td>${escapeHtml(payer || '-')}</td></tr>
+            <tr class="name"><td>${escapeHtml(paymentFormVoucher.requestBy || '-')}</td><td>${escapeHtml(payer || '-')}</td><td>${escapeHtml(paymentFormVoucher.reviewedBy || '-')}</td></tr>
           </tbody></table>
           <div class="watermark">Dokumen asli dicetak dari sistem resmi PT Lentera Global Maritim.</div>
         </body>
@@ -277,16 +278,24 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                 <div className="mt-2 font-mono text-sm font-bold text-slate-900">{voucherNumber}</div>
               </div>
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Request Number</div>
+                <div className="mt-2 font-mono text-sm font-bold text-slate-900">{paymentFormVoucher.requestNumber}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                 <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Vendor</div>
                 <div className="mt-2 text-sm font-semibold text-slate-800">{paymentFormVoucher.vendorName}</div>
               </div>
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Bank</div>
-                <div className="mt-2 text-sm font-semibold text-slate-800">{selectedBank?.bankName || paymentFormVoucher.bankName || '-'}</div>
+                <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Paid To</div>
+                <div className="mt-2 text-sm font-semibold text-slate-800">{paymentFormVoucher.paidTo || '-'}</div>
               </div>
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">A/C Number</div>
-                <div className="mt-2 font-mono text-sm font-semibold text-slate-800">{selectedBank?.accountNumber || paymentFormVoucher.accountNumber || '-'}</div>
+                <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Bank (Paid To Account)</div>
+                <div className="mt-2 text-sm font-semibold text-slate-800">{paymentFormVoucher.bankName || '-'}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">A/C Number (Paid To Account)</div>
+                <div className="mt-2 font-mono text-sm font-semibold text-slate-800">{paymentFormVoucher.accountNumber || '-'}</div>
               </div>
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                 <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Payment Date</div>

@@ -12,6 +12,7 @@ interface PaymentVoucherViewProps {
   onDataSaved?: () => void;
   voucher?: PaymentVoucher;
   onCancelEdit?: () => void;
+  operationalOnly?: boolean;
 }
 
 type JobInfo = PaymentVoucher['jobInfo'];
@@ -81,10 +82,10 @@ const loadDraft = (owner: string): VoucherDraft | null => {
   }
 };
 
-export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls, vendorPartners, requestBy, onDataSaved, voucher: editingVoucher, onCancelEdit }) => {
+export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls, vendorPartners, requestBy, onDataSaved, voucher: editingVoucher, onCancelEdit, operationalOnly = false }) => {
   const [initialDraft] = useState(() => (editingVoucher ? null : loadDraft(requestBy)));
   const [requestDate, setRequestDate] = useState(() => editingVoucher ? String(editingVoucher.requestDate).slice(0, 10) : initialDraft?.requestDate || todayIso());
-  const [jobInfo, setJobInfo] = useState<JobInfo>(editingVoucher?.jobInfo || initialDraft?.jobInfo || 'OPERASIONAL');
+  const [jobInfo, setJobInfo] = useState<JobInfo>(operationalOnly ? 'OPERASIONAL' : editingVoucher?.jobInfo || initialDraft?.jobInfo || 'OPERASIONAL');
   const [vendorId, setVendorId] = useState(editingVoucher?.vendorPartnerId || initialDraft?.vendorId || '');
   const [draftRestored, setDraftRestored] = useState(!!initialDraft);
   const [rows, setRows] = useState<VoucherRow[]>(() => !editingVoucher && initialDraft
@@ -122,6 +123,13 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
     () => editingVoucher ? editingVoucher.requestNumber : db.getNextPaymentVoucherNumber(requestDate),
     [requestDate, savedTick, editingVoucher],
   );
+  const nextOperationalJobNumber = useMemo(
+    () => db.getNextOperationalJobNumber(requestDate),
+    [requestDate, savedTick],
+  );
+  const operationalJobNumber = editingVoucher?.jobInfo === 'OPERASIONAL'
+    ? editingVoucher.items.find((item) => item.jobNumber)?.jobNumber || nextOperationalJobNumber
+    : nextOperationalJobNumber;
   const vendor = vendorPartners.find((item) => item.id === vendorId);
 
   const updateRow = (id: string, patch: Partial<VoucherRow>) =>
@@ -129,12 +137,23 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
 
   const changeJobInfo = (value: JobInfo) => {
     setJobInfo(value);
-    setRows((current) => current.map((row) => ({ ...row, jobNumber: '', customerName: '', itemService: '' })));
+    setRows((current) => current.map((row) => ({
+      ...row,
+      jobNumber: value === 'OPERASIONAL' ? operationalJobNumber : '',
+      customerName: '',
+      itemService: '',
+    })));
   };
 
   const selectJob = (rowId: string, jobNumber: string) => {
     const job = activeJobs.find((item) => item.jobId === jobNumber);
-    updateRow(rowId, { jobNumber, customerName: job?.vesselName || '', itemService: '' });
+    updateRow(rowId, {
+      jobNumber,
+      customerName: job
+        ? jobInfo === 'JOB_VESSEL' ? job.vesselName : job.customerName
+        : '',
+      itemService: '',
+    });
   };
 
   const optionLabel = (value: string, item: VendorPartner, key: 'bankName' | 'paidName' | 'accountNumber') => {
@@ -183,7 +202,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
       paidTo: vendor.paidName,
       bankName: vendor.bankName,
       accountNumber: vendor.accountNumber,
-      items: rows.map((row) => ({ jobNumber: row.jobNumber, customerName: row.customerName, itemService: row.itemService, amount: row.amount, ...calculate(row) })),
+      items: rows.map((row) => ({ jobNumber: jobInfo === 'OPERASIONAL' ? operationalJobNumber : row.jobNumber, customerName: row.customerName, itemService: row.itemService, amount: row.amount, ...calculate(row) })),
     });
     if (printError) setError(printError);
   };
@@ -196,15 +215,16 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
       setError('Pilih vendor dari master data Vendor Partners.');
       return;
     }
-    const invalidRow = rows.findIndex((row) => !row.jobNumber.trim() || !row.customerName.trim() || !row.itemService.trim() || row.amount <= 0);
+    const invalidRow = rows.findIndex((row) => (jobInfo === 'JOB_VESSEL' && !row.jobNumber.trim()) || !row.customerName.trim() || !row.itemService.trim() || row.amount <= 0);
     if (invalidRow >= 0) {
       const partyLabel = jobInfo === 'JOB_VESSEL' ? 'Vessel name' : 'Customer';
-      setError(`Baris ${invalidRow + 1}: JOB Number, ${partyLabel}, Item Service, dan Amount (> 0) wajib diisi.`);
+      const jobNumberRequirement = jobInfo === 'JOB_VESSEL' ? 'JOB Number, ' : '';
+      setError(`Baris ${invalidRow + 1}: ${jobNumberRequirement}${partyLabel}, Item Service, dan Amount (> 0) wajib diisi.`);
       return;
     }
     const items: PaymentVoucherItem[] = rows.map((row) => ({
       id: row.id,
-      jobNumber: row.jobNumber.trim(),
+      jobNumber: jobInfo === 'OPERASIONAL' ? operationalJobNumber : row.jobNumber.trim(),
       customerName: row.customerName.trim(),
       itemService: row.itemService.trim(),
       amount: row.amount,
@@ -270,10 +290,14 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
           </label>
           <label className="block">
             <span className="font-semibold text-slate-500">Info JOB</span>
-            <select value={jobInfo} onChange={(e) => changeJobInfo(e.target.value as JobInfo)} className={`${inputClass} mt-1`}>
-              <option value="OPERASIONAL">Operasional</option>
-              <option value="JOB_VESSEL">JOB Vessel</option>
-            </select>
+            {operationalOnly ? (
+              <input readOnly value="Operasional" className={`${readonlyClass} mt-1`} />
+            ) : (
+              <select value={jobInfo} onChange={(e) => changeJobInfo(e.target.value as JobInfo)} className={`${inputClass} mt-1`}>
+                <option value="OPERASIONAL">Operasional</option>
+                <option value="JOB_VESSEL">JOB Vessel</option>
+              </select>
+            )}
           </label>
           <label className="block">
             <span className="font-semibold text-slate-500">Request By</span>
@@ -356,7 +380,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
                           {activeJobs.map((job) => <option key={job.jobId} value={job.jobId}>{job.jobId}</option>)}
                         </select>
                       ) : (
-                        <input value={row.jobNumber} onChange={(e) => updateRow(row.id, { jobNumber: e.target.value })} className={inputClass} placeholder="JOB Number" />
+                        <input readOnly value={operationalJobNumber} className={readonlyClass} />
                       )}
                     </td>
                     <td className="w-52 p-3">

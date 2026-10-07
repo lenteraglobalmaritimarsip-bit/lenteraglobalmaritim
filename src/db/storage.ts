@@ -721,6 +721,20 @@ class DatabaseService {
     return `OPS-${String(maxSequence + 1).padStart(4, '0')}-${suffix}`;
   }
 
+  public getNextOperationalJobNumber(requestDate: string): string {
+    const date = new Date(requestDate);
+    const valid = Number.isNaN(date.getTime()) ? new Date() : date;
+    const suffix = `${String(valid.getMonth() + 1).padStart(2, '0')}${String(valid.getFullYear()).slice(-2)}`;
+    const maxSequence = (this.state.paymentVouchers || []).reduce((max, voucher) => {
+      if (voucher.jobInfo !== 'OPERASIONAL') return max;
+      return voucher.items.reduce((itemMax, item) => {
+        const match = /^OPJ-(\d+)-(\d{4})$/.exec(item.jobNumber);
+        return match && match[2] === suffix ? Math.max(itemMax, Number(match[1])) : itemMax;
+      }, max);
+    }, 0);
+    return `OPJ-${String(maxSequence + 1).padStart(4, '0')}-${suffix}`;
+  }
+
   public async addPaymentVoucher(voucher: Omit<PaymentVoucher, 'id' | 'requestNumber' | 'createdAt'>): Promise<PaymentVoucher> {
     const requestNumber = this.getNextPaymentVoucherNumber(voucher.requestDate);
     const newVoucher: PaymentVoucher = { ...voucher, status: 'PENDING_MANAGER', id: `PV-${Date.now()}`, requestNumber, createdAt: new Date().toISOString() };

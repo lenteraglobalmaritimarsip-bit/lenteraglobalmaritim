@@ -599,6 +599,16 @@ export default function App() {
               />
             )}
 
+            {currentRole === 'FINANCE' && activeTab === 'FINANCE_CREATE_VOUCHER' && (
+              <PaymentVoucherView
+                jobCalls={roleVisibleJobCalls}
+                vendorPartners={data.vendorPartners || []}
+                requestBy={currentUser?.name || ''}
+                onDataSaved={() => notifySaved('FINANCE_CREATE_VOUCHER')}
+                operationalOnly
+              />
+            )}
+
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_HISTORY_REPORT' && (
               <FinancialHistoryView paymentVouchers={data.paymentVouchers || []} />
             )}
