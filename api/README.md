@@ -2,7 +2,7 @@
 
 The PHP API connects to MariaDB with PDO. The local default database name matches the XAMPP database used in the setup (`maritim lgm`). For a different database or credentials, copy `config.local.example.php` to `config.local.php` and edit it. `config.local.php` is ignored by Git. Do not use the XAMPP `root` account or a blank password on a public server.
 
-1. For a new database, import `database/schema.sql` into the application database. If the database already has the `bank_accounts` table, run `database/migration_bank_accounts_branch.sql` to add the Branch column before using the updated app.
+1. Import `database/schema.sql` into the application database to create the complete schema, including the PIC Name, Alamat, and No Tlp columns for Vendor Partners.
 2. From the project root, create the first administrator. The generated password is printed once; save it securely.
 
 ```powershell

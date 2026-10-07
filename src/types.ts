@@ -115,6 +115,9 @@ export interface FixTariff {
 export interface VendorPartner {
   id: string;
   vendorName: string;
+  picName: string;
+  address: string;
+  phone: string;
   bankName: string;
   paidName: string;
   accountNumber: string;

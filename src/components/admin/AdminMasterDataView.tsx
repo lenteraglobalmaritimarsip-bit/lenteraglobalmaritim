@@ -147,6 +147,9 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         }
         await db.updateVendorPartner(id, {
           vendorName: editMasterForm.vendorName.trim(),
+          picName: (editMasterForm.picName || '').trim(),
+          address: (editMasterForm.address || '').trim(),
+          phone: (editMasterForm.phone || '').trim(),
           bankName: (editMasterForm.bankName || '').trim(),
           paidName: (editMasterForm.paidName || '').trim(),
           accountNumber: (editMasterForm.accountNumber || '').trim(),
@@ -383,7 +386,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     calculationType: 'FIXED',
   });
 
-  const emptyVendor = { vendorName: '', bankName: '', paidName: '', accountNumber: '' };
+  const emptyVendor = { vendorName: '', picName: '', address: '', phone: '', bankName: '', paidName: '', accountNumber: '' };
   const [newVendor, setNewVendor] = useState<Omit<VendorPartner, 'id'>>(emptyVendor);
   const [newBankAccount, setNewBankAccount] = useState<Omit<BankAccount, 'id'>>({
     bankName: '',
@@ -935,6 +938,9 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         }
         await db.addVendorPartner({
           vendorName: newVendor.vendorName.trim(),
+          picName: newVendor.picName.trim(),
+          address: newVendor.address.trim(),
+          phone: newVendor.phone.trim(),
           bankName: newVendor.bankName.trim(),
           paidName: newVendor.paidName.trim(),
           accountNumber: newVendor.accountNumber.trim(),
@@ -1447,6 +1453,9 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 <tr>
                   <th className="p-3.5">No</th>
                   <th className="p-3.5">Vendor Name</th>
+                  <th className="p-3.5">PIC Name</th>
+                  <th className="p-3.5">Alamat</th>
+                  <th className="p-3.5">No Tlp</th>
                   <th className="p-3.5">Bank Name</th>
                   <th className="p-3.5">Paid Name</th>
                   <th className="p-3.5">A/C Number</th>
@@ -1455,11 +1464,14 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {vendorPartners
-                  .filter((v) => `${v.vendorName} ${v.bankName} ${v.paidName} ${v.accountNumber}`.toLowerCase().includes(searchQuery.toLowerCase()))
+                  .filter((v) => `${v.vendorName} ${v.picName} ${v.address} ${v.phone} ${v.bankName} ${v.paidName} ${v.accountNumber}`.toLowerCase().includes(searchQuery.toLowerCase()))
                   .map((v, index) => (
                     <tr key={v.id} className="hover:bg-slate-50">
                       <td className="p-3.5 font-mono text-slate-500">{index + 1}</td>
                       <td className="p-3.5 font-bold text-slate-900">{v.vendorName}</td>
+                      <td className="p-3.5 text-slate-700">{v.picName || '-'}</td>
+                      <td className="p-3.5 text-slate-700">{v.address || '-'}</td>
+                      <td className="p-3.5 text-slate-700">{v.phone || '-'}</td>
                       <td className="p-3.5 text-slate-700">{v.bankName || '-'}</td>
                       <td className="p-3.5 text-slate-700">{v.paidName || '-'}</td>
                       <td className="p-3.5 font-mono text-slate-700">{v.accountNumber || '-'}</td>
@@ -1472,7 +1484,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     </tr>
                   ))}
                 {vendorPartners.length === 0 && (
-                  <tr><td colSpan={6} className="p-6 text-center text-slate-400">Belum ada data vendor partner.</td></tr>
+                  <tr><td colSpan={9} className="p-6 text-center text-slate-400">Belum ada data vendor partner.</td></tr>
                 )}
               </tbody>
             </table>
@@ -1644,6 +1656,9 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
               {editingMaster.type === 'VENDOR_PARTNERS' && (
                 <>
                   <label className="block"><span className="text-slate-500 font-semibold">Vendor Name</span><input required value={editMasterForm.vendorName || ''} onChange={e=>setEditMasterForm({...editMasterForm,vendorName:e.target.value})} className="master-edit-input" /></label>
+                  <label className="block"><span className="text-slate-500 font-semibold">PIC Name</span><input value={editMasterForm.picName || ''} onChange={e=>setEditMasterForm({...editMasterForm,picName:e.target.value})} className="master-edit-input" /></label>
+                  <label className="block"><span className="text-slate-500 font-semibold">Alamat</span><input value={editMasterForm.address || ''} onChange={e=>setEditMasterForm({...editMasterForm,address:e.target.value})} className="master-edit-input" /></label>
+                  <label className="block"><span className="text-slate-500 font-semibold">No Tlp</span><input value={editMasterForm.phone || ''} onChange={e=>setEditMasterForm({...editMasterForm,phone:e.target.value})} className="master-edit-input" /></label>
                   <label className="block"><span className="text-slate-500 font-semibold">Bank Name</span><input value={editMasterForm.bankName || ''} onChange={e=>setEditMasterForm({...editMasterForm,bankName:e.target.value})} className="master-edit-input" /></label>
                   <label className="block"><span className="text-slate-500 font-semibold">Paid Name</span><input value={editMasterForm.paidName || ''} onChange={e=>setEditMasterForm({...editMasterForm,paidName:e.target.value})} className="master-edit-input" /></label>
                   <label className="block"><span className="text-slate-500 font-semibold">A/C Number</span><input value={editMasterForm.accountNumber || ''} onChange={e=>setEditMasterForm({...editMasterForm,accountNumber:e.target.value})} className="master-edit-input" /></label>
@@ -2197,6 +2212,18 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                   <div>
                     <label className="text-slate-400 block mb-1">Vendor Name:</label>
                     <input required value={newVendor.vendorName} onChange={(e) => setNewVendor({ ...newVendor, vendorName: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" placeholder="e.g. PT Samudera Jaya" />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">PIC Name:</label>
+                    <input value={newVendor.picName} onChange={(e) => setNewVendor({ ...newVendor, picName: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Alamat:</label>
+                    <input value={newVendor.address} onChange={(e) => setNewVendor({ ...newVendor, address: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">No Tlp:</label>
+                    <input value={newVendor.phone} onChange={(e) => setNewVendor({ ...newVendor, phone: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" />
                   </div>
                   <div>
                     <label className="text-slate-400 block mb-1">Bank Name:</label>

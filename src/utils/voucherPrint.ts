@@ -101,3 +101,52 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
   printWindow.onload = () => { printWindow.focus(); printWindow.print(); };
   return null;
 };
+
+export const printPaymentReceipt = (voucher: PaymentVoucher): string | null => {
+  if (voucher.status !== 'PAID') return 'Kwitansi hanya tersedia untuk voucher yang sudah dibayar.';
+
+  const escapeHtml = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const money = (value: number) => new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
+  const paidDate = voucher.paidAt
+    ? new Date(voucher.paidAt).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
+    : '-';
+  const receiptNumber = `KW-${voucher.requestNumber}`;
+  const rows = voucher.items.map((item, index) => `
+    <tr>
+      <td class="center">${index + 1}</td>
+      <td>${escapeHtml(item.jobNumber)}</td>
+      <td>${escapeHtml(item.customerName)}</td>
+      <td>${escapeHtml(item.itemService)}</td>
+      <td class="amount">${money(item.paidAmount)}</td>
+    </tr>
+  `).join('');
+  const logoUrl = `${window.location.origin}/lenteraglobalmaritim/lgm-logo.png`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Kwitansi ${escapeHtml(voucher.requestNumber)}</title><style>
+    @page{size:A4 portrait;margin:18mm}
+    body{font-family:Arial,sans-serif;color:#172033;font-size:12px;margin:0}
+    .brand{text-align:center;margin-bottom:20px}.brand img{width:76px;height:58px;object-fit:contain;vertical-align:middle;margin-right:12px}.brand-name{display:inline-block;vertical-align:middle;text-align:left;font-size:19px;font-weight:700;color:#3562a8}.tag{font-size:11px;font-weight:400;margin-top:4px}
+    h1{text-align:center;font-size:20px;letter-spacing:1px;margin:24px 0 6px}.receipt-no{text-align:center;color:#4b5563;margin-bottom:24px}
+    .intro{line-height:1.7;margin-bottom:16px}.highlight{font-size:16px;font-weight:700;border-bottom:1px dashed #64748b;padding:0 8px 3px}
+    table{width:100%;border-collapse:collapse;margin-top:18px}th,td{border:1px solid #64748b;padding:9px 8px}th{background:#e8ecf2;text-align:center;font-size:10px;text-transform:uppercase}.center{text-align:center}.amount{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+    .total{width:48%;margin:14px 0 0 auto}.total td{font-weight:700}.total tr:last-child{background:#e8ecf2;font-size:14px}
+    .date{text-align:right;margin-top:36px}.signature{width:240px;margin:8px 0 0 auto;text-align:center}.sign-space{height:76px}.sign-name{border-top:1px solid #64748b;padding-top:8px;font-weight:700}.sign-role{font-size:11px;margin-top:4px;color:#4b5563}
+  </style></head><body>
+    <div class="brand"><img src="${logoUrl}" alt="LGM"><div class="brand-name">PT Lentera Global Maritim<div class="tag">Seamless Agent, Global Reach</div></div></div>
+    <h1>KWITANSI PEMBAYARAN</h1>
+    <div class="receipt-no">No. Kwitansi: ${escapeHtml(receiptNumber)}</div>
+    <div class="intro">Telah diterima dari <b>PT Lentera Global Maritim</b> untuk pembayaran kepada <b>${escapeHtml(voucher.paidTo || voucher.vendorName)}</b> sebesar <span class="highlight">${money(voucher.totalPaidAmount)}</span>.</div>
+    <div><b>Vendor:</b> ${escapeHtml(voucher.vendorName)}</div>
+    <div><b>No. Payment Voucher:</b> ${escapeHtml(voucher.requestNumber)}</div>
+    <table><thead><tr><th>No</th><th>Job Number</th><th>Customer</th><th>Item Service</th><th>Jumlah Dibayar</th></tr></thead><tbody>${rows}</tbody></table>
+    <table class="total"><tbody><tr><td>Total Pembayaran</td><td class="amount">${money(voucher.totalPaidAmount)}</td></tr></tbody></table>
+    <div class="date">Jakarta, ${escapeHtml(paidDate)}</div>
+    <div class="signature"><div class="sign-space"></div><div class="sign-name">${escapeHtml(voucher.paidTo || voucher.vendorName)}</div><div class="sign-role">Penerima</div></div>
+  </body></html>`;
+  const printWindow = window.open('', '_blank', 'width=1000,height=800');
+  if (!printWindow) return 'Pop-up diblokir browser. Izinkan pop-up untuk mencetak kwitansi.';
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
+  printWindow.onload = () => { printWindow.focus(); printWindow.print(); };
+  return null;
+};

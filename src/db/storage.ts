@@ -1022,6 +1022,13 @@ class DatabaseService {
     if (!job) return { ok: false, message: 'Job/Vessel Call tidak ditemukan.' };
     if (job.managerApproval.status !== 'APPROVED') return { ok: false, message: 'FDA belum dapat diproses. Manager Approval harus APPROVED.' };
     if (job.quotation.epda.status !== 'APPROVED') return { ok: false, message: 'EPDA harus APPROVED sebelum FDA.' };
+    const approvedVoucherExists = (this.state.paymentVouchers || []).some((voucher) =>
+      (voucher.status === 'APPROVED' || voucher.status === 'PAID')
+      && voucher.items.some((item) => item.jobNumber.trim() === jobId)
+    );
+    if (!approvedVoucherExists) {
+      return { ok: false, message: `Payment Voucher untuk Job ${jobId} harus dibuat dan disetujui Manager OPS sebelum FDA dikirim.` };
+    }
     if (!job.actualCosts.length) return { ok: false, message: 'Belum ada Actual Cost. FDA belum dapat difinalisasi.' };
     if (job.fda.approvalStatus === 'SUBMITTED') return { ok: false, message: 'FDA sedang menunggu approval Manager OPS.' };
     if (job.fda.fdaApproved || job.fda.approvalStatus === 'APPROVED') return { ok: false, message: 'FDA untuk Job ini sudah disetujui Manager.' };

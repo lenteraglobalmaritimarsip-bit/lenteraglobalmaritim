@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChevronDown, ChevronRight, Eye, Search } from 'lucide-react';
+import { CalendarDays, ChevronDown, ChevronRight, Eye, Receipt, Search } from 'lucide-react';
 import { BankAccount, PaymentVoucher } from '../../types';
 import { db } from '../../db/storage';
-import { printPaymentVoucher } from '../../utils/voucherPrint';
+import { printPaymentReceipt, printPaymentVoucher } from '../../utils/voucherPrint';
 
 interface AccountsPayableViewProps {
   paymentVouchers: PaymentVoucher[];
@@ -103,67 +103,123 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
 
   const handleOpenInvoiceView = () => {
     if (!paymentFormVoucher) return;
-    const printWindow = window.open('', '_blank', 'noopener,noreferrer');
+    const printWindow = window.open('', '_blank', 'width=1100,height=800');
     if (!printWindow) {
       setError('Popup diblokir; buka kembali dan lanjutkan dengan form ini.');
       return;
     }
 
+    const escapeHtml = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const senderBank = selectedBank || null;
+    const items = paymentFormVoucher.items.map((item, index) => `
+      <tr>
+        <td class="center">${index + 1}</td>
+        <td>${escapeHtml(item.jobNumber)}</td>
+        <td>${escapeHtml(item.customerName)}</td>
+        <td>${escapeHtml(item.itemService)}</td>
+        <td class="amount">${money(item.amount)}</td>
+        <td class="amount">${money(item.vatAmount)}</td>
+        <td class="amount">${money(item.total)}</td>
+        <td class="amount">${money(item.pph23Amount)}</td>
+        <td class="amount">${money(item.pph21Amount)}</td>
+        <td class="amount">${money(item.paidAmount)}</td>
+      </tr>
+    `).join('');
     const body = `
+      <!doctype html>
       <html>
         <head>
-          <title>INVOICE VOUCHER</title>
+          <meta charset="utf-8" />
+          <title>Payment Voucher ${escapeHtml(paymentFormVoucher.requestNumber)}</title>
           <style>
-            body { font-family: Arial, sans-serif; padding: 24px; color: #111827; }
-            h1 { font-size: 24px; margin-bottom: 8px; }
-            .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { border: 1px solid #d1d5db; padding: 8px 10px; text-align: left; }
-            .totals { width: 100%; max-width: 320px; margin-left: auto; margin-top: 16px; }
-            .row { display: flex; justify-content: space-between; padding: 6px 0; }
+            @page { size: A4 portrait; margin: 10mm; }
+            * { box-sizing: border-box; }
+            body { font-family: Arial, sans-serif; margin: 0; color: #172033; font-size: 11px; }
+            .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #315db2; padding-bottom: 12px; }
+            .brand { display: flex; align-items: center; gap: 12px; }
+            .logo { width: 68px; height: 54px; object-fit: contain; }
+            .company { color: #3562a8; font-size: 18px; font-weight: 700; }
+            .tagline { color: #64748b; font-size: 10px; margin-top: 4px; }
+            .doc-type { color: #315db2; font-size: 10px; font-weight: 700; letter-spacing: 1px; text-align: right; }
+            h1 { color: #172033; font-size: 20px; margin: 20px 0 4px; text-align: center; }
+            .subtitle { color: #64748b; font-size: 10px; margin-bottom: 18px; text-align: center; }
+            .meta { border-collapse: collapse; width: 100%; }
+            .meta td { padding: 5px 7px; vertical-align: top; }
+            .meta .label { color: #64748b; font-size: 9px; font-weight: 700; text-transform: uppercase; width: 17%; }
+            .meta .value { font-weight: 600; width: 33%; }
+            .description { background: #f1f5f9; border-left: 3px solid #315db2; margin-top: 12px; padding: 9px 11px; }
+            .section-title { color: #315db2; font-size: 10px; font-weight: 700; letter-spacing: .5px; margin: 18px 0 7px; text-transform: uppercase; }
+            table.items { border-collapse: collapse; margin-top: 8px; table-layout: fixed; width: 100%; }
+            .items th, .items td { border: 1px solid #cbd5e1; padding: 3px 2px; overflow-wrap: anywhere; }
+            .items th { background: #e8ecf2; color: #334155; font-size: 6px; text-align: center; text-transform: uppercase; }
+            .items td { font-size: 7px; }
+            .items th:nth-child(1), .items td:nth-child(1) { width: 3%; }
+            .items th:nth-child(2), .items td:nth-child(2) { width: 9%; }
+            .items th:nth-child(3), .items td:nth-child(3) { width: 14%; }
+            .items th:nth-child(4), .items td:nth-child(4) { width: 20%; }
+            .items th:nth-child(n+5), .items td:nth-child(n+5) { width: 9%; }
+            .center { text-align: center; }.amount { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+            .muted { color: #64748b; font-size: 8px; }
+            .lower { display: flex; gap: 18px; margin-top: 15px; }
+            .bank { background: #f8fafc; border: 1px solid #cbd5e1; flex: 1; padding: 10px; }
+            .bank-title { color: #315db2; font-size: 9px; font-weight: 700; margin-bottom: 7px; text-transform: uppercase; }
+            .bank-line { margin: 4px 0; }.bank-line b { display: inline-block; min-width: 82px; }
+            .totals { border-collapse: collapse; width: 42%; }
+            .totals td { border-bottom: 1px solid #e2e8f0; padding: 5px 3px; }
+            .totals td:last-child { font-variant-numeric: tabular-nums; text-align: right; }
+            .totals .grand td { background: #182a50; border: 0; color: #fff; font-size: 11px; font-weight: 700; padding: 8px 6px; }
+            .signatures { border-collapse: collapse; margin-top: 24px; page-break-inside: avoid; table-layout: fixed; width: 100%; }
+            .signatures th, .signatures td { border: 1px solid #94a3b8; text-align: center; width: 33.33%; }
+            .signatures th { background: #f1f5f9; color: #334155; font-size: 9px; height: 26px; padding: 6px; text-transform: uppercase; }
+            .signatures .signature-space td { height: 72px; padding: 6px; vertical-align: bottom; }
+            .signature-line { border-top: 1px solid #64748b; display: block; margin: 0 auto 3px; width: 72%; }
+            .signatures .name td { font-size: 9px; font-weight: 600; height: 26px; padding: 6px; }
+            .watermark { bottom: 5mm; color: #94a3b8; font-size: 8px; left: 0; position: fixed; right: 0; text-align: center; }
+            @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
           </style>
         </head>
         <body>
-          <h1>INVOICE VOUCHER</h1>
-          <div class="meta">
-            <div><b>Voucher Number</b><br />${voucherNumber}</div>
-            <div><b>Payment Date</b><br />${formatDisplayDate(paymentDate)}</div>
-            <div><b>Vendor</b><br />${paymentFormVoucher.vendorName}</div>
-            <div><b>Request Number</b><br />${paymentFormVoucher.requestNumber}</div>
+          <header class="header">
+            <div class="brand"><img class="logo" src="/lenteraglobalmaritim/lgm-logo.png" alt="Logo PT Lentera Global Maritim" /><div><div class="company">PT Lentera Global Maritim</div><div class="tagline">Seamless Agent, Global Reach</div></div></div>
+            <div class="doc-type">FINANCE<br />ACCOUNTS PAYABLE</div>
+          </header>
+          <h1>PAYMENT VOUCHER</h1>
+          <div class="subtitle">Dokumen permohonan pembayaran vendor</div>
+          <table class="meta"><tbody>
+            <tr><td class="label">Voucher Number</td><td class="value">${escapeHtml(voucherNumber)}</td><td class="label">Request Number</td><td class="value">${escapeHtml(paymentFormVoucher.requestNumber)}</td></tr>
+            <tr><td class="label">Payment Date</td><td class="value">${escapeHtml(formatDisplayDate(paymentDate))}</td><td class="label">Vendor</td><td class="value">${escapeHtml(paymentFormVoucher.vendorName)}</td></tr>
+            <tr><td class="label">Paid To</td><td class="value">${escapeHtml(paymentFormVoucher.paidTo || '-')}</td><td class="label">Bank</td><td class="value">${escapeHtml(paymentFormVoucher.bankName || '-')}</td></tr>
+            <tr><td class="label">Request By</td><td class="value">${escapeHtml(paymentFormVoucher.requestBy || payer)}</td><td class="label">A/C Number</td><td class="value">${escapeHtml(paymentFormVoucher.accountNumber || '-')}</td></tr>
+          </tbody></table>
+          <div class="description"><b>Description:</b> ${escapeHtml(paymentDescription || paymentFormVoucher.requestNumber)}</div>
+          <div class="section-title">Rincian Pembayaran</div>
+          <table class="items"><thead><tr><th>No</th><th>JOB Number</th><th>${paymentFormVoucher.jobInfo === 'JOB_VESSEL' ? 'Vessel Name' : 'Customer'}</th><th>Item Service</th><th>Amount</th><th>VAT (11%)</th><th>Total</th><th>PPH 23 (2%)</th><th>PPH 21 (5%)</th><th>Paid Amount</th></tr></thead><tbody>${items}</tbody></table>
+          <div class="lower">
+            <section class="bank"><div class="bank-title">Bank Pengirim</div>
+              <div class="bank-line"><b>Bank</b> ${escapeHtml(senderBank?.bankName || '-')}</div>
+              <div class="bank-line"><b>Nama Rekening</b> ${escapeHtml(senderBank?.accountName || '-')}</div>
+              <div class="bank-line"><b>No. Rekening</b> ${escapeHtml(senderBank?.accountNumber || '-')}</div>
+              <div class="bank-line"><b>Cabang</b> ${escapeHtml(senderBank?.branch || '-')}</div>
+            </section>
+            <table class="totals"><tbody>
+              <tr><td>Total</td><td>${money(itemTotals.total)}</td></tr>
+              <tr><td>Subcharge</td><td>${money(itemTotals.surcharge)}</td></tr>
+              <tr><td>PPH 23</td><td>${money(itemTotals.pph23)}</td></tr>
+              <tr><td>PPH 21</td><td>${money(itemTotals.pph21)}</td></tr>
+              <tr class="grand"><td>Total Payment</td><td>${money(itemTotals.totalPayment)}</td></tr>
+            </tbody></table>
           </div>
-          <p><b>Description</b><br />${paymentDescription || paymentFormVoucher.requestNumber}</p>
-          <table>
-            <thead>
-              <tr>
-                <th>Item</th>
-                <th>Customer</th>
-                <th>Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${paymentFormVoucher.items.map((item) => `
-                <tr>
-                  <td>${item.itemService}</td>
-                  <td>${item.customerName}</td>
-                  <td>${money(item.paidAmount)}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-          <div class="totals">
-            <div class="row"><span>Total</span><strong>${money(itemTotals.total)}</strong></div>
-            <div class="row"><span>Subcharge</span><strong>${money(itemTotals.surcharge)}</strong></div>
-            <div class="row"><span>PPH 23</span><strong>${money(itemTotals.pph23)}</strong></div>
-            <div class="row"><span>PPH 21</span><strong>${money(itemTotals.pph21)}</strong></div>
-            <div class="row"><span><b>Total Payment</b></span><strong><b>${money(itemTotals.totalPayment)}</b></strong></div>
-          </div>
+          <table class="signatures"><thead><tr><th>Maker</th><th>Checker</th><th>Signer</th></tr></thead><tbody>
+            <tr class="signature-space"><td><span class="signature-line"></span></td><td><span class="signature-line"></span></td><td><span class="signature-line"></span></td></tr>
+            <tr class="name"><td>${escapeHtml(paymentFormVoucher.requestBy || payer)}</td><td>${escapeHtml(paymentFormVoucher.reviewedBy || '-')}</td><td>${escapeHtml(payer || '-')}</td></tr>
+          </tbody></table>
+          <div class="watermark">Dokumen asli dicetak dari sistem resmi PT Lentera Global Maritim.</div>
         </body>
       </html>
     `;
     printWindow.document.write(body);
     printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
+    printWindow.onload = () => { printWindow.focus(); printWindow.print(); };
   };
 
   const vouchers = useMemo(() => {
@@ -513,6 +569,11 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                           {voucher.status === 'APPROVED' && (
                             <button type="button" onClick={() => setPaymentFormVoucherId(voucher.id)} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-emerald-700">
                               Bayar
+                            </button>
+                          )}
+                          {voucher.status === 'PAID' && (
+                            <button type="button" title="Cetak Kwitansi Pembayaran" aria-label={`Cetak kwitansi ${voucher.requestNumber}`} onClick={() => setError(printPaymentReceipt(voucher) || '')} className="rounded-lg p-1.5 text-slate-500 hover:bg-emerald-50 hover:text-emerald-700">
+                              <Receipt size={16} />
                             </button>
                           )}
                           <button type="button" title="Lihat Voucher (Cetak/PDF)" onClick={() => setError(printPaymentVoucher({ ...voucher, signerName: voucher.reviewedBy, paidBy: voucher.paidBy || payer, includeFinancePrintDetails: true }) || '')} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-blue-600">

@@ -178,6 +178,11 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const formatInquiryDate = (value?: string) => {
     return formatDateDisplay(value);
   };
+  const formatVesselDate = (value?: string) => {
+    const datePart = value?.split(/[T ]/)[0] || '';
+    const [year, month, day] = datePart.split('-');
+    return year && month && day ? `${day}-${month}-${year}` : value || '-';
+  };
 
   const formatAccountingNumber = (value: number, currency: 'USD' | 'IDR') => {
     const normalized = Number(value || 0);
@@ -856,7 +861,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     const currentFDAFallback = new Date().toLocaleDateString('id-ID');
     const formattedFDAFallback = formatDateDisplay(activeJob.fda?.date || new Date().toISOString().slice(0, 10));
     const isoDatePattern = /\b\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?\b/g;
-    return html
+    return (activeJob.eta ? html.replaceAll(activeJob.eta, formatVesselDate(activeJob.eta)) : html)
       .replaceAll(new Date(inquiryDate).toLocaleDateString('id-ID'), formatDateDisplay(inquiryDate))
       .replaceAll(activeJob.fda?.date || currentFDAFallback, formattedFDAFallback)
       .replaceAll('AMOUNT</th>', `AMOUNT ${viewCurrency}</th>`)
@@ -1170,8 +1175,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
                       </td>
                       <td className="p-3 font-bold text-white">{j.vesselName}</td>
                       <td className="p-3 text-slate-300">{j.customerName}</td>
-                      <td className="p-3 text-slate-200">{formatDateDisplay(j.eta, true)}</td>
-                      <td className="p-3 text-slate-200">{formatDateDisplay(j.etd, true)}</td>
+                      <td className="p-3 text-slate-200">{formatVesselDate(j.eta)}</td>
+                      <td className="p-3 text-slate-200">{formatVesselDate(j.etd)}</td>
                       <td className="p-3">
                         <div className="flex flex-wrap items-center gap-2">
                           <button
@@ -1356,7 +1361,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                       <td className="p-3 font-mono text-slate-300">{formatTariffNumber(vessels.find((vessel) => vessel.id === job.vesselId)?.grt)}</td>
                       <td className="p-3 text-slate-300">{job.customerName}</td>
                       <td className="p-3 text-slate-300">{job.portName}</td>
-                      <td className="p-3 whitespace-nowrap text-slate-300">{formatInquiryDate(job.eta)}</td>
+                      <td className="p-3 whitespace-nowrap text-slate-300">{formatVesselDate(job.eta)}</td>
                     </tr>
                   ))}
                   {!approvedJobs.length && (
@@ -1484,8 +1489,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Principal</div><div className="mt-1 font-bold text-white">{activeJob.customerName || '-'}</div></div>
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Port</div><div className="mt-1 font-bold text-white">{activeJob.portName || '-'}</div></div>
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">ETA</div><div className="mt-1 font-bold text-white font-mono">{formatInquiryDate(activeJob.eta)}</div></div>
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">ETD</div><div className="mt-1 font-bold text-white font-mono">{formatInquiryDate(activeJob.etd)}</div></div>
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">ETA</div><div className="mt-1 font-bold text-white font-mono">{formatVesselDate(activeJob.eta)}</div></div>
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">ETD</div><div className="mt-1 font-bold text-white font-mono">{formatVesselDate(activeJob.etd)}</div></div>
 
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Keterangan ETA</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.etaRemarks || '-'}</div></div>
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Keterangan ETD</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.etdRemarks || '-'}</div></div>

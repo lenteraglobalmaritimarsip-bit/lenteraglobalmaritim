@@ -145,6 +145,9 @@ CREATE TABLE expenses_items (
 CREATE TABLE vendor_partners (
   id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
   vendor_name VARCHAR(200) NOT NULL,
+  pic_name VARCHAR(200),
+  address TEXT,
+  phone VARCHAR(50),
   bank_name VARCHAR(150),
   paid_name VARCHAR(200),
   account_number VARCHAR(80),
