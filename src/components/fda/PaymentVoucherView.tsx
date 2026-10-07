@@ -9,6 +9,7 @@ interface PaymentVoucherViewProps {
   jobCalls: JobCall[];
   vendorPartners: VendorPartner[];
   requestBy: string;
+  requestByUserId?: string;
   onDataSaved?: () => void;
   voucher?: PaymentVoucher;
   onCancelEdit?: () => void;
@@ -82,7 +83,7 @@ const loadDraft = (owner: string): VoucherDraft | null => {
   }
 };
 
-export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls, vendorPartners, requestBy, onDataSaved, voucher: editingVoucher, onCancelEdit, operationalOnly = false }) => {
+export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls, vendorPartners, requestBy, requestByUserId, onDataSaved, voucher: editingVoucher, onCancelEdit, operationalOnly = false }) => {
   const [initialDraft] = useState(() => (editingVoucher ? null : loadDraft(requestBy)));
   const [requestDate, setRequestDate] = useState(() => editingVoucher ? String(editingVoucher.requestDate).slice(0, 10) : initialDraft?.requestDate || todayIso());
   const [jobInfo, setJobInfo] = useState<JobInfo>(operationalOnly ? 'OPERASIONAL' : editingVoucher?.jobInfo || initialDraft?.jobInfo || 'OPERASIONAL');
@@ -256,6 +257,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
         requestDate,
         jobInfo,
         requestBy,
+        requestByUserId,
         vendorPartnerId: vendor.id,
         vendorName: vendor.vendorName,
         paidTo: vendor.paidName,

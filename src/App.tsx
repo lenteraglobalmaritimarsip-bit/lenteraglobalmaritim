@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db, normalizeBranchCode } from './db/storage';
-import { DatabaseState, UserRole, ActiveTab, JobCall } from './types';
+import { DatabaseState, UserRole, ActiveTab, JobCall, PaymentVoucher } from './types';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
 import { ActiveVesselCallsView } from './components/vessel/ActiveVesselCallsView';
@@ -316,6 +316,11 @@ export default function App() {
     roleVisibleJobCalls.find((j) => j.jobId === selectedJobId) ||
     roleVisibleJobCalls[0] ||
     ({} as JobCall);
+  const currentUserPaymentVouchers = (data.paymentVouchers || []).filter((voucher: PaymentVoucher) =>
+    voucher.requestByUserId
+      ? voucher.requestByUserId === currentUser?.id
+      : voucher.requestBy.trim().toLocaleLowerCase() === currentUser?.name.trim().toLocaleLowerCase(),
+  );
 
   if (!authReady) return <div className="min-h-screen bg-slate-950 text-white grid place-items-center">Memeriksa sesi...</div>;
   if (!currentUser) return <LoginView onLogin={handleLogin} />;
@@ -497,6 +502,7 @@ export default function App() {
                 jobCalls={roleVisibleJobCalls}
                 vendorPartners={data.vendorPartners || []}
                 requestBy={currentUser?.name || ''}
+                requestByUserId={currentUser?.id}
               />
             )}
 
@@ -504,13 +510,13 @@ export default function App() {
               <EditVoucherView
                 jobCalls={roleVisibleJobCalls}
                 vendorPartners={data.vendorPartners || []}
-                paymentVouchers={data.paymentVouchers || []}
+                paymentVouchers={currentUserPaymentVouchers}
                 requestBy={currentUser?.name || ''}
               />
             )}
 
             {currentRole === 'FDA' && activeTab === 'FDA_PAYMENT_HISTORY' && (
-              <VoucherHistoryView paymentVouchers={data.paymentVouchers || []} />
+              <VoucherHistoryView paymentVouchers={currentUserPaymentVouchers} />
             )}
 
             {currentRole === 'FDA' && roleVisibleJobCalls.length > 0 && activeTab === 'FDA_QUOTES_PDA' && (
@@ -550,6 +556,8 @@ export default function App() {
                   jobCalls={roleVisibleJobCalls}
                   vessels={data.vessels}
                   users={data.users}
+                  fixTariffs={data.fixTariffs}
+                  expensesItems={data.expensesItems}
                   onSelectJob={setSelectedJobId}
                   onNavigate={setActiveTab}
                 />
@@ -605,13 +613,27 @@ export default function App() {
                 jobCalls={roleVisibleJobCalls}
                 vendorPartners={data.vendorPartners || []}
                 requestBy={currentUser?.name || ''}
+                requestByUserId={currentUser?.id}
                 onDataSaved={() => notifySaved('FINANCE_CREATE_VOUCHER')}
                 operationalOnly
               />
             )}
 
+            {currentRole === 'FINANCE' && activeTab === 'FINANCE_EDIT_VOUCHER' && (
+              <EditVoucherView
+                jobCalls={roleVisibleJobCalls}
+                vendorPartners={data.vendorPartners || []}
+                paymentVouchers={currentUserPaymentVouchers}
+                requestBy={currentUser?.name || ''}
+              />
+            )}
+
+            {currentRole === 'FINANCE' && activeTab === 'FINANCE_PAYMENT_HISTORY' && (
+              <VoucherHistoryView paymentVouchers={currentUserPaymentVouchers} />
+            )}
+
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_HISTORY_REPORT' && (
-              <FinancialHistoryView paymentVouchers={data.paymentVouchers || []} />
+              <FinancialHistoryView paymentVouchers={currentUserPaymentVouchers} />
             )}
 
             {currentRole === 'FINANCE' && (activeTab === 'FINANCE_DASHBOARD' ||
@@ -636,6 +658,8 @@ export default function App() {
                 }
                 jobCalls={data.jobCalls}
                 vessels={data.vessels}
+                fixTariffs={data.fixTariffs}
+                expensesItems={data.expensesItems}
                 activeJob={currentJob}
                 onSelectJob={setSelectedJobId}
                 onNavigate={setActiveTab}

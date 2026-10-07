@@ -36,6 +36,7 @@ import { db } from '../../db/storage';
 import { saveStoredAccount } from '../../auth';
 import { apiAuth } from '../../lib/api';
 import { formatTariffNumber, getTariffRateForCurrency, parseTariffNumber } from '../../utils/tariff';
+import { formatCostCategoryLabel, normalizeCostCategory } from '../../utils/costCategories';
 
 interface AdminMasterDataViewProps {
   initialTab?: 'USERS' | 'CUSTOMERS' | 'VESSELS' | 'PORTS' | 'ZONES' | 'FIX_TARIFF' | 'EXPENSES_ITEM' | 'VENDOR_PARTNERS' | 'BANK_ACCOUNT';
@@ -489,21 +490,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     });
   };
 
-  const normalizeExpenseCategory = (value: unknown) => {
-    const normalized = String(value ?? '').trim().toUpperCase().replace(/[\s-]+/g, '_');
-    const aliases: Record<string, string> = {
-      'CLEARANCE_IN/OUT': 'CLEARANCE',
-      CLEARANCE_IN_OUT: 'CLEARANCE',
-      'PORT SERVICE': 'PORT_SERVICE',
-      POST_EXPENSES: 'PORT_EXPENSES',
-      PORT_TARIFF: 'PORT_EXPENSES',
-      PORT_TARIFFS: 'PORT_EXPENSES',
-      PORT_CHARGE: 'PORT_EXPENSES',
-      PORT_CHARGES: 'PORT_EXPENSES',
-      PILOT_TOWAGE: 'PILOTAGE_TOWAGE',
-    };
-    return aliases[normalized] || normalized;
-  };
+  const normalizeExpenseCategory = (value: unknown) => normalizeCostCategory(String(value ?? ''));
 
   const uploadTariffCategories = new Set([
     'PORT_EXPENSES', 'PORT_SERVICE', 'CLEARANCE', 'GENERAL_EXPENSES', 'CREW_EXPENSES',
@@ -974,32 +961,9 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     onDataSaved?.(activeTab);
   };
 
-  const formatCostCategory = (category?: string) => ({
-    PORT_EXPENSES: 'PORT EXPENSES',
-    PORT_SERVICE: 'PORT SERVICE',
-    CLEARANCE: 'CLEARANCE IN/OUT',
-    GENERAL_EXPENSES: 'GENERAL EXPENSES',
-    CREW_EXPENSES: 'CREW EXPENSES',
-    OWNER_MATTER: 'OWNER MATTER',
-    AGENCY_FEE: 'AGENCY FEE',
-  } as Record<string, string>)[category || ''] || category || '-';
+  const formatCostCategory = (category?: string) => formatCostCategoryLabel(category);
 
-  const formatExpenseCategory = (category?: string) => ({
-    PORT_EXPENSES: 'PORT EXPENSES',
-    PORT_SERVICE: 'PORT SERVICE',
-    CLEARANCE: 'CLEARANCE IN/OUT',
-    GENERAL_EXPENSES: 'GENERAL EXPENSES',
-    CREW_EXPENSES: 'CREW EXPENSES',
-    OWNER_MATTER: 'OWNER MATTER',
-    AGENCY_FEE: 'AGENCY FEE',
-    PORT_DUES: 'PORT EXPENSES',
-    PILOTAGE_TOWAGE: 'CLEARANCE IN/OUT',
-    BERTHING: 'PORT EXPENSES',
-    CREW_CHANGE: 'CREW EXPENSES',
-    IMMIGRATION_CUSTOMS: 'CLEARANCE IN/OUT',
-    LOGISTICS_SUPPLIES: 'GENERAL EXPENSES',
-    SUNDRY: 'GENERAL EXPENSES',
-  } as Record<string, string>)[category || ''] || category || '-';
+  const formatExpenseCategory = (category?: string) => formatCostCategoryLabel(category);
   const isUserFormOpen = activeTab === 'USERS' && (showAddModal || editingUser !== null);
   const isMasterFormOpen = activeTab !== 'USERS' && (showAddModal || editingMaster !== null);
   const isFormOpen = isUserFormOpen || isMasterFormOpen;
@@ -2011,13 +1975,16 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                         onChange={(e) => setNewTariff({ ...newTariff, costCategory: e.target.value })}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
                       >
-                        <option value="PORT_EXPENSES">PORT EXPENSES</option>
                         <option value="PORT_SERVICE">PORT SERVICE</option>
+                        <option value="PORT_EXPENSES">PORT EXPENSES</option>
                         <option value="CLEARANCE">CLEARANCE IN/OUT</option>
                         <option value="GENERAL_EXPENSES">GENERAL EXPENSES</option>
                         <option value="CREW_EXPENSES">CREW EXPENSES</option>
-                        <option value="OWNER_MATTER">OWNER MATTER</option>
                         <option value="AGENCY_FEE">AGENCY FEE</option>
+                        <option value="OWNER_MATTER">OWNER MATTER</option>
+                        <option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option>
+                        <option value="PPH_INCOME_TAX">PPH / INCOME TAX</option>
+                        <option value="VAT_11">VAT 11%</option>
                       </select>
                     </div>
                   </div>
@@ -2136,13 +2103,16 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                         onChange={(e) => setNewExpense({ ...newExpense, category: e.target.value as any })}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
                       >
-                        <option value="PORT_EXPENSES">PORT EXPENSES</option>
                         <option value="PORT_SERVICE">PORT SERVICE</option>
+                        <option value="PORT_EXPENSES">PORT EXPENSES</option>
                         <option value="CLEARANCE">CLEARANCE IN/OUT</option>
                         <option value="GENERAL_EXPENSES">GENERAL EXPENSES</option>
                         <option value="CREW_EXPENSES">CREW EXPENSES</option>
-                        <option value="OWNER_MATTER">OWNER MATTER</option>
                         <option value="AGENCY_FEE">AGENCY FEE</option>
+                        <option value="OWNER_MATTER">OWNER MATTER</option>
+                        <option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option>
+                        <option value="PPH_INCOME_TAX">PPH / INCOME TAX</option>
+                        <option value="VAT_11">VAT 11%</option>
                       </select>
                     </div>
                   </div>

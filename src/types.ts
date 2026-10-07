@@ -156,6 +156,7 @@ export interface PaymentVoucher {
   requestDate: string;
   jobInfo: 'OPERASIONAL' | 'JOB_VESSEL';
   requestBy: string;
+  requestByUserId?: string;
   vendorPartnerId: string;
   vendorName: string;
   paidTo: string;
@@ -186,6 +187,8 @@ export interface ExpensesItem {
     | 'OWNER_MATTER'
     | 'AGENCY_FEE'
     | 'TAX_CONTINGENCY'
+    | 'PPH_INCOME_TAX'
+    | 'VAT_11'
     | 'PORT_DUES'
     | 'PILOTAGE_TOWAGE'
     | 'BERTHING'
@@ -308,6 +311,47 @@ export interface PrincipalReceipt {
   attachmentDataUrl?: string;
 }
 
+export type PurposeOfCall =
+  | 'CARGO_DISCHARGE'
+  | 'CARGO_LOADING'
+  | 'CARGO_OPERATIONS'
+  | 'SHIP_SERVICES_SUPPLIES'
+  | 'CREW_PASSENGER_OPERATIONS'
+  | 'TECHNICAL_EMERGENCY'
+  | 'PORT_SERVICE'
+  | 'HUSBANDRY_SERVICES'
+  | 'VESSEL_SUPPLIES'
+  | 'MAINTENANCE_WASTE_MANAGEMENT'
+  | 'ADMINISTRATIVE_SERVICES'
+  | 'BUNKERING'
+  | 'CREW_CHANGE_ONLY'
+  | 'REPAIR_MAINTENANCE';
+
+export const PURPOSE_OF_CALL_LABELS: Record<PurposeOfCall, string> = {
+  CARGO_DISCHARGE: 'Bongkar Muatan (Discharge)',
+  CARGO_LOADING: 'Muat Kargo (Loading)',
+  CARGO_OPERATIONS: 'Cargo Operations',
+  SHIP_SERVICES_SUPPLIES: 'Ship Services & Supplies',
+  CREW_PASSENGER_OPERATIONS: 'Crew & Passenger Operations',
+  TECHNICAL_EMERGENCY: 'Technical & Emergency',
+  PORT_SERVICE: 'Port service',
+  HUSBANDRY_SERVICES: 'Husbandry Services',
+  VESSEL_SUPPLIES: 'Vessel Supplies',
+  MAINTENANCE_WASTE_MANAGEMENT: 'Maintenance & Waste Management',
+  ADMINISTRATIVE_SERVICES: 'Administrative Services',
+  BUNKERING: 'Bunkering BBM / Air Tawar',
+  CREW_CHANGE_ONLY: 'Crew Change Only',
+  REPAIR_MAINTENANCE: 'Perbaikan / Docking',
+};
+
+export const PURPOSE_OF_CALL_OPTIONS = Object.entries(PURPOSE_OF_CALL_LABELS)
+  .filter(([value]) => value !== 'CREW_CHANGE_ONLY')
+  .map(([value, label]) => ({ value: value as PurposeOfCall, label }));
+
+export const formatPurposeOfCall = (value?: string) => value
+  ? PURPOSE_OF_CALL_LABELS[value as PurposeOfCall] || value.replace(/_/g, ' ')
+  : '-';
+
 export interface JobCall {
   jobId: string; // e.g. "VC-2026-0098"
   vesselId: string;
@@ -320,7 +364,7 @@ export interface JobCall {
   exchangeRateUSDToIDR: number; // e.g. 15800
   eta: string;
   etd: string;
-  purposeOfCall: 'CARGO_DISCHARGE' | 'CARGO_LOADING' | 'BUNKERING' | 'CREW_CHANGE_ONLY' | 'REPAIR_MAINTENANCE';
+  purposeOfCall: PurposeOfCall;
   currentStage: JobStage;
   status: 'INQUIRY' | 'QUOTED' | 'APPROVED' | 'IN_PROGRESS' | 'COMPLETED' | 'CLOSED';
   
@@ -504,6 +548,8 @@ export type ActiveTab =
   | 'AP'
   | 'FINANCE_ACCOUNTS_PAYABLE'
   | 'FINANCE_CREATE_VOUCHER'
+  | 'FINANCE_EDIT_VOUCHER'
+  | 'FINANCE_PAYMENT_HISTORY'
   | 'FINANCE_HISTORY_REPORT'
   | 'AR'
   | 'PRINCIPAL_INVOICE'

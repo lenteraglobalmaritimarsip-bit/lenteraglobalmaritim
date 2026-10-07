@@ -18,14 +18,17 @@ import {
   Trash2,
   CalendarDays,
 } from 'lucide-react';
-import { JobCall, ActiveTab, Currency, Vessel } from '../../types';
+import { ActualCostItem, ExpensesItem, FixTariff, JobCall, ActiveTab, Currency, Vessel } from '../../types';
 import { formatDateDisplay } from '../../utils/date';
 import { db } from '../../db/storage';
+import { formatCostCategoryLabel, getCostCategoryRank, normalizeCostCategory } from '../../utils/costCategories';
 
 interface FinanceViewProps {
   initialTab?: 'DASHBOARD' | 'JOB_INVOICE_OPEN' | 'INVOICES' | 'AP' | 'AR' | 'REPORTS';
   jobCalls: JobCall[];
   vessels?: Vessel[];
+  fixTariffs?: FixTariff[];
+  expensesItems?: ExpensesItem[];
   activeJob: JobCall;
   onSelectJob: (jobId: string) => void;
   onNavigate: (tab: ActiveTab) => void;
@@ -35,6 +38,8 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   initialTab = 'DASHBOARD',
   jobCalls,
   vessels = [],
+  fixTariffs = [],
+  expensesItems = [],
   activeJob,
   onSelectJob,
   onNavigate,
@@ -115,6 +120,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   };
   const invoiceIssueDate = activeJob.principalInvoice?.invoiceDate || new Date().toISOString().slice(0, 10);
   const invoiceDueDate = activeJob.principalInvoice?.dueDate || new Date(new Date(invoiceIssueDate).getTime() + 30 * 86400000).toISOString().slice(0, 10);
+  const invoiceDocumentNumber = activeJob.fda?.fdaNo || '-';
   const invoiceBankInfo = jobCurrency === 'USD'
     ? 'BANK MANDIRI TEBET SUPOMO | Account Holder : PT.Lentera Global Maritim | Account Number (USD) : 120-00-5575599-0 | Swift Code Bank : BMRIIDJAXXX'
     : 'BANK NEGARA INDONESIA (Persero) Tbk | Account Holder : PT.Lentera Global Maritim | Account Number : 2824-1212-09 | Swift Code Bank : BNINIDJAXXX';
@@ -173,10 +179,39 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
   const apItems = activeJob?.ap || [];
   const arItems = activeJob?.ar || [];
+  const invoicePortMatches = (portId?: string, portName?: string) => {
+    const currentPortId = (activeJob.portId || activeJob.inquiry?.portId || '').trim();
+    const currentPortName = (activeJob.portName || activeJob.inquiry?.portName || '').trim();
+    return (!!currentPortId && !!portId?.trim() && currentPortId === portId.trim())
+      || (!!currentPortName && !!portName?.trim() && currentPortName.toLowerCase() === portName.trim().toLowerCase());
+  };
+  const resolveInvoiceCategory = (item: ActualCostItem) => {
+    const itemName = item.description.trim().toLowerCase();
+    const epdaItem = activeJob.quotation?.epda?.items?.find((entry) => entry.name.trim().toLowerCase() === itemName);
+    const category = normalizeCostCategory(item.category);
+    const epdaCategory = normalizeCostCategory(epdaItem?.category);
+    const isVAT11 = (value: string) => /VAT.*11|11.*VAT/i.test(value);
+    if (/VAT[\s_-]*11\s*%?/i.test(item.description) || isVAT11(category) || isVAT11(epdaCategory)) return 'VAT_11';
+    if (category) return category;
+    if (epdaCategory) return epdaCategory;
+
+    const matchingTariff = fixTariffs.find((tariff) =>
+      tariff.serviceName.trim().toLowerCase() === itemName
+      && invoicePortMatches(tariff.portId, tariff.portName)
+      && tariff.costCategory
+    );
+    if (matchingTariff?.costCategory) return normalizeCostCategory(matchingTariff.costCategory);
+
+    const matchingExpense = expensesItems.find((expense) =>
+      expense.name.trim().toLowerCase() === itemName
+      && invoicePortMatches(expense.portId, expense.portName)
+    );
+    return matchingExpense?.category ? normalizeCostCategory(matchingExpense.category) : 'UNCATEGORIZED';
+  };
   const invoiceItems = (activeJob?.actualCosts || []).map((item) => ({
     id: item.id,
     name: item.description,
-    category: item.category,
+    category: resolveInvoiceCategory(item),
     basis: item.vendorName || 'FDA Actual Cost',
     totalSellRate: item.amount || 0,
     currency: item.currency || jobCurrency,
@@ -186,8 +221,11 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     if (existing) existing.items.push(item);
     else groups.push({ category: item.category, items: [item] });
     return groups;
-  }, [] as Array<{ category: string; items: typeof invoiceItems[number][] }>);
-  const invoiceCategoryLabel = (category: string) => category.replaceAll('_', ' ');
+  }, [] as Array<{ category: string; items: typeof invoiceItems[number][] }>).sort((a, b) =>
+    (getCostCategoryRank(a.category) - getCostCategoryRank(b.category))
+    || a.category.localeCompare(b.category)
+  );
+  const invoiceCategoryLabel = (category: string) => formatCostCategoryLabel(category);
 
   const jobAPTotal = apItems.reduce((s, i) => s + (i.amount || 0), 0);
   const jobAPPaid = apItems.filter((i) => i.status === 'PAID').reduce((s, i) => s + (i.amount || 0), 0);
@@ -440,7 +478,6 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       job.customerName,
       job.portName,
       job.inquiry?.inquiryNo || '',
-      job.principalInvoice?.invoiceNo || '',
       job.fda?.fdaNo || '',
     ].some((value) => value.toLowerCase().includes(keyword));
     return matchesMonth && matchesSearch;
@@ -472,7 +509,6 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       job.vesselName,
       job.customerName,
       job.portName,
-      job.principalInvoice?.invoiceNo || `INV-${job.jobId}`,
       job.fda?.fdaNo || '',
     ].some((value) => value && value.toLowerCase().includes(keyword));
 
@@ -540,7 +576,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       ? 'BANK MANDIRI TEBET SUPOMO | Account Holder : PT.Lentera Global Maritim | Account Number (USD) : 120-00-5575599-0 | Swift Code Bank : BMRIIDJAXXX'
       : 'BANK NEGARA INDONESIA (Persero) Tbk | Account Holder : PT.Lentera Global Maritim | Account Number : 2824-1212-09 | Swift Code Bank : BNINIDJAXXX';
 
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Official Principal Invoice ${escapeHtml(activeJob.jobId)}</title>
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Official Principal Invoice ${escapeHtml(invoiceDocumentNumber)}</title>
       <style>
         @page { size: A4; margin: 12mm 12mm 16mm; }
         html, body { margin: 0; padding: 0; background: #fff; font-family: Arial, Helvetica, sans-serif; color: #1f2a37; font-size: 11px; line-height: 1.35; }
@@ -606,7 +642,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
           <div class="meta-box">
             <span class="meta-label">Bank Details:</span>
-            <div class="meta-value meta-row"><div class="meta-key">Invoice No.</div><div class="meta-colon">:</div><div>${escapeHtml(activeJob.principalInvoice?.invoiceNo || `INV-${activeJob.jobId}`)}</div></div>
+            <div class="meta-value meta-row"><div class="meta-key">Invoice No.</div><div class="meta-colon">:</div><div>${escapeHtml(invoiceDocumentNumber)}</div></div>
             <div class="meta-value meta-row"><div class="meta-key">Issue Date</div><div class="meta-colon">:</div><div>${escapeHtml(formatDateDisplay(invoiceIssueDate))}</div></div>
             <div class="meta-value meta-row"><div class="meta-key">Due Date</div><div class="meta-colon">:</div><div>${escapeHtml(formatDateDisplay(invoiceDueDate))}</div></div>
             <div class="meta-value meta-row"><div class="meta-key">Bank</div><div class="meta-colon">:</div><div>${escapeHtml(printBankInfo)}</div></div>
@@ -813,7 +849,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                             </span>
                           </td>
                           <td className="p-3 font-mono text-slate-300">
-                            {job.principalInvoice?.invoiceNo || `INV-${job.jobId}`}
+                            {job.fda?.fdaNo || '-'}
                           </td>
                           <td className="p-3">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
@@ -1073,7 +1109,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
               <div className="space-y-1 sm:text-right">
                 <span className="text-[10px] text-slate-500 uppercase font-bold">Invoice Details:</span>
-                <p className="font-mono font-bold text-cyan-400 text-sm">{activeJob.principalInvoice?.invoiceNo || `INV-${activeJob.jobId}`}</p>
+                <p className="font-mono font-bold text-cyan-400 text-sm">{invoiceDocumentNumber}</p>
                 <p className="text-slate-400 font-mono">Tanggal Terbit: {formatDateDisplay(invoiceIssueDate)}</p>
                 <p className="text-slate-400 font-mono">Jatuh Tempo: {formatDateDisplay(invoiceDueDate)}</p>
                 <p className="text-slate-400">Bank: {invoiceBankInfo}</p>
@@ -1519,7 +1555,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                               </span>
                             </td>
                             <td className="p-3 font-mono text-slate-300">
-                              {job.principalInvoice?.invoiceNo || `INV-${job.jobId}`}
+                              {job.fda?.fdaNo || '-'}
                             </td>
                             <td className="p-3">
                               <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${

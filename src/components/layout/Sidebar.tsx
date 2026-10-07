@@ -103,7 +103,12 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
           {item({label:'Financial Overview',tab:'FINANCE_DASHBOARD',icon:LayoutDashboard})}
           {item({label:'JOB Invoice',tab:'JOB_INVOICE_OPEN',icon:FileText})}
           {item({label:'Accounts Payable',tab:'FINANCE_ACCOUNTS_PAYABLE',icon:ArrowUpFromLine})}
-          {item({label:'Create Voucher',tab:'FINANCE_CREATE_VOUCHER',icon:FileText})}
+          <div className="maritim-nav-group-title"><Receipt/><span>Request Payment</span></div>
+          <div className="maritim-subnav maritim-subnav-static">
+            {item({label:'Create Voucher',tab:'FINANCE_CREATE_VOUCHER',icon:FileText})}
+            {item({label:'Edit Voucher',tab:'FINANCE_EDIT_VOUCHER',icon:FileText})}
+            {item({label:'History',tab:'FINANCE_PAYMENT_HISTORY',icon:ClipboardCheck})}
+          </div>
           {item({label:'History Laporan Keuangan',tab:'FINANCE_HISTORY_REPORT',icon:FileSpreadsheet})}
           {item({label:'JOB Closing',tab:'CLOSING',icon:CheckSquare})}
           {item({label:'Monitoring Vessel Calls',tab:'ACTIVE_VESSEL_CALLS',icon:Ship})}

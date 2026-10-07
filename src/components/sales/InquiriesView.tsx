@@ -14,7 +14,7 @@ import {
   Trash2,
   ChevronDown,
 } from 'lucide-react';
-import { JobCall, Vessel, Port, Customer } from '../../types';
+import { JobCall, Vessel, Port, Customer, PurposeOfCall, PURPOSE_OF_CALL_OPTIONS } from '../../types';
 import { db } from '../../db/storage';
 import { AuthAccount } from '../../auth';
 import { formatDateDisplay } from '../../utils/date';
@@ -180,7 +180,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
     etdRemarks: '',
     cargoQuantity: '' as number | '',
     quantityUnit: 'TON' as 'MT' | 'TON',
-    purposeOfCall: 'CARGO_DISCHARGE' as const,
+    purposeOfCall: 'CARGO_DISCHARGE' as PurposeOfCall,
     cargoDetails: '',
     estimatedDays: '3',
     specialRequirements: '',
@@ -649,22 +649,12 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                   <label className="text-slate-500 block mb-1 font-semibold">Tujuan Kunjungan (Purpose)</label>
                   <select
                     value={form.purposeOfCall}
-                    onChange={(e) => setForm({ ...form, purposeOfCall: e.target.value as any })}
+                    onChange={(e) => setForm({ ...form, purposeOfCall: e.target.value as PurposeOfCall })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
                   >
-                    <option value="CARGO_DISCHARGE">Bongkar Muatan (Discharge)</option>
-                    <option value="CARGO_LOADING">Muat Kargo (Loading)</option>
-                    <option value="CARGO_OPERATIONS">Cargo Operations</option>
-                    <option value="SHIP_SERVICES_SUPPLIES">Ship Services & Supplies</option>
-                    <option value="CREW_PASSENGER_OPERATIONS">Crew & Passenger Operations</option>
-                    <option value="TECHNICAL_EMERGENCY">Technical & Emergency</option>
-                    <option value="PORT_SERVICE">Port service</option>
-                    <option value="HUSBANDRY_SERVICES">Husbandry Services</option>
-                    <option value="VESSEL_SUPPLIES">Vessel Supplies</option>
-                    <option value="MAINTENANCE_WASTE_MANAGEMENT">Maintenance & Waste Management</option>
-                    <option value="ADMINISTRATIVE_SERVICES">Administrative Services</option>
-                    <option value="BUNKERING">Bunkering BBM / Air Tawar</option>
-                    <option value="REPAIR_MAINTENANCE">Perbaikan / Docking</option>
+                    {PURPOSE_OF_CALL_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
                   </select>
                 </div>
                 <div>

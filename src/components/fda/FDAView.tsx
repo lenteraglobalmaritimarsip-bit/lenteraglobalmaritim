@@ -20,10 +20,11 @@ import {
   Upload,
   Trash2,
 } from 'lucide-react';
-import { JobCall, ActualCostItem, ActiveTab, Vessel, FixTariff, ExpensesItem, Currency } from '../../types';
+import { JobCall, ActualCostItem, ActiveTab, Vessel, FixTariff, ExpensesItem, Currency, formatPurposeOfCall } from '../../types';
 import { db, buildBranchAwareFDANumber, buildBranchAwareInvoiceNumber, getCurrentBranchName, formatEPDAQuoteNoForDisplay } from '../../db/storage';
 import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, filterTariffsByGRT, hasTariffGRTRestriction, selectPreferredTariffOptions } from '../../utils/tariff';
 import { formatDateDisplay } from '../../utils/date';
+import { formatCostCategoryLabel, getCostCategoryRank, normalizeCostCategory } from '../../utils/costCategories';
 
 interface FDAViewProps {
   initialTab?: 'DASHBOARD' | 'JOB_ID' | 'ACTUAL_COST' | 'QUOTES_VIEW' | 'APPROVAL';
@@ -228,25 +229,6 @@ export const FDAView: React.FC<FDAViewProps> = ({
       || (!!currentPortName && !!targetPortName && currentPortName.toLowerCase() === targetPortName.toLowerCase());
   };
   const buildAutoServiceOptions = (currency: Currency) => {
-    const categoryOrder: Record<string, number> = {
-      PORT_SERVICE: 0,
-      PORT_EXPENSES: 1,
-      PORT_DUES: 2,
-      BERTHING: 3,
-      PILOTAGE_TOWAGE: 4,
-      CLEARANCE: 5,
-      IMMIGRATION_CUSTOMS: 6,
-      GENERAL_EXPENSES: 7,
-      LOGISTICS_SUPPLIES: 8,
-      SUNDRY: 9,
-      CREW_EXPENSES: 10,
-      CREW_CHANGE: 11,
-      AGENCY_FEE: 12,
-      OWNER_MATTER: 13,
-      TAX_CONTINGENCY: 14,
-      PPH_INCOME_TAX: 16,
-      VAT_11: 17,
-    };
     const serviceKey = (name: string, category: string) => `${name.trim().toLowerCase()}|${category.trim().toUpperCase()}`;
     const currentCurrencyFixTariffs = fixTariffs.filter((tariff) =>
       portMatches(tariff.portId, tariff.portName)
@@ -305,7 +287,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       })),
           ]);
     return options.sort((a, b) =>
-      (categoryOrder[a.category] ?? 15) - (categoryOrder[b.category] ?? 15)
+      (getCostCategoryRank(a.category) - getCostCategoryRank(b.category))
       || a.name.localeCompare(b.name)
     );
         };
@@ -367,8 +349,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   });
 
   const totalActualBuy = actualList.reduce((s, i) => s + (i.amount || 0), 0);
-  const normalizeActualCategory = (category?: string) =>
-    (category || '').trim().toUpperCase().replace(/[\s-]+/g, '_');
+  const normalizeActualCategory = (category?: string) => normalizeCostCategory(category ?? '');
   const isVAT11Category = (category: string) =>
     /VAT.*11|11.*VAT/i.test(normalizeActualCategory(category));
   const getActualCategory = (item: ActualCostItem) => {
@@ -431,56 +412,16 @@ export const FDAView: React.FC<FDAViewProps> = ({
     tariff: getActualTariff(item),
     remarks: item.remarks || '-',
   }));
-  const categoryRank: Record<string, number> = {
-    PORT_SERVICE: 0,
-    PORT_EXPENSES: 1,
-    PORT_DUES: 2,
-    BERTHING: 3,
-    PILOTAGE_TOWAGE: 4,
-    CLEARANCE: 5,
-    IMMIGRATION_CUSTOMS: 6,
-    GENERAL_EXPENSES: 7,
-    LOGISTICS_SUPPLIES: 8,
-    SUNDRY: 9,
-    CREW_EXPENSES: 10,
-    CREW_CHANGE: 11,
-    AGENCY_FEE: 12,
-    OWNER_MATTER: 13,
-    TAX_CONTINGENCY: 14,
-    VAT_11: 100,
-    PPH_INCOME_TAX: 101,
-  };
   const sortFDACategories = (categories: string[]) => [...categories].sort((a, b) => {
     const aIsVAT11 = isVAT11Category(a);
     const bIsVAT11 = isVAT11Category(b);
     if (aIsVAT11 !== bIsVAT11) return aIsVAT11 ? 1 : -1;
-    const rankDifference = (categoryRank[a] ?? 8) - (categoryRank[b] ?? 8);
+    const rankDifference = getCostCategoryRank(a) - getCostCategoryRank(b);
     return rankDifference || a.localeCompare(b);
   });
   const orderedFDAResultRows = [...fdaResultRows];
-  const fdaResultCategories = sortFDACategories(Array.from(new Set<string>(orderedFDAResultRows.map((item) => item.category))));
-  const formatCategoryCost = (category: string) => {
-    const labelMap: Record<string, string> = {
-      PORT_EXPENSES: 'PORT EXPENSES',
-      PORT_SERVICE: 'PORT SERVICE',
-      PORT_DUES: 'PORT DUES',
-      PILOTAGE_TOWAGE: 'PILOTAGE / TOWAGE',
-      BERTHING: 'BERTHING',
-      CLEARANCE: 'CLEARANCE IN/OUT',
-      IMMIGRATION_CUSTOMS: 'IMMIGRATION / CUSTOMS',
-      GENERAL_EXPENSES: 'GENERAL EXPENSES',
-      LOGISTICS_SUPPLIES: 'LOGISTICS / SUPPLIES',
-      SUNDRY: 'SUNDRY',
-      CREW_EXPENSES: 'CREW EXPENSES',
-      CREW_CHANGE: 'CREW CHANGE',
-      AGENCY_FEE: 'AGENCY FEE',
-      OWNER_MATTER: 'OWNER MATTER',
-      TAX_CONTINGENCY: 'TAX & CONTINGENCY',
-      VAT_11: 'VAT 11%',
-      PPH_INCOME_TAX: 'PPH / INCOME TAX',
-    };
-    return labelMap[category] || category.replace(/_/g, ' ');
-  };
+  const fdaResultCategories = sortFDACategories(Array.from(new Set<string>(orderedFDAResultRows.map((item) => normalizeCostCategory(item.category)))));
+  const formatCategoryCost = (category: string) => formatCostCategoryLabel(category);
   const totalQuotedPDA = activeJob.quotation?.pda?.totalSellRate || activeJob.quotation?.epda?.totalSellRate || 0;
   const varianceVsPDA = totalQuotedPDA - totalActualBuy;
   const totalEPDAReady = jobCalls.filter((job) => job.managerApproval?.status === 'APPROVED').length;
@@ -552,11 +493,12 @@ export const FDAView: React.FC<FDAViewProps> = ({
     const portId = (activeJob.portId || activeJob.inquiry?.portId || '').trim();
     const portName = (activeJob.portName || activeJob.inquiry?.portName || '').trim();
     const normalizedItemName = itemName.toLowerCase();
+    const isTariffCategory = newActual.category === 'PORT_SERVICE' || newActual.category === 'PORT_EXPENSES';
     const isSamePort = (masterPortId?: string, masterPortName?: string) =>
       (!!portId && !!masterPortId && masterPortId === portId)
       || (!!portName && !!masterPortName && masterPortName.toLowerCase() === portName.toLowerCase());
 
-    const duplicateExists = newActual.category === 'PORT_EXPENSES'
+    const duplicateExists = isTariffCategory
       ? fixTariffs.some((tariff) =>
           tariff.serviceName.trim().toLowerCase() === normalizedItemName
           && isSamePort(tariff.portId, tariff.portName)
@@ -575,7 +517,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       return;
     }
 
-    if (newActual.category === 'PORT_EXPENSES') {
+    if (isTariffCategory) {
       db.addFixTariff({
         portId,
         portName,
@@ -814,15 +756,16 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   const buildFDAHtmlSalesTemplate = (print: boolean) => {
     const escape = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    const orderedActualList = actualList.map((item) => ({ ...item, category: getActualCategory(item) }));
-    const categories = sortFDACategories(Array.from(new Set<string>(orderedActualList.map((item) => item.category || 'UNKNOWN'))));
-    const groups = categories.map((category) => ({ category, items: orderedActualList.filter((item) => item.category === category) }));
+    const groups = fdaResultCategories.map((category) => ({
+      category,
+      items: orderedFDAResultRows.filter((item) => item.category === category),
+    }));
     const money = (value: number, currency: 'USD' | 'IDR') => currency === 'IDR'
       ? new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
       : new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
     const rows = groups.map((group) => {
       const subtotal = group.items.reduce((sum, item) => sum + (item.amount || 0), 0);
-      return `<tr class="section"><td colspan="5" style="text-indent:1em">${escape(formatCategoryCost(String(group.category)))}</td></tr>${group.items.map((item, index) => { const currency = (item.currency || viewCurrency) as 'USD' | 'IDR'; return `<tr class="item-row"><td>${index + 1}</td><td>${escape(item.description)}</td><td>${escape(getActualTariff(item))}</td><td class="amount">${money(item.amount || 0, currency)}</td><td>${escape(item.remarks || '')}</td></tr>`; }).join('')}<tr class="subtotal"><td colspan="3">SUBTOTAL</td><td class="amount">${money(subtotal, (group.items[0]?.currency || viewCurrency) as 'USD' | 'IDR')}</td><td></td></tr>`;
+      return `<tr class="section"><td colspan="5" style="text-indent:1em">${escape(formatCategoryCost(String(group.category)))}</td></tr>${group.items.map((item, index) => { const currency = (item.currency || viewCurrency) as 'USD' | 'IDR'; return `<tr class="item-row"><td>${index + 1}</td><td>${escape(item.description)}</td><td>${escape(item.tariff)}</td><td class="amount">${money(item.amount || 0, currency)}</td><td>${escape(item.remarks || '')}</td></tr>`; }).join('')}<tr class="subtotal"><td colspan="3">SUBTOTAL</td><td class="amount">${money(subtotal, (group.items[0]?.currency || viewCurrency) as 'USD' | 'IDR')}</td><td></td></tr>`;
     }).join('');
     const total = actualList.reduce((sum, item) => sum + (item.amount || 0), 0);
     const vessel = vessels.find((item) => item.id === activeJob.vesselId);
@@ -877,7 +820,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   );
   const centerFDAExportColumns = (html: string) => addCargoQuantityAfterIMO(
     normalizeFDAExportLayout(html.replace(/<div class="meta-row"><b>Estimated Day<\/b><span>:\<\/span><span>.*?<\/span><\/div>/, ''))
-  ).replace('</style>', 'table th,table td{text-align:center!important}</style>');
+  ).replace('</style>', '@media screen{html,body{min-height:100%;height:auto;overflow:visible}body{box-sizing:border-box;max-width:1100px;margin:0 auto;padding:24px}.office-footer{position:static!important;left:auto!important;bottom:auto!important;transform:none!important;margin:20px auto 0}table th:nth-child(1),table td:nth-child(1){width:5%!important}table th:nth-child(2),table td:nth-child(2){width:35%!important}table th:nth-child(3),table td:nth-child(3){width:20%!important}table th:nth-child(4),table td:nth-child(4){width:12%!important}table th:nth-child(5),table td:nth-child(5){width:28%!important}}</style>');
 
   const openFDAWindow = (print = false, getHtml = false): string | undefined => {
     const onePageHtml = pushFinanceSignatureDown(buildFDAHtmlSalesTemplate(false).replace('</style>', '@page{size:A4;margin:14mm}body{font-size:9px}.brand-row{margin:0 0 2px}.brand-wrap{min-height:48px;gap:10px}.logo{width:70px;height:52px}.brand{font-size:17px}.tag{font-size:10px;margin-top:2px}h2{font-size:10px;padding:4px;margin:2px 0 4px}.meta{gap:1px 20px;margin-bottom:3px}.meta-col{gap:1px}.meta-row{line-height:1.15}.meta-row .label{font-size:9px}table{page-break-inside:avoid;table-layout:fixed}table th:first-child,table td:first-child{width:5%;text-align:center!important}table th:nth-child(2),table td:nth-child(2){width:42%;text-align:center!important}table th:nth-child(3),table td:nth-child(3){width:8%;text-align:center!important}table th:nth-child(4),table td:nth-child(4){width:17%;text-align:center!important;white-space:nowrap}table th:nth-child(5),table td:nth-child(5){width:28%;text-align:center!important}tr{page-break-inside:avoid}th,td{padding:3px 4px;font-size:8px}.subtotal td:first-child,.grand td:first-child{font-weight:700;text-align:center!important}.subtotal td.amount,.grand td.amount,.subtotal td:nth-child(2),.grand td:nth-child(2){font-variant-numeric:tabular-nums;text-align:center!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}.section td{padding-left:0!important}.bank{display:inline-block;width:42%;margin-top:24px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.signature-main{display:block}.signature-role{display:block;margin-top:22px;padding-top:4px}.office-footer{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center;font-size:8px;line-height:1.2;font-weight:600;color:#111;z-index:3}.office-footer span{color:#e11d48;text-decoration:underline}</style>'));
@@ -1496,6 +1439,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Keterangan ETD</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.etdRemarks || '-'}</div></div>
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Cargo Quantity</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.cargoQuantity || 0} {activeJob.inquiry?.quantityUnit || 'TON'}</div></div>
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Purpose</div><div className="mt-1 font-bold text-white">{activeJob.purposeOfCall || '-'}</div></div>
+  <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Purpose</div><div className="mt-1 font-bold text-white">{formatPurposeOfCall(activeJob.purposeOfCall)}</div></div>
 
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Estimated Days</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.estimatedDays || 0} hari</div></div>
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Cargo Details</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.cargoDetails || '-'}</div></div>

@@ -15,9 +15,10 @@ import {
   DollarSign,
   Search,
 } from 'lucide-react';
-import { JobCall, ActiveTab, Vessel } from '../../types';
+import { JobCall, ActiveTab, ExpensesItem, FixTariff, Vessel } from '../../types';
 import { db } from '../../db/storage';
 import { formatDateDisplay } from '../../utils/date';
+import { formatCostCategoryLabel } from '../../utils/costCategories';
 import { QuotesEPDAView } from '../sales/QuotesEPDAView';
 import { FDAView } from '../fda/FDAView';
 
@@ -26,6 +27,8 @@ interface ManagerOpsViewProps {
   jobCalls: JobCall[];
   vessels?: Vessel[];
   users?: Array<{ id?: string; name?: string; branch?: string; username?: string; role?: string }>;
+  fixTariffs: FixTariff[];
+  expensesItems: ExpensesItem[];
   onSelectJob: (jobId: string) => void;
   onNavigate: (tab: ActiveTab) => void;
 }
@@ -35,6 +38,8 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
   jobCalls,
   vessels = [],
   users = [],
+  fixTariffs,
+  expensesItems,
   onSelectJob,
   onNavigate,
 }) => {
@@ -116,20 +121,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
     return sum + (currency === 'USD' ? normalizedAmount * rate : normalizedAmount);
   }, 0);
 
-  const formatEPDACategory = (category: string) => {
-    const labels: Record<string, string> = {
-      PORT_EXPENSES: 'PORT EXPENSES',
-      PORT_SERVICE: 'PORT SERVICE',
-      CLEARANCE: 'CLEARANCE IN/OUT',
-      GENERAL_EXPENSES: 'GENERAL EXPENSES',
-      CREW_EXPENSES: 'CREW EXPENSES',
-      AGENCY_FEE: 'AGENCY FEE',
-      TAX_CONTINGENCY: 'TAX & CONTINGENCY',
-      VAT_11: 'VAT 11%',
-      PPH_INCOME_TAX: 'PPH / INCOME TAX',
-    };
-    return labels[category] || category.replace(/_/g, ' ');
-  };
+  const formatEPDACategory = (category: string) => formatCostCategoryLabel(category);
 
   const resolveCreatedByMeta = (job: JobCall) => {
     const createdByUserId = job.inquiry?.createdByUserId;
@@ -533,6 +525,8 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                                 onSelectJob={onSelectJob}
                                 allJobs={jobCalls}
                                 users={users}
+                                fixTariffs={fixTariffs}
+                                expensesItems={expensesItems}
                                 printPreviewOnly
                               />
                             </div>
@@ -547,6 +541,8 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                                 jobCalls={jobCalls}
                                 vessels={vessels}
                                 activeJob={job}
+                                fixTariffs={fixTariffs}
+                                expensesItems={expensesItems}
                                 onSelectJob={onSelectJob}
                                 onNavigate={onNavigate}
                               />
@@ -663,6 +659,8 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                           onSelectJob={onSelectJob}
                           allJobs={jobCalls}
                           users={[]}
+                          fixTariffs={fixTariffs}
+                          expensesItems={expensesItems}
                           printPreviewOnly
                         />
                       </div>
@@ -753,6 +751,8 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                           vessels={vessels}
                           activeJob={job}
                           onSelectJob={onSelectJob}
+                          fixTariffs={fixTariffs}
+                          expensesItems={expensesItems}
                           onNavigate={onNavigate}
                         />
                       </div>

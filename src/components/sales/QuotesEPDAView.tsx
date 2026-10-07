@@ -1,8 +1,9 @@
 import React, { useRef, useState } from 'react';
 import { FileSpreadsheet, Plus, Trash2, Save, Ship, Building, CheckCircle2, Download, Printer, Eye, Send, Pencil, Check, X } from 'lucide-react';
-import { JobCall, DisbursementItem, Currency, User, Vessel, FixTariff, ExpensesItem } from '../../types';
+import { JobCall, DisbursementItem, Currency, User, Vessel, FixTariff, ExpensesItem, formatPurposeOfCall } from '../../types';
 import { db, getCurrentBranchName, buildBranchAwareEPDANumber } from '../../db/storage';
 import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, filterTariffsByGRT, hasTariffGRTRestriction, selectPreferredTariffOptions } from '../../utils/tariff';
+import { formatCostCategoryLabel, getCostCategoryRank, normalizeCostCategory } from '../../utils/costCategories';
 
 interface QuotesEPDAViewProps {
   job?: JobCall;
@@ -144,25 +145,6 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       || (!!currentPortName && !!targetPortName && currentPortName.toLowerCase() === targetPortName.toLowerCase());
   };
   const buildAutoServiceOptions = (currency: Currency) => {
-    const categoryOrder: Record<string, number> = {
-      PORT_SERVICE: 0,
-      PORT_EXPENSES: 1,
-      PORT_DUES: 2,
-      BERTHING: 3,
-      PILOTAGE_TOWAGE: 4,
-      CLEARANCE: 5,
-      IMMIGRATION_CUSTOMS: 6,
-      GENERAL_EXPENSES: 7,
-      LOGISTICS_SUPPLIES: 8,
-      SUNDRY: 9,
-      CREW_EXPENSES: 10,
-      CREW_CHANGE: 11,
-      AGENCY_FEE: 12,
-      OWNER_MATTER: 13,
-      TAX_CONTINGENCY: 14,
-      PPH_INCOME_TAX: 16,
-      VAT_11: 17,
-    };
     const serviceKey = (name: string, category: string) => `${name.trim().toLowerCase()}|${category.trim().toUpperCase()}`;
     const currentCurrencyFixTariffs = fixTariffs.filter((tariff) =>
       portMatches(tariff.portId, tariff.portName)
@@ -221,7 +203,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       })),
           ]);
     return options.sort((a, b) =>
-      (categoryOrder[a.category] ?? 15) - (categoryOrder[b.category] ?? 15)
+      (getCostCategoryRank(a.category) - getCostCategoryRank(b.category))
       || a.name.localeCompare(b.name)
     );
         };
@@ -354,11 +336,12 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     const portName = (job.portName || job.inquiry?.portName || '').trim();
     const quickRate = rateValue || Number(newItem.amount) || 0;
     const normalizedItemName = itemName.toLowerCase();
+    const isTariffCategory = newItem.category === 'PORT_SERVICE' || newItem.category === 'PORT_EXPENSES';
     const isSamePort = (masterPortId?: string, masterPortName?: string) =>
       (!!portId && !!masterPortId && masterPortId === portId)
       || (!!portName && !!masterPortName && masterPortName.toLowerCase() === portName.toLowerCase());
 
-    const duplicateExists = newItem.category === 'PORT_EXPENSES'
+    const duplicateExists = isTariffCategory
       ? fixTariffs.some((tariff) =>
           tariff.serviceName.trim().toLowerCase() === normalizedItemName
           && isSamePort(tariff.portId, tariff.portName)
@@ -409,7 +392,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       calculationType: newItem.tariffType || 'FIXED',
     };
 
-    if (newItem.category === 'PORT_EXPENSES') {
+    if (isTariffCategory) {
       db.addFixTariff(tariffPayload);
     } else {
       db.addExpensesItem(expensePayload);
@@ -517,51 +500,18 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     if (itemName.startsWith('port service')) return 'PORT_SERVICE';
     return '';
   };
-  const categoryLabel = (category: string) => {
-    const map: Record<string, string> = {
-      PORT_EXPENSES: 'PORT EXPENSES',
-      PORT_SERVICE: 'PORT SERVICE',
-      CLEARANCE: 'CLEARANCE IN/OUT',
-      GENERAL_EXPENSES: 'GENERAL EXPENSES',
-      CREW_EXPENSES: 'CREW EXPENSES',
-      AGENCY_FEE: 'AGENCY FEE',
-      TAX_CONTINGENCY: 'TAX & CONTINGENCY',
-      OWNER_MATTER: 'OWNER MATTER',
-      VAT_11: 'VAT 11%',
-      PPH_INCOME_TAX: 'PPH / INCOME TAX',
-    };
-    const normalizedCategory = normalizeCategory(category);
-    return map[normalizedCategory] || normalizedCategory.replaceAll('_', ' ') || 'UNCATEGORIZED';
-  };
+  const categoryLabel = (category: string) => formatCostCategoryLabel(category);
   const categoryTone = { screen: 'bg-slate-600 text-white', background: '#4b5563' };
   const groupedItems = items.reduce<Array<{ category: string; items: DisbursementItem[] }>>((groups, item) => {
-    const category = resolveItemCategory(item);
+    const category = normalizeCostCategory(resolveItemCategory(item));
     const existing = groups.find((group) => group.category === category);
     if (existing) existing.items.push(item);
     else groups.push({ category, items: [item] });
     return groups;
-  }, []).sort((a, b) => {
-    const order: Record<string, number> = {
-      PORT_SERVICE: 0,
-      PORT_EXPENSES: 1,
-      PORT_DUES: 2,
-      BERTHING: 3,
-      PILOTAGE_TOWAGE: 4,
-      CLEARANCE: 5,
-      IMMIGRATION_CUSTOMS: 6,
-      GENERAL_EXPENSES: 7,
-      LOGISTICS_SUPPLIES: 8,
-      SUNDRY: 9,
-      CREW_EXPENSES: 10,
-      CREW_CHANGE: 11,
-      AGENCY_FEE: 12,
-      OWNER_MATTER: 13,
-      TAX_CONTINGENCY: 14,
-      VAT_11: 100,
-      PPH_INCOME_TAX: 101,
-    };
-    return (order[a.category] ?? 50) - (order[b.category] ?? 50) || a.category.localeCompare(b.category);
-  });
+  }, []).sort((a, b) =>
+    (getCostCategoryRank(a.category) - getCostCategoryRank(b.category))
+    || a.category.localeCompare(b.category)
+  );
   const getItemTariff = (item: DisbursementItem) => {
     const serviceDescription = describeTariffService(item.name);
     const currency = item.currency || viewCurrency;
@@ -765,7 +715,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
           <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Keterangan ETA</div><div className="mt-1 font-bold text-white">{job.inquiry.etaRemarks || '-'}</div></div>
           <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Keterangan ETD</div><div className="mt-1 font-bold text-white">{job.inquiry.etdRemarks || '-'}</div></div>
           <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Cargo Quantity</div><div className="mt-1 font-bold text-white">{job.inquiry.cargoQuantity || 0} {job.inquiry.quantityUnit || 'TON'}</div></div>
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Purpose</div><div className="mt-1 font-bold text-white">{job.purposeOfCall}</div></div>
+          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Purpose</div><div className="mt-1 font-bold text-white">{formatPurposeOfCall(job.purposeOfCall)}</div></div>
 
           <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Estimated Days</div><div className="mt-1 font-bold text-white">{job.inquiry.estimatedDays || 0} hari</div></div>
           <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Cargo Details</div><div className="mt-1 font-bold text-white">{job.inquiry.cargoDetails || '-'}</div></div>
