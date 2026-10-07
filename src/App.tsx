@@ -633,7 +633,7 @@ export default function App() {
             )}
 
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_HISTORY_REPORT' && (
-              <FinancialHistoryView paymentVouchers={currentUserPaymentVouchers} />
+              <FinancialHistoryView paymentVouchers={data.paymentVouchers || []} />
             )}
 
             {currentRole === 'FINANCE' && (activeTab === 'FINANCE_DASHBOARD' ||
