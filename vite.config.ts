@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'path';
-import {defineConfig, type Plugin} from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 
 const repoBase = '/lenteraglobalmaritim';
 
@@ -59,6 +59,23 @@ export default defineConfig(() => {
         '@': path.resolve(__dirname, 'src'),
       },
     },
+    // =========================================================================
+    // BERIKUT KONFIGURASI TAMBAHAN UNTUK MENGATASI BUILD TERLALU BESAR
+    // =========================================================================
+    build: {
+      chunkSizeWarningLimit: 1000, // Menaikkan batas toleransi ukuran file menjadi 1000 kB
+      rollupOptions: {
+        output: {
+          // Memecah library dari folder node_modules secara otomatis agar ukuran file menjadi kecil-kecil
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              return id.toString().split('node_modules/')[1].split('/')[0].toString();
+            }
+          },
+        },
+      },
+    },
+    // =========================================================================
     server: {
       host: '0.0.0.0',
       port: 3000,
@@ -69,10 +86,7 @@ export default defineConfig(() => {
           changeOrigin: true,
         },
       },
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
-      // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },
   };
