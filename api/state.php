@@ -179,6 +179,9 @@ try {
     $savedRevision = stateRevision($savedState);
     $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
     jsonResponse(['ok' => true, 'revision' => $savedRevision]);
+} catch (DatabaseSchemaException $error) {
+    error_log('MaritimPort database schema error: ' . $error->getMessage());
+    jsonResponse(['error' => $error->getMessage()], 500);
 } catch (PDOException $error) {
     error_log('MaritimPort state database error: ' . $error->getMessage());
     jsonResponse(['error' => 'Database operation failed', 'details' => $config['debug'] ? $error->getMessage() : null], 500);

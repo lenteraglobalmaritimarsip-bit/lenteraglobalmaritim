@@ -174,6 +174,7 @@ class DatabaseService {
   private state: DatabaseState;
   private listeners: Array<(state: DatabaseState) => void> = [];
   private apiSaveQueue: Promise<void> = Promise.resolve();
+  private apiSyncError: unknown = null;
   private apiRevision = '';
   private stateVersion = 0;
   private actor: { id?: string; name: string; role: UserRole; branch?: string } = { name: 'System', role: 'ADMIN' };
@@ -345,7 +346,7 @@ class DatabaseService {
     return this.actor.branch?.trim() || 'Head Office';
   }
 
-  private saveToStorage(): boolean {
+  private saveToStorage(notify = true): boolean {
     this.stateVersion += 1;
     try {
       const safeState = apiAuth.enabled
@@ -354,7 +355,7 @@ class DatabaseService {
       localStorage.setItem(LOCAL_DATABASE_KEY, JSON.stringify(safeState));
     } catch (error) {
       console.error('Failed to save local database:', error);
-      this.notify();
+      if (notify) this.notify();
       return false;
     }
     if (apiAuth.enabled) {
@@ -362,12 +363,15 @@ class DatabaseService {
       this.apiSaveQueue = this.apiSaveQueue
         .then(async () => {
           if (!this.apiRevision) {
+            this.apiSyncError = new Error('Revisi database remote tidak tersedia.');
             console.warn('Remote database revision missing; keeping local browser copy only.');
             return;
           }
           this.apiRevision = await dataApi.save(snapshot, this.apiRevision);
+          this.apiSyncError = null;
         })
         .catch((error: unknown) => {
+          this.apiSyncError = error;
           console.warn('API synchronization unavailable; local storage will keep the latest state.', error);
           try {
             localStorage.setItem(LOCAL_DATABASE_KEY, JSON.stringify(snapshot));
@@ -376,12 +380,46 @@ class DatabaseService {
           }
         });
     }
-    this.notify();
+    if (notify) this.notify();
     return true;
   }
 
   private notifyAfterDelete(): void {
     this.saveToStorage();
+  }
+
+  private async persistPaymentVoucherMutation(
+    previousVouchers: PaymentVoucher[],
+    previousAuditLogs: DatabaseState['auditLogs'],
+  ): Promise<void> {
+    if (!this.saveToStorage(false)) {
+      this.state.paymentVouchers = previousVouchers;
+      this.state.auditLogs = previousAuditLogs;
+      this.notify();
+      throw new Error('Perubahan voucher gagal disimpan di browser. Periksa ruang penyimpanan lalu coba lagi.');
+    }
+
+    if (apiAuth.enabled) {
+      await this.apiSaveQueue;
+      if (this.apiSyncError) {
+        const message = this.apiSyncError instanceof Error
+          ? this.apiSyncError.message
+          : String(this.apiSyncError);
+        this.state.paymentVouchers = previousVouchers;
+        this.state.auditLogs = previousAuditLogs;
+        this.stateVersion += 1;
+        try {
+          const safeState = { ...this.state, users: this.state.users.map(({ password: _password, ...user }) => user) };
+          localStorage.setItem(LOCAL_DATABASE_KEY, JSON.stringify(safeState));
+        } catch (error) {
+          console.error('Failed to restore local state after voucher sync failure:', error);
+        }
+        this.notify();
+        throw new Error(`Perubahan voucher gagal disimpan ke database: ${message}`);
+      }
+    }
+
+    this.notify();
   }
 
   public subscribe(listener: (state: DatabaseState) => void): () => void {
@@ -721,6 +759,17 @@ class DatabaseService {
     return `OPS-${String(maxSequence + 1).padStart(4, '0')}-${suffix}`;
   }
 
+  public getNextFinanceVoucherNumber(paymentDate: string): string {
+    const date = new Date(`${paymentDate}T00:00:00`);
+    const valid = Number.isNaN(date.getTime()) ? new Date() : date;
+    const suffix = `${String(valid.getMonth() + 1).padStart(2, '0')}${String(valid.getFullYear()).slice(-2)}`;
+    const maxSequence = (this.state.paymentVouchers || []).reduce((max, voucher) => {
+      const match = /^PVJKT-(\d+)-(\d{4})$/.exec(voucher.voucherNumber || '');
+      return match && match[2] === suffix ? Math.max(max, Number(match[1])) : max;
+    }, 0);
+    return `PVJKT-${String(maxSequence + 1).padStart(4, '0')}-${suffix}`;
+  }
+
   public getNextOperationalJobNumber(requestDate: string): string {
     const date = new Date(requestDate);
     const valid = Number.isNaN(date.getTime()) ? new Date() : date;
@@ -736,23 +785,27 @@ class DatabaseService {
   }
 
   public async addPaymentVoucher(voucher: Omit<PaymentVoucher, 'id' | 'requestNumber' | 'createdAt'>): Promise<PaymentVoucher> {
+    const previousVouchers = this.state.paymentVouchers;
+    const previousAuditLogs = this.state.auditLogs;
     const requestNumber = this.getNextPaymentVoucherNumber(voucher.requestDate);
     const newVoucher: PaymentVoucher = { ...voucher, status: 'PENDING_MANAGER', id: `PV-${Date.now()}`, requestNumber, createdAt: new Date().toISOString() };
     this.state.paymentVouchers = [newVoucher, ...(this.state.paymentVouchers || [])];
     this.audit('CREATE', 'PAYMENT_VOUCHER', `Created payment voucher ${requestNumber}`, newVoucher.id);
-    await this.saveToStorage();
+    await this.persistPaymentVoucherMutation(previousVouchers, previousAuditLogs);
     return newVoucher;
   }
 
   public async updatePaymentVoucher(id: string, patch: Partial<Omit<PaymentVoucher, 'id' | 'requestNumber' | 'createdAt'>>): Promise<void> {
     const existing = (this.state.paymentVouchers || []).find((v) => v.id === id);
     if (!existing) throw new Error('Payment Voucher tidak ditemukan.');
+    const previousVouchers = this.state.paymentVouchers;
+    const previousAuditLogs = this.state.auditLogs;
     const resubmit = existing.status === 'REJECTED';
     this.state.paymentVouchers = this.state.paymentVouchers.map((v) => (v.id === id
       ? { ...v, ...patch, ...(resubmit ? { status: 'PENDING_MANAGER' as const, managerNote: '', reviewedBy: '', reviewedAt: '' } : {}) }
       : v));
     this.audit('UPDATE', 'PAYMENT_VOUCHER', `Updated payment voucher ${existing.requestNumber}`, id);
-    await this.saveToStorage();
+    await this.persistPaymentVoucherMutation(previousVouchers, previousAuditLogs);
   }
 
   public async reviewPaymentVoucher(id: string, decision: 'APPROVED' | 'REJECTED', reviewer: string, note = ''): Promise<void> {
@@ -760,22 +813,32 @@ class DatabaseService {
     if (!existing) throw new Error('Payment Voucher tidak ditemukan.');
     if ((existing.status || 'PENDING_MANAGER') !== 'PENDING_MANAGER') throw new Error('Voucher ini tidak sedang menunggu persetujuan.');
     if (decision === 'REJECTED' && !note.trim()) throw new Error('Alasan penolakan wajib diisi.');
+    const previousVouchers = this.state.paymentVouchers;
+    const previousAuditLogs = this.state.auditLogs;
     this.state.paymentVouchers = this.state.paymentVouchers.map((v) => (v.id === id
       ? { ...v, status: decision, managerNote: note.trim(), reviewedBy: reviewer, reviewedAt: new Date().toISOString() }
       : v));
     this.audit(decision === 'APPROVED' ? 'APPROVE' : 'REJECT', 'PAYMENT_VOUCHER', `Payment voucher ${existing.requestNumber} ${decision}`, id);
-    await this.saveToStorage();
+    await this.persistPaymentVoucherMutation(previousVouchers, previousAuditLogs);
   }
 
-  public async payPaymentVoucher(id: string, payer: string): Promise<void> {
+  public async payPaymentVoucher(id: string, payer: string, paymentDate?: string): Promise<void> {
     const existing = (this.state.paymentVouchers || []).find((v) => v.id === id);
     if (!existing) throw new Error('Payment Voucher tidak ditemukan.');
-    if (existing.status !== 'APPROVED') throw new Error('Hanya voucher yang sudah disetujui yang dapat dibayar.');
+    if (existing.status === 'PAID') throw new Error('Voucher ini sudah dibayar sebelumnya.');
+    if (existing.status !== 'APPROVED') {
+      throw new Error(`Voucher belum berstatus Disetujui (status saat ini: ${existing.status || 'PENDING_MANAGER'}).`);
+    }
+    const previousVouchers = this.state.paymentVouchers;
+    const previousAuditLogs = this.state.auditLogs;
+    const paidOn = paymentDate || new Date().toISOString().slice(0, 10);
+    const paidAt = new Date(`${paidOn}T12:00:00`).toISOString();
+    const voucherNumber = existing.voucherNumber || this.getNextFinanceVoucherNumber(paidOn);
     this.state.paymentVouchers = this.state.paymentVouchers.map((v) => (v.id === id
-      ? { ...v, status: 'PAID' as const, paidBy: payer, paidAt: new Date().toISOString() }
+      ? { ...v, voucherNumber, status: 'PAID' as const, paidBy: payer, paidAt }
       : v));
     this.audit('PAY', 'PAYMENT_VOUCHER', `Paid payment voucher ${existing.requestNumber}`, id);
-    await this.saveToStorage();
+    await this.persistPaymentVoucherMutation(previousVouchers, previousAuditLogs);
   }
 
   // --- JOB / VESSEL CALL LIFECYCLE ---

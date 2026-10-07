@@ -151,6 +151,7 @@ export type PaymentVoucherStatus = 'PENDING_MANAGER' | 'APPROVED' | 'REJECTED' |
 
 export interface PaymentVoucher {
   id: string;
+  voucherNumber?: string;
   requestNumber: string;
   requestDate: string;
   jobInfo: 'OPERASIONAL' | 'JOB_VESSEL';

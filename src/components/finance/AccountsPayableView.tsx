@@ -1,14 +1,42 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChevronDown, ChevronRight, Eye, Receipt, Search } from 'lucide-react';
+import { CalendarDays, ChevronDown, ChevronRight, Printer, Receipt, Search } from 'lucide-react';
 import { BankAccount, PaymentVoucher } from '../../types';
 import { db } from '../../db/storage';
-import { printPaymentReceipt, printPaymentVoucher } from '../../utils/voucherPrint';
+import { printPaymentReceipt } from '../../utils/voucherPrint';
 
 interface AccountsPayableViewProps {
   paymentVouchers: PaymentVoucher[];
   payer: string;
   bankAccounts?: BankAccount[];
 }
+
+interface PaymentFormDraft {
+  voucherId: string;
+  paymentDate: string;
+  manualSurcharge: string;
+  paymentDescription: string;
+  selectedBankId: string;
+}
+
+const paymentFormDraftKey = (owner: string) => `lgm_finance_ap_draft_${owner || 'user'}`;
+
+const loadPaymentFormDraft = (owner: string): PaymentFormDraft | null => {
+  try {
+    const raw = localStorage.getItem(paymentFormDraftKey(owner));
+    if (!raw) return null;
+    const draft = JSON.parse(raw) as Partial<PaymentFormDraft>;
+    if (typeof draft.voucherId !== 'string' || !draft.voucherId) return null;
+    return {
+      voucherId: draft.voucherId,
+      paymentDate: typeof draft.paymentDate === 'string' ? draft.paymentDate : todayIso(),
+      manualSurcharge: typeof draft.manualSurcharge === 'string' ? draft.manualSurcharge : '',
+      paymentDescription: typeof draft.paymentDescription === 'string' ? draft.paymentDescription : '',
+      selectedBankId: typeof draft.selectedBankId === 'string' ? draft.selectedBankId : '',
+    };
+  } catch {
+    return null;
+  }
+};
 
 const money = (value: number) =>
   new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
@@ -42,12 +70,13 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [paymentFormVoucherId, setPaymentFormVoucherId] = useState<string | null>(null);
-  const [paymentDate, setPaymentDate] = useState<string>(() => todayIso());
+  const [initialPaymentDraft] = useState(() => loadPaymentFormDraft(payer));
+  const [paymentFormVoucherId, setPaymentFormVoucherId] = useState<string | null>(() => initialPaymentDraft?.voucherId || null);
+  const [paymentDate, setPaymentDate] = useState<string>(() => initialPaymentDraft?.paymentDate || todayIso());
   const paymentDatePickerRef = useRef<HTMLInputElement | null>(null);
-  const [manualSurcharge, setManualSurcharge] = useState('');
-  const [paymentDescription, setPaymentDescription] = useState('');
-  const [selectedBankId, setSelectedBankId] = useState<string>('');
+  const [manualSurcharge, setManualSurcharge] = useState(() => initialPaymentDraft?.manualSurcharge || '');
+  const [paymentDescription, setPaymentDescription] = useState(() => initialPaymentDraft?.paymentDescription || '');
+  const [selectedBankId, setSelectedBankId] = useState(() => initialPaymentDraft?.selectedBankId || '');
 
   const paymentFormVoucher = useMemo(
     () => paymentVouchers.find((voucher) => voucher.id === paymentFormVoucherId) || null,
@@ -55,12 +84,48 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
   );
 
   useEffect(() => {
-    if (!paymentFormVoucher) return;
+    if (!paymentFormVoucherId || !paymentFormVoucher) return;
+    const draft = loadPaymentFormDraft(payer);
+    if (draft?.voucherId === paymentFormVoucherId) {
+      setPaymentDate(draft.paymentDate);
+      setManualSurcharge(draft.manualSurcharge);
+      setPaymentDescription(draft.paymentDescription);
+      setSelectedBankId(draft.selectedBankId);
+      return;
+    }
     setPaymentDate(todayIso());
     setManualSurcharge('');
     setPaymentDescription(`Payment voucher ${paymentFormVoucher.requestNumber}`);
     setSelectedBankId(bankAccounts[0]?.id || '');
-  }, [paymentFormVoucher, bankAccounts]);
+  }, [paymentFormVoucherId]);
+
+  useEffect(() => {
+    if (!paymentFormVoucherId || paymentFormVoucher?.status !== 'APPROVED') return;
+    try {
+      localStorage.setItem(paymentFormDraftKey(payer), JSON.stringify({
+        voucherId: paymentFormVoucherId,
+        paymentDate,
+        manualSurcharge,
+        paymentDescription,
+        selectedBankId,
+      } satisfies PaymentFormDraft));
+    } catch (draftError) {
+      console.error('Gagal menyimpan draft form pembayaran:', draftError);
+    }
+  }, [paymentFormVoucherId, paymentFormVoucher, payer, paymentDate, manualSurcharge, paymentDescription, selectedBankId]);
+
+  useEffect(() => {
+    if (!paymentFormVoucherId || !paymentFormVoucher || paymentFormVoucher.status === 'APPROVED') return;
+    const draft = loadPaymentFormDraft(payer);
+    if (draft?.voucherId === paymentFormVoucherId) {
+      try {
+        localStorage.removeItem(paymentFormDraftKey(payer));
+      } catch (draftError) {
+        console.error('Gagal menghapus draft form pembayaran:', draftError);
+      }
+    }
+    setPaymentFormVoucherId(null);
+  }, [paymentFormVoucherId, paymentFormVoucher?.status, payer]);
 
   const selectedBank = bankAccounts.find((account) => account.id === selectedBankId) || bankAccounts[0] || null;
 
@@ -79,18 +144,15 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
   }, [manualSurcharge, paymentFormVoucher]);
 
   const voucherNumber = useMemo(() => {
-    const now = new Date();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const year = String(now.getFullYear()).slice(-2);
-    const counter = Math.max(1, paymentVouchers.length + 1);
-    return `PVJKT-${String(counter).padStart(4, '0')}-${month}${year}`;
-  }, [paymentVouchers.length]);
+    return paymentFormVoucher?.voucherNumber || db.getNextFinanceVoucherNumber(paymentDate);
+  }, [paymentDate, paymentFormVoucher]);
 
   const handlePay = async (voucher: PaymentVoucher) => {
     if (!window.confirm(`Tandai voucher ${voucher.requestNumber} sebagai sudah dibayar?`)) return;
     setError('');
     try {
-      await db.payPaymentVoucher(voucher.id, payer);
+      await db.refreshRemote();
+      await db.payPaymentVoucher(voucher.id, payer, todayIso());
     } catch (payError) {
       setError(payError instanceof Error ? payError.message : 'Gagal memproses pembayaran.');
     }
@@ -101,8 +163,42 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
     paymentDatePickerRef.current?.click();
   };
 
-  const handleOpenInvoiceView = () => {
-    if (!paymentFormVoucher) return;
+  const handleOpenInvoiceView = (voucherOverride?: PaymentVoucher) => {
+    const printVoucher = voucherOverride || paymentFormVoucher;
+    if (!printVoucher) return;
+    const matchingDraft = loadPaymentFormDraft(payer);
+    const useCurrentForm = !voucherOverride || voucherOverride.id === paymentFormVoucher?.id;
+    const printDate = useCurrentForm
+      ? paymentDate
+      : matchingDraft?.voucherId === printVoucher.id
+        ? matchingDraft.paymentDate
+        : printVoucher.paidAt?.slice(0, 10) || todayIso();
+    const surcharge = Number(useCurrentForm
+      ? manualSurcharge || 0
+      : matchingDraft?.voucherId === printVoucher.id
+        ? matchingDraft.manualSurcharge || 0
+        : 0);
+    const description = useCurrentForm
+      ? paymentDescription || printVoucher.requestNumber
+      : matchingDraft?.voucherId === printVoucher.id
+        ? matchingDraft.paymentDescription || printVoucher.requestNumber
+        : `Payment voucher ${printVoucher.requestNumber}`;
+    const printBankId = useCurrentForm
+      ? selectedBankId
+      : matchingDraft?.voucherId === printVoucher.id
+        ? matchingDraft.selectedBankId
+        : '';
+    const senderBank = bankAccounts.find((account) => account.id === printBankId) || bankAccounts[0] || null;
+    const totals = {
+      total: Number(printVoucher.totalPaidAmount || 0),
+      pph23: -printVoucher.items.reduce((sum, item) => sum + Number(item.pph23Amount || 0), 0),
+      pph21: -printVoucher.items.reduce((sum, item) => sum + Number(item.pph21Amount || 0), 0),
+      surcharge,
+      totalPayment: Number(printVoucher.totalPaidAmount || 0)
+        - printVoucher.items.reduce((sum, item) => sum + Number(item.pph23Amount || 0), 0)
+        - printVoucher.items.reduce((sum, item) => sum + Number(item.pph21Amount || 0), 0),
+    };
+    const printVoucherNumber = printVoucher.voucherNumber || db.getNextFinanceVoucherNumber(printDate);
     const printWindow = window.open('', '_blank', 'width=1100,height=800');
     if (!printWindow) {
       setError('Popup diblokir; buka kembali dan lanjutkan dengan form ini.');
@@ -110,8 +206,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
     }
 
     const escapeHtml = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    const senderBank = selectedBank || null;
-    const items = paymentFormVoucher.items.map((item, index) => `
+    const items = printVoucher.items.map((item, index) => `
       <tr>
         <td class="center">${index + 1}</td>
         <td>${escapeHtml(item.jobNumber)}</td>
@@ -130,7 +225,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
       <html>
         <head>
           <meta charset="utf-8" />
-          <title>Payment Voucher ${escapeHtml(paymentFormVoucher.requestNumber)}</title>
+          <title>Payment Voucher ${escapeHtml(printVoucher.requestNumber)}</title>
           <style>
             @page { size: A4 portrait; margin: 10mm; }
             * { box-sizing: border-box; }
@@ -148,7 +243,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
             .meta .label { color: #64748b; font-size: 9px; font-weight: 700; text-transform: uppercase; width: 17%; }
             .meta .value { font-weight: 600; width: 33%; }
             .description { background: #f1f5f9; border-left: 3px solid #315db2; margin-top: 12px; padding: 9px 11px; }
-            .section-title { color: #315db2; font-size: 10px; font-weight: 700; letter-spacing: .5px; margin: 18px 0 7px; text-transform: uppercase; }
+            .section-title { color: #315db2; font-size: 11px; font-weight: 700; letter-spacing: .5px; margin: 18px 0 7px; text-transform: uppercase; }
             table.items { border-collapse: collapse; margin-top: 8px; table-layout: fixed; width: 100%; }
             .items th, .items td { border: 1px solid #cbd5e1; padding: 3px 2px; overflow-wrap: anywhere; }
             .items th { background: #e8ecf2; color: #334155; font-size: 6px; text-align: center; text-transform: uppercase; }
@@ -168,10 +263,11 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
             .bank-line b { color: #64748b; font-size: 6.5px; }
             .bank-line i { font-style: normal; text-align: center; }
             .bank-line span { min-width: 0; }
-            .totals { border-collapse: collapse; table-layout: fixed; width: 100%; }
-            .totals td { border-bottom: 1px solid #e2e8f0; padding: 5px 3px; }
-            .totals td:last-child { font-variant-numeric: tabular-nums; text-align: right; }
-            .totals .grand td { background: #182a50; border: 0; color: #fff; font-size: 11px; font-weight: 700; padding: 8px 6px; }
+            .totals { border-collapse: collapse; margin-left: auto; min-width: 72%; table-layout: auto; width: auto; }
+            .totals td { border-bottom: 1px solid #e2e8f0; font-size: 7.5px; line-height: 1.25; padding: 3px 4px; }
+            .totals td:first-child { padding-right: 8px; white-space: nowrap; }
+            .totals td:last-child { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+            .totals .grand td { background: #182a50; border: 0; color: #fff; font-size: 8.5px; font-weight: 700; padding: 5px 4px; }
             .signatures { border-collapse: collapse; margin-top: 24px; page-break-inside: avoid; table-layout: fixed; width: 100%; }
             .signatures th, .signatures td { border: 1px solid #94a3b8; text-align: center; width: 33.33%; }
             .signatures th { background: #f1f5f9; color: #334155; font-size: 9px; height: 26px; padding: 6px; text-transform: uppercase; }
@@ -188,14 +284,14 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
           <h1>PAYMENT VOUCHER</h1>
           <div class="subtitle">Payment authorization document</div>
           <table class="meta"><tbody>
-            <tr><td class="label">Voucher Number</td><td class="value">${escapeHtml(voucherNumber)}</td><td class="label">Request Number</td><td class="value">${escapeHtml(paymentFormVoucher.requestNumber)}</td></tr>
-            <tr><td class="label">Payment Date</td><td class="value">${escapeHtml(formatDisplayDate(paymentDate))}</td><td class="label">Vendor</td><td class="value">${escapeHtml(paymentFormVoucher.vendorName)}</td></tr>
-            <tr><td class="label">Paid To</td><td class="value">${escapeHtml(paymentFormVoucher.paidTo || '-')}</td><td class="label">Bank (Paid To Account)</td><td class="value">${escapeHtml(paymentFormVoucher.bankName || '-')}</td></tr>
-            <tr><td class="label">Request By</td><td class="value">${escapeHtml(paymentFormVoucher.requestBy || payer)}</td><td class="label">A/C Number (Paid To Account)</td><td class="value">${escapeHtml(paymentFormVoucher.accountNumber || '-')}</td></tr>
+            <tr><td class="label">Voucher Number</td><td class="value">${escapeHtml(printVoucherNumber)}</td><td class="label">Request Number</td><td class="value">${escapeHtml(printVoucher.requestNumber)}</td></tr>
+            <tr><td class="label">Payment Date</td><td class="value">${escapeHtml(formatDisplayDate(printDate))}</td><td class="label">Vendor</td><td class="value">${escapeHtml(printVoucher.vendorName)}</td></tr>
+            <tr><td class="label">Paid To</td><td class="value">${escapeHtml(printVoucher.paidTo || '-')}</td><td class="label">Bank (Paid To Account)</td><td class="value">${escapeHtml(printVoucher.bankName || '-')}</td></tr>
+            <tr><td class="label">Request By</td><td class="value">${escapeHtml(printVoucher.requestBy || payer)}</td><td class="label">A/C Number (Paid To Account)</td><td class="value">${escapeHtml(printVoucher.accountNumber || '-')}</td></tr>
           </tbody></table>
-          <div class="description"><b>Description:</b> ${escapeHtml(paymentDescription || paymentFormVoucher.requestNumber)}</div>
+          <div class="description"><b>Description:</b> ${escapeHtml(description)}</div>
           <div class="section-title">Rincian Pembayaran</div>
-          <table class="items"><thead><tr><th>No</th><th>JOB Number</th><th>${paymentFormVoucher.jobInfo === 'JOB_VESSEL' ? 'Vessel Name' : 'Customer'}</th><th>Item Service</th><th>Amount</th><th>VAT (11%)</th><th>Total</th><th>PPH 23 (2%)</th><th>PPH 21 (5%)</th><th>Paid Amount</th></tr></thead><tbody>${items}</tbody></table>
+          <table class="items"><thead><tr><th>No</th><th>JOB Number</th><th>${printVoucher.jobInfo === 'JOB_VESSEL' ? 'Vessel Name' : 'Customer'}</th><th>Item Service</th><th>Amount</th><th>VAT (11%)</th><th>Total</th><th>PPH 23 (2%)</th><th>PPH 21 (5%)</th><th>Paid Amount</th></tr></thead><tbody>${items}</tbody></table>
           <div class="lower">
             <section class="bank"><div class="bank-title"><svg class="bank-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9 9-6 9 6"/><path d="M4 10h16M5 10v9m4-9v9m6-9v9m4-9v9M3 21h18M2 19h20"/></svg><span>Remitting Bank</span></div>
               <div class="bank-line"><b>Bank</b><i>:</i><span>${escapeHtml(senderBank?.bankName || '-')}</span></div>
@@ -204,15 +300,15 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
               <div class="bank-line"><b>Cabang</b><i>:</i><span>${escapeHtml(senderBank?.branch || '-')}</span></div>
             </section>
             <table class="totals"><tbody>
-              <tr><td>Total</td><td>${money(itemTotals.total)}</td></tr>
-              <tr><td>Subcharge</td><td>${money(itemTotals.surcharge)}</td></tr>
-              <tr><td>PPH 23</td><td>${money(itemTotals.pph23)}</td></tr>
-              <tr><td>PPH 21</td><td>${money(itemTotals.pph21)}</td></tr>
-              <tr class="grand"><td>Total Payment</td><td>${money(itemTotals.totalPayment)}</td></tr>
+              <tr><td>Total</td><td>${money(totals.total)}</td></tr>
+              <tr><td>Subcharge</td><td>${money(totals.surcharge)}</td></tr>
+              <tr><td>PPH 23</td><td>${money(totals.pph23)}</td></tr>
+              <tr><td>PPH 21</td><td>${money(totals.pph21)}</td></tr>
+              <tr class="grand"><td>Total Payment</td><td>${money(totals.totalPayment)}</td></tr>
             </tbody></table>
           </div>
           <table class="signatures"><thead><tr><th>Maker</th><th>Checker</th><th>Signer</th></tr></thead><tbody>
-            <tr class="name"><td>${escapeHtml(paymentFormVoucher.requestBy || '-')}</td><td>${escapeHtml(payer || '-')}</td><td>${escapeHtml(paymentFormVoucher.reviewedBy || '-')}</td></tr>
+            <tr class="name"><td>${escapeHtml(printVoucher.requestBy || '-')}</td><td>${escapeHtml(payer || '-')}</td><td>${escapeHtml(printVoucher.reviewedBy || '-')}</td></tr>
           </tbody></table>
           <div class="watermark">Dokumen asli dicetak dari sistem resmi PT Lentera Global Maritim.</div>
         </body>
@@ -461,7 +557,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
             </div>
 
             <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-4">
-              <button type="button" onClick={handleOpenInvoiceView} className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-100">
+              <button type="button" onClick={() => handleOpenInvoiceView()} className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-100">
                 Cetak / PDF
               </button>
               <button
@@ -471,7 +567,13 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                   if (!window.confirm(`Tandai voucher ${paymentFormVoucher.requestNumber} sebagai sudah dibayar?`)) return;
                   setError('');
                   try {
-                    await db.payPaymentVoucher(paymentFormVoucher.id, payer);
+                    await db.refreshRemote();
+                    await db.payPaymentVoucher(paymentFormVoucher.id, payer, paymentDate);
+                    try {
+                      localStorage.removeItem(paymentFormDraftKey(payer));
+                    } catch (draftError) {
+                      console.error('Gagal menghapus draft form pembayaran:', draftError);
+                    }
                     setPaymentFormVoucherId(null);
                   } catch (payError) {
                     setError(payError instanceof Error ? payError.message : 'Gagal memproses pembayaran.');
@@ -585,8 +687,9 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                               <Receipt size={16} />
                             </button>
                           )}
-                          <button type="button" title="Lihat Voucher (Cetak/PDF)" onClick={() => setError(printPaymentVoucher({ ...voucher, signerName: voucher.reviewedBy, paidBy: voucher.paidBy || payer, includeFinancePrintDetails: true }) || '')} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-blue-600">
-                            <Eye size={16} />
+                          <button type="button" onClick={() => handleOpenInvoiceView(voucher)} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-bold text-slate-600 hover:bg-slate-100 hover:text-blue-600">
+                            <Printer size={14} />
+                            Cetak/PDF Payment Voucher
                           </button>
                         </div>
                       </td>

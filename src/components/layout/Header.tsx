@@ -3,7 +3,7 @@ import {
   Bell, Layers, Search, ShieldCheck,
   Briefcase, FileCheck2, DollarSign, UserCircle2
 } from 'lucide-react';
-import { UserRole, JobCall, ActiveTab } from '../../types';
+import { UserRole, JobCall, PaymentVoucher, ActiveTab } from '../../types';
 import { AuthAccount, initials } from '../../auth';
 import { LogOut } from 'lucide-react';
 import { apiAuth } from '../../lib/api';
@@ -15,6 +15,7 @@ interface HeaderProps {
   selectedJobId: string;
   onJobSelect: (jobId: string) => void;
   jobCalls: JobCall[];
+  paymentVouchers: PaymentVoucher[];
   currentUser: AuthAccount;
   onLogout: () => void;
   onNavigate: (tab: ActiveTab) => void;
@@ -31,7 +32,7 @@ type HeaderNotification = {
 
 export const Header: React.FC<HeaderProps> = ({
   currentRole, onProfile, onChangePassword, selectedJobId, onJobSelect,
-  jobCalls, currentUser, onLogout, onNavigate
+  jobCalls, paymentVouchers, currentUser, onLogout, onNavigate
 }) => {
   const [showRoleDropdown, setShowRoleDropdown] = useState(false);
   const [showPasswordForm, setShowPasswordForm] = useState(false);
@@ -45,6 +46,14 @@ export const Header: React.FC<HeaderProps> = ({
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem(`lgm_notification_reads_${currentUser.id}`) || '[]'); } catch { return []; }
   });
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(`lgm_notification_reads_${currentUser.id}`) || '[]');
+      setReadNotificationIds(Array.isArray(saved) ? saved.filter((id): id is string => typeof id === 'string') : []);
+    } catch {
+      setReadNotificationIds([]);
+    }
+  }, [currentUser.id]);
 
   const roleMeta: Record<UserRole, { label: string; desc: string; icon: any }> = {
     ADMIN: { label:'ADMIN', desc:'Master Data & System', icon:ShieldCheck },
@@ -103,7 +112,11 @@ export const Header: React.FC<HeaderProps> = ({
       }
 
       if (currentRole === 'SALES' && approval === 'REJECTED') {
-        push({ id:`rejected-${job.jobId}-${job.managerApproval?.approvedAt || job.updatedAt}`, title:'EPDA/PDA dikembalikan', message:`${job.jobId} · ${job.vesselName} memerlukan revisi sebelum diajukan kembali.`, jobId:job.jobId, tab:'QUOTES_EPDA', kind:'WARNING' });
+        push({ id:`rejected-${job.jobId}-${job.managerApproval?.approvedAt || job.updatedAt}`, title:'EPDA/PDA dikembalikan', message:`${job.jobId} · ${job.vesselName} memerlukan revisi sebelum diajukan kembali. Catatan Manager: ${job.managerApproval?.notes || 'Silakan periksa kembali quotation.'}`, jobId:job.jobId, tab:'QUOTES_EPDA', kind:'WARNING' });
+      }
+
+      if (currentRole === 'SALES' && approval === 'APPROVED') {
+        push({ id:`sales-approved-${job.jobId}-${job.managerApproval?.approvedAt || job.updatedAt}`, title:'Quotation disetujui', message:`${job.jobId} · ${job.vesselName} telah disetujui Manager OPS dan dapat dilanjutkan ke tahap operasional.`, jobId:job.jobId, tab:'QUOTES_EPDA', kind:'INFO' });
       }
 
       if (currentRole === 'FDA' && approval === 'APPROVED' && !job.fda?.fdaApproved) {
@@ -154,12 +167,56 @@ export const Header: React.FC<HeaderProps> = ({
       }
     });
 
+    paymentVouchers.forEach((voucher) => {
+      const status = voucher.status || 'PENDING_MANAGER';
+      const request = `${voucher.requestNumber} · ${voucher.vendorName}`;
+
+      if (currentRole === 'MANAGER_OPS' && status === 'PENDING_MANAGER') {
+        push({
+          id:`voucher-review-${voucher.id}-${voucher.createdAt}`,
+          title:'Payment Voucher menunggu approval',
+          message:`${request} diajukan oleh ${voucher.requestBy || 'FDA'} dan menunggu persetujuan.`,
+          tab:'MANAGER_VOUCHER_APPROVAL',
+          kind:'APPROVAL',
+        });
+      }
+
+      if (currentRole === 'FDA' && voucher.requestBy === currentUser.name && (status === 'APPROVED' || status === 'REJECTED' || status === 'PAID')) {
+        const rejected = status === 'REJECTED';
+        const paid = status === 'PAID';
+        push({
+          id:`voucher-${status.toLowerCase()}-${voucher.id}-${paid ? voucher.paidAt || voucher.createdAt : voucher.reviewedAt || voucher.createdAt}`,
+          title:rejected ? 'Payment Voucher perlu revisi' : paid ? 'Payment Voucher telah dibayar' : 'Payment Voucher disetujui',
+          message:rejected
+            ? `${request} ditolak Manager OPS. Catatan: ${voucher.managerNote || 'Silakan periksa dan ajukan kembali.'}`
+            : paid
+              ? `${request} telah dibayar Finance.`
+              : `${request} disetujui Manager OPS dan diteruskan ke Finance untuk pembayaran.`,
+          tab:rejected ? 'FDA_EDIT_VOUCHER' : 'FDA_PAYMENT_HISTORY',
+          kind:rejected ? 'WARNING' : paid ? 'INFO' : 'APPROVAL',
+        });
+      }
+
+      if (currentRole === 'FINANCE' && status === 'APPROVED') {
+        push({
+          id:`finance-voucher-approved-${voucher.id}-${voucher.reviewedAt || voucher.createdAt}`,
+          title:'Payment Voucher siap dibayar',
+          message:`${request} sudah disetujui dan menunggu proses pembayaran Finance.`,
+          tab:'FINANCE_ACCOUNTS_PAYABLE',
+          kind:'APPROVAL',
+        });
+      }
+    });
+
     if (currentRole === 'ADMIN') {
       const latest = jobCalls.slice().sort((a,b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0];
       if (latest) push({ id:`info-${latest.jobId}-${latest.updatedAt}`, title:'Aktivitas job terbaru', message:`${latest.jobId} · ${latest.vesselName} terakhir diperbarui.`, jobId:latest.jobId, tab:'ACTIVE_VESSEL_CALLS', kind:'INFO' });
     }
 
-    return items.slice(0, 12);
+    const priority = { APPROVAL: 0, WARNING: 1, INFO: 2 };
+    return items
+      .sort((a, b) => priority[a.kind] - priority[b.kind])
+      .slice(0, 30);
   })();
 
   const visibleNotifications = notifications.filter(n => !readNotificationIds.includes(n.id));

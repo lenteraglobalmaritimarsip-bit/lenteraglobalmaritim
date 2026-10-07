@@ -169,6 +169,7 @@ CREATE TABLE bank_accounts (
 
 CREATE TABLE payment_vouchers (
   id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  voucher_number VARCHAR(50) UNIQUE,
   request_number VARCHAR(50) NOT NULL UNIQUE,
   request_date DATE NOT NULL,
   job_info ENUM('OPERASIONAL', 'JOB_VESSEL') NOT NULL,

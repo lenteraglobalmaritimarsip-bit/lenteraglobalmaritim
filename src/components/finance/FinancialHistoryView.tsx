@@ -68,10 +68,10 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
   const handleDownload = async () => {
     const workbook = new ExcelJS.Workbook();
     const summary = workbook.addWorksheet('Laporan Keuangan');
-    summary.addRow(['No', 'Request Number', 'Date Request', 'Date Paid', 'Info JOB', 'Vendor Name', 'Paid To', 'Bank', 'A/C Number', 'Request By', 'Amount', 'PPN (VAT)', 'Total', 'PPH 23', 'PPH 21', 'Paid Amount']);
+    summary.addRow(['No', 'Voucher Number', 'Request Number', 'Date Request', 'Date Paid', 'Info JOB', 'Vendor Name', 'Paid To', 'Bank', 'A/C Number', 'Request By', 'Amount', 'PPN (VAT)', 'Total', 'PPH 23', 'PPH 21', 'Paid Amount']);
     rows.forEach(({ voucher, sums }, index) => {
       summary.addRow([
-        index + 1, voucher.requestNumber, String(voucher.requestDate).slice(0, 10), voucher.paidAt ? String(voucher.paidAt).slice(0, 10) : '-',
+        index + 1, voucher.voucherNumber || '-', voucher.requestNumber, String(voucher.requestDate).slice(0, 10), voucher.paidAt ? String(voucher.paidAt).slice(0, 10) : '-',
         voucher.jobInfo === 'JOB_VESSEL' ? 'JOB Vessel' : 'Operasional',
         voucher.vendorName, voucher.paidTo, voucher.bankName, voucher.accountNumber, voucher.requestBy,
         sums.amount, sums.vat, sums.total, sums.pph23, sums.pph21, sums.paid,
@@ -80,11 +80,11 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
     summary.addRow(['', '', '', '', '', '', '', '', '', 'TOTAL', grand.amount, grand.vat, grand.total, grand.pph23, grand.pph21, grand.paid]);
 
     const detail = workbook.addWorksheet('Detail Item');
-    detail.addRow(['Request Number', 'Date Request', 'Date Paid', 'Vendor Name', 'JOB Number', 'Customer', 'Item Service', 'Amount', 'PPN (VAT)', 'Total', 'PPH 23', 'PPH 21', 'Paid Amount']);
+    detail.addRow(['Voucher Number', 'Request Number', 'Date Request', 'Date Paid', 'Vendor Name', 'JOB Number', 'Customer', 'Item Service', 'Amount', 'PPN (VAT)', 'Total', 'PPH 23', 'PPH 21', 'Paid Amount']);
     rows.forEach(({ voucher }) => {
       (voucher.items || []).forEach((item) => {
         detail.addRow([
-          voucher.requestNumber, String(voucher.requestDate).slice(0, 10), voucher.paidAt ? String(voucher.paidAt).slice(0, 10) : '-', voucher.vendorName,
+          voucher.voucherNumber || '-', voucher.requestNumber, String(voucher.requestDate).slice(0, 10), voucher.paidAt ? String(voucher.paidAt).slice(0, 10) : '-', voucher.vendorName,
           item.jobNumber, item.customerName, item.itemService,
           item.amount, item.vatAmount, item.total, item.pph23Amount, item.pph21Amount, item.paidAmount,
         ]);
@@ -96,9 +96,9 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
       sheet.columns.forEach((column) => { column.width = 18; });
     });
     summary.lastRow!.font = { bold: true };
-    summary.getColumn(11).numFmt = summary.getColumn(12).numFmt = summary.getColumn(13).numFmt =
-      summary.getColumn(14).numFmt = summary.getColumn(15).numFmt = summary.getColumn(16).numFmt = '#,##0.00';
-    [8, 9, 10, 11, 12, 13].forEach((col) => { detail.getColumn(col).numFmt = '#,##0.00'; });
+    summary.getColumn(12).numFmt = summary.getColumn(13).numFmt = summary.getColumn(14).numFmt =
+      summary.getColumn(15).numFmt = summary.getColumn(16).numFmt = summary.getColumn(17).numFmt = '#,##0.00';
+    [9, 10, 11, 12, 13, 14].forEach((col) => { detail.getColumn(col).numFmt = '#,##0.00'; });
 
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -144,10 +144,11 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <table className="w-full min-w-[1300px] text-left">
+        <table className="w-full min-w-[1450px] text-left">
           <thead className="border-b border-slate-200 bg-slate-50">
             <tr>
               <th className={th}>No</th>
+              <th className={th}>Voucher Number</th>
               <th className={th}>Request Number</th>
               <th className={th}>Date Request</th>
               <th className={th}>Date Paid</th>
@@ -163,11 +164,12 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
           </thead>
           <tbody className="divide-y divide-slate-100">
             {rows.length === 0 && (
-              <tr><td colSpan={12} className="px-3 py-10 text-center text-xs text-slate-400">Belum ada data pada periode ini.</td></tr>
+              <tr><td colSpan={13} className="px-3 py-10 text-center text-xs text-slate-400">Belum ada data pada periode ini.</td></tr>
             )}
             {rows.map(({ voucher, sums }, index) => (
               <tr key={voucher.id} className="hover:bg-slate-50">
                 <td className="px-3 py-2 text-xs text-slate-500">{index + 1}</td>
+                <td className="px-3 py-2 font-mono text-xs font-bold text-slate-900">{voucher.voucherNumber || '-'}</td>
                 <td className="px-3 py-2 font-mono text-xs font-bold text-slate-900">{voucher.requestNumber}</td>
                 <td className="px-3 py-2 text-xs text-slate-600">{formatDate(voucher.requestDate)}</td>
                 <td className="px-3 py-2 text-xs text-slate-600">{formatDate(voucher.paidAt || '')}</td>
@@ -191,7 +193,7 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
           {rows.length > 0 && (
             <tfoot className="border-t-2 border-slate-200 bg-slate-50">
               <tr>
-                <td colSpan={6} className="px-3 py-2 text-right text-[10px] font-bold uppercase text-slate-500">Total</td>
+                <td colSpan={7} className="px-3 py-2 text-right text-[10px] font-bold uppercase text-slate-500">Total</td>
                 <td className={`${num} font-bold`}>{money(grand.amount)}</td>
                 <td className={`${num} font-bold`}>{money(grand.vat)}</td>
                 <td className={`${num} font-bold`}>{money(grand.total)}</td>

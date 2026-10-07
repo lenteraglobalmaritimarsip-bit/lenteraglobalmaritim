@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/bootstrap.php';
 
+class DatabaseSchemaException extends RuntimeException
+{
+}
+
 function tableColumns(PDO $pdo, string $table): ?array
 {
     static $cache = [];
@@ -125,7 +129,7 @@ function loadAppState(): array
         $items = $voucherItems[$row['id']] ?? [];
         usort($items, static fn (array $a, array $b): int => $a['line'] <=> $b['line']);
         return [
-            'id' => $row['id'], 'requestNumber' => $row['request_number'], 'requestDate' => $row['request_date'], 'jobInfo' => $row['job_info'],
+            'id' => $row['id'], 'voucherNumber' => $row['voucher_number'] ?: null, 'requestNumber' => $row['request_number'], 'requestDate' => $row['request_date'], 'jobInfo' => $row['job_info'],
             'requestBy' => $row['request_by'], 'vendorPartnerId' => $row['vendor_partner_id'] ?? '', 'vendorName' => $row['vendor_name'],
             'paidTo' => $row['paid_to'] ?? '', 'bankName' => $row['bank_name'] ?? '', 'accountNumber' => $row['account_number'] ?? '',
             'items' => array_map(static function (array $item): array { unset($item['line']); return $item; }, $items),
@@ -255,6 +259,22 @@ function uniqueRecordId(array &$used, string $id, string $scope): string
 function replaceAppState(array $state): void
 {
     $pdo = db();
+    $paymentVoucherColumns = tableColumns($pdo, 'payment_vouchers');
+    $requiredPaymentVoucherColumns = [
+        'id', 'request_number', 'request_date', 'job_info', 'request_by', 'vendor_name',
+        'total_paid_amount', 'status', 'manager_note', 'reviewed_by', 'reviewed_at',
+        'paid_by', 'paid_at', 'voucher_number',
+    ];
+    $missingPaymentVoucherColumns = $paymentVoucherColumns === null
+        ? $requiredPaymentVoucherColumns
+        : array_values(array_diff($requiredPaymentVoucherColumns, $paymentVoucherColumns));
+    if ($missingPaymentVoucherColumns) {
+        throw new DatabaseSchemaException(
+            'Database schema mismatch: payment_vouchers is missing required columns: '
+            . implode(', ', $missingPaymentVoucherColumns)
+            . '. Apply the required payment voucher migrations before saving.'
+        );
+    }
     $pdo->beginTransaction();
     $usedSofIds = [];
     try {
@@ -277,7 +297,7 @@ function replaceAppState(array $state): void
         foreach (($state['vendorPartners'] ?? []) as $row) insertRow($pdo, 'vendor_partners', ['id' => $row['id'], 'vendor_name' => $row['vendorName'], 'pic_name' => $row['picName'] ?? null, 'address' => $row['address'] ?? null, 'phone' => $row['phone'] ?? null, 'bank_name' => $row['bankName'] ?? null, 'paid_name' => $row['paidName'] ?? null, 'account_number' => $row['accountNumber'] ?? null]);
         foreach (($state['bankAccounts'] ?? []) as $row) insertRow($pdo, 'bank_accounts', ['id' => $row['id'], 'bank_name' => $row['bankName'], 'branch' => $row['branch'] ?? null, 'account_name' => $row['accountName'], 'account_number' => $row['accountNumber']]);
         foreach (($state['paymentVouchers'] ?? []) as $voucher) {
-            insertRow($pdo, 'payment_vouchers', ['id' => $voucher['id'], 'request_number' => $voucher['requestNumber'], 'request_date' => sqlDate($voucher['requestDate'] ?? null, true) ?? date('Y-m-d'), 'job_info' => $voucher['jobInfo'], 'request_by' => $voucher['requestBy'] ?? '', 'vendor_partner_id' => !empty($voucher['vendorPartnerId']) ? $voucher['vendorPartnerId'] : null, 'vendor_name' => $voucher['vendorName'] ?? '', 'paid_to' => $voucher['paidTo'] ?? null, 'bank_name' => $voucher['bankName'] ?? null, 'account_number' => $voucher['accountNumber'] ?? null, 'total_paid_amount' => $voucher['totalPaidAmount'] ?? 0, 'status' => $voucher['status'] ?? 'PENDING_MANAGER', 'manager_note' => $voucher['managerNote'] ?? null, 'reviewed_by' => $voucher['reviewedBy'] ?? null, 'reviewed_at' => sqlDate($voucher['reviewedAt'] ?? null), 'paid_by' => $voucher['paidBy'] ?? null, 'paid_at' => sqlDate($voucher['paidAt'] ?? null), 'created_at' => sqlDate($voucher['createdAt'] ?? null) ?? date('Y-m-d H:i:s')]);
+            insertRow($pdo, 'payment_vouchers', ['id' => $voucher['id'], 'voucher_number' => !empty($voucher['voucherNumber']) ? $voucher['voucherNumber'] : null, 'request_number' => $voucher['requestNumber'], 'request_date' => sqlDate($voucher['requestDate'] ?? null, true) ?? date('Y-m-d'), 'job_info' => $voucher['jobInfo'], 'request_by' => $voucher['requestBy'] ?? '', 'vendor_partner_id' => !empty($voucher['vendorPartnerId']) ? $voucher['vendorPartnerId'] : null, 'vendor_name' => $voucher['vendorName'] ?? '', 'paid_to' => $voucher['paidTo'] ?? null, 'bank_name' => $voucher['bankName'] ?? null, 'account_number' => $voucher['accountNumber'] ?? null, 'total_paid_amount' => $voucher['totalPaidAmount'] ?? 0, 'status' => $voucher['status'] ?? 'PENDING_MANAGER', 'manager_note' => $voucher['managerNote'] ?? null, 'reviewed_by' => $voucher['reviewedBy'] ?? null, 'reviewed_at' => sqlDate($voucher['reviewedAt'] ?? null), 'paid_by' => $voucher['paidBy'] ?? null, 'paid_at' => sqlDate($voucher['paidAt'] ?? null), 'created_at' => sqlDate($voucher['createdAt'] ?? null) ?? date('Y-m-d H:i:s')]);
             foreach (($voucher['items'] ?? []) as $index => $item) {
                 insertRow($pdo, 'payment_voucher_items', ['id' => $item['id'], 'voucher_id' => $voucher['id'], 'line_no' => $index + 1, 'job_number' => $item['jobNumber'] ?? '', 'customer_name' => $item['customerName'] ?? '', 'item_service' => $item['itemService'] ?? '', 'amount' => $item['amount'] ?? 0, 'vat_applied' => !empty($item['vatApplied']) ? 1 : 0, 'vat_amount' => $item['vatAmount'] ?? 0, 'total' => $item['total'] ?? 0, 'pph23_applied' => !empty($item['pph23Applied']) ? 1 : 0, 'pph23_amount' => $item['pph23Amount'] ?? 0, 'pph21_applied' => !empty($item['pph21Applied']) ? 1 : 0, 'pph21_amount' => $item['pph21Amount'] ?? 0, 'paid_amount' => $item['paidAmount'] ?? 0]);
             }
