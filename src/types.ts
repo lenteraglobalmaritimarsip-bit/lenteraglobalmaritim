@@ -142,8 +142,6 @@ export interface PaymentVoucherItem {
   total: number;
   pph23Applied: boolean;
   pph23Amount: number;
-  pph21Applied: boolean;
-  pph21Amount: number;
   paidAmount: number;
 }
 

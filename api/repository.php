@@ -121,8 +121,7 @@ function loadAppState(): array
             'line' => (int) $row['line_no'], 'id' => $row['id'], 'jobNumber' => $row['job_number'], 'customerName' => $row['customer_name'],
             'itemService' => $row['item_service'], 'amount' => (float) $row['amount'], 'vatApplied' => (bool) $row['vat_applied'],
             'vatAmount' => (float) $row['vat_amount'], 'total' => (float) $row['total'], 'pph23Applied' => (bool) $row['pph23_applied'],
-            'pph23Amount' => (float) $row['pph23_amount'], 'pph21Applied' => (bool) $row['pph21_applied'],
-            'pph21Amount' => (float) $row['pph21_amount'], 'paidAmount' => (float) $row['paid_amount'],
+            'pph23Amount' => (float) $row['pph23_amount'], 'paidAmount' => (float) $row['paid_amount'],
         ];
     }
     $paymentVouchers = array_map(static function (array $row) use ($voucherItems): array {
@@ -299,7 +298,7 @@ function replaceAppState(array $state): void
         foreach (($state['paymentVouchers'] ?? []) as $voucher) {
             insertRow($pdo, 'payment_vouchers', ['id' => $voucher['id'], 'voucher_number' => !empty($voucher['voucherNumber']) ? $voucher['voucherNumber'] : null, 'request_number' => $voucher['requestNumber'], 'request_date' => sqlDate($voucher['requestDate'] ?? null, true) ?? date('Y-m-d'), 'job_info' => $voucher['jobInfo'], 'request_by' => $voucher['requestBy'] ?? '', 'request_by_user_id' => !empty($voucher['requestByUserId']) ? $voucher['requestByUserId'] : null, 'vendor_partner_id' => !empty($voucher['vendorPartnerId']) ? $voucher['vendorPartnerId'] : null, 'vendor_name' => $voucher['vendorName'] ?? '', 'paid_to' => $voucher['paidTo'] ?? null, 'bank_name' => $voucher['bankName'] ?? null, 'account_number' => $voucher['accountNumber'] ?? null, 'total_paid_amount' => $voucher['totalPaidAmount'] ?? 0, 'status' => $voucher['status'] ?? 'PENDING_MANAGER', 'manager_note' => $voucher['managerNote'] ?? null, 'reviewed_by' => $voucher['reviewedBy'] ?? null, 'reviewed_at' => sqlDate($voucher['reviewedAt'] ?? null), 'paid_by' => $voucher['paidBy'] ?? null, 'paid_at' => sqlDate($voucher['paidAt'] ?? null), 'created_at' => sqlDate($voucher['createdAt'] ?? null) ?? date('Y-m-d H:i:s')]);
             foreach (($voucher['items'] ?? []) as $index => $item) {
-                insertRow($pdo, 'payment_voucher_items', ['id' => $item['id'], 'voucher_id' => $voucher['id'], 'line_no' => $index + 1, 'job_number' => $item['jobNumber'] ?? '', 'customer_name' => $item['customerName'] ?? '', 'item_service' => $item['itemService'] ?? '', 'amount' => $item['amount'] ?? 0, 'vat_applied' => !empty($item['vatApplied']) ? 1 : 0, 'vat_amount' => $item['vatAmount'] ?? 0, 'total' => $item['total'] ?? 0, 'pph23_applied' => !empty($item['pph23Applied']) ? 1 : 0, 'pph23_amount' => $item['pph23Amount'] ?? 0, 'pph21_applied' => !empty($item['pph21Applied']) ? 1 : 0, 'pph21_amount' => $item['pph21Amount'] ?? 0, 'paid_amount' => $item['paidAmount'] ?? 0]);
+                insertRow($pdo, 'payment_voucher_items', ['id' => $item['id'], 'voucher_id' => $voucher['id'], 'line_no' => $index + 1, 'job_number' => $item['jobNumber'] ?? '', 'customer_name' => $item['customerName'] ?? '', 'item_service' => $item['itemService'] ?? '', 'amount' => $item['amount'] ?? 0, 'vat_applied' => !empty($item['vatApplied']) ? 1 : 0, 'vat_amount' => $item['vatAmount'] ?? 0, 'total' => $item['total'] ?? 0, 'pph23_applied' => !empty($item['pph23Applied']) ? 1 : 0, 'pph23_amount' => $item['pph23Amount'] ?? 0, 'paid_amount' => $item['paidAmount'] ?? 0]);
             }
         }
         foreach (($state['jobCalls'] ?? []) as $job) {

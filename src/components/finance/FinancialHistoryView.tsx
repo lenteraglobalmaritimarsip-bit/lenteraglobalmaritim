@@ -31,7 +31,6 @@ const sumItems = (voucher: PaymentVoucher) => {
     vat: sum((item) => item.vatAmount),
     total: sum((item) => item.total),
     pph23: sum((item) => item.pph23Amount),
-    pph21: sum((item) => item.pph21Amount),
     paid: voucher.totalPaidAmount ?? sum((item) => item.paidAmount),
   };
 };
@@ -59,34 +58,33 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
       vat: acc.vat + sums.vat,
       total: acc.total + sums.total,
       pph23: acc.pph23 + sums.pph23,
-      pph21: acc.pph21 + sums.pph21,
       paid: acc.paid + sums.paid,
     }),
-    { amount: 0, vat: 0, total: 0, pph23: 0, pph21: 0, paid: 0 },
+    { amount: 0, vat: 0, total: 0, pph23: 0, paid: 0 },
   );
 
   const handleDownload = async () => {
     const workbook = new ExcelJS.Workbook();
     const summary = workbook.addWorksheet('Laporan Keuangan');
-    summary.addRow(['No', 'Voucher Number', 'Request Number', 'Date Request', 'Date Paid', 'Info JOB', 'Vendor Name', 'Paid To', 'Bank', 'A/C Number', 'Request By', 'Amount', 'PPN (VAT)', 'Total', 'PPH 23', 'PPH 21', 'Paid Amount']);
+    summary.addRow(['No', 'Voucher Number', 'Request Number', 'Date Request', 'Date Paid', 'Info JOB', 'Vendor Name', 'Paid To', 'Bank', 'A/C Number', 'Request By', 'Amount', 'PPN (VAT)', 'Total', 'PPH 23', 'Paid Amount']);
     rows.forEach(({ voucher, sums }, index) => {
       summary.addRow([
         index + 1, voucher.voucherNumber || '-', voucher.requestNumber, String(voucher.requestDate).slice(0, 10), voucher.paidAt ? String(voucher.paidAt).slice(0, 10) : '-',
         voucher.jobInfo === 'JOB_VESSEL' ? 'JOB Vessel' : 'Operasional',
         voucher.vendorName, voucher.paidTo, voucher.bankName, voucher.accountNumber, voucher.requestBy,
-        sums.amount, sums.vat, sums.total, sums.pph23, sums.pph21, sums.paid,
+        sums.amount, sums.vat, sums.total, sums.pph23, sums.paid,
       ]);
     });
-    summary.addRow(['', '', '', '', '', '', '', '', '', 'TOTAL', grand.amount, grand.vat, grand.total, grand.pph23, grand.pph21, grand.paid]);
+    summary.addRow(['', '', '', '', '', '', '', '', '', 'TOTAL', grand.amount, grand.vat, grand.total, grand.pph23, grand.paid]);
 
     const detail = workbook.addWorksheet('Detail Item');
-    detail.addRow(['Voucher Number', 'Request Number', 'Date Request', 'Date Paid', 'Vendor Name', 'JOB Number', 'Customer', 'Item Service', 'Amount', 'PPN (VAT)', 'Total', 'PPH 23', 'PPH 21', 'Paid Amount']);
+    detail.addRow(['Voucher Number', 'Request Number', 'Date Request', 'Date Paid', 'Vendor Name', 'JOB Number', 'Customer', 'Item Service', 'Amount', 'PPN (VAT)', 'Total', 'PPH 23', 'Paid Amount']);
     rows.forEach(({ voucher }) => {
       (voucher.items || []).forEach((item) => {
         detail.addRow([
           voucher.voucherNumber || '-', voucher.requestNumber, String(voucher.requestDate).slice(0, 10), voucher.paidAt ? String(voucher.paidAt).slice(0, 10) : '-', voucher.vendorName,
           item.jobNumber, item.customerName, item.itemService,
-          item.amount, item.vatAmount, item.total, item.pph23Amount, item.pph21Amount, item.paidAmount,
+          item.amount, item.vatAmount, item.total, item.pph23Amount, item.paidAmount,
         ]);
       });
     });
@@ -97,7 +95,7 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
     });
     summary.lastRow!.font = { bold: true };
     summary.getColumn(12).numFmt = summary.getColumn(13).numFmt = summary.getColumn(14).numFmt =
-      summary.getColumn(15).numFmt = summary.getColumn(16).numFmt = summary.getColumn(17).numFmt = '#,##0.00';
+      summary.getColumn(15).numFmt = summary.getColumn(16).numFmt = '#,##0.00';
     [9, 10, 11, 12, 13, 14].forEach((col) => { detail.getColumn(col).numFmt = '#,##0.00'; });
 
     const buffer = await workbook.xlsx.writeBuffer();
@@ -120,7 +118,7 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
           <div>
             <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Finance</div>
             <h1 className="mt-1 text-xl font-black text-slate-900 lg:text-2xl">History Laporan Keuangan</h1>
-            <p className="text-xs text-slate-500">Rincian PPN dan PPH per pengajuan pembayaran.</p>
+            <p className="text-xs text-slate-500">Rincian PPN dan PPH 23 per pengajuan pembayaran.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <select
@@ -158,13 +156,12 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
               <th className={`${th} text-right`}>PPN</th>
               <th className={`${th} text-right`}>Total</th>
               <th className={`${th} text-right`}>PPH 23</th>
-              <th className={`${th} text-right`}>PPH 21</th>
               <th className={`${th} text-right`}>Paid Amount</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {rows.length === 0 && (
-              <tr><td colSpan={13} className="px-3 py-10 text-center text-xs text-slate-400">Belum ada data pada periode ini.</td></tr>
+              <tr><td colSpan={12} className="px-3 py-10 text-center text-xs text-slate-400">Belum ada data pada periode ini.</td></tr>
             )}
             {rows.map(({ voucher, sums }, index) => (
               <tr key={voucher.id} className="hover:bg-slate-50">
@@ -185,7 +182,6 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
                 <td className={num}>{money(sums.vat)}</td>
                 <td className={num}>{money(sums.total)}</td>
                 <td className={num}>{money(sums.pph23)}</td>
-                <td className={num}>{money(sums.pph21)}</td>
                 <td className={`${num} font-black text-slate-900`}>{money(sums.paid)}</td>
               </tr>
             ))}
@@ -198,7 +194,6 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
                 <td className={`${num} font-bold`}>{money(grand.vat)}</td>
                 <td className={`${num} font-bold`}>{money(grand.total)}</td>
                 <td className={`${num} font-bold`}>{money(grand.pph23)}</td>
-                <td className={`${num} font-bold`}>{money(grand.pph21)}</td>
                 <td className={`${num} font-black text-slate-900`}>{money(grand.paid)}</td>
               </tr>
             </tfoot>

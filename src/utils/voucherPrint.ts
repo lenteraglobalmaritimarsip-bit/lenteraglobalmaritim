@@ -20,7 +20,7 @@ export interface PrintableVoucher {
   paidTo: string;
   bankName: string;
   accountNumber: string;
-  items: Pick<PaymentVoucher['items'][number], 'jobNumber' | 'customerName' | 'itemService' | 'amount' | 'vatAmount' | 'total' | 'pph23Amount' | 'pph21Amount' | 'paidAmount'>[];
+  items: Pick<PaymentVoucher['items'][number], 'jobNumber' | 'customerName' | 'itemService' | 'amount' | 'vatAmount' | 'total' | 'pph23Amount' | 'paidAmount'>[];
 }
 
 // Returns an error message, or null when the print window opened.
@@ -40,12 +40,11 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
   const sum = (pick: (item: PrintableVoucher['items'][number]) => number) => voucher.items.reduce((total, item) => total + (pick(item) || 0), 0);
   const totalBeforePph = sum((item) => item.total);
   const totalPph23 = sum((item) => item.pph23Amount);
-  const totalPph21 = sum((item) => item.pph21Amount);
-  const totalPayment = totalBeforePph - totalPph23 - totalPph21;
+  const totalPayment = totalBeforePph - totalPph23;
   const financeUsers = db.getState().users.filter((user) => user.role === 'FINANCE' && user.status !== 'INACTIVE');
   const checker = voucher.paidBy || financeUsers.find((user) => user.name === voucher.checkerName)?.name || financeUsers[0]?.name || '';
   const logoUrl = `${window.location.origin}/lenteraglobalmaritim/lgm-logo.png`;
-  const bodyRows = voucher.items.map((row, index) => `<tr><td class="c">${index + 1}</td><td>${escapeHtml(row.jobNumber)}</td><td>${escapeHtml(row.customerName)}</td><td>${escapeHtml(row.itemService)}</td><td class="r">${money(row.amount)}</td><td class="r">${money(row.vatAmount)}</td><td class="r">${money(row.total)}</td><td class="r">${money(row.pph23Amount)}</td><td class="r">${money(row.pph21Amount)}</td><td class="r b">${money(row.paidAmount)}</td></tr>`).join('');
+  const bodyRows = voucher.items.map((row, index) => `<tr><td class="c">${index + 1}</td><td>${escapeHtml(row.jobNumber)}</td><td>${escapeHtml(row.customerName)}</td><td>${escapeHtml(row.itemService)}</td><td class="r">${money(row.amount)}</td><td class="r">${money(row.vatAmount)}</td><td class="r">${money(row.total)}</td><td class="r">${money(row.pph23Amount)}</td><td class="r b">${money(row.paidAmount)}</td></tr>`).join('');
   const metaRows = voucher.includeFinancePrintDetails
     ? `<tr><td class="k">Request No.</td><td>: ${escapeHtml(requestNumber)}</td><td class="k">Date Paid</td><td>: ${escapeHtml(formattedPaidDate)}</td></tr><tr><td class="k">Request Date</td><td>: ${escapeHtml(formattedDate)}</td><td class="k">Vendor Name</td><td>: ${escapeHtml(voucher.vendorName)}</td></tr><tr><td class="k">Info JOB / JOB Number</td><td>: ${infoJob} / ${escapeHtml(jobNumbers || '-')}</td><td class="k">Paid To</td><td>: ${escapeHtml(voucher.paidTo)}</td></tr><tr><td class="k">Request By</td><td>: ${escapeHtml(requestBy)}</td><td class="k">Bank</td><td>: ${escapeHtml(voucher.bankName)}</td></tr><tr><td></td><td></td><td class="k">A/c Number</td><td>: ${escapeHtml(voucher.accountNumber)}</td></tr>`
     : `<tr><td class="k">Request No.</td><td>: ${escapeHtml(requestNumber)}</td><td class="k">Vendor Name</td><td>: ${escapeHtml(voucher.vendorName)}</td></tr><tr><td class="k">Request Date</td><td>: ${escapeHtml(formattedDate)}</td><td class="k">Paid To</td><td>: ${escapeHtml(voucher.paidTo)}</td></tr><tr><td class="k">Info JOB / JOB Number</td><td>: ${infoJob} / ${escapeHtml(jobNumbers || '-')}</td><td class="k">Bank</td><td>: ${escapeHtml(voucher.bankName)}</td></tr><tr><td class="k">Request By</td><td>: ${escapeHtml(requestBy)}</td><td class="k">A/c Number</td><td>: ${escapeHtml(voucher.accountNumber)}</td></tr>`;
@@ -67,6 +66,7 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
     table.items th,table.items td{border:1px solid #777;padding:4px 4px;font-size:9px}
     table.items th{background:#e8ecf2;text-transform:uppercase;font-size:8px;text-align:left}
     .r{text-align:right}.c{text-align:center}.b{font-weight:bold}
+    .pph{color:#dc2626;font-weight:bold}
     .summary{width:55%;margin:10px 0 0 auto;border-collapse:collapse}
     .summary td{border:1px solid #777;padding:5px 7px;font-size:10px}
     .summary td.k{font-weight:bold;background:#e8ecf2}
@@ -79,12 +79,11 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
     <div class="brand-row"><div class="brand-wrap"><img class="logo" src="${logoUrl}" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div>
     <h2>PAYMENT VOUCHER</h2>
     <table class="meta">${metaRows}</table>
-    <table class="items"><thead><tr><th>No</th><th>JOB Number</th><th>${partyLabel}</th><th>Item Service</th><th>Amount</th><th>Vat</th><th>Total</th><th>PPH 23 (2%)</th><th>PPH 21 (5%)</th><th>Paid Amount</th></tr></thead>
+    <table class="items"><thead><tr><th>No</th><th>JOB Number</th><th>${partyLabel}</th><th>Item Service</th><th>Amount</th><th>Vat</th><th>Total</th><th>PPH 23 (2%)</th><th>Paid Amount</th></tr></thead>
     <tbody>${bodyRows}</tbody></table>
     <table class="summary">
       <tr><td class="k">Total</td><td class="r">${money(totalBeforePph)}</td></tr>
-      <tr><td class="k">PPh 23</td><td class="r">${totalPph23 ? '-' : ''}${money(totalPph23)}</td></tr>
-      <tr><td class="k">PPh 21</td><td class="r">${totalPph21 ? '-' : ''}${money(totalPph21)}</td></tr>
+      <tr class="pph"><td class="k">PPh 23</td><td class="r">${totalPph23 ? '-' : ''}${money(totalPph23)}</td></tr>
       <tr class="grand"><td>Total Payment</td><td class="r">${money(totalPayment)}</td></tr>
     </table>
     ${voucher.includeFinancePrintDetails ? `<div class="footer">Cetakan ini asli dikeluarkan PT. Lentera Global Maritim | ${printedDate} | ${printedTime}</div>` : ''}

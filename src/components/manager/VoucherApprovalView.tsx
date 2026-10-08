@@ -167,7 +167,7 @@ export const VoucherApprovalView: React.FC<VoucherApprovalViewProps> = ({ paymen
                             <tr>
                               <th className="p-2">No</th><th className="p-2">JOB Number</th><th className="p-2">{voucher.jobInfo === 'JOB_VESSEL' ? 'Vessel name' : 'Customer'}</th><th className="p-2">Item Service</th>
                               <th className="p-2 text-right">Amount</th><th className="p-2 text-right">Vat</th><th className="p-2 text-right">Total</th>
-                              <th className="p-2 text-right">PPH 23</th><th className="p-2 text-right">PPH 21</th><th className="p-2 text-right">Paid Amount</th>
+                              <th className="p-2 text-right">PPH 23</th><th className="p-2 text-right">Paid Amount</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-200">
@@ -181,7 +181,6 @@ export const VoucherApprovalView: React.FC<VoucherApprovalViewProps> = ({ paymen
                                 <td className="p-2 text-right font-mono">{money(item.vatAmount)}</td>
                                 <td className="p-2 text-right font-mono">{money(item.total)}</td>
                                 <td className="p-2 text-right font-mono">{money(item.pph23Amount)}</td>
-                                <td className="p-2 text-right font-mono">{money(item.pph21Amount)}</td>
                                 <td className="p-2 text-right font-mono font-bold">{money(item.paidAmount)}</td>
                               </tr>
                             ))}

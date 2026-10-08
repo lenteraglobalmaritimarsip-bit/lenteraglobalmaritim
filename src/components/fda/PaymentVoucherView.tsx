@@ -26,12 +26,10 @@ interface VoucherRow {
   amount: number;
   vatApplied: boolean;
   pph23Applied: boolean;
-  pph21Applied: boolean;
 }
 
 const VAT_RATE = 0.11;
 const PPH23_RATE = 0.02;
-const PPH21_RATE = 0.05;
 
 const todayIso = () => {
   const now = new Date();
@@ -46,7 +44,6 @@ const newRow = (): VoucherRow => ({
   amount: 0,
   vatApplied: false,
   pph23Applied: false,
-  pph21Applied: false,
 });
 
 const money = (value: number) =>
@@ -56,8 +53,7 @@ const calculate = (row: VoucherRow) => {
   const vatAmount = row.vatApplied ? row.amount * VAT_RATE : 0;
   const total = row.amount + vatAmount;
   const pph23Amount = row.pph23Applied ? row.amount * PPH23_RATE : 0;
-  const pph21Amount = row.pph21Applied ? row.amount * PPH21_RATE : 0;
-  return { vatAmount, total, pph23Amount, pph21Amount, paidAmount: total - pph23Amount - pph21Amount };
+  return { vatAmount, total, pph23Amount, paidAmount: total - pph23Amount };
 };
 
 const inputClass = 'w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-800 focus:border-slate-400 focus:outline-none';
@@ -107,7 +103,6 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
         amount: item.amount,
         vatApplied: !!item.vatApplied,
         pph23Applied: !!item.pph23Applied,
-        pph21Applied: !!item.pph21Applied,
       }))
     : [newRow()]);
   const [error, setError] = useState('');
@@ -231,10 +226,9 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
       amount: row.amount,
       vatApplied: row.vatApplied,
       pph23Applied: row.pph23Applied,
-      pph21Applied: row.pph21Applied,
       ...(() => {
         const result = calculate(row);
-        return { vatAmount: result.vatAmount, total: result.total, pph23Amount: result.pph23Amount, pph21Amount: result.pph21Amount, paidAmount: result.paidAmount };
+        return { vatAmount: result.vatAmount, total: result.total, pph23Amount: result.pph23Amount, paidAmount: result.paidAmount };
       })(),
     }));
     try {
@@ -364,7 +358,6 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
                 <th className="p-3 text-right">Vat (11%)</th>
                 <th className="p-3 text-right">Total</th>
                 <th className="p-3 text-right">PPH 23 (2%)</th>
-                <th className="p-3 text-right">PPH 21 (5%)</th>
                 <th className="p-3 text-right">Paid Amount</th>
                 <th className="p-3" />
               </tr>
@@ -411,9 +404,6 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
                     <td className="p-3 text-right">
                       <label className="flex items-center justify-end gap-1.5"><input type="checkbox" checked={row.pph23Applied} onChange={(e) => updateRow(row.id, { pph23Applied: e.target.checked })} /><span className="font-mono">{money(result.pph23Amount)}</span></label>
                     </td>
-                    <td className="p-3 text-right">
-                      <label className="flex items-center justify-end gap-1.5"><input type="checkbox" checked={row.pph21Applied} onChange={(e) => updateRow(row.id, { pph21Applied: e.target.checked })} /><span className="font-mono">{money(result.pph21Amount)}</span></label>
-                    </td>
                     <td className="p-3 text-right font-mono font-black text-slate-900">{money(result.paidAmount)}</td>
                     <td className="p-3 text-right">
                       <button
@@ -432,7 +422,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
             </tbody>
             <tfoot>
               <tr className="border-t border-slate-200 bg-slate-50">
-                <td colSpan={9} className="p-3 text-right text-[11px] font-bold uppercase text-slate-500">Total Paid Amount</td>
+                <td colSpan={8} className="p-3 text-right text-[11px] font-bold uppercase text-slate-500">Total Paid Amount</td>
                 <td className="p-3 text-right font-mono font-black text-slate-900">{money(grandTotal)}</td>
                 <td />
               </tr>

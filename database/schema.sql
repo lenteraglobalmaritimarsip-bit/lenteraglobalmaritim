@@ -207,8 +207,6 @@ CREATE TABLE payment_voucher_items (
   total DECIMAL(30,2) NOT NULL DEFAULT 0,
   pph23_applied TINYINT(1) NOT NULL DEFAULT 0,
   pph23_amount DECIMAL(30,2) NOT NULL DEFAULT 0,
-  pph21_applied TINYINT(1) NOT NULL DEFAULT 0,
-  pph21_amount DECIMAL(30,2) NOT NULL DEFAULT 0,
   paid_amount DECIMAL(30,2) NOT NULL DEFAULT 0,
   INDEX idx_payment_voucher_items_voucher (voucher_id, line_no),
   INDEX idx_payment_voucher_items_job (job_number),

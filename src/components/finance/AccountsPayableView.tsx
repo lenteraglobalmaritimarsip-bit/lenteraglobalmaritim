@@ -14,6 +14,7 @@ interface PaymentFormDraft {
   voucherId: string;
   paymentDate: string;
   manualSurcharge: string;
+  otherExpenses: string;
   paymentDescription: string;
   selectedBankId: string;
 }
@@ -30,6 +31,7 @@ const loadPaymentFormDraft = (owner: string): PaymentFormDraft | null => {
       voucherId: draft.voucherId,
       paymentDate: typeof draft.paymentDate === 'string' ? draft.paymentDate : todayIso(),
       manualSurcharge: typeof draft.manualSurcharge === 'string' ? draft.manualSurcharge : '',
+      otherExpenses: typeof draft.otherExpenses === 'string' ? draft.otherExpenses : '',
       paymentDescription: typeof draft.paymentDescription === 'string' ? draft.paymentDescription : '',
       selectedBankId: typeof draft.selectedBankId === 'string' ? draft.selectedBankId : '',
     };
@@ -75,6 +77,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
   const [paymentDate, setPaymentDate] = useState<string>(() => initialPaymentDraft?.paymentDate || todayIso());
   const paymentDatePickerRef = useRef<HTMLInputElement | null>(null);
   const [manualSurcharge, setManualSurcharge] = useState(() => initialPaymentDraft?.manualSurcharge || '');
+  const [otherExpenses, setOtherExpenses] = useState(() => initialPaymentDraft?.otherExpenses || '');
   const [paymentDescription, setPaymentDescription] = useState(() => initialPaymentDraft?.paymentDescription || '');
   const [selectedBankId, setSelectedBankId] = useState(() => initialPaymentDraft?.selectedBankId || '');
 
@@ -89,12 +92,14 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
     if (draft?.voucherId === paymentFormVoucherId) {
       setPaymentDate(draft.paymentDate);
       setManualSurcharge(draft.manualSurcharge);
+      setOtherExpenses(draft.otherExpenses);
       setPaymentDescription(draft.paymentDescription);
       setSelectedBankId(draft.selectedBankId);
       return;
     }
     setPaymentDate(todayIso());
     setManualSurcharge('');
+    setOtherExpenses('');
     setPaymentDescription(`Payment voucher ${paymentFormVoucher.requestNumber}`);
     setSelectedBankId(bankAccounts[0]?.id || '');
   }, [paymentFormVoucherId]);
@@ -106,13 +111,14 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
         voucherId: paymentFormVoucherId,
         paymentDate,
         manualSurcharge,
+        otherExpenses,
         paymentDescription,
         selectedBankId,
       } satisfies PaymentFormDraft));
     } catch (draftError) {
       console.error('Gagal menyimpan draft form pembayaran:', draftError);
     }
-  }, [paymentFormVoucherId, paymentFormVoucher, payer, paymentDate, manualSurcharge, paymentDescription, selectedBankId]);
+  }, [paymentFormVoucherId, paymentFormVoucher, payer, paymentDate, manualSurcharge, otherExpenses, paymentDescription, selectedBankId]);
 
   useEffect(() => {
     if (!paymentFormVoucherId || !paymentFormVoucher || paymentFormVoucher.status === 'APPROVED') return;
@@ -131,17 +137,17 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
 
   const itemTotals = useMemo(() => {
     if (!paymentFormVoucher) {
-      return { total: 0, pph23: 0, pph21: 0, surcharge: 0, totalPayment: 0 };
+      return { total: 0, pph23: 0, surcharge: 0, totalPayment: 0 };
     }
 
-    const total = Number(paymentFormVoucher.totalPaidAmount || 0);
+    const total = paymentFormVoucher.items.reduce((sum, item) => sum + Number(item.total || 0), 0);
     const pph23 = -(paymentFormVoucher.items.reduce((sum, item) => sum + Number(item.pph23Amount || 0), 0));
-    const pph21 = -(paymentFormVoucher.items.reduce((sum, item) => sum + Number(item.pph21Amount || 0), 0));
     const surcharge = Number(manualSurcharge || 0);
-    const totalPayment = total + pph23 + pph21;
+    const additionalExpenses = Number(otherExpenses || 0);
+    const totalPayment = total + surcharge + additionalExpenses + pph23;
 
-    return { total, pph23, pph21, surcharge, totalPayment };
-  }, [manualSurcharge, paymentFormVoucher]);
+    return { total, pph23, surcharge, otherExpenses: additionalExpenses, totalPayment };
+  }, [manualSurcharge, otherExpenses, paymentFormVoucher]);
 
   const voucherNumber = useMemo(() => {
     return paymentFormVoucher?.voucherNumber || db.getNextFinanceVoucherNumber(paymentDate);
@@ -178,6 +184,11 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
       : matchingDraft?.voucherId === printVoucher.id
         ? matchingDraft.manualSurcharge || 0
         : 0);
+    const additionalExpenses = Number(useCurrentForm
+      ? otherExpenses || 0
+      : matchingDraft?.voucherId === printVoucher.id
+        ? matchingDraft.otherExpenses || 0
+        : 0);
     const description = useCurrentForm
       ? paymentDescription || printVoucher.requestNumber
       : matchingDraft?.voucherId === printVoucher.id
@@ -190,13 +201,13 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
         : '';
     const senderBank = bankAccounts.find((account) => account.id === printBankId) || bankAccounts[0] || null;
     const totals = {
-      total: Number(printVoucher.totalPaidAmount || 0),
+      total: printVoucher.items.reduce((sum, item) => sum + Number(item.total || 0), 0),
       pph23: -printVoucher.items.reduce((sum, item) => sum + Number(item.pph23Amount || 0), 0),
-      pph21: -printVoucher.items.reduce((sum, item) => sum + Number(item.pph21Amount || 0), 0),
       surcharge,
-      totalPayment: Number(printVoucher.totalPaidAmount || 0)
-        - printVoucher.items.reduce((sum, item) => sum + Number(item.pph23Amount || 0), 0)
-        - printVoucher.items.reduce((sum, item) => sum + Number(item.pph21Amount || 0), 0),
+      otherExpenses: additionalExpenses,
+      totalPayment: printVoucher.items.reduce((sum, item) => sum + Number(item.total || 0), 0)
+        + surcharge + additionalExpenses
+        - printVoucher.items.reduce((sum, item) => sum + Number(item.pph23Amount || 0), 0),
     };
     const printVoucherNumber = printVoucher.voucherNumber || db.getNextFinanceVoucherNumber(printDate);
     const printWindow = window.open('', '_blank', 'width=1100,height=800');
@@ -216,7 +227,6 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
         <td class="amount">${money(item.vatAmount)}</td>
         <td class="amount">${money(item.total)}</td>
         <td class="amount">${money(item.pph23Amount)}</td>
-        <td class="amount">${money(item.pph21Amount)}</td>
         <td class="amount">${money(item.paidAmount)}</td>
       </tr>
     `).join('');
@@ -248,6 +258,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
             .items th, .items td { border: 1px solid #cbd5e1; padding: 3px 2px; overflow-wrap: anywhere; }
             .items th { background: #e8ecf2; color: #334155; font-size: 6px; text-align: center; text-transform: uppercase; }
             .items td { font-size: 7px; }
+            .pph { color: #dc2626; font-weight: 700; }
             .items th:nth-child(1), .items td:nth-child(1) { width: 3%; }
             .items th:nth-child(2), .items td:nth-child(2) { width: 9%; }
             .items th:nth-child(3), .items td:nth-child(3) { width: 14%; }
@@ -291,7 +302,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
           </tbody></table>
           <div class="description"><b>Description:</b> ${escapeHtml(description)}</div>
           <div class="section-title">Rincian Pembayaran</div>
-          <table class="items"><thead><tr><th>No</th><th>JOB Number</th><th>${printVoucher.jobInfo === 'JOB_VESSEL' ? 'Vessel Name' : 'Customer'}</th><th>Item Service</th><th>Amount</th><th>VAT (11%)</th><th>Total</th><th>PPH 23 (2%)</th><th>PPH 21 (5%)</th><th>Paid Amount</th></tr></thead><tbody>${items}</tbody></table>
+          <table class="items"><thead><tr><th>No</th><th>JOB Number</th><th>${printVoucher.jobInfo === 'JOB_VESSEL' ? 'Vessel Name' : 'Customer'}</th><th>Item Service</th><th>Amount</th><th>VAT (11%)</th><th>Total</th><th>PPH 23 (2%)</th><th>Paid Amount</th></tr></thead><tbody>${items}</tbody></table>
           <div class="lower">
             <section class="bank"><div class="bank-title"><svg class="bank-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9 9-6 9 6"/><path d="M4 10h16M5 10v9m4-9v9m6-9v9m4-9v9M3 21h18M2 19h20"/></svg><span>Remitting Bank</span></div>
               <div class="bank-line"><b>Bank</b><i>:</i><span>${escapeHtml(senderBank?.bankName || '-')}</span></div>
@@ -301,9 +312,9 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
             </section>
             <table class="totals"><tbody>
               <tr><td>Total</td><td>${money(totals.total)}</td></tr>
-              <tr><td>Subcharge</td><td>${money(totals.surcharge)}</td></tr>
-              <tr><td>PPH 23</td><td>${money(totals.pph23)}</td></tr>
-              <tr><td>PPH 21</td><td>${money(totals.pph21)}</td></tr>
+              <tr><td>Surcharge</td><td>${money(totals.surcharge)}</td></tr>
+              <tr><td>Other Expenses</td><td>${money(totals.otherExpenses)}</td></tr>
+              <tr class="pph"><td>PPH 23</td><td>${money(totals.pph23)}</td></tr>
               <tr class="grand"><td>Total Payment</td><td>${money(totals.totalPayment)}</td></tr>
             </tbody></table>
           </div>
@@ -437,9 +448,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                       <th className="p-3 text-right">VAT</th>
                       <th className="p-3 text-right">Total</th>
                       <th className="p-3 text-right">PPH 23</th>
-                      <th className="p-3 text-right">PPH 21</th>
                       <th className="p-3 text-right">Paid</th>
-                      <th className="p-3 text-right">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
@@ -453,11 +462,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                         <td className="p-3 text-right font-mono text-slate-700">{money(item.vatAmount)}</td>
                         <td className="p-3 text-right font-mono text-slate-700">{money(item.total)}</td>
                         <td className="p-3 text-right font-mono text-slate-700">{money(item.pph23Amount)}</td>
-                        <td className="p-3 text-right font-mono text-slate-700">{money(item.pph21Amount)}</td>
                         <td className="p-3 text-right font-mono font-bold text-slate-900">{money(item.paidAmount)}</td>
-                        <td className="p-3 text-right">
-                          <span className="rounded bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700">{item.pph21Applied ? 'Paid' : 'Unpaid'}</span>
-                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -472,6 +477,17 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                     placeholder="Masukkan nominal"
                     value={manualSurcharge}
                     onChange={(e) => setManualSurcharge(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-violet-400"
+                  />
+                </label>
+
+                <label className="block text-[11px] font-semibold uppercase tracking-widest text-slate-500">
+                  Other Expenses
+                  <input
+                    type="number"
+                    placeholder="Masukkan nominal"
+                    value={otherExpenses}
+                    onChange={(e) => setOtherExpenses(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-violet-400"
                   />
                 </label>
@@ -496,13 +512,13 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                     <span>Surcharge</span>
                     <span className="font-mono font-semibold">{money(itemTotals.surcharge)}</span>
                   </div>
+                  <div className="flex items-center justify-between">
+                    <span>Other Expenses</span>
+                    <span className="font-mono font-semibold">{money(itemTotals.otherExpenses)}</span>
+                  </div>
                   <div className="flex items-center justify-between text-rose-600">
                     <span>PPH 23</span>
                     <span className="font-mono font-semibold">{money(itemTotals.pph23)}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-rose-600">
-                    <span>PPH 21</span>
-                    <span className="font-mono font-semibold">{money(itemTotals.pph21)}</span>
                   </div>
                   <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-base font-black text-slate-900">
                     <span>Total Payment</span>
@@ -709,7 +725,6 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                                 <th className="p-2 text-right">Vat</th>
                                 <th className="p-2 text-right">Total</th>
                                 <th className="p-2 text-right">PPH 23 (1%)</th>
-                                <th className="p-2 text-right">PPH 21 (2%)</th>
                                 <th className="p-2 text-right">Paid Amount</th>
                               </tr>
                             </thead>
@@ -724,7 +739,6 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                                   <td className="p-2 text-right font-mono">{money(item.vatAmount)}</td>
                                   <td className="p-2 text-right font-mono">{money(item.total)}</td>
                                   <td className="p-2 text-right font-mono">{money(item.pph23Amount)}</td>
-                                  <td className="p-2 text-right font-mono">{money(item.pph21Amount)}</td>
                                   <td className="p-2 text-right font-mono font-bold">{money(item.paidAmount)}</td>
                                 </tr>
                               ))}
