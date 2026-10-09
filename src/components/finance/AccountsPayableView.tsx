@@ -278,7 +278,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
             .totals td { border-bottom: 1px solid #e2e8f0; font-size: 7.5px; line-height: 1.25; padding: 3px 4px; }
             .totals td:first-child { padding-right: 8px; white-space: nowrap; }
             .totals td:last-child { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
-            .totals .grand td { background: #182a50; border: 0; color: #fff; font-size: 8.5px; font-weight: 700; padding: 5px 4px; }
+            .totals .grand td { background: #fff; border: 0; color: #000; font-size: 8.5px; font-weight: 700; padding: 5px 4px; }
             .signatures { border-collapse: collapse; margin-top: 24px; page-break-inside: avoid; table-layout: fixed; width: 100%; }
             .signatures th, .signatures td { border: 1px solid #94a3b8; text-align: center; width: 33.33%; }
             .signatures th { background: #f1f5f9; color: #334155; font-size: 9px; height: 26px; padding: 6px; text-transform: uppercase; }

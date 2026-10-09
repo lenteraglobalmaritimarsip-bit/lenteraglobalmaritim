@@ -70,7 +70,7 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
     .summary{width:55%;margin:10px 0 0 auto;border-collapse:collapse}
     .summary td{border:1px solid #777;padding:5px 7px;font-size:10px}
     .summary td.k{font-weight:bold;background:#e8ecf2}
-    .summary tr.grand td{font-weight:bold;background:#182a50;color:#fff}
+    .summary tr.grand td{font-weight:bold;background:#fff;color:#000}
     .footer{position:fixed;bottom:0;left:0;width:34%;font-size:7px;color:#666}
     .sign{position:fixed;bottom:0;right:0;width:65%;border-collapse:collapse;page-break-inside:avoid;font-size:9px}
     .sign td{width:33.33%;height:5mm;border:1px solid #777;text-align:center;padding:2px}

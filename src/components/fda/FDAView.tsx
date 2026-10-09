@@ -811,7 +811,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       .replace(isoDatePattern, (value) => formatDateDisplay(value));
   };
 
-  const normalizeFDAExportLayoutBase = (html: string) => pushFinanceSignatureDown(formatFDAExportDates(html.replaceAll('>CURRENCY<', '>TARIFF<').replace('</style>', 'h2{background:#28598e!important;color:#fff!important;text-align:center!important}.section td{background:#566270!important;color:#fff!important}.subtotal,.grand{background:#dbe8f2!important}.grand{color:#f00!important}.bank,.signature{box-sizing:border-box}.signature-main{display:block}.signature-role{display:block;margin-top:120px;padding-top:12px}.meta-col.right{justify-self:end;width:100%;padding-left:0;transform:translateX(35%)}table th:nth-child(2),table td:nth-child(2){width:20%!important}table th:nth-child(3),table td:nth-child(3){width:35%!important;text-align:center!important;white-space:nowrap}table th:nth-child(4),table td:nth-child(4){width:12%!important;white-space:nowrap}</style>')));
+  const normalizeFDAExportLayoutBase = (html: string) => pushFinanceSignatureDown(formatFDAExportDates(html.replaceAll('>CURRENCY<', '>TARIFF<').replace('</style>', 'h2{background:#28598e!important;color:#fff!important;text-align:center!important}.section td{background:#566270!important;color:#fff!important}.subtotal,.grand{background:#dbe8f2!important}.grand{color:#f00!important}.grand,.grand td,.grand td:first-child{font-weight:400!important}.bank,.signature{box-sizing:border-box}.signature-main{display:block}.signature-role{display:block;margin-top:120px;padding-top:12px}.meta-col.right{justify-self:end;width:100%;padding-left:0;transform:translateX(35%)}table th:nth-child(2),table td:nth-child(2){width:20%!important}table th:nth-child(3),table td:nth-child(3){width:35%!important;text-align:center!important;white-space:nowrap}table th:nth-child(4),table td:nth-child(4){width:12%!important;white-space:nowrap}</style>')));
 
   const normalizeFDAExportLayout = (html: string) => normalizeFDAExportLayoutBase(html).replace('</style>', 'table th{text-align:center!important}table tr.item-row td:nth-child(1){text-align:center!important}table tr.item-row td:nth-child(2),table tr.item-row td:nth-child(5){text-align:left!important}table tr.item-row td:nth-child(3){text-align:center!important}table tr.item-row td:nth-child(4){text-align:right!important}table tr.section td{text-align:left!important}table tr.subtotal td:first-child{font-weight:700;text-align:right!important}table tr.grand td:first-child{text-align:right!important}table tr.subtotal td.amount,table tr.grand td.amount{font-variant-numeric:tabular-nums;text-align:right!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}</style>');
   const addCargoQuantityAfterIMO = (html: string) => html.replace(
@@ -1402,12 +1402,12 @@ export const FDAView: React.FC<FDAViewProps> = ({
               <b className="block mt-1 text-white">{activeJob.customerName} • {activeJob.vesselName}</b>
             </div>
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-              <span className="text-xs uppercase font-bold text-slate-400">Grand Total</span>
-              <b className="mt-1 block break-all text-sm font-mono leading-tight text-emerald-300 sm:text-base lg:text-lg">
+              <span className="text-xs uppercase font-normal text-slate-400">Grand Total</span>
+              <span className="mt-1 block break-all text-sm font-normal font-mono leading-tight text-emerald-300 sm:text-base lg:text-lg">
                 {viewCurrency === 'IDR'
                   ? formatAccountingNumber(totalActualBuy, 'IDR')
                   : formatUSD(totalActualBuy)}
-              </b>
+              </span>
             </div>
           </div>
 
@@ -1573,9 +1573,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
                     );
                   })}
                   {fdaResultRows.length > 0 && (
-                    <tr className="bg-slate-950/80 font-bold">
-                      <td colSpan={3} className="border-l border-slate-800 p-3 text-right font-black uppercase text-slate-200">GRAND TOTAL</td>
-                      <td className="border-l border-slate-800 p-3 text-right font-mono font-black text-white">
+                    <tr className="bg-slate-950/80">
+                      <td colSpan={3} className="border-l border-slate-800 p-3 text-right font-normal uppercase text-slate-200">GRAND TOTAL</td>
+                      <td className="border-l border-slate-800 p-3 text-right font-mono font-normal text-white">
                         {viewCurrency === 'IDR'
                           ? formatAccountingNumber(totalActualBuy, 'IDR')
                           : formatAccountingNumber(totalActualBuy, 'USD')}
