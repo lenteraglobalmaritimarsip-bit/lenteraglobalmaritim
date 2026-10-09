@@ -507,6 +507,34 @@ button{ cursor:pointer; }
   text-align: right !important;
 }
 
+.epda-form-root table tbody tr:not(.epda-category-row) td:nth-child(4),
+.epda-form-root table tfoot td:nth-child(4),
+.fda-form-root table tbody tr:not(.fda-category-row) td:nth-child(4) {
+  text-align: right !important;
+}
+
+.epda-form-root table td.epda-subtotal-amount,
+.fda-form-root table td.fda-subtotal-amount {
+  text-align: right !important;
+  padding-right: 14px !important;
+}
+
+.epda-form-root table td[colspan="3"],
+.fda-form-root table td[colspan="3"] {
+  padding: 10px !important;
+  text-align: right !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+
+.epda-form-root table td[colspan="3"] + td,
+.fda-form-root table td[colspan="3"] + td {
+  padding: 10px 14px 10px 10px !important;
+  text-align: right !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+
 .epda-form-root[aria-readonly="true"] button[title="Hapus item EPDA"] {
   display: none !important;
 }

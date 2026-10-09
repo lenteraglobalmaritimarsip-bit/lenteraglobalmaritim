@@ -185,12 +185,11 @@ export const FDAView: React.FC<FDAViewProps> = ({
     return year && month && day ? `${day}-${month}-${year}` : value || '-';
   };
 
-  const formatAccountingNumber = (value: number, currency: 'USD' | 'IDR') => {
+  const formatAccountingNumber = (value: number, _currency: 'USD' | 'IDR') => {
     const normalized = Number(value || 0);
-    const fractionDigits = currency === 'IDR' ? 0 : 2;
     return new Intl.NumberFormat('en-US', {
-      minimumFractionDigits: fractionDigits,
-      maximumFractionDigits: fractionDigits,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
       useGrouping: true,
     }).format(normalized);
   };
@@ -1524,19 +1523,19 @@ export const FDAView: React.FC<FDAViewProps> = ({
                             <td className="border-l border-slate-800 p-3.5 font-mono text-slate-300">{idx + 1}</td>
                             <td className="border-l border-slate-800 p-3.5 font-bold text-white">
                               {editingResultAmountId === it.id
-                                ? <input value={resultAmountDraft.description} onChange={(event) => setResultAmountDraft({ ...resultAmountDraft, description: event.target.value })} aria-label={`Description ${it.description}`} className="w-full rounded border border-slate-600 bg-slate-950 px-2 py-1 text-white" />
+                                ? <input value={resultAmountDraft.description} onChange={(event) => setResultAmountDraft({ ...resultAmountDraft, description: event.target.value })} aria-label={`Description ${it.description}`} className="w-full rounded border border-slate-600 bg-slate-950 px-2 py-1 font-normal text-white" />
                                 : it.description}
                             </td>
                             <td className="border-l border-slate-800 p-3.5 font-mono text-cyan-300">
                               {editingResultAmountId === it.id
-                                ? <input type="text" value={resultAmountDraft.tariff} onChange={(event) => setResultAmountDraft({ ...resultAmountDraft, tariff: event.target.value })} aria-label={`Tariff ${it.description}`} className="w-full min-w-48 rounded border border-slate-600 bg-slate-950 px-2 py-1 text-white" />
+                                ? <input type="text" value={resultAmountDraft.tariff} onChange={(event) => setResultAmountDraft({ ...resultAmountDraft, tariff: event.target.value })} aria-label={`Tariff ${it.description}`} className="w-full min-w-48 rounded border border-slate-600 bg-slate-950 px-2 py-1 font-normal text-white" />
                                 : it.tariff}
                             </td>
-                            <td className="border-l border-slate-800 p-3.5 text-right font-mono font-bold text-white">
+                            <td className="border-l border-slate-800 p-3.5 text-right text-xs font-mono font-bold text-white">
                               <div className="flex items-center justify-end gap-2">
                                 {editingResultAmountId === it.id ? (
                                   <>
-                                    <input autoFocus inputMode="decimal" value={resultAmountDraft.amount} onChange={(event) => setResultAmountDraft({ ...resultAmountDraft, amount: event.target.value })} aria-label={`Amount ${it.description}`} className="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1 text-right text-white" />
+                                    <input autoFocus inputMode="decimal" value={resultAmountDraft.amount} onChange={(event) => setResultAmountDraft({ ...resultAmountDraft, amount: event.target.value })} aria-label={`Amount ${it.description}`} className="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1 text-right text-xs font-normal text-white" />
                                     <button type="button" onClick={() => saveResultAmount(it.id)} className="rounded p-1 text-emerald-300 hover:bg-emerald-500/20" title="Simpan amount" aria-label={`Simpan amount ${it.description}`}><Check className="h-4 w-4" /></button>
                                     <button type="button" onClick={cancelEditResultAmount} className="rounded p-1 text-slate-400 hover:bg-slate-700" title="Batal edit" aria-label="Batal edit amount"><X className="h-4 w-4" /></button>
                                   </>
@@ -1550,7 +1549,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                             <td className="border-l border-slate-800 p-3.5 text-slate-300">
                               <div className="flex items-center justify-between gap-3">
                                 {editingResultAmountId === it.id
-                                  ? <input value={resultAmountDraft.remarks} onChange={(event) => setResultAmountDraft({ ...resultAmountDraft, remarks: event.target.value })} aria-label={`Remark ${it.description}`} className="w-full rounded border border-slate-600 bg-slate-950 px-2 py-1 text-white" />
+                                  ? <input value={resultAmountDraft.remarks} onChange={(event) => setResultAmountDraft({ ...resultAmountDraft, remarks: event.target.value })} aria-label={`Remark ${it.description}`} className="w-full rounded border border-slate-600 bg-slate-950 px-2 py-1 font-normal text-white" />
                                   : <span>{it.remarks}</span>}
                                 <div className="flex items-center gap-1">
                                   {!isFDAReadOnly && activeJob.managerApproval?.status === 'APPROVED' && editingResultAmountId !== it.id && <button type="button" onClick={() => startEditResultAmount(it)} className="rounded-md p-1.5 text-cyan-300 hover:bg-cyan-500/20" title="Edit item" aria-label={`Edit ${it.description}`}><Pencil className="h-3.5 w-3.5" /></button>}
@@ -1562,7 +1561,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                         ))}
                         <tr className="bg-slate-950/70 font-bold">
                           <td colSpan={3} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-slate-200">SUB TOTAL</td>
-                          <td className="border-l border-slate-800 p-2.5 text-right font-mono font-bold text-white">
+                          <td className="fda-subtotal-amount border-l border-slate-800 p-2.5 text-right text-xs font-mono font-bold text-white">
                             {categoryCurrency === 'IDR'
                               ? formatAccountingNumber(categoryAmountTotal, 'IDR')
                               : formatAccountingNumber(categoryAmountTotal, 'USD')}
@@ -1575,7 +1574,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                   {fdaResultRows.length > 0 && (
                     <tr className="bg-slate-950/80">
                       <td colSpan={3} className="border-l border-slate-800 p-3 text-right font-normal uppercase text-slate-200">GRAND TOTAL</td>
-                      <td className="border-l border-slate-800 p-3 text-right font-mono font-normal text-white">
+                      <td className="border-l border-slate-800 p-3 text-right text-xs font-mono font-normal text-white">
                         {viewCurrency === 'IDR'
                           ? formatAccountingNumber(totalActualBuy, 'IDR')
                           : formatAccountingNumber(totalActualBuy, 'USD')}
@@ -1588,7 +1587,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
             </div>
           </div>
 
-            <div className="fda-entry-panel rounded-2xl border border-slate-300 bg-[#edf2f4] p-5 shadow-sm">
+            <div className="fda-entry-panel rounded-2xl border border-slate-300 bg-[#edf2f4] p-5 font-normal shadow-sm">
             <fieldset disabled={isFDAReadOnly} className="contents">
             <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex items-center gap-2 text-emerald-600">
@@ -1639,7 +1638,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                 <div><label className="mb-1 block text-slate-600">QTY</label><input type="number" min="1" value={actualQuantity} onChange={(e) => setActualQuantity(Math.max(1, Number(e.target.value) || 1))} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>
                 <div className="lg:col-span-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                   <div><label className="mb-1 block text-slate-600">Tarif ({viewCurrency})</label><input readOnly value={formatAccountingNumber(autoTariffPreview, viewCurrency)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
-                  <div><label className="mb-1 block text-slate-600">Amount ({viewCurrency})</label><input readOnly value={formatAccountingNumber(actualAmount, viewCurrency)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
+                  <div><label className="mb-1 block text-slate-600">Amount ({viewCurrency})</label><input readOnly value={formatAccountingNumber(actualAmount, viewCurrency)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-right text-slate-500" /></div>
                 </div>
                 <div className="lg:col-span-6"><label className="mb-1 block text-slate-600">Remark</label><input value={newActual.notes} onChange={(e) => setNewActual({ ...newActual, notes: e.target.value })} placeholder="Keterangan tambahan" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none" /></div>
               </div>
@@ -1650,7 +1649,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                 <div><label className="mb-1 block text-slate-600">Type</label><select value={newActual.tariffType === 'RANGE' ? 'QTY_CARGO' : newActual.tariffType} onChange={(e) => setNewActual({ ...newActual, tariffType: e.target.value as 'FIXED' | 'VARIABLE' | 'QTY_CARGO' })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="QTY_CARGO">QTY_CARGO</option></select></div>
                 <div><label className="mb-1 block text-slate-600">QTY</label><input type="number" min="1" value={actualQuantity} onChange={(e) => setActualQuantity(Math.max(1, Number(e.target.value) || 1))} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>
                 <div><label className="mb-1 block text-slate-600">Tarif ({viewCurrency})</label><input type="text" inputMode="decimal" placeholder="0.0000" value={manualTariffText} onChange={(e) => { const text = e.target.value; setManualTariffText(text); setNewActual({ ...newActual, amountBuy: parseTariffInput(text) }); }} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>
-                <div><label className="mb-1 block text-slate-600">Amount ({viewCurrency})</label><input readOnly value={formatAccountingNumber(actualAmount, viewCurrency)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
+                <div><label className="mb-1 block text-slate-600">Amount ({viewCurrency})</label><input readOnly value={formatAccountingNumber(actualAmount, viewCurrency)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-right text-slate-500" /></div>
                 <div className="lg:col-span-6"><label className="mb-1 block text-slate-600">Remark</label><input value={newActual.notes} onChange={(e) => setNewActual({ ...newActual, notes: e.target.value })} placeholder="Keterangan tambahan" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none" /></div>
               </div>
             )}
@@ -1791,7 +1790,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl p-6">
             <h3 className="text-base font-bold text-white mb-1">{editingActualId ? 'Edit Amount FDA' : 'Tambah Item / Amount FDA'}</h3>
             <p className="text-[11px] text-slate-400 mb-4">Sesuai revisi PDF, user FDA fokus mengisi Amount aktual untuk 1 Job/Vessel Call. Data vendor dan nomor voucher dibuat otomatis bila kosong.</p>
-            <form onSubmit={(e) => { e.preventDefault(); e.stopPropagation(); handleAddActualCost(); }} className="space-y-3 text-xs">
+            <form onSubmit={(e) => { e.preventDefault(); e.stopPropagation(); handleAddActualCost(); }} className="space-y-3 text-xs font-normal">
               <div><label className="text-slate-400 block mb-1">Description:</label><input type="text" required value={newActual.description} onChange={e=>setNewActual({...newActual,description:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"/></div>
               <div><label className="text-slate-400 block mb-1">Category:</label><select value={newActual.category} onChange={e=>setNewActual({...newActual,category:e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"><option value="PORT_SERVICE">PORT SERVICE</option><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="AGENCY_FEE">AGENCY FEE</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="TAX_CONTINGENCY">TAX &amp; CONTINGENCY</option><option value="PPH_INCOME_TAX">PPH / INCOME TAX</option><option value="VAT_11">VAT 11%</option></select></div>
               <div><label className="text-slate-400 block mb-1">Tarif ({viewCurrency}):</label><input type="text" inputMode="decimal" required value={formatTariffInput(newActual.amountBuy)} onChange={e=>setNewActual({...newActual,amountBuy:parseTariffInput(e.target.value),amountSellBilled:parseTariffInput(e.target.value)})} className="w-full bg-slate-950 border border-cyan-700 rounded-lg p-2.5 text-white font-mono text-lg"/></div>
