@@ -112,7 +112,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
     }).format(val);
   const totalRevenuePipelineIDR = jobCalls.reduce((sum, job) => {
     if (job.managerApproval?.status !== 'APPROVED' || job.quotation?.epda?.status !== 'APPROVED') return sum;
-    const amount = job.quotation?.epda?.totalSellRate || 0;
+    const amount = job.quotation?.epda?.totalBuyRate ?? job.quotation?.epda?.totalSellRate ?? 0;
     const currency = job.quotation?.epda?.currency || job.currency || 'IDR';
     const rate = job.quotation.epda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
     const normalizedAmount = currency === 'USD'

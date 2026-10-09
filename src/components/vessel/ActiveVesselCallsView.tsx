@@ -166,7 +166,7 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,onSelec
     return [
       index + 1, j.jobId, inquiry.inquiryNo, formatDateDisplay(inquiry.date), owner.createdBy, owner.branch, j.vesselName,
       vessel?.imoNumber || '-', vessel?.callSign || '-', vessel?.flag || '-', vessel?.vesselType || '-',
-      vessel?.grt ?? '-', vessel?.nrt ?? '-', vessel?.loa ?? '-', vessel?.beam ?? '-', inquiry.cargoQuantity ?? '-', inquiry.quantityUnit === 'MATRIX_TON' ? 'MT' : 'T', j.customerName,
+      vessel?.grt ?? '-', vessel?.nrt ?? '-', vessel?.loa ?? '-', vessel?.beam ?? '-', inquiry.cargoQuantity ?? '-', inquiry.quantityUnit === 'MT' ? 'MT' : 'T', j.customerName,
       j.portName, formatDateDisplay(j.eta, true), inquiry.etaRemarks || '-', formatDateDisplay(j.etd, true), inquiry.etdRemarks || '-', (j.purposeOfCall || '').replace(/_/g, ' ') || '-',
       inquiry.estimatedDays, inquiry.cargoDetails, inquiry.specialRequirements || '-', statusLabel[j.status] || j.status,
       statusByLabel.KESIMPULAN || '-', statusByLabel.EPDA || '-', statusByLabel.PDA || '-', statusByLabel['Crew Change'] || '-',
@@ -258,7 +258,7 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,onSelec
 
           <div><small>ETD</small><strong>{formatDateDisplay(selectedJob.etd, true)}</strong></div>
           <div><small>KETERANGAN ETD</small><strong>{inquiry.etdRemarks || '-'}</strong></div>
-          <div><small>CARGO QUANTITY</small><strong>{inquiry.cargoQuantity ?? '-'} {inquiry.quantityUnit === 'MATRIX_TON' ? 'MT' : 'T'}</strong></div>
+          <div><small>CARGO QUANTITY</small><strong>{inquiry.cargoQuantity ?? '-'} {inquiry.quantityUnit === 'MT' ? 'MT' : 'T'}</strong></div>
           <div><small>ESTIMASI DURASI</small><strong>{inquiry.estimatedDays ?? 0} hari</strong></div>
 
           <div><small>VESSEL TYPE</small><strong>{selectedVessel?.vesselType || '-'}</strong></div>

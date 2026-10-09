@@ -241,7 +241,7 @@ CREATE TABLE inquiries (
   eta_remarks TEXT,
   etd_remarks TEXT,
   cargo_quantity DECIMAL(18,4),
-  quantity_unit ENUM('MATRIX_TON', 'TON'),
+  quantity_unit ENUM('MT', 'TON'),
   cargo_details TEXT NOT NULL,
   estimated_days DECIMAL(12,4) NOT NULL DEFAULT 0 CHECK (estimated_days >= 0),
   special_requirements TEXT,

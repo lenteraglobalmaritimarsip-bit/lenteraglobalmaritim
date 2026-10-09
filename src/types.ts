@@ -373,7 +373,7 @@ export interface JobCall {
     etaRemarks?: string;
     etdRemarks?: string;
     cargoQuantity?: number;
-    quantityUnit?: 'MATRIX_TON' | 'TON';
+    quantityUnit?: 'MT' | 'TON';
     cargoDetails: string;
     estimatedDays: number;
     specialRequirements: string;

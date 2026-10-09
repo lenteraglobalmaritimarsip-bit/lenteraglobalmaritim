@@ -53,8 +53,11 @@ const withoutRemovedJobCalls = (jobCalls: JobCall[]): JobCall[] =>
 const migrateInquiryCargoQuantity = (jobCalls: JobCall[]): { jobCalls: JobCall[]; migrated: boolean } => {
   let migrated = false;
   const normalizedJobCalls = jobCalls.map((job) => {
-    const inquiry = job.inquiry as (JobCall['inquiry'] & { quantity?: number }) | undefined;
-    if (!inquiry || !Object.prototype.hasOwnProperty.call(inquiry, 'quantity')) return job;
+    const inquiry = job.inquiry as (Omit<JobCall['inquiry'], 'quantityUnit'> & { quantity?: number; quantityUnit?: 'MT' | 'TON' | 'MATRIX_TON' }) | undefined;
+    if (!inquiry) return job;
+    const hasLegacyQuantity = Object.prototype.hasOwnProperty.call(inquiry, 'quantity');
+    const hasLegacyUnit = inquiry.quantityUnit === 'MATRIX_TON';
+    if (!hasLegacyQuantity && !hasLegacyUnit) return job;
 
     const { quantity, ...currentInquiry } = inquiry;
     migrated = true;
@@ -63,6 +66,7 @@ const migrateInquiryCargoQuantity = (jobCalls: JobCall[]): { jobCalls: JobCall[]
       inquiry: {
         ...currentInquiry,
         cargoQuantity: currentInquiry.cargoQuantity ?? quantity,
+        quantityUnit: currentInquiry.quantityUnit === 'MATRIX_TON' ? 'MT' : currentInquiry.quantityUnit,
       },
     };
   });
