@@ -24,7 +24,7 @@ export const SalesDashboardView:React.FC<SalesDashboardViewProps>=({jobCalls,onN
   const totalApprovedEpdaIDR = jobCalls
     .filter((job) => job.managerApproval.status === 'APPROVED' && job.quotation.epda.status === 'APPROVED')
     .reduce((total, job) => {
-      const epdaTotal = Number(job.quotation.epda.totalSellRate || 0);
+      const epdaTotal = Number(job.quotation.epda.totalBuyRate ?? job.quotation.epda.totalSellRate ?? 0);
       const currency = job.quotation.epda.currency || job.currency || 'USD';
       const exchangeRate = Number(job.quotation.epda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800);
       const normalizedTotal = currency === 'USD'
