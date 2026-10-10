@@ -9,11 +9,11 @@
 
 ## Data and Workflow Rules
 
-- This is currently a browser-only demo. Persistence is through [src/db/storage.ts](src/db/storage.ts) and `localStorage`; do not assume an active backend API.
+- Persistence and authentication require the PHP API and MariaDB on XAMPP. Set `VITE_API_AUTH_ENABLED=true`; application data must not be cached or persisted in browser storage.
 - Route database mutations through the `db` service so persistence, subscriptions, audit logging, and centralized workflow guards remain intact. Do not mutate database state or component data props directly.
 - Preserve historical records and existing workflow states, including completed and closed jobs. Do not hide or delete jobs as a side effect of adding finance, FDA, invoice, or closing controls unless the request explicitly requires destructive behavior.
 - When adding or renaming an `ActiveTab`, update both the conditional routing in [src/App.tsx](src/App.tsx) and navigation in [src/components/layout/Sidebar.tsx](src/components/layout/Sidebar.tsx).
-- Authentication and seeded accounts are client-side demo data only. Do not describe browser storage or plaintext demo passwords as production security.
+- Authentication uses PHP sessions and MariaDB-backed user accounts. Do not add browser-stored credentials or local demo authentication.
 - React effects must tolerate development double-invocation because [src/main.tsx](src/main.tsx) enables `StrictMode`.
 
 ## Build and Validation
@@ -29,4 +29,4 @@
 
 - Start with [README.md](README.md) for the main workflow overview.
 - Check [REVISION_NOTES_V10_1.md](REVISION_NOTES_V10_1.md), [REVISION_NOTES_V10_1_LOGIN.md](REVISION_NOTES_V10_1_LOGIN.md), and [REVISION_NOTES_V10_1_LOGIN_FINAL.md](REVISION_NOTES_V10_1_LOGIN_FINAL.md) before changing branding, login, or recently revised master-data behavior.
-- Runtime persistence is browser `localStorage`; there is no external database dependency.
+- Runtime persistence is MariaDB through the PHP API. Drafts and per-user notification read state use the `user_app_data` table; browser storage is not used for application persistence.

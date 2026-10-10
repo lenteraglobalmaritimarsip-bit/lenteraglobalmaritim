@@ -136,6 +136,10 @@ function loadAppState(): array
                         'status' => $row['status'] ?? 'PENDING_MANAGER', 'managerNote' => $row['manager_note'] ?? '', 'reviewedBy' => $row['reviewed_by'] ?? '',
                         'reviewedAt' => !empty($row['reviewed_at']) ? appDateTime($row['reviewed_at']) : '', 'paidBy' => $row['paid_by'] ?? '',
                         'paidAt' => !empty($row['paid_at']) ? appDateTime($row['paid_at']) : '',
+                        'paymentSurcharge' => (float) ($row['payment_surcharge'] ?? 0),
+                        'paymentOtherExpenses' => (float) ($row['payment_other_expenses'] ?? 0),
+                        'paymentDescription' => $row['payment_description'] ?? '',
+                        'paymentTotalAmount' => (float) ($row['payment_total_amount'] ?? 0) ?: (float) $row['total_paid_amount'],
                     ];
     }, tableRows('payment_vouchers'));
 
@@ -262,7 +266,8 @@ function replaceAppState(array $state): void
     $requiredPaymentVoucherColumns = [
         'id', 'request_number', 'request_date', 'job_info', 'request_by', 'request_by_user_id', 'vendor_name',
         'total_paid_amount', 'status', 'manager_note', 'reviewed_by', 'reviewed_at',
-        'paid_by', 'paid_at', 'voucher_number',
+        'paid_by', 'paid_at', 'voucher_number', 'payment_surcharge', 'payment_other_expenses',
+        'payment_description', 'payment_total_amount',
     ];
     $missingPaymentVoucherColumns = $paymentVoucherColumns === null
         ? $requiredPaymentVoucherColumns
@@ -296,7 +301,7 @@ function replaceAppState(array $state): void
         foreach (($state['vendorPartners'] ?? []) as $row) insertRow($pdo, 'vendor_partners', ['id' => $row['id'], 'vendor_name' => $row['vendorName'], 'pic_name' => $row['picName'] ?? null, 'address' => $row['address'] ?? null, 'phone' => $row['phone'] ?? null, 'bank_name' => $row['bankName'] ?? null, 'paid_name' => $row['paidName'] ?? null, 'account_number' => $row['accountNumber'] ?? null]);
         foreach (($state['bankAccounts'] ?? []) as $row) insertRow($pdo, 'bank_accounts', ['id' => $row['id'], 'bank_name' => $row['bankName'], 'branch' => $row['branch'] ?? null, 'account_name' => $row['accountName'], 'account_number' => $row['accountNumber']]);
         foreach (($state['paymentVouchers'] ?? []) as $voucher) {
-            insertRow($pdo, 'payment_vouchers', ['id' => $voucher['id'], 'voucher_number' => !empty($voucher['voucherNumber']) ? $voucher['voucherNumber'] : null, 'request_number' => $voucher['requestNumber'], 'request_date' => sqlDate($voucher['requestDate'] ?? null, true) ?? date('Y-m-d'), 'job_info' => $voucher['jobInfo'], 'request_by' => $voucher['requestBy'] ?? '', 'request_by_user_id' => !empty($voucher['requestByUserId']) ? $voucher['requestByUserId'] : null, 'vendor_partner_id' => !empty($voucher['vendorPartnerId']) ? $voucher['vendorPartnerId'] : null, 'vendor_name' => $voucher['vendorName'] ?? '', 'paid_to' => $voucher['paidTo'] ?? null, 'bank_name' => $voucher['bankName'] ?? null, 'account_number' => $voucher['accountNumber'] ?? null, 'total_paid_amount' => $voucher['totalPaidAmount'] ?? 0, 'status' => $voucher['status'] ?? 'PENDING_MANAGER', 'manager_note' => $voucher['managerNote'] ?? null, 'reviewed_by' => $voucher['reviewedBy'] ?? null, 'reviewed_at' => sqlDate($voucher['reviewedAt'] ?? null), 'paid_by' => $voucher['paidBy'] ?? null, 'paid_at' => sqlDate($voucher['paidAt'] ?? null), 'created_at' => sqlDate($voucher['createdAt'] ?? null) ?? date('Y-m-d H:i:s')]);
+            insertRow($pdo, 'payment_vouchers', ['id' => $voucher['id'], 'voucher_number' => !empty($voucher['voucherNumber']) ? $voucher['voucherNumber'] : null, 'request_number' => $voucher['requestNumber'], 'request_date' => sqlDate($voucher['requestDate'] ?? null, true) ?? date('Y-m-d'), 'job_info' => $voucher['jobInfo'], 'request_by' => $voucher['requestBy'] ?? '', 'request_by_user_id' => !empty($voucher['requestByUserId']) ? $voucher['requestByUserId'] : null, 'vendor_partner_id' => !empty($voucher['vendorPartnerId']) ? $voucher['vendorPartnerId'] : null, 'vendor_name' => $voucher['vendorName'] ?? '', 'paid_to' => $voucher['paidTo'] ?? null, 'bank_name' => $voucher['bankName'] ?? null, 'account_number' => $voucher['accountNumber'] ?? null, 'total_paid_amount' => $voucher['totalPaidAmount'] ?? 0, 'payment_surcharge' => $voucher['paymentSurcharge'] ?? 0, 'payment_other_expenses' => $voucher['paymentOtherExpenses'] ?? 0, 'payment_description' => $voucher['paymentDescription'] ?? null, 'payment_total_amount' => $voucher['paymentTotalAmount'] ?? $voucher['totalPaidAmount'] ?? 0, 'status' => $voucher['status'] ?? 'PENDING_MANAGER', 'manager_note' => $voucher['managerNote'] ?? null, 'reviewed_by' => $voucher['reviewedBy'] ?? null, 'reviewed_at' => sqlDate($voucher['reviewedAt'] ?? null), 'paid_by' => $voucher['paidBy'] ?? null, 'paid_at' => sqlDate($voucher['paidAt'] ?? null), 'created_at' => sqlDate($voucher['createdAt'] ?? null) ?? date('Y-m-d H:i:s')]);
             foreach (($voucher['items'] ?? []) as $index => $item) {
                 insertRow($pdo, 'payment_voucher_items', ['id' => $item['id'], 'voucher_id' => $voucher['id'], 'line_no' => $index + 1, 'job_number' => $item['jobNumber'] ?? '', 'customer_name' => $item['customerName'] ?? '', 'item_service' => $item['itemService'] ?? '', 'amount' => $item['amount'] ?? 0, 'vat_applied' => !empty($item['vatApplied']) ? 1 : 0, 'vat_amount' => $item['vatAmount'] ?? 0, 'total' => $item['total'] ?? 0, 'pph23_applied' => !empty($item['pph23Applied']) ? 1 : 0, 'pph23_amount' => $item['pph23Amount'] ?? 0, 'paid_amount' => $item['paidAmount'] ?? 0]);
             }

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, ChevronDown, ChevronRight, Printer, Receipt, Search } from 'lucide-react';
 import { BankAccount, PaymentVoucher } from '../../types';
 import { db } from '../../db/storage';
+import { dataApi } from '../../lib/dataApi';
 import { printPaymentReceipt } from '../../utils/voucherPrint';
 
 interface AccountsPayableViewProps {
@@ -18,27 +19,6 @@ interface PaymentFormDraft {
   paymentDescription: string;
   selectedBankId: string;
 }
-
-const paymentFormDraftKey = (owner: string) => `lgm_finance_ap_draft_${owner || 'user'}`;
-
-const loadPaymentFormDraft = (owner: string): PaymentFormDraft | null => {
-  try {
-    const raw = localStorage.getItem(paymentFormDraftKey(owner));
-    if (!raw) return null;
-    const draft = JSON.parse(raw) as Partial<PaymentFormDraft>;
-    if (typeof draft.voucherId !== 'string' || !draft.voucherId) return null;
-    return {
-      voucherId: draft.voucherId,
-      paymentDate: typeof draft.paymentDate === 'string' ? draft.paymentDate : todayIso(),
-      manualSurcharge: typeof draft.manualSurcharge === 'string' ? draft.manualSurcharge : '',
-      otherExpenses: typeof draft.otherExpenses === 'string' ? draft.otherExpenses : '',
-      paymentDescription: typeof draft.paymentDescription === 'string' ? draft.paymentDescription : '',
-      selectedBankId: typeof draft.selectedBankId === 'string' ? draft.selectedBankId : '',
-    };
-  } catch {
-    return null;
-  }
-};
 
 const money = (value: number) =>
   new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
@@ -72,14 +52,15 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [initialPaymentDraft] = useState(() => loadPaymentFormDraft(payer));
-  const [paymentFormVoucherId, setPaymentFormVoucherId] = useState<string | null>(() => initialPaymentDraft?.voucherId || null);
-  const [paymentDate, setPaymentDate] = useState<string>(() => initialPaymentDraft?.paymentDate || todayIso());
+  const [initialPaymentDraft, setInitialPaymentDraft] = useState<PaymentFormDraft | null>(null);
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const [paymentFormVoucherId, setPaymentFormVoucherId] = useState<string | null>(null);
+  const [paymentDate, setPaymentDate] = useState<string>(todayIso());
   const paymentDatePickerRef = useRef<HTMLInputElement | null>(null);
-  const [manualSurcharge, setManualSurcharge] = useState(() => initialPaymentDraft?.manualSurcharge || '');
-  const [otherExpenses, setOtherExpenses] = useState(() => initialPaymentDraft?.otherExpenses || '');
-  const [paymentDescription, setPaymentDescription] = useState(() => initialPaymentDraft?.paymentDescription || '');
-  const [selectedBankId, setSelectedBankId] = useState(() => initialPaymentDraft?.selectedBankId || '');
+  const [manualSurcharge, setManualSurcharge] = useState('');
+  const [otherExpenses, setOtherExpenses] = useState('');
+  const [paymentDescription, setPaymentDescription] = useState('');
+  const [selectedBankId, setSelectedBankId] = useState('');
 
   const paymentFormVoucher = useMemo(
     () => paymentVouchers.find((voucher) => voucher.id === paymentFormVoucherId) || null,
@@ -87,14 +68,31 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
   );
 
   useEffect(() => {
-    if (!paymentFormVoucherId || !paymentFormVoucher) return;
-    const draft = loadPaymentFormDraft(payer);
-    if (draft?.voucherId === paymentFormVoucherId) {
-      setPaymentDate(draft.paymentDate);
-      setManualSurcharge(draft.manualSurcharge);
-      setOtherExpenses(draft.otherExpenses);
-      setPaymentDescription(draft.paymentDescription);
-      setSelectedBankId(draft.selectedBankId);
+    let cancelled = false;
+    setDraftLoaded(false);
+    void dataApi.getUserData<PaymentFormDraft>('finance_payment_draft')
+      .then((draft) => {
+        if (cancelled || !draft || typeof draft.voucherId !== 'string') return;
+        setInitialPaymentDraft(draft);
+        setPaymentDate(draft.paymentDate || todayIso());
+        setManualSurcharge(draft.manualSurcharge || '');
+        setOtherExpenses(draft.otherExpenses || '');
+        setPaymentDescription(draft.paymentDescription || '');
+        setSelectedBankId(draft.selectedBankId || '');
+      })
+      .catch((error) => console.error('Gagal memuat draft form pembayaran:', error))
+      .finally(() => { if (!cancelled) setDraftLoaded(true); });
+    return () => { cancelled = true; };
+  }, [payer]);
+
+  useEffect(() => {
+    if (!draftLoaded || !paymentFormVoucherId || !paymentFormVoucher) return;
+    if (initialPaymentDraft?.voucherId === paymentFormVoucherId) {
+      setPaymentDate(initialPaymentDraft.paymentDate);
+      setManualSurcharge(initialPaymentDraft.manualSurcharge);
+      setOtherExpenses(initialPaymentDraft.otherExpenses);
+      setPaymentDescription(initialPaymentDraft.paymentDescription);
+      setSelectedBankId(initialPaymentDraft.selectedBankId);
       return;
     }
     setPaymentDate(todayIso());
@@ -102,36 +100,25 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
     setOtherExpenses('');
     setPaymentDescription(`Payment voucher ${paymentFormVoucher.requestNumber}`);
     setSelectedBankId(bankAccounts[0]?.id || '');
-  }, [paymentFormVoucherId]);
+  }, [paymentFormVoucherId, paymentFormVoucher, draftLoaded, initialPaymentDraft, bankAccounts]);
 
   useEffect(() => {
-    if (!paymentFormVoucherId || paymentFormVoucher?.status !== 'APPROVED') return;
-    try {
-      localStorage.setItem(paymentFormDraftKey(payer), JSON.stringify({
-        voucherId: paymentFormVoucherId,
-        paymentDate,
-        manualSurcharge,
-        otherExpenses,
-        paymentDescription,
-        selectedBankId,
-      } satisfies PaymentFormDraft));
-    } catch (draftError) {
-      console.error('Gagal menyimpan draft form pembayaran:', draftError);
-    }
-  }, [paymentFormVoucherId, paymentFormVoucher, payer, paymentDate, manualSurcharge, otherExpenses, paymentDescription, selectedBankId]);
+    if (!draftLoaded || !paymentFormVoucherId || paymentFormVoucher?.status !== 'APPROVED') return;
+    const draft = { voucherId: paymentFormVoucherId, paymentDate, manualSurcharge, otherExpenses, paymentDescription, selectedBankId } satisfies PaymentFormDraft;
+    void dataApi.saveUserData('finance_payment_draft', draft)
+      .then(() => setInitialPaymentDraft(draft))
+      .catch((error) => console.error('Gagal menyimpan draft form pembayaran:', error));
+  }, [draftLoaded, paymentFormVoucherId, paymentFormVoucher, paymentDate, manualSurcharge, otherExpenses, paymentDescription, selectedBankId]);
 
   useEffect(() => {
-    if (!paymentFormVoucherId || !paymentFormVoucher || paymentFormVoucher.status === 'APPROVED') return;
-    const draft = loadPaymentFormDraft(payer);
-    if (draft?.voucherId === paymentFormVoucherId) {
-      try {
-        localStorage.removeItem(paymentFormDraftKey(payer));
-      } catch (draftError) {
-        console.error('Gagal menghapus draft form pembayaran:', draftError);
-      }
+    if (!draftLoaded || !paymentFormVoucherId || !paymentFormVoucher || paymentFormVoucher.status === 'APPROVED') return;
+    if (initialPaymentDraft?.voucherId === paymentFormVoucherId) {
+      void dataApi.deleteUserData('finance_payment_draft')
+        .then(() => setInitialPaymentDraft(null))
+        .catch((error) => console.error('Gagal menghapus draft form pembayaran:', error));
     }
     setPaymentFormVoucherId(null);
-  }, [paymentFormVoucherId, paymentFormVoucher?.status, payer]);
+  }, [draftLoaded, paymentFormVoucherId, paymentFormVoucher, initialPaymentDraft]);
 
   const selectedBank = bankAccounts.find((account) => account.id === selectedBankId) || bankAccounts[0] || null;
 
@@ -172,28 +159,36 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
   const handleOpenInvoiceView = (voucherOverride?: PaymentVoucher) => {
     const printVoucher = voucherOverride || paymentFormVoucher;
     if (!printVoucher) return;
-    const matchingDraft = loadPaymentFormDraft(payer);
+    const matchingDraft = initialPaymentDraft;
     const useCurrentForm = !voucherOverride || voucherOverride.id === paymentFormVoucher?.id;
     const printDate = useCurrentForm
       ? paymentDate
       : matchingDraft?.voucherId === printVoucher.id
         ? matchingDraft.paymentDate
         : printVoucher.paidAt?.slice(0, 10) || todayIso();
-    const surcharge = Number(useCurrentForm
-      ? manualSurcharge || 0
-      : matchingDraft?.voucherId === printVoucher.id
-        ? matchingDraft.manualSurcharge || 0
-        : 0);
-    const additionalExpenses = Number(useCurrentForm
-      ? otherExpenses || 0
-      : matchingDraft?.voucherId === printVoucher.id
-        ? matchingDraft.otherExpenses || 0
-        : 0);
-    const description = useCurrentForm
-      ? paymentDescription || printVoucher.requestNumber
-      : matchingDraft?.voucherId === printVoucher.id
-        ? matchingDraft.paymentDescription || printVoucher.requestNumber
-        : `Payment voucher ${printVoucher.requestNumber}`;
+    const isPaid = printVoucher.status === 'PAID';
+    const hasMatchingDraft = matchingDraft?.voucherId === printVoucher.id;
+    const surcharge = isPaid
+      ? Number(printVoucher.paymentSurcharge || 0)
+      : useCurrentForm
+        ? Number(manualSurcharge || 0)
+        : hasMatchingDraft
+          ? Number(matchingDraft.manualSurcharge || 0)
+          : Number(printVoucher.paymentSurcharge || 0);
+    const additionalExpenses = isPaid
+      ? Number(printVoucher.paymentOtherExpenses || 0)
+      : useCurrentForm
+        ? Number(otherExpenses || 0)
+        : hasMatchingDraft
+          ? Number(matchingDraft.otherExpenses || 0)
+          : Number(printVoucher.paymentOtherExpenses || 0);
+    const description = isPaid
+      ? printVoucher.paymentDescription || `Payment voucher ${printVoucher.requestNumber}`
+      : useCurrentForm
+        ? paymentDescription || printVoucher.requestNumber
+        : hasMatchingDraft
+          ? matchingDraft.paymentDescription || printVoucher.requestNumber
+          : printVoucher.paymentDescription || `Payment voucher ${printVoucher.requestNumber}`;
     const printBankId = useCurrentForm
       ? selectedBankId
       : matchingDraft?.voucherId === printVoucher.id
@@ -205,9 +200,11 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
       pph23: -printVoucher.items.reduce((sum, item) => sum + Number(item.pph23Amount || 0), 0),
       surcharge,
       otherExpenses: additionalExpenses,
-      totalPayment: printVoucher.items.reduce((sum, item) => sum + Number(item.total || 0), 0)
-        + surcharge + additionalExpenses
-        - printVoucher.items.reduce((sum, item) => sum + Number(item.pph23Amount || 0), 0),
+      totalPayment: isPaid && printVoucher.paymentTotalAmount !== undefined
+        ? Number(printVoucher.paymentTotalAmount)
+        : printVoucher.items.reduce((sum, item) => sum + Number(item.total || 0), 0)
+          + surcharge + additionalExpenses
+          - printVoucher.items.reduce((sum, item) => sum + Number(item.pph23Amount || 0), 0),
     };
     const printVoucherNumber = printVoucher.voucherNumber || db.getNextFinanceVoucherNumber(printDate);
     const printWindow = window.open('', '_blank', 'width=1100,height=800');
@@ -230,6 +227,15 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
         <td class="amount">${money(item.paidAmount)}</td>
       </tr>
     `).join('');
+    const printedAt = new Date().toLocaleString('id-ID', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
     const body = `
       <!doctype html>
       <html>
@@ -321,7 +327,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
           <table class="signatures"><thead><tr><th>Maker</th><th>Checker</th><th>Signer</th></tr></thead><tbody>
             <tr class="name"><td>${escapeHtml(printVoucher.requestBy || '-')}</td><td>${escapeHtml(payer || '-')}</td><td>${escapeHtml(printVoucher.reviewedBy || '-')}</td></tr>
           </tbody></table>
-          <div class="watermark">Dokumen asli dicetak dari sistem resmi PT Lentera Global Maritim.</div>
+          <div class="watermark">Dokumen asli dicetak dari sistem resmi PT Lentera Global Maritim. ${escapeHtml(printedAt)}</div>
         </body>
       </html>
     `;
@@ -584,12 +590,14 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                   setError('');
                   try {
                     await db.refreshRemote();
-                    await db.payPaymentVoucher(paymentFormVoucher.id, payer, paymentDate);
-                    try {
-                      localStorage.removeItem(paymentFormDraftKey(payer));
-                    } catch (draftError) {
-                      console.error('Gagal menghapus draft form pembayaran:', draftError);
-                    }
+                    await db.payPaymentVoucher(paymentFormVoucher.id, payer, paymentDate, {
+                      surcharge: itemTotals.surcharge,
+                      otherExpenses: itemTotals.otherExpenses,
+                      description: paymentDescription,
+                      totalAmount: itemTotals.totalPayment,
+                    });
+                    await dataApi.deleteUserData('finance_payment_draft');
+                    setInitialPaymentDraft(null);
                     setPaymentFormVoucherId(null);
                   } catch (payError) {
                     setError(payError instanceof Error ? payError.message : 'Gagal memproses pembayaran.');

@@ -7,6 +7,7 @@ import { UserRole, JobCall, PaymentVoucher, ActiveTab } from '../../types';
 import { AuthAccount, initials } from '../../auth';
 import { LogOut } from 'lucide-react';
 import { apiAuth } from '../../lib/api';
+import { dataApi } from '../../lib/dataApi';
 
 interface HeaderProps {
   currentRole: UserRole;
@@ -43,16 +44,16 @@ export const Header: React.FC<HeaderProps> = ({
   const [showNotifications, setShowNotifications] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const headerActionsRef = useRef<HTMLDivElement>(null);
-  const [readNotificationIds, setReadNotificationIds] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem(`lgm_notification_reads_${currentUser.id}`) || '[]'); } catch { return []; }
-  });
+  const [readNotificationIds, setReadNotificationIds] = useState<string[]>([]);
   useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(`lgm_notification_reads_${currentUser.id}`) || '[]');
-      setReadNotificationIds(Array.isArray(saved) ? saved.filter((id): id is string => typeof id === 'string') : []);
-    } catch {
-      setReadNotificationIds([]);
-    }
+    let cancelled = false;
+    setReadNotificationIds([]);
+    void dataApi.getUserData<string[]>('notification_reads')
+      .then((saved) => {
+        if (!cancelled) setReadNotificationIds(Array.isArray(saved) ? saved.filter((id): id is string => typeof id === 'string') : []);
+      })
+      .catch((error) => console.error('Gagal memuat status notifikasi:', error));
+    return () => { cancelled = true; };
   }, [currentUser.id]);
 
   const roleMeta: Record<UserRole, { label: string; desc: string; icon: any }> = {
@@ -224,7 +225,8 @@ export const Header: React.FC<HeaderProps> = ({
   const persistReads = (ids: string[]) => {
     const next = Array.from(new Set(ids));
     setReadNotificationIds(next);
-    try { localStorage.setItem(`lgm_notification_reads_${currentUser.id}`, JSON.stringify(next)); } catch {}
+    void dataApi.saveUserData('notification_reads', next)
+      .catch((error) => console.error('Gagal menyimpan status notifikasi:', error));
   };
   const handleNotificationOpen = (n: HeaderNotification) => {
     persistReads(Array.from(new Set([...readNotificationIds, n.id])));

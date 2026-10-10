@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS user_app_data (
+  user_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  data_key VARCHAR(40) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  data_json JSON NOT NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (user_id, data_key),
+  CONSTRAINT fk_user_app_data_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

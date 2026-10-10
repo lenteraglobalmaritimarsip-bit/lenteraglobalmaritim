@@ -168,6 +168,10 @@ export interface PaymentVoucher {
   reviewedAt?: string;
   paidBy?: string;
   paidAt?: string;
+  paymentSurcharge?: number;
+  paymentOtherExpenses?: number;
+  paymentDescription?: string;
+  paymentTotalAmount?: number;
   createdAt: string;
 }
 

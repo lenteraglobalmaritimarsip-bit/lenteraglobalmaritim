@@ -25,6 +25,7 @@ import { FDAView } from '../fda/FDAView';
 interface ManagerOpsViewProps {
   initialTab?: 'DASHBOARD' | 'QUOTES_VIEW' | 'APPROVAL';
   jobCalls: JobCall[];
+  approverName: string;
   vessels?: Vessel[];
   users?: Array<{ id?: string; name?: string; branch?: string; username?: string; role?: string }>;
   fixTariffs: FixTariff[];
@@ -36,6 +37,7 @@ interface ManagerOpsViewProps {
 export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
   initialTab = 'DASHBOARD',
   jobCalls,
+  approverName,
   vessels = [],
   users = [],
   fixTariffs,
@@ -54,6 +56,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
   const [expandedDetailJobId, setExpandedDetailJobId] = useState<string | null>(null);
   const [expandedFDAApprovalJobId, setExpandedFDAApprovalJobId] = useState<string | null>(null);
   const [expandedQuoteDetail, setExpandedQuoteDetail] = useState<string | null>(null);
+  const managerActorName = `${approverName.trim()} (Manager Ops)`;
 
   const pendingApprovals = jobCalls.filter(
     (j) =>
@@ -135,28 +138,28 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
 
   const handleApprove = (jobId: string) => {
     const notes = approvalNotes[jobId] || 'Disetujui untuk pelaksanaan operasional kapal.';
-    const result = db.approveJobQuote(jobId, 'Capt. Bambang Suryo (Manager Ops)', notes);
+    const result = db.approveJobQuote(jobId, managerActorName, notes);
     setActionSuccess(result ? `Job ${jobId} berhasil disetujui! Status beralih ke FDA.` : 'Approval ditolak: EPDA harus SUBMITTED terlebih dahulu.');
     setTimeout(() => setActionSuccess(null), 4000);
   };
 
   const handleReject = (jobId: string) => {
     const notes = approvalNotes[jobId] || 'Margin komersial tidak mencukupi / revisi buy rate vendor.';
-    db.rejectJobQuote(jobId, 'Capt. Bambang Suryo (Manager Ops)', notes);
+    db.rejectJobQuote(jobId, managerActorName, notes);
     setActionSuccess(`Job ${jobId} dikembalikan ke Sales untuk revisi penawaran.`);
     setTimeout(() => setActionSuccess(null), 4000);
   };
 
   const handleApproveFDA = (jobId: string) => {
     const notes = approvalNotes[`${jobId}:FDA`] || 'FDA disetujui untuk diteruskan ke Finance.';
-    const result = db.approveFDA(jobId, 'Capt. Bambang Suryo (Manager Ops)', notes);
+    const result = db.approveFDA(jobId, managerActorName, notes);
     setActionSuccess(result ? `FDA ${jobId} disetujui dan diteruskan ke Finance.` : 'Approval FDA gagal. Pastikan FDA sudah dikirim oleh tim FDA.');
     setTimeout(() => setActionSuccess(null), 4000);
   };
 
   const handleRejectFDA = (jobId: string) => {
     const notes = approvalNotes[`${jobId}:FDA`] || 'FDA dikembalikan ke FDA untuk revisi.';
-    const result = db.rejectFDA(jobId, 'Capt. Bambang Suryo (Manager Ops)', notes);
+    const result = db.rejectFDA(jobId, managerActorName, notes);
     setActionSuccess(result ? `FDA ${jobId} dikembalikan ke tim FDA untuk revisi.` : 'FDA tidak dapat dikembalikan karena statusnya bukan SUBMITTED.');
     setTimeout(() => setActionSuccess(null), 4000);
   };

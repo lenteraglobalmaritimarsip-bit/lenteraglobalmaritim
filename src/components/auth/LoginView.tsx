@@ -1,24 +1,15 @@
 import React, { useState } from 'react';
 import { ArrowRight, Eye, EyeOff, LockKeyhole, UserRound } from 'lucide-react';
-import { AuthAccount, authenticate } from '../../auth';
+import { AuthAccount } from '../../auth';
 import { apiAuth } from '../../lib/api';
 import { formatDateLong } from '../../utils/date';
 
-interface LoginViewProps { onLogin: (account: AuthAccount, rememberMe?: boolean) => void; }
-
-const DEMO_LOGIN_PRESETS = [
-  { label: 'Admin', username: 'admin', password: 'admin123' },
-  { label: 'Sales', username: 'sales', password: 'sales123' },
-  { label: 'Manager', username: 'manager', password: 'manager123' },
-  { label: 'FDA', username: 'fda', password: 'fda123' },
-  { label: 'Finance', username: 'finance', password: 'finance123' },
-];
+interface LoginViewProps { onLogin: (account: AuthAccount) => void; }
 
 export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -30,15 +21,14 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
     setLoading(true);
     window.setTimeout(async () => {
       try {
-        const account = apiAuth.enabled
-          ? await apiAuth.login(username, password)
-          : authenticate(username, password);
+        if (!apiAuth.enabled) throw new Error('Mode API XAMPP belum diaktifkan.');
+        const account = await apiAuth.login(username, password);
         if (!account) {
           setError('Username atau password tidak valid.');
           setLoading(false);
           return;
         }
-        onLogin(account, rememberMe);
+        onLogin(account);
       } catch (loginError) {
         setError(loginError instanceof Error ? loginError.message : 'Login gagal.');
         setLoading(false);
@@ -98,25 +88,8 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
               <h2>Login ke Portal</h2>
               <p>Silakan masuk menggunakan akun sesuai role pekerjaan Anda.</p>
             </div>
-            <span className="lgm-demo-mode">{apiAuth.enabled ? 'Mode Database' : 'Mode Lokal'}</span>
+            <span className="lgm-demo-mode">Mode Database</span>
           </div>
-
-          {!apiAuth.enabled && <div className="lgm-demo-quicklist" aria-label="Local login presets">
-              {DEMO_LOGIN_PRESETS.map((preset) => (
-                <button
-                  key={preset.username}
-                  type="button"
-                  className="lgm-demo-preset"
-                  onClick={() => {
-                    setUsername(preset.username);
-                    setPassword(preset.password);
-                    setError('');
-                  }}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>}
 
           <form onSubmit={submit}>
             <label className="lgm-field">
@@ -135,10 +108,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
               <div className="lgm-password">
                 <input
                   type={showPassword ? 'text' : 'password'}
-                  inputMode={apiAuth.enabled ? 'numeric' : undefined}
-                  maxLength={apiAuth.enabled ? 8 : undefined}
+                  inputMode="numeric"
+                  maxLength={8}
                   value={password}
-                  onChange={(e) => setPassword(apiAuth.enabled ? e.target.value.replace(/\D/g, '').slice(0, 8) : e.target.value)}
+                  onChange={(e) => setPassword(e.target.value.replace(/\D/g, '').slice(0, 8))}
                   placeholder="Password"
                   aria-label="Password"
                 />
@@ -153,14 +126,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
             </label>
 
             <div className="lgm-login-options">
-              <label className="lgm-remember">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                />
-                <span>Ingat saya</span>
-              </label>
               <button type="button" className="lgm-forgot" onClick={() => setError('Silakan hubungi administrator untuk reset password.')}>
                 Lupa password?
               </button>

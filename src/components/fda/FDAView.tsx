@@ -25,6 +25,7 @@ import { db, buildBranchAwareFDANumber, buildBranchAwareInvoiceNumber, getCurren
 import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, filterTariffsByGRT, hasTariffGRTRestriction, selectPreferredTariffOptions } from '../../utils/tariff';
 import { formatDateDisplay } from '../../utils/date';
 import { formatCostCategoryLabel, getCostCategoryRank, normalizeCostCategory } from '../../utils/costCategories';
+import { expensesItemRatePatch, findMatchingExpensesItem, findMatchingFixTariff, fixTariffRatePatch } from '../../utils/masterDataIdentity';
 
 interface FDAViewProps {
   initialTab?: 'DASHBOARD' | 'JOB_ID' | 'ACTUAL_COST' | 'QUOTES_VIEW' | 'APPROVAL';
@@ -230,7 +231,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const buildAutoServiceOptions = (currency: Currency) => {
     const serviceKey = (name: string, category: string) => `${name.trim().toLowerCase()}|${category.trim().toUpperCase()}`;
     const currentCurrencyFixTariffs = fixTariffs.filter((tariff) =>
-      portMatches(tariff.portId, tariff.portName)
+      (tariff.costCategory || '').trim().toUpperCase() === 'PORT_SERVICE'
+      && portMatches(tariff.portId, tariff.portName)
       && rateForCurrency(currency, tariff.rateIDR, tariff.rateUSD, tariff.rate, tariff.currency) > 0
     );
     const rangedFixTariffKeys = new Set(currentCurrencyFixTariffs
@@ -263,6 +265,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
       })),
     ...expensesItems
       .filter((item) =>
+        item.category.trim().toUpperCase() !== 'PORT_SERVICE'
+        &&
         portMatches(item.portId, item.portName)
         && rateForCurrency(currency, item.rateIDR, item.rateUSD, item.standardCostSell || 0, item.defaultCurrency) > 0
         && !rangedFixTariffKeys.has(serviceKey(item.name, item.category))
@@ -368,6 +372,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
     const matchingTariff = fixTariffs.find((tariff) =>
       tariff.serviceName.trim().toLowerCase() === itemName
+      && (tariff.costCategory || '').trim().toUpperCase() === 'PORT_SERVICE'
       && portMatches(tariff.portId, tariff.portName)
       && tariff.costCategory
     );
@@ -481,7 +486,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   });
   const actualAmount = actualQuantityValue * (actualEntryMode === 'AUTO' ? autoTariffPreview : manualTariffPreview);
 
-  const handleQuickAddMasterData = () => {
+  const handleQuickAddMasterData = async () => {
     const itemName = (newActual.description || '').trim();
     const rateValue = Number(newActual.amountBuy) || Number(newActual.rate) || 0;
     if (isFDAReadOnly || !itemName || rateValue <= 0) {
@@ -491,38 +496,22 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
     const portId = (activeJob.portId || activeJob.inquiry?.portId || '').trim();
     const portName = (activeJob.portName || activeJob.inquiry?.portName || '').trim();
-    const normalizedItemName = itemName.toLowerCase();
-    const isTariffCategory = newActual.category === 'PORT_SERVICE' || newActual.category === 'PORT_EXPENSES';
-    const isSamePort = (masterPortId?: string, masterPortName?: string) =>
-      (!!portId && !!masterPortId && masterPortId === portId)
-      || (!!portName && !!masterPortName && masterPortName.toLowerCase() === portName.toLowerCase());
+    const isTariffCategory = newActual.category === 'PORT_SERVICE';
 
-    const duplicateExists = isTariffCategory
-      ? fixTariffs.some((tariff) =>
-          tariff.serviceName.trim().toLowerCase() === normalizedItemName
-          && isSamePort(tariff.portId, tariff.portName)
-          && (tariff.costCategory || 'PORT_EXPENSES') === newActual.category
-          && rateForCurrency(viewCurrency, tariff.rateIDR, tariff.rateUSD, tariff.rate, tariff.currency) > 0
-        )
-      : expensesItems.some((expense) =>
-          expense.name.trim().toLowerCase() === normalizedItemName
-          && isSamePort(expense.portId, expense.portName)
-          && expense.category === newActual.category
-          && rateForCurrency(viewCurrency, expense.rateIDR, expense.rateUSD, expense.standardCostSell, expense.defaultCurrency) > 0
-        );
-
-    if (duplicateExists) {
-      window.alert('Item service dengan Nama service, Port, Kategori, dan Currency yang sama sudah tersimpan di master data.');
-      return;
-    }
+    const vesselGRT = Number(vesselMaster?.grt) || 0;
+    const vesselDWT = Number(vesselMaster?.dwt) || 0;
 
     if (isTariffCategory) {
-      db.addFixTariff({
+      const tariffPayload = {
         portId,
         portName,
         costCategory: newActual.category,
         serviceCode: '',
         serviceName: itemName,
+        grt: vesselGRT || undefined,
+        grtMin: vesselGRT || undefined,
+        grtMax: vesselGRT || undefined,
+        dwt: vesselDWT || undefined,
         calculationBasis: newActual.calculationBasis || 'LUMP_SUM',
         tariffType: newActual.tariffType || 'FIXED',
         currency: viewCurrency,
@@ -531,9 +520,15 @@ export const FDAView: React.FC<FDAViewProps> = ({
         rateUSD: viewCurrency === 'USD' ? rateValue : 0,
         minCharge: Number(newActual.minCharge) || rateValue,
         description: newActual.notes || 'Created from FDA manual entry',
-      });
+      };
+      const existing = findMatchingFixTariff(fixTariffs, tariffPayload);
+      if (existing) {
+        await db.updateFixTariff(existing.id, fixTariffRatePatch(existing, tariffPayload));
+      } else {
+        await db.addFixTariff(tariffPayload);
+      }
     } else {
-      db.addExpensesItem({
+      const expensePayload = {
         portId: portId || undefined,
         portName: portName || undefined,
         code: `FDA-${Date.now().toString().slice(-6)}`,
@@ -547,10 +542,16 @@ export const FDAView: React.FC<FDAViewProps> = ({
         rateUSD: viewCurrency === 'USD' ? rateValue : 0,
         preferredVendor: newActual.vendorName || '',
         calculationType: newActual.tariffType === 'RANGE' ? 'QTY_CARGO' : newActual.tariffType || 'FIXED',
-      });
+      };
+      const existing = findMatchingExpensesItem(expensesItems, expensePayload);
+      if (existing) {
+        await db.updateExpensesItem(existing.id, expensesItemRatePatch(existing, expensePayload));
+      } else {
+        await db.addExpensesItem(expensePayload);
+      }
     }
 
-    window.alert('Data master item berhasil ditambahkan untuk FDA. Item baru siap dipakai di mode otomatis.');
+    window.alert('Rate master data berhasil diperbarui atau item baru berhasil ditambahkan.');
   };
 
   const handleAddActualCost = (e?: React.FormEvent) => {
@@ -817,8 +818,11 @@ export const FDAView: React.FC<FDAViewProps> = ({
     /(<div class="meta-row"><b>IMO<\/b><span>:\<\/span><span>.*?<\/span><\/div>)/,
     (imoRow) => `${imoRow}<div class="meta-row"><b>Cargo Quantity</b><span>:</span><span>${activeJob.inquiry?.cargoQuantity || 0} ${activeJob.inquiry?.quantityUnit || 'TON'}</span></div>`
   );
+  const fdaPrintSpacingStyles = `@page{size:A4 portrait;margin:10mm}body{font-size:10px!important}.brand-row{margin:0 0 8px!important}.brand-wrap{min-height:58px!important;gap:12px!important}.logo{width:78px!important;height:58px!important}.brand{font-size:20px!important}.tag{font-size:11px!important;margin-top:3px!important}.divider{margin:6px 0 9px!important}.title-block{margin:0 0 9px!important}.title-block h2{padding:5px!important;font-size:12px!important}.meta{gap:2px 28px!important;margin-bottom:9px!important}.meta-col{gap:2px!important}.meta-row{line-height:1.25!important}th,td{padding:4px 5px!important;font-size:9px!important}`;
   const centerFDAExportColumns = (html: string) => addCargoQuantityAfterIMO(
-    normalizeFDAExportLayout(html.replace(/<div class="meta-row"><b>Estimated Day<\/b><span>:\<\/span><span>.*?<\/span><\/div>/, ''))
+    normalizeFDAExportLayout(html
+      .replace(/<div class="meta-row"><b>Estimated Day<\/b><span>:\<\/span><span>.*?<\/span><\/div>/, '')
+      .replace('</style>', `${fdaPrintSpacingStyles}</style>`))
   ).replace('</style>', '@media screen{html,body{min-height:100%;height:auto;overflow:visible}body{box-sizing:border-box;max-width:1100px;margin:0 auto;padding:24px}.office-footer{position:static!important;left:auto!important;bottom:auto!important;transform:none!important;margin:20px auto 0}table th:nth-child(1),table td:nth-child(1){width:5%!important}table th:nth-child(2),table td:nth-child(2){width:35%!important}table th:nth-child(3),table td:nth-child(3){width:20%!important}table th:nth-child(4),table td:nth-child(4){width:12%!important}table th:nth-child(5),table td:nth-child(5){width:28%!important}}</style>');
 
   const openFDAWindow = (print = false, getHtml = false): string | undefined => {
@@ -1172,7 +1176,11 @@ export const FDAView: React.FC<FDAViewProps> = ({
               },
               {
                 label: 'TOTAL COST',
-                value: formatAccountingNumber(totalCost, 'IDR'),
+                value: new Intl.NumberFormat('id-ID', {
+                  style: 'currency',
+                  currency: 'IDR',
+                  maximumFractionDigits: 0,
+                }).format(totalCost),
                 note: 'Kumulatif grand total final ke principal, USD dikonversi ke IDR sesuai kurs FDA',
                 icon: Coins,
                 cls: 'orange',

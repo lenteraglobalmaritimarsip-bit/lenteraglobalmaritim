@@ -43,7 +43,6 @@ export interface DatabaseState {
   auditLogs: AuditLog[];
 }
 
-const LOCAL_DATABASE_KEY = 'lgm_database_state';
 const LOCAL_INITIAL_JOB_CALLS: JobCall[] = [];
 const DEMO_JOB_IDS = new Set(['VC-2026-0095', 'VC-2026-0098', 'VC-2026-0099']);
 
@@ -184,7 +183,7 @@ class DatabaseService {
   private actor: { id?: string; name: string; role: UserRole; branch?: string } = { name: 'System', role: 'ADMIN' };
 
   constructor() {
-    this.state = this.loadLocalState();
+    this.state = this.getDefaultState();
   }
 
   private getDefaultState(): DatabaseState {
@@ -206,108 +205,32 @@ class DatabaseService {
     };
   }
 
-  private loadLocalState(): DatabaseState {
-    const defaults = this.getDefaultState();
-    if (typeof localStorage === 'undefined') return defaults;
-
-    try {
-      const stored = JSON.parse(localStorage.getItem(LOCAL_DATABASE_KEY) || 'null') as Partial<DatabaseState> | null;
-      if (!stored || typeof stored !== 'object') return defaults;
-      const storedJobCalls = Array.isArray(stored.jobCalls) ? stored.jobCalls : defaults.jobCalls;
-      const migration = migrateInquiryCargoQuantity(storedJobCalls);
-      let repairedWorkflowState = migration.migrated;
-      const jobCalls = migration.jobCalls.map((job) => {
-        const isClosed = job.closing?.isClosed || job.status === 'CLOSED' || job.currentStage === 'CLOSED';
-        const managerApproved = job.managerApproval?.status === 'APPROVED';
-        const needsEPDARepair = managerApproved && job.quotation?.epda?.status !== 'APPROVED';
-        const needsFDAStatusRepair = job.fda?.fdaApproved && job.fda?.approvalStatus !== 'APPROVED';
-        const normalizedStage = isClosed
-          ? 'CLOSED'
-          : managerApproved && job.currentStage === 'QUOTATION'
-            ? 'OPERATIONAL'
-            : job.currentStage;
-        const needsStageRepair = normalizedStage !== job.currentStage;
-        const needsStatusRepair = isClosed && job.status !== 'CLOSED';
-        if (!needsEPDARepair && !needsFDAStatusRepair && !needsStageRepair && !needsStatusRepair) return job;
-        repairedWorkflowState = true;
-        return {
-          ...job,
-          currentStage: normalizedStage,
-          status: isClosed ? 'CLOSED' as const : job.status,
-          fda: needsFDAStatusRepair ? { ...job.fda, approvalStatus: 'APPROVED' as const } : job.fda,
-          quotation: needsEPDARepair ? {
-            ...job.quotation,
-            epda: { ...job.quotation.epda, status: 'APPROVED' as const },
-            pda: { ...job.quotation.pda, status: 'APPROVED' as const },
-          } : job.quotation,
-        };
-      });
-      const state: DatabaseState = {
-        ...defaults,
-        ...stored,
-        users: Array.isArray(stored.users) ? stored.users : defaults.users,
-        customers: Array.isArray(stored.customers) ? stored.customers : defaults.customers,
-        vessels: Array.isArray(stored.vessels) ? stored.vessels : defaults.vessels,
-        ports: Array.isArray(stored.ports) ? stored.ports : defaults.ports,
-        zones: Array.isArray(stored.zones) ? stored.zones : defaults.zones,
-        fixTariffs: Array.isArray(stored.fixTariffs) ? stored.fixTariffs : defaults.fixTariffs,
-        expensesItems: Array.isArray(stored.expensesItems) ? stored.expensesItems : defaults.expensesItems,
-        vendorPartners: Array.isArray(stored.vendorPartners) ? stored.vendorPartners : defaults.vendorPartners,
-        bankAccounts: Array.isArray(stored.bankAccounts) ? stored.bankAccounts : defaults.bankAccounts,
-        paymentVouchers: Array.isArray(stored.paymentVouchers) ? stored.paymentVouchers : defaults.paymentVouchers,
-        jobCalls,
-        auditLogs: Array.isArray(stored.auditLogs) ? stored.auditLogs : defaults.auditLogs,
-      };
-      if (repairedWorkflowState) {
-        try {
-          localStorage.setItem(LOCAL_DATABASE_KEY, JSON.stringify(state));
-        } catch (error) {
-          console.error('Failed to repair workflow state:', error);
-        }
-      }
-      return state;
-    } catch {
-      return defaults;
-    }
-  }
-
   public async hydrate(): Promise<void> {
-    if (apiAuth.enabled) {
-      try {
-        const remote = await dataApi.load();
-        this.apiRevision = remote.revision;
-        if (!remote.initialized && this.actor.role === 'ADMIN') {
-          const defaults = this.getDefaultState();
-          this.state = {
-            ...defaults,
-            ...remote.state,
-            users: remote.state.users,
-            jobCalls: remote.state.jobCalls,
-            auditLogs: remote.state.auditLogs,
-            currentRole: this.actor.role,
-          };
-          this.apiRevision = await dataApi.save(this.state, this.apiRevision);
-        } else {
-          const migration = migrateInquiryCargoQuantity(remote.state.jobCalls);
-          this.state = {
-            ...remote.state,
-            jobCalls: migration.jobCalls,
-            currentRole: this.actor.role,
-          };
-          if (migration.migrated) {
-            this.apiRevision = await dataApi.save(this.state, this.apiRevision);
-          }
-        }
-        this.notify();
-        return;
-      } catch (error) {
-        console.warn('API persistence unavailable, falling back to localStorage:', error);
-        this.state = this.loadLocalState();
-        this.notify();
-        return;
+    if (!apiAuth.enabled) throw new Error('API XAMPP harus diaktifkan untuk memuat database.');
+    const remote = await dataApi.load();
+    this.apiRevision = remote.revision;
+    if (!remote.initialized && this.actor.role === 'ADMIN') {
+      const defaults = this.getDefaultState();
+      this.state = {
+        ...defaults,
+        ...remote.state,
+        users: remote.state.users,
+        jobCalls: remote.state.jobCalls,
+        auditLogs: remote.state.auditLogs,
+        currentRole: this.actor.role,
+      };
+      this.apiRevision = await dataApi.save(this.state, this.apiRevision);
+    } else {
+      const migration = migrateInquiryCargoQuantity(remote.state.jobCalls);
+      this.state = {
+        ...remote.state,
+        jobCalls: migration.jobCalls,
+        currentRole: this.actor.role,
+      };
+      if (migration.migrated) {
+        this.apiRevision = await dataApi.save(this.state, this.apiRevision);
       }
     }
-    this.state = this.loadLocalState();
     this.notify();
   }
 
@@ -352,38 +275,24 @@ class DatabaseService {
 
   private saveToStorage(notify = true): boolean {
     this.stateVersion += 1;
-    try {
-      const safeState = apiAuth.enabled
-        ? { ...this.state, users: this.state.users.map(({ password: _password, ...user }) => user) }
-        : this.state;
-      localStorage.setItem(LOCAL_DATABASE_KEY, JSON.stringify(safeState));
-    } catch (error) {
-      console.error('Failed to save local database:', error);
+    if (!apiAuth.enabled) {
+      this.apiSyncError = new Error('API XAMPP harus diaktifkan untuk menyimpan database.');
       if (notify) this.notify();
       return false;
     }
-    if (apiAuth.enabled) {
-      const snapshot = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
-      this.apiSaveQueue = this.apiSaveQueue
-        .then(async () => {
-          if (!this.apiRevision) {
-            this.apiSyncError = new Error('Revisi database remote tidak tersedia.');
-            console.warn('Remote database revision missing; keeping local browser copy only.');
-            return;
-          }
-          this.apiRevision = await dataApi.save(snapshot, this.apiRevision);
-          this.apiSyncError = null;
-        })
-        .catch((error: unknown) => {
-          this.apiSyncError = error;
-          console.warn('API synchronization unavailable; local storage will keep the latest state.', error);
-          try {
-            localStorage.setItem(LOCAL_DATABASE_KEY, JSON.stringify(snapshot));
-          } catch {
-            // Ignore localStorage quota issues here; the app already persisted a previous snapshot.
-          }
-        });
-    }
+    const snapshot = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
+    this.apiSaveQueue = this.apiSaveQueue
+      .then(async () => {
+        if (!this.apiRevision) throw new Error('Revisi database XAMPP tidak tersedia.');
+        this.apiRevision = await dataApi.save(snapshot, this.apiRevision);
+        this.apiSyncError = null;
+      })
+      .catch((error: unknown) => {
+        this.apiSyncError = error;
+        window.dispatchEvent(new CustomEvent('lgm:api-save-error', {
+          detail: error instanceof Error ? error.message : String(error),
+        }));
+      });
     if (notify) this.notify();
     return true;
   }
@@ -400,7 +309,7 @@ class DatabaseService {
       this.state.paymentVouchers = previousVouchers;
       this.state.auditLogs = previousAuditLogs;
       this.notify();
-      throw new Error('Perubahan voucher gagal disimpan di browser. Periksa ruang penyimpanan lalu coba lagi.');
+      throw new Error('Perubahan voucher gagal disimpan ke database XAMPP.');
     }
 
     if (apiAuth.enabled) {
@@ -412,12 +321,6 @@ class DatabaseService {
         this.state.paymentVouchers = previousVouchers;
         this.state.auditLogs = previousAuditLogs;
         this.stateVersion += 1;
-        try {
-          const safeState = { ...this.state, users: this.state.users.map(({ password: _password, ...user }) => user) };
-          localStorage.setItem(LOCAL_DATABASE_KEY, JSON.stringify(safeState));
-        } catch (error) {
-          console.error('Failed to restore local state after voucher sync failure:', error);
-        }
         this.notify();
         throw new Error(`Perubahan voucher gagal disimpan ke database: ${message}`);
       }
@@ -456,12 +359,12 @@ class DatabaseService {
 
   public async setRole(role: UserRole): Promise<void> {
     this.state.currentRole = role;
-    await this.saveToStorage();
+    this.notify();
   }
 
   public async setSelectedJobId(jobId: string): Promise<void> {
     this.state.selectedJobId = jobId;
-    await this.saveToStorage();
+    this.notify();
   }
 
   public resetToSeeds(): void {
@@ -756,9 +659,10 @@ class DatabaseService {
     const date = new Date(requestDate);
     const valid = Number.isNaN(date.getTime()) ? new Date() : date;
     const suffix = `${String(valid.getMonth() + 1).padStart(2, '0')}${String(valid.getFullYear()).slice(-2)}`;
+    const yearSuffix = suffix.slice(-2);
     const maxSequence = (this.state.paymentVouchers || []).reduce((max, v) => {
-      const match = /^OPS-(\d+)-(\d{4})$/.exec(v.requestNumber);
-      return match && match[2] === suffix ? Math.max(max, Number(match[1])) : max;
+      const match = /^OPS-(\d+)-(\d{2})(\d{2})$/.exec(v.requestNumber);
+      return match && match[3] === yearSuffix ? Math.max(max, Number(match[1])) : max;
     }, 0);
     return `OPS-${String(maxSequence + 1).padStart(4, '0')}-${suffix}`;
   }
@@ -767,9 +671,10 @@ class DatabaseService {
     const date = new Date(`${paymentDate}T00:00:00`);
     const valid = Number.isNaN(date.getTime()) ? new Date() : date;
     const suffix = `${String(valid.getMonth() + 1).padStart(2, '0')}${String(valid.getFullYear()).slice(-2)}`;
+    const yearSuffix = suffix.slice(-2);
     const maxSequence = (this.state.paymentVouchers || []).reduce((max, voucher) => {
-      const match = /^PVJKT-(\d+)-(\d{4})$/.exec(voucher.voucherNumber || '');
-      return match && match[2] === suffix ? Math.max(max, Number(match[1])) : max;
+      const match = /^PVJKT-(\d+)-(\d{2})(\d{2})$/.exec(voucher.voucherNumber || '');
+      return match && match[3] === yearSuffix ? Math.max(max, Number(match[1])) : max;
     }, 0);
     return `PVJKT-${String(maxSequence + 1).padStart(4, '0')}-${suffix}`;
   }
@@ -778,11 +683,12 @@ class DatabaseService {
     const date = new Date(requestDate);
     const valid = Number.isNaN(date.getTime()) ? new Date() : date;
     const suffix = `${String(valid.getMonth() + 1).padStart(2, '0')}${String(valid.getFullYear()).slice(-2)}`;
+    const yearSuffix = suffix.slice(-2);
     const maxSequence = (this.state.paymentVouchers || []).reduce((max, voucher) => {
       if (voucher.jobInfo !== 'OPERASIONAL') return max;
       return voucher.items.reduce((itemMax, item) => {
-        const match = /^OPJ-(\d+)-(\d{4})$/.exec(item.jobNumber);
-        return match && match[2] === suffix ? Math.max(itemMax, Number(match[1])) : itemMax;
+        const match = /^OPJ-(\d+)-(\d{2})(\d{2})$/.exec(item.jobNumber);
+        return match && match[3] === yearSuffix ? Math.max(itemMax, Number(match[1])) : itemMax;
       }, max);
     }, 0);
     return `OPJ-${String(maxSequence + 1).padStart(4, '0')}-${suffix}`;
@@ -826,7 +732,12 @@ class DatabaseService {
     await this.persistPaymentVoucherMutation(previousVouchers, previousAuditLogs);
   }
 
-  public async payPaymentVoucher(id: string, payer: string, paymentDate?: string): Promise<void> {
+  public async payPaymentVoucher(
+    id: string,
+    payer: string,
+    paymentDate?: string,
+    paymentDetails: { surcharge?: number; otherExpenses?: number; description?: string; totalAmount?: number } = {},
+  ): Promise<void> {
     const existing = (this.state.paymentVouchers || []).find((v) => v.id === id);
     if (!existing) throw new Error('Payment Voucher tidak ditemukan.');
     if (existing.status === 'PAID') throw new Error('Voucher ini sudah dibayar sebelumnya.');
@@ -838,8 +749,21 @@ class DatabaseService {
     const paidOn = paymentDate || new Date().toISOString().slice(0, 10);
     const paidAt = new Date(`${paidOn}T12:00:00`).toISOString();
     const voucherNumber = existing.voucherNumber || this.getNextFinanceVoucherNumber(paidOn);
+    const surcharge = Number(paymentDetails.surcharge) || 0;
+    const otherExpenses = Number(paymentDetails.otherExpenses) || 0;
+    const totalAmount = Number(paymentDetails.totalAmount) || existing.totalPaidAmount + surcharge + otherExpenses;
     this.state.paymentVouchers = this.state.paymentVouchers.map((v) => (v.id === id
-      ? { ...v, voucherNumber, status: 'PAID' as const, paidBy: payer, paidAt }
+      ? {
+          ...v,
+          voucherNumber,
+          status: 'PAID' as const,
+          paidBy: payer,
+          paidAt,
+          paymentSurcharge: surcharge,
+          paymentOtherExpenses: otherExpenses,
+          paymentDescription: paymentDetails.description || '',
+          paymentTotalAmount: totalAmount,
+        }
       : v));
     this.audit('PAY', 'PAYMENT_VOUCHER', `Paid payment voucher ${existing.requestNumber}`, id);
     await this.persistPaymentVoucherMutation(previousVouchers, previousAuditLogs);

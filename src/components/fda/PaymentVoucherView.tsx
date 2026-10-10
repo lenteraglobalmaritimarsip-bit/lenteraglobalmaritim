@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
 import { JobCall, PaymentVoucher, PaymentVoucherItem, VendorPartner } from '../../types';
 import { db } from '../../db/storage';
+import { dataApi } from '../../lib/dataApi';
 import { parseTariffNumber } from '../../utils/tariff';
 import { printPaymentVoucher } from '../../utils/voucherPrint';
 
@@ -66,33 +67,13 @@ interface VoucherDraft {
   rows: VoucherRow[];
 }
 
-const draftKey = (owner: string) => `lgm_voucher_draft_${owner || 'user'}`;
-
-const loadDraft = (owner: string): VoucherDraft | null => {
-  try {
-    const raw = localStorage.getItem(draftKey(owner));
-    if (!raw) return null;
-    const draft = JSON.parse(raw) as VoucherDraft;
-    return draft && Array.isArray(draft.rows) && draft.rows.length > 0 ? draft : null;
-  } catch {
-    return null;
-  }
-};
-
 export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls, vendorPartners, requestBy, requestByUserId, onDataSaved, voucher: editingVoucher, onCancelEdit, operationalOnly = false }) => {
-  const [initialDraft] = useState(() => (editingVoucher ? null : loadDraft(requestBy)));
-  const [requestDate, setRequestDate] = useState(() => editingVoucher ? String(editingVoucher.requestDate).slice(0, 10) : initialDraft?.requestDate || todayIso());
-  const [jobInfo, setJobInfo] = useState<JobInfo>(operationalOnly ? 'OPERASIONAL' : editingVoucher?.jobInfo || initialDraft?.jobInfo || 'OPERASIONAL');
-  const [vendorId, setVendorId] = useState(editingVoucher?.vendorPartnerId || initialDraft?.vendorId || '');
-  const [draftRestored, setDraftRestored] = useState(!!initialDraft);
-  const [rows, setRows] = useState<VoucherRow[]>(() => !editingVoucher && initialDraft
-    ? initialDraft.rows.map((row) => ({
-        ...row,
-        customerName: initialDraft.jobInfo === 'JOB_VESSEL'
-          ? jobCalls.find((job) => job.jobId === row.jobNumber)?.vesselName || row.customerName
-          : row.customerName,
-      }))
-    : editingVoucher && editingVoucher.items.length > 0
+  const [requestDate, setRequestDate] = useState(() => editingVoucher ? String(editingVoucher.requestDate).slice(0, 10) : todayIso());
+  const [jobInfo, setJobInfo] = useState<JobInfo>(operationalOnly ? 'OPERASIONAL' : editingVoucher?.jobInfo || 'OPERASIONAL');
+  const [vendorId, setVendorId] = useState(editingVoucher?.vendorPartnerId || '');
+  const [draftRestored, setDraftRestored] = useState(false);
+  const [draftLoaded, setDraftLoaded] = useState(!!editingVoucher);
+  const [rows, setRows] = useState<VoucherRow[]>(() => editingVoucher && editingVoucher.items.length > 0
     ? editingVoucher.items.map((item) => ({
         id: item.id,
         jobNumber: item.jobNumber,
@@ -159,20 +140,42 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
 
   const grandTotal = rows.reduce((sum, row) => sum + calculate(row).paidAmount, 0);
 
-  // Autosave draft locally so entry can continue after leaving the menu.
   useEffect(() => {
-    if (editingVoucher) return;
+    if (editingVoucher) {
+      setDraftLoaded(true);
+      return;
+    }
+    let cancelled = false;
+    void dataApi.getUserData<VoucherDraft>('voucher_draft')
+      .then((draft) => {
+        if (cancelled || !draft || !Array.isArray(draft.rows) || draft.rows.length === 0) return;
+        setRequestDate(draft.requestDate || todayIso());
+        setJobInfo(operationalOnly ? 'OPERASIONAL' : draft.jobInfo || 'OPERASIONAL');
+        setVendorId(draft.vendorId || '');
+        setRows(draft.rows.map((row) => ({
+          ...row,
+          customerName: draft.jobInfo === 'JOB_VESSEL'
+            ? jobCalls.find((job) => job.jobId === row.jobNumber)?.vesselName || row.customerName
+            : row.customerName,
+        })));
+        setDraftRestored(true);
+      })
+      .catch((error) => console.error('Gagal memuat draft voucher:', error))
+      .finally(() => { if (!cancelled) setDraftLoaded(true); });
+    return () => { cancelled = true; };
+  }, [editingVoucher?.id]);
+
+  useEffect(() => {
+    if (editingVoucher || !draftLoaded) return;
     const isBlank = !vendorId && rows.every((row) => !row.jobNumber && !row.customerName && !row.itemService && !row.amount);
-    try {
-      if (isBlank) localStorage.removeItem(draftKey(requestBy));
-      else localStorage.setItem(draftKey(requestBy), JSON.stringify({ requestDate, jobInfo, vendorId, rows } satisfies VoucherDraft));
-    } catch {}
-  }, [editingVoucher, requestBy, requestDate, jobInfo, vendorId, rows]);
+    const saveDraft = isBlank
+      ? dataApi.deleteUserData('voucher_draft')
+      : dataApi.saveUserData('voucher_draft', { requestDate, jobInfo, vendorId, rows } satisfies VoucherDraft);
+    void saveDraft.catch((error) => console.error('Gagal menyimpan draft voucher:', error));
+  }, [editingVoucher, draftLoaded, requestDate, jobInfo, vendorId, rows]);
 
   const resetForm = () => {
-    if (!editingVoucher) {
-      try { localStorage.removeItem(draftKey(requestBy)); } catch {}
-    }
+    if (!editingVoucher) void dataApi.deleteUserData('voucher_draft').catch((error) => console.error('Gagal menghapus draft voucher:', error));
     setDraftRestored(false);
     setRequestDate(todayIso());
     setJobInfo('OPERASIONAL');

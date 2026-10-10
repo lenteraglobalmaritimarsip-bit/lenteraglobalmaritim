@@ -4,6 +4,7 @@ import { JobCall, DisbursementItem, Currency, User, Vessel, FixTariff, ExpensesI
 import { db, getCurrentBranchName, buildBranchAwareEPDANumber } from '../../db/storage';
 import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, filterTariffsByGRT, hasTariffGRTRestriction, selectPreferredTariffOptions } from '../../utils/tariff';
 import { formatCostCategoryLabel, getCostCategoryRank, normalizeCostCategory } from '../../utils/costCategories';
+import { expensesItemRatePatch, findMatchingExpensesItem, findMatchingFixTariff, fixTariffRatePatch } from '../../utils/masterDataIdentity';
 
 interface QuotesEPDAViewProps {
   job?: JobCall;
@@ -149,7 +150,8 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   const buildAutoServiceOptions = (currency: Currency) => {
     const serviceKey = (name: string, category: string) => `${name.trim().toLowerCase()}|${category.trim().toUpperCase()}`;
     const currentCurrencyFixTariffs = fixTariffs.filter((tariff) =>
-      portMatches(tariff.portId, tariff.portName)
+      (tariff.costCategory || '').trim().toUpperCase() === 'PORT_SERVICE'
+      && portMatches(tariff.portId, tariff.portName)
       && rateForCurrency(currency, tariff.rateIDR, tariff.rateUSD, tariff.rate, tariff.currency) > 0
     );
     const rangedFixTariffKeys = new Set(currentCurrencyFixTariffs
@@ -182,6 +184,8 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       })),
     ...expensesItems
       .filter((item) =>
+        item.category.trim().toUpperCase() !== 'PORT_SERVICE'
+        &&
         portMatches(item.portId, item.portName)
         && rateForCurrency(currency, item.rateIDR, item.rateUSD, item.standardCostSell || 0, item.defaultCurrency) > 0
         && !rangedFixTariffKeys.has(serviceKey(item.name, item.category))
@@ -328,7 +332,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     setItemEditDraft({ description: '', tariff: '', amount: '', remarks: '' });
   };
 
-  const handleQuickAddMasterData = () => {
+  const handleQuickAddMasterData = async () => {
     if (isReviewOnly || isEPDALockedInDatabase()) return;
     const itemName = newItem.name.trim();
     const rateValue = Number(newItem.unitBuyRate) || Number(newItem.rate) || 0;
@@ -340,30 +344,10 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     const portId = (job.portId || job.inquiry?.portId || '').trim();
     const portName = (job.portName || job.inquiry?.portName || '').trim();
     const quickRate = rateValue || Number(newItem.amount) || 0;
-    const normalizedItemName = itemName.toLowerCase();
-    const isTariffCategory = newItem.category === 'PORT_SERVICE' || newItem.category === 'PORT_EXPENSES';
-    const isSamePort = (masterPortId?: string, masterPortName?: string) =>
-      (!!portId && !!masterPortId && masterPortId === portId)
-      || (!!portName && !!masterPortName && masterPortName.toLowerCase() === portName.toLowerCase());
+    const isTariffCategory = newItem.category === 'PORT_SERVICE';
 
-    const duplicateExists = isTariffCategory
-      ? fixTariffs.some((tariff) =>
-          tariff.serviceName.trim().toLowerCase() === normalizedItemName
-          && isSamePort(tariff.portId, tariff.portName)
-          && (tariff.costCategory || 'PORT_EXPENSES') === newItem.category
-          && rateForCurrency(viewCurrency, tariff.rateIDR, tariff.rateUSD, tariff.rate, tariff.currency) > 0
-        )
-      : expensesItems.some((expense) =>
-          expense.name.trim().toLowerCase() === normalizedItemName
-          && isSamePort(expense.portId, expense.portName)
-          && expense.category === newItem.category
-          && rateForCurrency(viewCurrency, expense.rateIDR, expense.rateUSD, expense.standardCostSell, expense.defaultCurrency) > 0
-        );
-
-    if (duplicateExists) {
-      window.alert('Item service dengan Nama service, Port, Kategori, dan Currency yang sama sudah tersimpan di master data.');
-      return;
-    }
+    const vesselGRT = Number(vesselMaster?.grt) || 0;
+    const vesselDWT = Number(vesselMaster?.dwt) || 0;
 
     const tariffPayload = {
       portId,
@@ -371,6 +355,10 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       costCategory: newItem.category || 'PORT_EXPENSES',
       serviceCode: '',
       serviceName: itemName,
+      grt: vesselGRT || undefined,
+      grtMin: vesselGRT || undefined,
+      grtMax: vesselGRT || undefined,
+      dwt: vesselDWT || undefined,
       calculationBasis: newItem.calculationBasis || 'LUMP_SUM',
       tariffType: newItem.tariffType || 'FIXED',
       currency: viewCurrency,
@@ -398,11 +386,21 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     };
 
     if (isTariffCategory) {
-      db.addFixTariff(tariffPayload);
+      const existing = findMatchingFixTariff(fixTariffs, tariffPayload);
+      if (existing) {
+        await db.updateFixTariff(existing.id, fixTariffRatePatch(existing, tariffPayload));
+      } else {
+        await db.addFixTariff(tariffPayload);
+      }
     } else {
-      db.addExpensesItem(expensePayload);
+      const existing = findMatchingExpensesItem(expensesItems, expensePayload);
+      if (existing) {
+        await db.updateExpensesItem(existing.id, expensesItemRatePatch(existing, expensePayload));
+      } else {
+        await db.addExpensesItem(expensePayload);
+      }
     }
-    window.alert('Data master item berhasil ditambahkan. Item baru akan muncul di daftar otomatis.');
+    window.alert('Rate master data berhasil diperbarui atau item baru berhasil ditambahkan.');
   };
 
   const handleAddItem = (e: React.FormEvent) => {
@@ -492,6 +490,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     const itemName = item.name.trim().toLowerCase();
     const matchingTariff = fixTariffs.find((tariff) =>
       tariff.serviceName.trim().toLowerCase() === itemName
+      && (tariff.costCategory || '').trim().toUpperCase() === 'PORT_SERVICE'
       && portMatches(tariff.portId, tariff.portName)
     );
     if (matchingTariff) return normalizeCategory(matchingTariff.costCategory || 'PORT_EXPENSES');

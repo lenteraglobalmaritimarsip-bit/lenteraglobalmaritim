@@ -64,7 +64,7 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
     .meta td:nth-child(3){width:17%;padding-left:12px}.meta td:nth-child(4){width:33%}
     table.items{width:100%;border-collapse:collapse}
     table.items th,table.items td{border:1px solid #777;padding:4px 4px;font-size:9px}
-    table.items th{background:#e8ecf2;text-transform:uppercase;font-size:8px;text-align:left}
+    table.items th{background:#e8ecf2;text-transform:uppercase;font-size:8px;text-align:center}
     .r{text-align:right}.c{text-align:center}.b{font-weight:bold}
     .pph{color:#dc2626;font-weight:bold}
     .summary{width:55%;margin:10px 0 0 auto;border-collapse:collapse}
@@ -77,7 +77,7 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
     .sign .space{height:16mm}
   </style></head><body>
     <div class="brand-row"><div class="brand-wrap"><img class="logo" src="${logoUrl}" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div>
-    <h2>PAYMENT VOUCHER</h2>
+    <h2>REQUEST PAYMENT VOUCHER</h2>
     <table class="meta">${metaRows}</table>
     <table class="items"><thead><tr><th>No</th><th>JOB Number</th><th>${partyLabel}</th><th>Item Service</th><th>Amount</th><th>Vat</th><th>Total</th><th>PPH 23 (2%)</th><th>Paid Amount</th></tr></thead>
     <tbody>${bodyRows}</tbody></table>

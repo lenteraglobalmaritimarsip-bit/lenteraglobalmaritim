@@ -22,7 +22,7 @@ import { EditVoucherView } from './components/fda/EditVoucherView';
 import { FinanceView } from './components/finance/FinanceView';
 import { AccountsPayableView } from './components/finance/AccountsPayableView';
 import { FinancialHistoryView } from './components/finance/FinancialHistoryView';
-import { AuthAccount, DEMO_ACCOUNTS, getStoredAccounts, saveStoredAccount } from './auth';
+import { AuthAccount } from './auth';
 import { LoginView } from './components/auth/LoginView';
 import { apiAuth } from './lib/api';
 
@@ -30,35 +30,22 @@ const syncCurrentUserFromMaster = (account: AuthAccount | null): AuthAccount | n
   if (!account) return null;
   if (apiAuth.enabled) return { ...account, branch: account.branch || 'Head Office' };
 
-  const storedAccounts = getStoredAccounts();
-  const latestFromStorage = storedAccounts.find((item) => item.id === account.id || item.username === account.username) || account;
   const dbUser = db.getState().users.find((user) => user.id === account.id || user.username === account.username || user.name === account.name);
 
-  if (!dbUser && !latestFromStorage) return account;
+  if (!dbUser) return account;
 
   const merged: AuthAccount = {
     ...account,
-    ...latestFromStorage,
     ...(dbUser || {}),
-    username: (dbUser?.username || latestFromStorage.username || account.username),
-    password: (dbUser?.password || latestFromStorage.password || account.password),
-    branch: (dbUser?.branch || latestFromStorage.branch || account.branch || 'Head Office'),
-    role: (dbUser?.role || latestFromStorage.role || account.role || 'ADMIN'),
-    department: (dbUser?.department || latestFromStorage.department || account.department),
-    position: (dbUser?.position || latestFromStorage.position || account.position),
-    status: (dbUser?.status || latestFromStorage.status || account.status),
+    username: dbUser.username || account.username,
+    branch: dbUser.branch || account.branch || 'Head Office',
+    role: dbUser.role || account.role || 'ADMIN',
+    department: dbUser.department || account.department,
+    position: dbUser.position || account.position,
+    status: dbUser.status || account.status,
   };
 
   return merged;
-};
-
-const clearStoredAuthSession = (userId?: string) => {
-  try {
-    localStorage.removeItem('lgm_active_user');
-    if (userId) {
-      localStorage.removeItem(`lgm_notification_reads_${userId}`);
-    }
-  } catch {}
 };
 
 const getDefaultTabForRole = (role: UserRole): ActiveTab => {
@@ -74,56 +61,22 @@ const getDefaultTabForRole = (role: UserRole): ActiveTab => {
   }
 };
 
-const ACTIVE_TAB_STORAGE_KEY = 'lgm_active_tab';
 let resetJobsPromise: Promise<void> | null = null;
 
 export default function App() {
   const [data, setData] = useState<DatabaseState>(db.getState());
   const [currentRole, setCurrentRole] = useState<UserRole>('ADMIN');
   const [authReady, setAuthReady] = useState(!apiAuth.enabled);
-  const [currentUser, setCurrentUser] = useState<AuthAccount | null>(() => {
-    if (apiAuth.enabled) return null;
-    try {
-      const raw = localStorage.getItem('lgm_active_user');
-      if (!raw) return null;
-      const account = JSON.parse(raw) as AuthAccount;
-      const validUsers = getStoredAccounts().map((u) => u.id);
-      if (!account?.id || !validUsers.includes(account.id)) {
-        clearStoredAuthSession();
-        return null;
-      }
-      const synced = syncCurrentUserFromMaster(account);
-      if (synced) setCurrentRole(synced.role);
-      return synced;
-    } catch {
-      clearStoredAuthSession();
-      return null;
-    }
-  });
-  const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
-    try {
-      const storedTab = sessionStorage.getItem(ACTIVE_TAB_STORAGE_KEY) as ActiveTab | null;
-      if (storedTab) return storedTab;
-      const raw = localStorage.getItem('lgm_active_user');
-      if (!raw) return 'DASHBOARD';
-      const account = JSON.parse(raw) as AuthAccount;
-      const validUsers = getStoredAccounts().map((u) => u.id);
-      if (!account?.id || !validUsers.includes(account.id)) return 'DASHBOARD';
-      return getDefaultTabForRole((account.role || 'ADMIN') as UserRole);
-    } catch {
-      return 'DASHBOARD';
-    }
-  });
+  const [databaseReady, setDatabaseReady] = useState(false);
+  const [databaseError, setDatabaseError] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<AuthAccount | null>(null);
+  const [activeTab, setActiveTab] = useState<ActiveTab>('DASHBOARD');
   const [selectedJobId, setSelectedJobId] = useState<string>(
     data.jobCalls[0]?.jobId || ''
   );
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [loginToast, setLoginToast] = useState<string | null>(null);
   const [saveToast, setSaveToast] = useState<string | null>(null);
-
-  useEffect(() => {
-    try { sessionStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab); } catch {}
-  }, [activeTab]);
 
   useEffect(() => { const fn = () => setShowProfileModal(true); window.addEventListener('lgm:open-profile', fn); return () => window.removeEventListener('lgm:open-profile', fn); }, []);
 
@@ -158,23 +111,11 @@ export default function App() {
     window.setTimeout(() => setSaveToast(null), 2600);
   };
 
-  const handleLogin = (account: AuthAccount, rememberMe = true) => {
+  const handleLogin = (account: AuthAccount) => {
     const freshAccount = syncCurrentUserFromMaster(account);
     if (!freshAccount) return;
-    if (currentUser && currentUser.id !== freshAccount.id) {
-      clearStoredAuthSession(currentUser.id);
-    }
     setCurrentUser(freshAccount);
     setCurrentRole(freshAccount.role);
-    if (!apiAuth.enabled) {
-      try {
-        if (rememberMe) {
-          localStorage.setItem('lgm_active_user', JSON.stringify(freshAccount));
-        } else {
-          localStorage.removeItem('lgm_active_user');
-        }
-      } catch {}
-    }
     db.setActor({ id: freshAccount.id, name: freshAccount.name, role: freshAccount.role, branch: freshAccount.branch });
     db.setRole(freshAccount.role);
     setLoginToast(`Selamat datang, ${freshAccount.name.split(' ')[0]}!`);
@@ -188,21 +129,10 @@ export default function App() {
 
   const handleChangePassword = async (oldPassword: string, newPassword: string) => {
     if (!currentUser) return;
-    if (apiAuth.enabled) {
-      await apiAuth.changePassword(oldPassword, newPassword);
-      return;
-    }
-    const updated = { ...currentUser, password: newPassword };
-    saveStoredAccount(updated);
-    db.updateUser(currentUser.id, { password: newPassword });
-    setCurrentUser(updated);
-    setCurrentRole(updated.role);
-    try { localStorage.setItem('lgm_active_user', JSON.stringify(updated)); } catch {}
-    window.alert('Password berhasil diperbarui.');
+    await apiAuth.changePassword(oldPassword, newPassword);
   };
 
   const handleLogout = async () => {
-    const userId = currentUser?.id;
     if (apiAuth.enabled) {
       try {
         await apiAuth.logout();
@@ -212,7 +142,6 @@ export default function App() {
     }
     setCurrentUser(null);
     setLoginToast(null);
-    clearStoredAuthSession(userId);
   };
 
   useEffect(() => {
@@ -256,7 +185,12 @@ export default function App() {
 
   // Subscribe to reactive database changes
   useEffect(() => {
-    if (apiAuth.enabled && !currentUser) return;
+    if (apiAuth.enabled && !currentUser) {
+      setDatabaseReady(false);
+      return;
+    }
+    setDatabaseReady(false);
+    setDatabaseError(null);
     if (currentUser) db.setActor({ id: currentUser.id, name: currentUser.name, role: currentUser.role, branch: currentUser.branch });
     let unsubscribe = () => {};
     void (async () => {
@@ -272,10 +206,14 @@ export default function App() {
         await resetJobsPromise;
         await db.hydrate();
         setData({ ...db.getState() });
+        setDatabaseReady(true);
+        setDatabaseError(null);
       } catch (error) {
         console.error('Local database hydrate failed:', error);
+        setDatabaseReady(false);
         if (apiAuth.enabled) {
           const message = error instanceof Error ? error.message : 'Database initialization failed';
+          setDatabaseError(message);
           setSaveToast(`Database gagal memuat/menyimpan data: ${message}`);
           window.setTimeout(() => setSaveToast(null), 10000);
         }
@@ -290,12 +228,11 @@ export default function App() {
   // When changing role, adapt active tab to sensible default for that role
   const handleRoleChange = (newRole: UserRole) => {
     setCurrentRole(newRole);
-    const matchingFromStorage = getStoredAccounts().find((u) => u.role === newRole) || DEMO_ACCOUNTS.find((u) => u.role === newRole);
-    if (matchingFromStorage) {
-      const refreshed = syncCurrentUserFromMaster(matchingFromStorage);
+    const matchingUser = db.getState().users.find((user) => user.role === newRole);
+    if (matchingUser) {
+      const refreshed = syncCurrentUserFromMaster({ ...matchingUser, username: matchingUser.username || '' });
       setCurrentUser(refreshed);
-      try { localStorage.setItem('lgm_active_user', JSON.stringify(refreshed)); } catch {}
-      db.setActor({ id: refreshed.id, name: refreshed.name, role: refreshed.role, branch: refreshed.branch });
+      if (refreshed) db.setActor({ id: refreshed.id, name: refreshed.name, role: refreshed.role, branch: refreshed.branch });
     }
     setActiveTab(getDefaultTabForRole(newRole));
   };
@@ -324,6 +261,7 @@ export default function App() {
 
   if (!authReady) return <div className="min-h-screen bg-slate-950 text-white grid place-items-center">Memeriksa sesi...</div>;
   if (!currentUser) return <LoginView onLogin={handleLogin} />;
+  if (!databaseReady) return <div className="min-h-screen bg-slate-950 text-white grid place-items-center">{databaseError ? `Database XAMPP gagal dimuat: ${databaseError}` : 'Memuat database XAMPP...'}</div>;
 
   return (
     <div className="maritim-app flex flex-col font-sans">
@@ -554,6 +492,7 @@ export default function App() {
                       : 'APPROVAL'
                   }
                   jobCalls={roleVisibleJobCalls}
+                  approverName={currentUser.name}
                   vessels={data.vessels}
                   users={data.users}
                   fixTariffs={data.fixTariffs}
