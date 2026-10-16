@@ -551,6 +551,7 @@ export default function App() {
                 paymentVouchers={data.paymentVouchers || []}
                 payer={currentUser?.name || ''}
                 bankAccounts={data.bankAccounts || []}
+                jobCalls={data.jobCalls || []}
               />
             )}
 

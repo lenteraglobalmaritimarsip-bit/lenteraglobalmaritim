@@ -67,7 +67,7 @@ npm run dev
 ## Catatan data
 Data aplikasi disimpan di **MariaDB melalui PHP API** (`api/`). Browser tidak menyimpan data aplikasi (hanya cookie sesi HttpOnly).
 Setup database, akun admin pertama, dan migrasi: lihat [api/README.md](api/README.md). Skema lengkap ada di `database/schema.sql`;
-database lama cukup menjalankan file di `database/migrations/` berurutan (terbaru: `20261016_cleanup_unused_schema.sql`).
+database lama cukup menjalankan file di `database/migrations/` berurutan (terbaru: `20261016_add_payment_voucher_proof.sql`).
 
 ## Struktur modul
 - Dashboard

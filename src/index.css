@@ -824,6 +824,8 @@ button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid 
 .epda-form-root .epda-results-card table .epda-category-label,.fda-form-root .fda-results-card table .fda-category-label{color:#34445e!important;-webkit-text-fill-color:#34445e!important;font-size:10px!important;letter-spacing:.12em}
 .epda-results-card table td,.fda-results-card table td{border-color:#edf1f6}
 .epda-results-card table tfoot tr:last-child td{font-weight:800}
+.epda-form-root .epda-grand-total-row>td,
+.fda-form-root .fda-grand-total-row>td{border-top:2px solid #8293a9!important}
 .epda-form-root input:not([type=checkbox]),.epda-form-root select,.epda-form-root textarea,
 .fda-form-root input:not([type=checkbox]),.fda-form-root select,.fda-form-root textarea{
   border-radius:8px;

@@ -226,11 +226,11 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
       setQuantityError('Berat muatan wajib diisi.');
       return;
     }
-    if (Number(form.cargoQuantity) < 0) {
+    if (form.cargoQuantity !== '' && Number(form.cargoQuantity) < 0) {
       setQuantityError('Berat muatan tidak boleh minus.');
       return;
     }
-    if (!Number.isInteger(Number(form.cargoQuantity))) {
+    if (form.cargoQuantity !== '' && !Number.isInteger(Number(form.cargoQuantity))) {
       setQuantityError('Berat muatan harus berupa bilangan bulat.');
       return;
     }
@@ -258,7 +258,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
           etd: form.etd,
           etaRemarks: form.etaRemarks,
           etdRemarks: form.etdRemarks,
-          cargoQuantity: Number(form.cargoQuantity),
+          cargoQuantity: Number(form.cargoQuantity) || 0,
           quantityUnit: form.quantityUnit,
           cargoDetails: form.cargoDetails || 'General bulk shipment',
           estimatedDays: Number(form.estimatedDays),

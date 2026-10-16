@@ -917,7 +917,7 @@ class DatabaseService {
       purposeOfCall: jobData.purposeOfCall || 'CARGO_DISCHARGE',
       currentStage: 'INQUIRY',
       status: 'INQUIRY',
-      createdAt: new Date().toISOString(),
+      createdAt: new Date(Math.floor(Date.now() / 1000) * 1000).toISOString(),
       updatedAt: new Date().toISOString(),
 
       inquiry: {

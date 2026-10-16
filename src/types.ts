@@ -164,6 +164,7 @@ export interface PaymentVoucher {
   paymentOtherExpenses?: number;
   paymentDescription?: string;
   paymentTotalAmount?: number;
+  paymentProofDataUrl?: string;
   createdAt: string;
 }
 

@@ -3,7 +3,7 @@
 -- Runtime: PHP API (api/*.php) + MariaDB. Application data is NOT stored in browser storage.
 -- IDs are supplied by the application (for example USR-001, EXP-001, and ACT-...).
 -- Fresh install: import this file once. Existing database: apply database/migrations/*.sql in date order
--- (the latest one, 20261016_cleanup_unused_schema.sql, brings an older database in line with this file).
+-- (apply all migration files in date order to bring an older database in line with this file).
 
 SET NAMES utf8mb4;
 
@@ -177,6 +177,7 @@ CREATE TABLE payment_vouchers (
   payment_other_expenses DECIMAL(30,2) NOT NULL DEFAULT 0,
   payment_description TEXT,
   payment_total_amount DECIMAL(30,2) NOT NULL DEFAULT 0,
+  payment_proof_data_url LONGTEXT,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   INDEX idx_payment_vouchers_date (request_date),

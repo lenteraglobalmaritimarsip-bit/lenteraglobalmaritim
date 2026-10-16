@@ -30,6 +30,18 @@ function validAdvancePaymentReceipt(array $receipt, string $jobId): bool
         && trim((string) ($receipt['bankRemark'] ?? '')) !== '';
 }
 
+function validPaymentProofDataUrl(?string $dataUrl): bool
+{
+    if ($dataUrl === null || $dataUrl === '') return true;
+    if (!preg_match('/^data:image\/(jpeg|png);base64,([A-Za-z0-9+\/]+={0,2})$/', $dataUrl, $matches)) return false;
+    $imageBytes = base64_decode($matches[2], true);
+    if ($imageBytes === false || strlen($imageBytes) > 1024 * 1024) return false;
+    $fileInfo = new finfo(FILEINFO_MIME_TYPE);
+    $actualMime = $fileInfo->buffer($imageBytes);
+    $expectedMime = $matches[1] === 'jpeg' ? 'image/jpeg' : 'image/png';
+    return $actualMime === $expectedMime;
+}
+
 function immutableReceiptFields(array $receipt): array
 {
     unset($receipt['receivedDate'], $receipt['amount'], $receipt['bankRemark']);
@@ -132,11 +144,32 @@ try {
     if (!is_string($revision) || $revision === '') {
         jsonResponse(['error' => 'Application state revision is required'], 400);
     }
+    foreach ($state['paymentVouchers'] ?? [] as $voucher) {
+        if (!validPaymentProofDataUrl($voucher['paymentProofDataUrl'] ?? null)) {
+            jsonResponse(['error' => 'Payment proof must be a valid JPG or PNG image no larger than 1 MB'], 400);
+        }
+    }
 
     $pdo = db();
     $lock = $pdo->query("SELECT GET_LOCK('maritimport_app_state', 10)")->fetchColumn();
     if ((int) $lock !== 1) jsonResponse(['error' => 'Could not lock application state for saving'], 503);
     $before = loadAppState();
+    $oldPaymentVouchers = [];
+    foreach ($before['paymentVouchers'] ?? [] as $voucher) {
+        if (isset($voucher['id'])) $oldPaymentVouchers[(string) $voucher['id']] = $voucher;
+    }
+    foreach ($state['paymentVouchers'] ?? [] as $voucher) {
+        $voucherId = (string) ($voucher['id'] ?? '');
+        $oldProof = $oldPaymentVouchers[$voucherId]['paymentProofDataUrl'] ?? '';
+        $newProof = $voucher['paymentProofDataUrl'] ?? '';
+        if ($oldProof === $newProof) continue;
+        if ($actor['role'] !== 'FINANCE') {
+            jsonResponse(['error' => 'Only Finance can upload or change payment proof'], 403);
+        }
+        if (($voucher['status'] ?? '') !== 'PAID') {
+            jsonResponse(['error' => 'Payment proof can only be attached to a paid voucher'], 403);
+        }
+    }
     $currentRevision = stateRevision($before);
     if (!hash_equals($currentRevision, $revision)) {
         $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
@@ -177,7 +210,18 @@ try {
                 continue;
             }
             foreach (array_unique(array_merge(array_keys($oldJob), array_keys($newJob))) as $key) {
-                if (!in_array($key, $allowed, true) && json_encode($oldJob[$key] ?? null) !== json_encode($newJob[$key] ?? null)) {
+                $oldValue = $oldJob[$key] ?? null;
+                $newValue = $newJob[$key] ?? null;
+                $sameCreatedAt = $key === 'createdAt'
+                    && is_string($oldValue)
+                    && is_string($newValue)
+                    && strtotime($oldValue) !== false
+                    && strtotime($oldValue) === strtotime($newValue);
+                if (
+                    !in_array($key, $allowed, true)
+                    && !$sameCreatedAt
+                    && json_encode($oldValue) !== json_encode($newValue)
+                ) {
                     jsonResponse(['error' => 'This role cannot change job field: ' . $key], 403);
                 }
             }
