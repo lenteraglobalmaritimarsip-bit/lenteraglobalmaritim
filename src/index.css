@@ -432,7 +432,7 @@ button{ cursor:pointer; }
 .lgm-login-overlay{position:absolute;inset:0;background:linear-gradient(90deg,rgba(4,72,139,.20),rgba(7,88,166,.08) 45%,rgba(2,41,88,.18));z-index:1;pointer-events:none}
 .lgm-login-topbar{position:relative;z-index:5;height:74px;padding:0 54px;display:flex;align-items:center;justify-content:space-between;border:0;background:rgba(248,252,255,.94);backdrop-filter:blur(14px);color:#082d59}
 .lgm-login-brand{display:flex;align-items:center;gap:18px}.lgm-login-logo{width:76px;height:52px;display:grid;place-items:center;background:transparent}.lgm-login-logo img{width:72px;height:58px;object-fit:contain;display:block}.lgm-login-brand-text{padding-left:18px;border-left:1px solid #9db1c8}.lgm-login-brand b{display:block;font-size:18px;letter-spacing:.055em;line-height:1.15}.lgm-login-brand small{display:block;font-size:11px;letter-spacing:.16em;font-weight:800;margin-top:5px;color:#173c67}.lgm-secure-badge{font-size:11px;font-weight:900;letter-spacing:.08em;padding:8px 12px;border:0;background:transparent;color:#08a878}.lgm-live-dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#0dbd82;box-shadow:0 0 0 4px rgba(13,189,130,.12);margin-right:8px}
-.lgm-login-body{position:relative;z-index:4;max-width:1420px;margin:0 auto;min-height:calc(100vh - 74px);display:grid;grid-template-columns:minmax(0,1fr) 600px;gap:70px;align-items:center;padding:52px 46px 58px}.lgm-login-copy{padding:0 0 8px 24px;text-shadow:0 2px 14px rgba(0,37,75,.28)}.lgm-login-copy h1{font-size:52px;line-height:1.02;letter-spacing:-2px;margin:0 0 22px;font-weight:900}.lgm-login-copy h1 em{font-style:normal;color:#73d1ff}.lgm-login-copy>p{max-width:650px;color:#fff;font-size:16px;line-height:1.65;margin:0;font-weight:500}.lgm-login-date{margin-top:420px;display:flex;align-items:center;gap:13px;text-shadow:0 2px 10px rgba(0,0,0,.32)}.lgm-calendar-icon{width:34px;height:34px;border:2px solid rgba(255,255,255,.95);border-radius:6px;display:grid;place-items:center;font-size:17px}.lgm-login-date small{display:block;font-size:10px;letter-spacing:.28em;font-weight:800;opacity:.85}.lgm-login-date strong{display:block;font-size:14px;margin-top:4px}
+.lgm-login-body{position:relative;z-index:4;max-width:1420px;margin:0 auto;min-height:calc(100vh - 74px);display:grid;grid-template-columns:minmax(0,1fr) 600px;gap:70px;align-items:center;padding:52px 46px 58px}.lgm-login-copy{padding:0 0 8px 24px;text-shadow:0 2px 14px rgba(0,37,75,.28)}.lgm-login-copy h1{font-size:48px;line-height:1.12;letter-spacing:-1.6px;margin:0 0 22px;font-weight:900}.lgm-login-copy h1 em{font-style:normal;color:#73d1ff}.lgm-login-copy>p{max-width:650px;color:#fff;font-size:16px;line-height:1.65;margin:0;font-weight:500}.lgm-login-date{margin-top:420px;display:flex;align-items:center;gap:13px;text-shadow:0 2px 10px rgba(0,0,0,.32)}.lgm-calendar-icon{width:34px;height:34px;border:2px solid rgba(255,255,255,.95);border-radius:6px;display:grid;place-items:center;font-size:17px}.lgm-login-date small{display:block;font-size:10px;letter-spacing:.28em;font-weight:800;opacity:.85}.lgm-login-date strong{display:block;font-size:14px;margin-top:4px}
 .lgm-login-card{background:rgba(248,252,255,.88);color:#17304f;border:1px solid rgba(255,255,255,.72);border-radius:16px;padding:34px 38px 25px;box-shadow:0 28px 70px rgba(0,30,70,.24);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}.lgm-card-brand{display:flex;align-items:center;gap:16px;color:#082d59}.lgm-card-logo{width:78px;height:64px;display:grid;place-items:center}.lgm-card-logo img{width:72px;height:62px;object-fit:contain}.lgm-card-brand>span:last-child{padding-left:16px;border-left:1px solid #bfd0e1}.lgm-card-brand b{display:block;font-size:18px;line-height:1.2;letter-spacing:.015em}.lgm-card-brand small{display:block;font-size:10px;font-weight:800;letter-spacing:.08em;margin-top:5px}.lgm-card-divider{height:1px;background:#dce6f0;margin:24px 0 25px}.lgm-login-card-head{margin-bottom:26px}.lgm-login-card h2{font-size:31px;letter-spacing:-.8px;margin:0 0 7px;font-weight:900;color:#092f60}.lgm-login-card-head p{font-size:13px;color:#66809e;margin:0}
 .lgm-demo-mode{align-self:flex-start;margin-top:8px;padding:6px 10px;border-radius:999px;font-size:9px;font-weight:900;letter-spacing:.09em;text-transform:uppercase;background:rgba(18,141,164,.12);color:#036672;border:1px solid rgba(13,148,136,.2)}
 .lgm-demo-quicklist{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px}
@@ -737,8 +737,9 @@ button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid 
 }
 .lgm-login-copy{animation:lgm-rise .6s .08s var(--lgm-ease) both}
 .lgm-login-copy h1 em{
-  font-style:normal;color:transparent;
-  background:linear-gradient(90deg,#7dd3fc,#5eead4);-webkit-background-clip:text;background-clip:text;
+  font-style:normal;color:#fff;
+  background:none;-webkit-background-clip:border-box;background-clip:border-box;
+  text-shadow:0 2px 5px rgba(3,25,58,.9),0 0 18px rgba(3,25,58,.55);
 }
 .lgm-login-principles{-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);background:rgba(8,32,72,.34)}
 .lgm-field{transition:box-shadow .18s,border-color .18s,background-color .18s}
@@ -752,6 +753,86 @@ button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid 
 .lgm-login-submit:disabled{opacity:.72;cursor:wait}
 .lgm-live-dot{animation:lgm-pulse 2s infinite}
 .lgm-login-error{animation:lgm-shake .35s}
+
+/* EPDA/FDA enterprise form refinements */
+.epda-form-root,.fda-form-root{gap:1.25rem}
+.epda-page-header,.fda-page-header{
+  position:relative;overflow:hidden;
+  background:linear-gradient(115deg,#102b5b 0%,#17468f 58%,#2365bd 100%)!important;
+  border:1px solid rgba(101,164,255,.28)!important;
+  box-shadow:0 12px 28px rgba(20,57,118,.16)!important;
+}
+.epda-page-header::after,.fda-page-header::after{
+  content:"";position:absolute;right:-48px;top:-84px;width:220px;height:220px;border-radius:50%;
+  border:1px solid rgba(255,255,255,.11);box-shadow:0 0 0 24px rgba(255,255,255,.035),0 0 0 48px rgba(255,255,255,.025);
+  pointer-events:none;
+}
+.epda-page-header>*,.fda-page-header>*{position:relative;z-index:1}
+.epda-page-header .text-white,.fda-page-header .text-white{color:#fff!important}
+.epda-page-header .text-slate-400,.fda-page-header .text-slate-400{color:#d5e4fa!important}
+.epda-page-header .bg-slate-950,.fda-page-header .bg-slate-950{background:rgba(8,25,58,.36)!important;border-color:rgba(255,255,255,.17)!important}
+.epda-page-header .bg-slate-900,.fda-page-header .bg-slate-900{background:rgba(8,25,58,.32)!important;border-color:rgba(255,255,255,.18)!important}
+.epda-page-header input{color:#fff!important}
+.epda-summary-card{
+  position:relative;min-height:88px;overflow:hidden;
+  display:flex;flex-direction:column;justify-content:center;gap:6px;
+  background:linear-gradient(145deg,#fff,#f8fbff)!important;
+  border:1px solid #dce6f2!important;border-radius:14px!important;
+  box-shadow:0 4px 12px rgba(20,48,89,.045)!important;
+  transition:transform .18s ease,box-shadow .18s ease;
+}
+.epda-summary-card:hover{transform:translateY(-2px);box-shadow:0 10px 22px rgba(20,48,89,.09)!important}
+.epda-summary-card>span:first-child{font-size:9px!important;font-weight:800!important;letter-spacing:.11em;color:#73829a!important}
+.epda-summary-card>b,.epda-summary-card>span:last-child{font-size:14px;line-height:1.35;overflow-wrap:anywhere}
+.epda-summary-card:first-child{border-top:2px solid #3b82f6!important}
+.epda-summary-card:nth-child(2){border-top:2px solid #8b9bb2!important}
+.epda-summary-total{border-top:2px solid #10b981!important}
+.epda-summary-total>span:last-child{font-size:19px;font-weight:800!important;color:#087f5b!important}
+.epda-results-card,.fda-results-card{
+  border:1px solid #d9e3ef!important;border-radius:16px!important;
+  box-shadow:0 8px 24px rgba(20,48,89,.065)!important;
+}
+.epda-results-card>div:first-child,.fda-results-card>div:first-child{
+  padding-bottom:14px;border-bottom:1px solid #e8eef5;
+}
+.erp-tax-controls{align-items:stretch;gap:10px}
+.erp-tax-option{
+  position:relative;display:flex;align-items:center;gap:11px;flex:1 1 260px;min-width:0;
+  padding:11px 14px;border:1px solid #dce5f0;border-left:3px solid #9aa9bd;
+  border-radius:11px;background:linear-gradient(135deg,#fff,#f8fafc);
+  color:#334155!important;font-size:12px;font-weight:750;line-height:1.25;
+  cursor:pointer;box-shadow:0 2px 6px rgba(20,48,89,.035);
+  transition:border-color .16s,background .16s,box-shadow .16s,transform .16s;
+}
+.erp-tax-option:hover:not(.is-disabled){transform:translateY(-1px);box-shadow:0 6px 14px rgba(20,48,89,.08)}
+.erp-tax-option-pph{border-left-color:#ef8b91}
+.erp-tax-option-vat{border-left-color:#f2b84b}
+.erp-tax-option-pph.is-active{border-color:#f1b2b7;border-left-color:#dc5964;background:linear-gradient(110deg,#fff7f7,#fff)}
+.erp-tax-option-vat.is-active{border-color:#f2d08c;border-left-color:#d99720;background:linear-gradient(110deg,#fffaf0,#fff)}
+.erp-tax-option input[type="checkbox"]{
+  width:17px;height:17px;flex:0 0 17px;margin:0;
+  accent-color:#dc5964;cursor:inherit;
+}
+.erp-tax-option-vat input[type="checkbox"]{accent-color:#d99720}
+.erp-tax-option>span{display:flex;flex-direction:column;gap:3px}
+.erp-tax-option small{font-size:10px;font-weight:500;color:#748197;line-height:1.35}
+.erp-tax-option.is-disabled{cursor:not-allowed;opacity:.62}
+.epda-results-card table,.fda-results-card table{border-collapse:separate;border-spacing:0;overflow:hidden;border:1px solid #e1e8f0;border-radius:10px}
+.epda-results-card table thead th,.fda-results-card table thead th{background:#f3f6fb!important;color:#56657d!important;border-bottom:1px solid #dfe7f0}
+.epda-results-card table tfoot tr:last-child td,.fda-results-card table tbody tr:last-child td{border-bottom-color:#dce5f0}
+.epda-form-root .epda-results-card table .epda-category-row td,.fda-form-root .fda-results-card table .fda-category-row td{background:#eaf0f8!important;color:#34445e!important}
+.epda-form-root .epda-results-card table .epda-category-label,.fda-form-root .fda-results-card table .fda-category-label{color:#34445e!important;-webkit-text-fill-color:#34445e!important;font-size:10px!important;letter-spacing:.12em}
+.epda-results-card table td,.fda-results-card table td{border-color:#edf1f6}
+.epda-results-card table tfoot tr:last-child td{font-weight:800}
+.epda-form-root input:not([type=checkbox]),.epda-form-root select,.epda-form-root textarea,
+.fda-form-root input:not([type=checkbox]),.fda-form-root select,.fda-form-root textarea{
+  border-radius:8px;
+}
+@media(max-width:640px){
+  .erp-tax-option{flex-basis:100%;padding:10px 12px}
+  .epda-summary-card{min-height:72px}
+  .epda-page-header,.fda-page-header{padding:16px!important}
+}
 
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}

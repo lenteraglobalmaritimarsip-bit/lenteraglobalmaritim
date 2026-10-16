@@ -383,6 +383,7 @@ export interface JobCall {
       currency: Currency;
       exchangeRateUSDToIDR?: number;
       pph23Applied?: boolean;
+      globalVatApplied?: boolean;
       items: DisbursementItem[];
       totalBuyRate: number;
       totalSellRate: number;
@@ -437,6 +438,7 @@ export interface JobCall {
     currency?: Currency;
     exchangeRateUSDToIDR?: number;
     pph23Applied?: boolean;
+    globalVatApplied?: boolean;
     totalEstimatedBuy: number;
     totalEstimatedSell: number;
     totalActualCost: number;

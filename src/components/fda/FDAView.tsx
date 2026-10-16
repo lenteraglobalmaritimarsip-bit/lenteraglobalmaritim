@@ -26,7 +26,7 @@ import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describ
 import { formatDateDisplay, formatInquiryDate, getLatestInquiryMonthRange, isInquiryDateInRange } from '../../utils/date';
 import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateRangePicker';
 import { formatCostCategoryLabel, getCostCategoryRank, normalizeCostCategory } from '../../utils/costCategories';
-import { expensesItemRatePatch, findMatchingExpensesItem, findMatchingFixTariff, fixTariffRatePatch } from '../../utils/masterDataIdentity';
+import { findMatchingExpensesItem, findMatchingFixTariff } from '../../utils/masterDataIdentity';
 
 interface FDAViewProps {
   initialTab?: 'DASHBOARD' | 'JOB_ID' | 'ACTUAL_COST' | 'QUOTES_VIEW' | 'APPROVAL';
@@ -91,6 +91,12 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const [advancePaymentRemark, setAdvancePaymentRemark] = useState('');
   const [advancePaymentError, setAdvancePaymentError] = useState('');
   const [isSavingAdvancePayment, setIsSavingAdvancePayment] = useState(false);
+  const [editingAdvanceReceipt, setEditingAdvanceReceipt] = useState<PrincipalReceipt | null>(null);
+  const [advanceReceiptEditDate, setAdvanceReceiptEditDate] = useState('');
+  const [advanceReceiptEditAmount, setAdvanceReceiptEditAmount] = useState('');
+  const [advanceReceiptEditRemark, setAdvanceReceiptEditRemark] = useState('');
+  const [advanceReceiptEditError, setAdvanceReceiptEditError] = useState('');
+  const [isSavingAdvanceReceiptEdit, setIsSavingAdvanceReceiptEdit] = useState(false);
   const [showPdfPreview, setShowPdfPreview] = useState(false);
   const [previewDocument, setPreviewDocument] = useState<string | null>(null);
   const iframePreviewRef = useRef<HTMLIFrameElement | null>(null);
@@ -116,6 +122,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   );
   const [jobSearch, setJobSearch] = useState('');
   const [actualEntryMode, setActualEntryMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
+  const manualTypeDefaultedRef = useRef(false);
   const [manualTariffText, setManualTariffText] = useState('');
   const [actualQuantity, setActualQuantity] = useState(1);
   const [actualList, setActualList] = useState<ActualCostItem[]>(activeJob.actualCosts || []);
@@ -131,6 +138,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     setAdvancePaymentAmount('');
     setAdvancePaymentRemark('');
     setAdvancePaymentError('');
+    setEditingAdvanceReceipt(null);
   }, [activeJob.jobId]);
 
   useEffect(() => {
@@ -152,6 +160,15 @@ export const FDAView: React.FC<FDAViewProps> = ({
         ...currentJob.fda,
         [field]: value,
       },
+    });
+  };
+
+  const setFDAGlobalVatApplied = (checked: boolean) => {
+    if (isFDAReadOnly) return;
+    const currentJob = db.getJob(activeJob.jobId);
+    if (!currentJob) return;
+    db.updateJob(activeJob.jobId, {
+      fda: { ...currentJob.fda, globalVatApplied: checked },
     });
   };
 
@@ -202,6 +219,108 @@ export const FDAView: React.FC<FDAViewProps> = ({
       setTimeout(() => setMsg(null), 3500);
     } finally {
       setIsSavingAdvancePayment(false);
+    }
+  };
+
+  const openAdvanceReceiptEdit = (receipt: PrincipalReceipt) => {
+    if (isFDAReadOnly) return;
+    setEditingAdvanceReceipt(receipt);
+    setAdvanceReceiptEditDate(receipt.receivedDate);
+    setAdvanceReceiptEditAmount(String(receipt.amount));
+    setAdvanceReceiptEditRemark(receipt.bankRemark || '');
+    setAdvanceReceiptEditError('');
+  };
+
+  const handleSaveAdvanceReceiptEdit = async () => {
+    if (isFDAReadOnly || isSavingAdvanceReceiptEdit || !editingAdvanceReceipt) return;
+    const amount = Number(advanceReceiptEditAmount);
+    if (!advanceReceiptEditDate || !Number.isFinite(amount) || amount <= 0 || !advanceReceiptEditRemark.trim()) {
+      setAdvanceReceiptEditError('Lengkapi tanggal, nominal, dan remark Advance Received.');
+      return;
+    }
+    if (editingAdvanceReceipt.currency === 'IDR' && !Number.isInteger(amount)) {
+      setAdvanceReceiptEditError('Nominal IDR harus berupa angka bulat tanpa desimal.');
+      return;
+    }
+
+    const currentJob = db.getJob(activeJob.jobId);
+    if (!currentJob) {
+      setAdvanceReceiptEditError('Data job tidak ditemukan. Perubahan tidak disimpan.');
+      return;
+    }
+    const currentReceipt = (currentJob.principalReceipts || []).find((receipt) => receipt.id === editingAdvanceReceipt.id);
+    if (!currentReceipt || currentReceipt.paymentType !== 'ADVANCE_PAYMENT') {
+      setAdvanceReceiptEditError('Data Advance Received tidak ditemukan. Perubahan tidak disimpan.');
+      return;
+    }
+
+    setIsSavingAdvanceReceiptEdit(true);
+    setAdvanceReceiptEditError('');
+    try {
+      const result = await db.updateJobAndPersist(activeJob.jobId, {
+        principalReceipts: (currentJob.principalReceipts || []).map((receipt) => receipt.id === currentReceipt.id
+          ? {
+            ...currentReceipt,
+            receivedDate: advanceReceiptEditDate,
+            amount: currentReceipt.currency === 'IDR'
+              ? Math.round(amount)
+              : Math.round((amount + Number.EPSILON) * 100) / 100,
+            bankRemark: advanceReceiptEditRemark.trim(),
+          }
+          : receipt),
+      });
+      if (!result.saved) {
+        setAdvanceReceiptEditError(result.error
+          ? `Perubahan gagal disimpan ke database: ${result.error}. Data form tetap dipertahankan.`
+          : 'Perubahan tidak tersimpan. Periksa status FDA dan hak akses.');
+        return;
+      }
+
+      setEditingAdvanceReceipt(null);
+      setMsg('Advance Received berhasil diperbarui.');
+      setTimeout(() => setMsg(null), 3500);
+    } finally {
+      setIsSavingAdvanceReceiptEdit(false);
+    }
+  };
+
+  const handleDeleteAdvanceReceipt = async () => {
+    if (isFDAReadOnly || isSavingAdvanceReceiptEdit || !editingAdvanceReceipt) return;
+    if (!window.confirm('Hapus data Advance Received ini?')) return;
+
+    const currentJob = db.getJob(activeJob.jobId);
+    if (!currentJob) {
+      setAdvanceReceiptEditError('Data job tidak ditemukan. Data tidak dihapus.');
+      return;
+    }
+    const receiptExists = (currentJob.principalReceipts || []).some(
+      (receipt) => receipt.id === editingAdvanceReceipt.id && receipt.paymentType === 'ADVANCE_PAYMENT',
+    );
+    if (!receiptExists) {
+      setAdvanceReceiptEditError('Data Advance Received tidak ditemukan. Data tidak dihapus.');
+      return;
+    }
+
+    setIsSavingAdvanceReceiptEdit(true);
+    setAdvanceReceiptEditError('');
+    try {
+      const result = await db.updateJobAndPersist(activeJob.jobId, {
+        principalReceipts: (currentJob.principalReceipts || []).filter(
+          (receipt) => receipt.id !== editingAdvanceReceipt.id,
+        ),
+      });
+      if (!result.saved) {
+        setAdvanceReceiptEditError(result.error
+          ? `Data gagal dihapus dari database: ${result.error}.`
+          : 'Data tidak terhapus. Periksa status FDA dan hak akses.');
+        return;
+      }
+
+      setEditingAdvanceReceipt(null);
+      setMsg('Advance Received berhasil dihapus.');
+      setTimeout(() => setMsg(null), 3500);
+    } finally {
+      setIsSavingAdvanceReceiptEdit(false);
     }
   };
 
@@ -510,6 +629,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
     return total + categoryItems.reduce((sum, item) => sum + item.amount, 0) + categoryVatAmount(categoryItems);
   }, 0);
   const pph23Applied = activeJob.fda?.pph23Applied ?? orderedFDAResultRows.some((item) => item.pph23Applied);
+  const globalVatApplied = activeJob.fda?.globalVatApplied ?? false;
+  const totalQuotedEPDA = activeJob.quotation?.epda?.totalSellRate || 0;
   const categoryPph23Amount = (categoryItems: typeof fdaResultRows) => {
     if (!pph23Applied || !categoryItems.some((item) => item.vatApplied)) return 0;
     const categoryTotal = categoryItems.reduce((sum, item) => sum + item.amount, 0);
@@ -520,7 +641,11 @@ export const FDAView: React.FC<FDAViewProps> = ({
     return total + categoryPph23Amount(categoryItems);
   }, 0);
   const totalActualBuyAfterPph23 = totalActualBuyWithVat - pph23Amount;
-  const totalQuotedEPDA = activeJob.quotation?.epda?.totalSellRate || 0;
+  const globalVatBase = totalActualBuy > 0 ? totalActualBuyWithVat : totalQuotedEPDA;
+  const globalVatAmount = globalVatApplied
+    ? Math.round((globalVatBase * 0.11 + Number.EPSILON) * 100) / 100
+    : 0;
+  const totalActualBuyAfterGlobalVat = (totalActualBuy > 0 ? totalActualBuyAfterPph23 : totalQuotedEPDA) + globalVatAmount;
   const convertReceiptCurrency = (amount: number, from: Currency, to: Currency) => {
     if (from === to) return amount;
     return from === 'USD' ? amount * effectiveExchangeRate : amount / effectiveExchangeRate;
@@ -546,7 +671,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       activeJob.fda.currency || viewCurrency,
       viewCurrency,
     )
-    : (totalActualBuy > 0 ? totalActualBuyAfterPph23 : totalQuotedEPDA);
+    : totalActualBuyAfterGlobalVat;
   const balanceDue = Math.max(0, fdaAmountDue - totalPrincipalReceived);
   const totalEPDAReady = jobCalls.filter((job) => job.managerApproval?.status === 'APPROVED').length;
   const totalPendingFDA = jobCalls.filter(
@@ -632,14 +757,14 @@ export const FDAView: React.FC<FDAViewProps> = ({
         dwt: vesselDWT || undefined,
         calculationBasis: newActual.calculationBasis || 'LUMP_SUM',
         tariffType: newActual.tariffType || 'FIXED',
-        currency: viewCurrency,
         rateIDR: viewCurrency === 'IDR' ? rateValue : 0,
         rateUSD: viewCurrency === 'USD' ? rateValue : 0,
         remarks: newActual.notes || '',
       };
       const existing = findMatchingFixTariff(fixTariffs, tariffPayload);
       if (existing) {
-        await db.updateFixTariff(existing.id, fixTariffRatePatch(existing, tariffPayload));
+        window.alert('Data master untuk item ini sudah ada. Perubahan tarif hanya dapat dilakukan oleh administrator. Item manual FDA tetap bisa ditambahkan dengan tombol TAMBAH ITEM.');
+        return;
       } else {
         await db.addFixTariff(tariffPayload);
       }
@@ -648,16 +773,16 @@ export const FDAView: React.FC<FDAViewProps> = ({
         portId: portId || undefined,
         portName: portName || undefined,
         code: `FDA-${Date.now().toString().slice(-6)}`,
-        category: newActual.category as any,
+        category: newActual.category as ExpensesItem['category'],
         name: itemName,
-        unit: 'job',
         rateIDR: viewCurrency === 'IDR' ? rateValue : 0,
         rateUSD: viewCurrency === 'USD' ? rateValue : 0,
         calculationType: newActual.tariffType || 'FIXED',
       };
       const existing = findMatchingExpensesItem(expensesItems, expensePayload);
       if (existing) {
-        await db.updateExpensesItem(existing.id, expensesItemRatePatch(existing, expensePayload));
+        window.alert('Data master untuk item ini sudah ada. Perubahan tarif hanya dapat dilakukan oleh administrator. Item manual FDA tetap bisa ditambahkan dengan tombol TAMBAH ITEM.');
+        return;
       } else {
         await db.addExpensesItem(expensePayload);
       }
@@ -728,8 +853,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
     setShowAddActualModal(false);
     setEditingActualId(null);
     setManualTariffText('');
-    setNewActual({ description: '', category: 'PORT_EXPENSES', vendorName: '', vendorInvoiceNo: '', amountBuy: 0, amountSellBilled: 0, notes: '', attachmentName: '', calculationBasis: 'PER_GRT', tariffType: 'VARIABLE', rate: 0, minCharge: 0, vatApplied: false });
+    setNewActual({ description: '', category: 'PORT_EXPENSES', vendorName: '', vendorInvoiceNo: '', amountBuy: 0, amountSellBilled: 0, notes: '', attachmentName: '', calculationBasis: 'PER_GRT', tariffType: 'FIXED', rate: 0, minCharge: 0, vatApplied: false });
     setActualQuantity(1);
+    manualTypeDefaultedRef.current = false;
     setTimeout(() => setMsg(null), 3000);
   };
 
@@ -742,6 +868,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     const tariff = Number(it.tariffRate) || Number(it.amount || 0) / amountDivisor;
     setEditingActualId(it.id);
     setActualEntryMode('MANUAL');
+    manualTypeDefaultedRef.current = true;
     setActualQuantity(quantity);
     setManualTariffText(formatTariffInput(tariff));
     setNewActual({
@@ -952,13 +1079,17 @@ export const FDAView: React.FC<FDAViewProps> = ({
     }).join('') + (pph23Amount > 0
       ? `<tr class="pph23"><td colspan="3">PPH 23 (2%)</td><td class="amount">-${money(pph23Amount, viewCurrency)}</td><td></td></tr>`
       : '');
-    const total = totalActualBuyAfterPph23;
+    const total = totalActualBuyAfterGlobalVat;
+    const totalBeforeGlobalVat = totalActualBuy > 0 ? totalActualBuyAfterPph23 : totalQuotedEPDA;
+    const globalVatRows = globalVatApplied
+      ? `<tr class="global-vat"><td colspan="3">VAT / PPN 11% Global</td><td class="amount">${money(globalVatAmount, viewCurrency)}</td><td></td></tr><tr class="net-total"><td colspan="3">TOTAL TERMASUK VAT GLOBAL</td><td class="amount">${money(total, viewCurrency)}</td><td></td></tr>`
+      : '';
     const vessel = vessels.find((item) => item.id === activeJob.vesselId);
     const bank = viewCurrency === 'USD'
       ? '<div class="bank"><div>Please kindly remit to our Bank Account</div><div>Bank Account Detail of PT. Lentera Global Maritim asf:</div><br><b>BANK MANDIRI (Persero) Tbk</b><br>Address:<br>BANK MANDIRI TEBET SUPOMO<br>Jl. Prof. Dr.Supomo SH No 43, Tebet, RT.04/RW.03<br>Tebet barat , Kec. Tebet, Kota Jakarta Selatan,<br>Daerah Khusus Ibukota Jakarta 12810<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number (USD) : 120-00-5575599-0</b><br><b>Swift Code Bank : BMRIIDJAXXX</b></div><div class="signature"><div class="signature-main">Sincerely,<br>PT. Lentera Global Maritim</div><div class="signature-role">Finance</div></div>'
       : '<div class="bank"><div>Please kindly remit to our Bank Account</div><div>Bank Account Detail of PT. Lentera Global Maritim asf:</div><br><b>BANK NEGARA INDONESIA (Persero) Tbk</b><br>Address:<br>BNI BIDAKARA<br>Jl. Gatot Subroto Kab 71-73, RT.12/RW.5, Tebet Timur,<br>Kec. Tebet, Kota Jakarta Selatan, Daerah Khusus Ibukota Jakarta 12820<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number : 2824-1212-09</b><br><b>Swift Code Bank : BNINIDJAXXX</b></div><div class="signature"><div class="signature-main">Sincerely,<br>PT. Lentera Global Maritim</div><div class="signature-role">Finance</div></div>';
     const officeFooter = '<div class="office-footer" style="position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center;font-size:9px;line-height:1.45;font-weight:600;color:#111;z-index:3;">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span style="color:#e11d48;text-decoration:underline">email : maritim@lentera-global.com / web : www.lentera-global.com</span></div>';
-    return `<!doctype html><html><head><meta charset="utf-8"><title>${fdaNo}</title><style>@page{size:A4;margin:14mm}body{font-family:Arial,sans-serif;color:#172033;font-size:11px}html,body{margin:0;padding:0}.brand-row{text-align:center;margin:0 0 2px}.brand-wrap{display:inline-flex;align-items:center;gap:14px;text-align:left}.logo{width:82px;height:62px;object-fit:contain}.brand{font-weight:700;font-size:21px;color:#3562a8}.tag{color:#3562a8;font-size:12px;margin-top:3px}.divider{border-bottom:2px solid #315db2;margin:6px 0 12px}.title-block{margin:0 0 10px}.title-block h2{text-align:center;background:#182a50;color:#fff;padding:5px;font-size:12px;margin:0}.meta{display:grid;grid-template-columns:1fr 1fr;gap:2px 28px;margin-bottom:4px}.meta-col{display:flex;flex-direction:column;gap:2px}.meta-row{display:grid;grid-template-columns:105px 8px minmax(0,1fr);line-height:1.25}.meta-col.right .meta-row{grid-template-columns:82px 8px minmax(0,1fr)}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #9ca3af;padding:4px 5px}th{background:#dbe8f2;text-align:center;font-size:9px}th:nth-child(1),td:nth-child(1){width:5%;text-align:center}th:nth-child(2),td:nth-child(2){width:42%;text-align:left}th:nth-child(3),td:nth-child(3){width:8%;text-align:center}th:nth-child(4),td:nth-child(4){width:17%;text-align:right;white-space:nowrap}th:nth-child(5),td:nth-child(5){width:28%;text-align:left}.section td{background:#808080;color:#fff;font-weight:700;text-align:left;text-transform:uppercase}.subtotal{background:#dbe8f2;font-weight:700}.subtotal td:first-child{text-align:right}.amount{text-align:right;white-space:nowrap}.grand{background:#dbe8f2;font-weight:800;color:#f00}.bank{display:inline-block;width:42%;margin-top:24px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.footer{margin-top:22px;text-align:center;font-size:9px;line-height:1.45;font-weight:600}.footer span{color:#e11d48;text-decoration:underline}font-size:9px;line-height:1.35;font-weight:600}.footer span{color:#e11d48;text-decoration:underline}</style></head><body><div class="brand-row"><div class="brand-wrap"><img class="logo" src="/lenteraglobalmaritim/lgm-logo.png"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div><h2>FINAL DISBURSEMENT ACCOUNT</h2><div class="meta"><div class="meta-col"><div class="meta-row"><b>No FDA</b><span>:</span><span>${escape(fdaNo)}</span></div><div class="meta-row"><b>Date Inquiry</b><span>:</span><span>${escape(activeJob.inquiry?.date || '-')}</span></div><div class="meta-row"><b>Principal</b><span>:</span><span>${escape(activeJob.customerName)}</span></div><div class="meta-row"><b>GRT</b><span>:</span><span>${vessel?.grt?.toLocaleString('id-ID') || '-'}</span></div><div class="meta-row"><b>Port</b><span>:</span><span>${escape(activeJob.portName)}</span></div><div class="meta-row"><b>ETA</b><span>:</span><span>${escape(getFDAScheduleDisplay(fdaSchedule.eta, fdaSchedule.etaRemarks))}</span></div></div><div class="meta-col right"><div class="meta-row"><b>Vessel</b><span>:</span><span>${escape(activeJob.vesselName)}</span></div><div class="meta-row"><b>Estimated Day</b><span>:</span><span>${activeJob.inquiry?.estimatedDays || '-'}</span></div><div class="meta-row"><b>Flag</b><span>:</span><span>${escape(vessel?.flag || '-')}</span></div><div class="meta-row"><b>Cargo Details</b><span>:</span><span>${escape(activeJob.inquiry?.cargoDetails || '-')}</span></div><div class="meta-row"><b>IMO</b><span>:</span><span>${escape(vessel?.imoNumber || '-')}</span></div></div></div><table><thead><tr><th>NO.</th><th>DESCRIPTION</th><th>CURRENCY</th><th>AMOUNT</th><th>REMARKS</th></tr></thead><tbody>${rows}<tr class="grand"><td colspan="3">GRAND TOTAL</td><td class="amount">${money(total, viewCurrency)}</td><td></td></tr></tbody></table>${bank}${officeFooter}</body></html>`;
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${fdaNo}</title><style>@page{size:A4;margin:14mm}body{font-family:Arial,sans-serif;color:#172033;font-size:11px}html,body{margin:0;padding:0}.brand-row{text-align:center;margin:0 0 2px}.brand-wrap{display:inline-flex;align-items:center;gap:14px;text-align:left}.logo{width:82px;height:62px;object-fit:contain}.brand{font-weight:700;font-size:21px;color:#3562a8}.tag{color:#3562a8;font-size:12px;margin-top:3px}.divider{border-bottom:2px solid #315db2;margin:6px 0 12px}.title-block{margin:0 0 10px}.title-block h2{text-align:center;background:#182a50;color:#fff;padding:5px;font-size:12px;margin:0}.meta{display:grid;grid-template-columns:1fr 1fr;gap:2px 28px;margin-bottom:4px}.meta-col{display:flex;flex-direction:column;gap:2px}.meta-row{display:grid;grid-template-columns:105px 8px minmax(0,1fr);line-height:1.25}.meta-col.right .meta-row{grid-template-columns:82px 8px minmax(0,1fr)}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #9ca3af;padding:4px 5px}th{background:#dbe8f2;text-align:center;font-size:9px}th:nth-child(1),td:nth-child(1){width:5%;text-align:center}th:nth-child(2),td:nth-child(2){width:42%;text-align:left}th:nth-child(3),td:nth-child(3){width:8%;text-align:center}th:nth-child(4),td:nth-child(4){width:17%;text-align:right;white-space:nowrap}th:nth-child(5),td:nth-child(5){width:28%;text-align:left}.section td{background:#808080;color:#fff;font-weight:700;text-align:left;text-transform:uppercase}.subtotal{background:#dbe8f2;font-weight:700}.subtotal td:first-child{text-align:right}.amount{text-align:right;white-space:nowrap}.grand,.net-total{background:#dbe8f2;font-weight:800;color:#f00}.bank{display:inline-block;width:42%;margin-top:24px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.footer{margin-top:22px;text-align:center;font-size:9px;line-height:1.45;font-weight:600}.footer span{color:#e11d48;text-decoration:underline}font-size:9px;line-height:1.35;font-weight:600}.footer span{color:#e11d48;text-decoration:underline}</style></head><body><div class="brand-row"><div class="brand-wrap"><img class="logo" src="/lenteraglobalmaritim/lgm-logo.png"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div><h2>FINAL DISBURSEMENT ACCOUNT</h2><div class="meta"><div class="meta-col"><div class="meta-row"><b>No FDA</b><span>:</span><span>${escape(fdaNo)}</span></div><div class="meta-row"><b>Date Inquiry</b><span>:</span><span>${escape(activeJob.inquiry?.date || '-')}</span></div><div class="meta-row"><b>Principal</b><span>:</span><span>${escape(activeJob.customerName)}</span></div><div class="meta-row"><b>GRT</b><span>:</span><span>${vessel?.grt?.toLocaleString('id-ID') || '-'}</span></div><div class="meta-row"><b>Port</b><span>:</span><span>${escape(activeJob.portName)}</span></div><div class="meta-row"><b>ETA</b><span>:</span><span>${escape(getFDAScheduleDisplay(fdaSchedule.eta, fdaSchedule.etaRemarks))}</span></div></div><div class="meta-col right"><div class="meta-row"><b>Vessel</b><span>:</span><span>${escape(activeJob.vesselName)}</span></div><div class="meta-row"><b>Estimated Day</b><span>:</span><span>${activeJob.inquiry?.estimatedDays || '-'}</span></div><div class="meta-row"><b>Flag</b><span>:</span><span>${escape(vessel?.flag || '-')}</span></div><div class="meta-row"><b>Cargo Details</b><span>:</span><span>${escape(activeJob.inquiry?.cargoDetails || '-')}</span></div><div class="meta-row"><b>IMO</b><span>:</span><span>${escape(vessel?.imoNumber || '-')}</span></div></div></div><table><thead><tr><th>NO.</th><th>DESCRIPTION</th><th>CURRENCY</th><th>AMOUNT</th><th>REMARKS</th></tr></thead><tbody>${rows}<tr class="grand"><td colspan="3">GRAND TOTAL</td><td class="amount">${money(totalBeforeGlobalVat, viewCurrency)}</td><td></td></tr>${globalVatRows}</tbody></table>${bank}${officeFooter}</body></html>`;
   };
 
   const buildFDAResultDocument = () => {
@@ -977,9 +1108,13 @@ export const FDAView: React.FC<FDAViewProps> = ({
     }).join('') + (pph23Amount > 0
       ? `<tr class="pph23"><td colspan="3">PPH 23 (2%)</td><td class="amount">-${money(pph23Amount, viewCurrency)}</td><td></td></tr>`
       : '');
-    const total = totalActualBuyAfterPph23;
+    const total = totalActualBuyAfterGlobalVat;
+    const totalBeforeGlobalVat = totalActualBuy > 0 ? totalActualBuyAfterPph23 : totalQuotedEPDA;
+    const globalVatRows = globalVatApplied
+      ? `<tr class="global-vat"><td colspan="3">VAT / PPN 11% Global</td><td class="amount">${money(globalVatAmount, viewCurrency)}</td><td></td></tr><tr class="net-total"><td colspan="3">TOTAL TERMASUK VAT GLOBAL</td><td class="amount">${money(total, viewCurrency)}</td><td></td></tr>`
+      : '';
     const vessel = vessels.find((item) => item.id === activeJob.vesselId);
-    return `<!doctype html><html><head><meta charset="utf-8"><title>${fdaNo}</title><style>@page{size:A4;margin:10mm}body{font-family:Arial,sans-serif;color:#172033;font-size:10px}.brand{text-align:center;margin-bottom:8px}.brand-wrap{display:inline-flex;align-items:center;gap:12px;text-align:left}.logo{width:78px;height:58px;object-fit:contain}.brand-name{font-size:20px;font-weight:700;color:#3562a8}.tagline{font-size:11px;color:#3562a8;margin-top:3px}.divider{border-bottom:2px solid #315db2;margin:6px 0 10px}.title-block{margin:0 0 8px}.title-block h2{margin:0;background:#214f84;color:#fff;text-align:center;padding:5px;font-size:12px}.meta{display:grid;grid-template-columns:1fr 1fr;gap:2px 28px;margin-bottom:9px}.meta-col{display:flex;flex-direction:column;gap:2px}.meta-row{display:grid;grid-template-columns:105px 8px minmax(0,1fr);line-height:1.25}.right .meta-row{grid-template-columns:82px 8px minmax(0,1fr)}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #9ca3af;padding:4px 5px}th{background:#dbe8f2;text-align:center;font-size:9px}th:nth-child(1),td:nth-child(1){width:5%;text-align:center}th:nth-child(2),td:nth-child(2){width:42%;text-align:left}th:nth-child(3),td:nth-child(3){width:8%;text-align:center}th:nth-child(4),td:nth-child(4){width:17%;text-align:right;white-space:nowrap}th:nth-child(5),td:nth-child(5){width:28%;text-align:left}.section td{background:#808080;color:#fff;font-weight:700;text-align:left;text-transform:uppercase}.subtotal{background:#dbe8f2;font-weight:700}.grand{background:#dbe8f2;color:#f00;font-weight:800}.amount{text-align:right;white-space:nowrap}.bank{display:inline-block;width:42%;margin-top:16px;border:1px solid #777;padding:8px;font-size:8px;line-height:1.3;vertical-align:top}.signature{display:inline-block;width:42%;margin:52px 0 0 12%;text-align:center;vertical-align:top;font-size:9px;padding-top:8px}.footer{margin-top:16px;text-align:center;font-size:9px;line-height:1.35;font-weight:600}.footer span{color:#e11d48;text-decoration:underline}</style></head><body><div class="brand"><div class="brand-wrap"><img class="logo" src="/lenteraglobalmaritim/lgm-logo.png"><div><div class="brand-name">PT Lentera Global Maritim</div><div class="tagline">Seamless Agent, Global Reach</div></div></div></div><h2>FINAL DISBURSEMENT ACCOUNT</h2><div class="meta"><div class="meta-col"><div class="meta-row"><b>No FDA</b><span>:</span><span>${escape(fdaNo)}</span></div><div class="meta-row"><b>Date Inquiry</b><span>:</span><span>${escape(activeJob.inquiry?.date || '-')}</span></div><div class="meta-row"><b>Principal</b><span>:</span><span>${escape(activeJob.customerName)}</span></div><div class="meta-row"><b>GRT</b><span>:</span><span>${vessel?.grt?.toLocaleString('id-ID') || '-'}</span></div><div class="meta-row"><b>Port</b><span>:</span><span>${escape(activeJob.portName)}</span></div><div class="meta-row"><b>ETA</b><span>:</span><span>${escape(activeJob.eta || '-')}</span></div></div><div class="meta-col right"><div class="meta-row"><b>Vessel</b><span>:</span><span>${escape(activeJob.vesselName)}</span></div><div class="meta-row"><b>Estimated Day</b><span>:</span><span>${activeJob.inquiry?.estimatedDays || '-'}</span></div><div class="meta-row"><b>Flag</b><span>:</span><span>${escape(vessel?.flag || '-')}</span></div><div class="meta-row"><b>Cargo Details</b><span>:</span><span>${escape(activeJob.inquiry?.cargoDetails || '-')}</span></div><div class="meta-row"><b>IMO</b><span>:</span><span>${escape(vessel?.imoNumber || '-')}</span></div></div></div><table><thead><tr><th>NO.</th><th>DESCRIPTION</th><th>CURRENCY</th><th>AMOUNT</th><th>REMARKS</th></tr></thead><tbody>${rows}<tr class="grand"><td colspan="3">GRAND TOTAL</td><td class="amount">${money(total, viewCurrency)}</td><td></td></tr></tbody></table><div class="bank">Please kindly remit to our Bank Account<br>Bank Account Detail of PT. Lentera Global Maritim asf:<br><br><b>BANK NEGARA INDONESIA (Persero) Tbk</b><br>Address: BNI Bidakara<br>Jl. Gatot Subroto Kav 71-73, RT.12/RW.5, Tebet Timur,<br>Kec. Tebet, Kota Jakarta Selatan, DKI Jakarta 12820<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number : 2824-1212-69</b><br><b>Swift Code Bank : BNIIDNAXXX</b></div><div class="signature">Sincerely,<br>PT. Lentera Global Maritim<br><br><br>Finance</div><div class="footer">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span>email : maritim@lentera-global.com / web : www.lentera-global.com</span></div></body></html>`;
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${fdaNo}</title><style>@page{size:A4;margin:10mm}body{font-family:Arial,sans-serif;color:#172033;font-size:10px}.brand{text-align:center;margin-bottom:8px}.brand-wrap{display:inline-flex;align-items:center;gap:12px;text-align:left}.logo{width:78px;height:58px;object-fit:contain}.brand-name{font-size:20px;font-weight:700;color:#3562a8}.tagline{font-size:11px;color:#3562a8;margin-top:3px}.divider{border-bottom:2px solid #315db2;margin:6px 0 10px}.title-block{margin:0 0 8px}.title-block h2{margin:0;background:#214f84;color:#fff;text-align:center;padding:5px;font-size:12px}.meta{display:grid;grid-template-columns:1fr 1fr;gap:2px 28px;margin-bottom:9px}.meta-col{display:flex;flex-direction:column;gap:2px}.meta-row{display:grid;grid-template-columns:105px 8px minmax(0,1fr);line-height:1.25}.right .meta-row{grid-template-columns:82px 8px minmax(0,1fr)}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #9ca3af;padding:4px 5px}th{background:#dbe8f2;text-align:center;font-size:9px}th:nth-child(1),td:nth-child(1){width:5%;text-align:center}th:nth-child(2),td:nth-child(2){width:42%;text-align:left}th:nth-child(3),td:nth-child(3){width:8%;text-align:center}th:nth-child(4),td:nth-child(4){width:17%;text-align:right;white-space:nowrap}th:nth-child(5),td:nth-child(5){width:28%;text-align:left}.section td{background:#808080;color:#fff;font-weight:700;text-align:left;text-transform:uppercase}.subtotal{background:#dbe8f2;font-weight:700}.grand,.net-total{background:#dbe8f2;color:#f00;font-weight:800}.amount{text-align:right;white-space:nowrap}.bank{display:inline-block;width:42%;margin-top:16px;border:1px solid #777;padding:8px;font-size:8px;line-height:1.3;vertical-align:top}.signature{display:inline-block;width:42%;margin:52px 0 0 12%;text-align:center;vertical-align:top;font-size:9px;padding-top:8px}.footer{margin-top:16px;text-align:center;font-size:9px;line-height:1.35;font-weight:600}.footer span{color:#e11d48;text-decoration:underline}</style></head><body><div class="brand"><div class="brand-wrap"><img class="logo" src="/lenteraglobalmaritim/lgm-logo.png"><div><div class="brand-name">PT Lentera Global Maritim</div><div class="tagline">Seamless Agent, Global Reach</div></div></div></div><h2>FINAL DISBURSEMENT ACCOUNT</h2><div class="meta"><div class="meta-col"><div class="meta-row"><b>No FDA</b><span>:</span><span>${escape(fdaNo)}</span></div><div class="meta-row"><b>Date Inquiry</b><span>:</span><span>${escape(activeJob.inquiry?.date || '-')}</span></div><div class="meta-row"><b>Principal</b><span>:</span><span>${escape(activeJob.customerName)}</span></div><div class="meta-row"><b>GRT</b><span>:</span><span>${vessel?.grt?.toLocaleString('id-ID') || '-'}</span></div><div class="meta-row"><b>Port</b><span>:</span><span>${escape(activeJob.portName)}</span></div><div class="meta-row"><b>ETA</b><span>:</span><span>${escape(activeJob.eta || '-')}</span></div></div><div class="meta-col right"><div class="meta-row"><b>Vessel</b><span>:</span><span>${escape(activeJob.vesselName)}</span></div><div class="meta-row"><b>Estimated Day</b><span>:</span><span>${activeJob.inquiry?.estimatedDays || '-'}</span></div><div class="meta-row"><b>Flag</b><span>:</span><span>${escape(vessel?.flag || '-')}</span></div><div class="meta-row"><b>Cargo Details</b><span>:</span><span>${escape(activeJob.inquiry?.cargoDetails || '-')}</span></div><div class="meta-row"><b>IMO</b><span>:</span><span>${escape(vessel?.imoNumber || '-')}</span></div></div></div><table><thead><tr><th>NO.</th><th>DESCRIPTION</th><th>CURRENCY</th><th>AMOUNT</th><th>REMARKS</th></tr></thead><tbody>${rows}<tr class="grand"><td colspan="3">GRAND TOTAL</td><td class="amount">${money(totalBeforeGlobalVat, viewCurrency)}</td><td></td></tr>${globalVatRows}</tbody></table><div class="bank">Please kindly remit to our Bank Account<br>Bank Account Detail of PT. Lentera Global Maritim asf:<br><br><b>BANK NEGARA INDONESIA (Persero) Tbk</b><br>Address: BNI Bidakara<br>Jl. Gatot Subroto Kav 71-73, RT.12/RW.5, Tebet Timur,<br>Kec. Tebet, Kota Jakarta Selatan, DKI Jakarta 12820<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number : 2824-1212-69</b><br><b>Swift Code Bank : BNIIDNAXXX</b></div><div class="signature">Sincerely,<br>PT. Lentera Global Maritim<br><br><br>Finance</div><div class="footer">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span>email : maritim@lentera-global.com / web : www.lentera-global.com</span></div></body></html>`;
   };
 
   const pushFinanceSignatureDown = (html: string) => html
@@ -1080,7 +1215,24 @@ export const FDAView: React.FC<FDAViewProps> = ({
     normalizeFDAExportLayout(html
       .replace(/<div class="meta-row"><b>Estimated Day<\/b><span>:\<\/span><span>.*?<\/span><\/div>/, '')
       .replace('</style>', `${fdaPrintSpacingStyles}</style>`))
-  ));
+  )).replace('</head>', `<style>
+    @media print {
+      html, body, body * { font-family: Helvetica, Arial, sans-serif !important; }
+      body, .meta, .meta-row, .meta-row b, .section td, table th, table td { font-size: 11px !important; }
+      .brand-name { font-size: 20px !important; }
+      .tagline { font-size: 11px !important; }
+      h2, .title-block h2 { font-size: 14px !important; }
+      .bank { font-size: 13px !important; }
+      .signature { font-size: 13px !important; }
+      .footer, .office-footer { font-size: 9px !important; }
+      table tr.global-vat td.amount,
+      table tr.net-total td.amount { text-align: right !important; }
+      table thead th:first-child, table tbody tr.item-row td:first-child {
+        text-align: center !important;
+        vertical-align: middle !important;
+      }
+    }
+  </style></head>`);
 
   const addFDAReceiptSummary = (html: string) => {
     const summaryRows = `<tr class="advance"><td colspan="3">Advance Received / Pre-funding Received</td><td class="amount">-${formatAccountingNumber(advanceReceived, viewCurrency)}</td><td></td></tr><tr class="balance"><td colspan="3">Balance Due</td><td class="amount">${formatAccountingNumber(balanceDue, viewCurrency)}</td><td></td></tr>`;
@@ -1157,7 +1309,10 @@ export const FDAView: React.FC<FDAViewProps> = ({
       ];
     });
     const pph23Row = pph23Amount > 0 ? [['', '', 'PPH 23 (2%)', -pph23Amount, '']] : [];
-    const text = [['NO','DESCRIPTION','TARIFF','AMOUNT','REMARKS'],...rows,...pph23Row,['','','GRAND TOTAL',totalActualBuyAfterPph23,'']].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join('\t')).join('\n');
+    const globalVatRows = globalVatApplied
+      ? [['', '', 'VAT / PPN 11% Global', globalVatAmount, ''], ['', '', 'TOTAL TERMASUK VAT GLOBAL', totalActualBuyAfterGlobalVat, '']]
+      : [];
+    const text = [['NO','DESCRIPTION','TARIFF','AMOUNT','REMARKS'],...rows,...pph23Row,['','','GRAND TOTAL',totalActualBuyAfterPph23,''],...globalVatRows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join('\t')).join('\n');
     const blob=new Blob([text],{type:'application/vnd.ms-excel;charset=utf-8'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`${fdaNo.replaceAll('/','-')}.xls`; a.click(); URL.revokeObjectURL(url);
   };
 
@@ -1172,7 +1327,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       return;
     }
     const totalActualBuyLogged = totalActualBuy > 0 ? totalActualBuy : activeJob.quotation?.epda?.totalBuyRate || 0;
-    const rawTotalActualBilled = totalActualBuy > 0 ? totalActualBuyAfterPph23 : totalQuotedEPDA;
+    const rawTotalActualBilled = totalActualBuyAfterGlobalVat;
     const invoicePrecision = viewCurrency === 'IDR' ? 1 : 100;
     const totalActualBilled = Math.round((rawTotalActualBilled + Number.EPSILON) * invoicePrecision) / invoicePrecision;
     const variance = totalActualBilled - totalActualBuyLogged;
@@ -1197,6 +1352,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
     const submitted = db.submitFDAForManager(activeJob.jobId, {
       fda: { ...activeJob.fda, fdaNo: fdaNoGenerated, date: today, currency: viewCurrency, exchangeRateUSDToIDR: exchangeRate,
+        pph23Applied, globalVatApplied,
         totalActualCost: totalActualBuyLogged, totalEstimatedBuy: activeJob.quotation.epda.totalBuyRate, totalEstimatedSell: activeJob.quotation.epda.totalSellRate,
         finalBilledToPrincipal: totalActualBilled, varianceAmount: variance, variancePercentage: totalActualBilled > 0 ? (variance / totalActualBilled) * 100 : 0,
         fdaApproved: false, notes: 'FDA dikirim untuk approval Manager Ops.' },
@@ -1237,7 +1393,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   return (
     <div className="space-y-6 fda-form-root" aria-readonly={isFDAReadOnly}>
       {/* Top Banner */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="fda-page-header bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-cyan-400 text-xs font-mono font-bold uppercase tracking-wider">
             <FileCheck2 className="w-4 h-4" />
@@ -1330,7 +1486,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       {/* FDA JOB ID QUEUE */}
       {subTab === 'JOB_ID' && (
         <div className="space-y-5">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
+          <div className="fda-results-card bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <div className="text-xs font-mono font-bold text-cyan-400 uppercase">FDA / JOB ID</div>
@@ -1791,10 +1947,16 @@ export const FDAView: React.FC<FDAViewProps> = ({
               </div>
             </div>
 
-            <label className={`mb-3 inline-flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-950/20 px-3 py-2 text-xs font-semibold text-rose-200 ${isFDAReadOnly ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
-              <input type="checkbox" checked={pph23Applied} disabled={isFDAReadOnly} onChange={(event) => setFDAFormPph23Applied(event.target.checked)} />
-              PPH 23 (2%) hanya pada kategori yang memiliki item VAT 11%
-            </label>
+            <div className="erp-tax-controls mb-3 flex flex-wrap gap-2">
+              <label className={`erp-tax-option erp-tax-option-pph ${pph23Applied ? 'is-active' : ''} ${isFDAReadOnly ? 'is-disabled' : ''}`}>
+                <input type="checkbox" checked={pph23Applied} disabled={isFDAReadOnly} onChange={(event) => setFDAFormPph23Applied(event.target.checked)} />
+                <span>PPH 23 (2%)<small>Untuk kategori yang memiliki item VAT 11%</small></span>
+              </label>
+              <label className={`erp-tax-option erp-tax-option-vat ${globalVatApplied ? 'is-active' : ''} ${isFDAReadOnly ? 'is-disabled' : ''}`}>
+                <input type="checkbox" checked={globalVatApplied} disabled={isFDAReadOnly} onChange={(event) => setFDAGlobalVatApplied(event.target.checked)} />
+                <span>VAT / PPN 11% Global<small>Ditambahkan pada Grand Total</small></span>
+              </label>
+            </div>
             <div className="overflow-visible">
               <table className="w-full text-left text-xs border-separate border-spacing-0">
                 <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider">
@@ -1912,6 +2074,20 @@ export const FDAView: React.FC<FDAViewProps> = ({
                       <td className="border-l border-slate-800" />
                     </tr>
                   )}
+                  {globalVatApplied && fdaResultRows.length > 0 && (
+                    <>
+                      <tr className="bg-slate-950/70 font-bold">
+                        <td colSpan={3} className="border-l border-slate-800 p-3 text-right font-bold uppercase text-amber-300">VAT / PPN 11% Global</td>
+                        <td className="border-l border-slate-800 p-3 text-right text-xs font-mono font-bold text-amber-300">{formatAccountingNumber(globalVatAmount, viewCurrency)}</td>
+                        <td className="border-l border-slate-800" />
+                      </tr>
+                      <tr className="bg-slate-950/80">
+                        <td colSpan={3} className="border-l border-slate-800 p-3 text-right font-bold uppercase text-slate-200">TOTAL TERMASUK VAT GLOBAL</td>
+                        <td className="border-l border-slate-800 p-3 text-right text-xs font-mono font-bold text-white">{formatAccountingNumber(totalActualBuyAfterGlobalVat, viewCurrency)}</td>
+                        <td className="border-l border-slate-800" />
+                      </tr>
+                    </>
+                  )}
                   <tr className="bg-slate-950/70">
                     <td colSpan={3} className="border-l border-slate-800 p-3 text-right font-normal uppercase text-slate-200">Advance Received / Pre-funding Received</td>
                     <td className="border-l border-slate-800 p-3 text-right text-xs font-mono font-normal text-rose-300">
@@ -1945,7 +2121,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                 <button type="button" onClick={() => setActualEntryMode('AUTO')} className={`rounded-lg border px-3 py-2 text-[11px] font-semibold ${actualEntryMode === 'AUTO' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-slate-700 hover:border-emerald-500 hover:text-emerald-600'}`}>
                   Otomatis
                 </button>
-                <button type="button" onClick={() => setActualEntryMode('MANUAL')} className={`rounded-lg border px-3 py-2 text-[11px] font-semibold ${actualEntryMode === 'MANUAL' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-slate-700 hover:border-emerald-500 hover:text-emerald-600'}`}>
+                <button type="button" onClick={() => { setActualEntryMode('MANUAL'); if (!manualTypeDefaultedRef.current && !editingActualId) { setNewActual((current) => ({ ...current, tariffType: 'FIXED' })); manualTypeDefaultedRef.current = true; } }} className={`rounded-lg border px-3 py-2 text-[11px] font-semibold ${actualEntryMode === 'MANUAL' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-slate-700 hover:border-emerald-500 hover:text-emerald-600'}`}>
                   Manual
                 </button>
               </div>
@@ -2076,16 +2252,119 @@ export const FDAView: React.FC<FDAViewProps> = ({
             {advancePaymentHistory.length > 0 && (
               <div className="space-y-1 text-xs text-slate-700">
                 {advancePaymentHistory.map((receipt) => (
-                  <div key={receipt.id}>
-                    {formatDateDisplay(receipt.receivedDate)} · {formatAccountingNumber(
-                      convertReceiptCurrency(
-                        Number(receipt.amount || 0),
-                        receipt.currency || activeJob.currency || 'IDR',
-                        viewCurrency,
-                      ),
-                      viewCurrency,
-                    )} · {receipt.bankRemark || '-'}
-                  </div>
+                  <React.Fragment key={receipt.id}>
+                    <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-100 bg-white px-3 py-2">
+                      <span>
+                        {formatDateDisplay(receipt.receivedDate)} · {formatAccountingNumber(
+                          convertReceiptCurrency(
+                            Number(receipt.amount || 0),
+                            receipt.currency || activeJob.currency || 'IDR',
+                            viewCurrency,
+                          ),
+                          viewCurrency,
+                        )} {viewCurrency} · {receipt.bankRemark || '-'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => openAdvanceReceiptEdit(receipt)}
+                        disabled={isFDAReadOnly || isSavingAdvanceReceiptEdit}
+                        className="shrink-0 rounded p-1.5 text-cyan-700 hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        title="Edit atau hapus Advance Received"
+                        aria-label={`Edit atau hapus Advance Received ${formatDateDisplay(receipt.receivedDate)}`}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    {editingAdvanceReceipt?.id === receipt.id && !isFDAReadOnly && (
+                      <div className="rounded-lg border border-cyan-200 bg-white p-4 shadow-sm">
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <div>
+                            <h5 className="text-xs font-bold uppercase tracking-wide text-slate-700">Edit Advance Received</h5>
+                            <p className="mt-1 text-[11px] text-slate-500">Perbarui data penerimaan ini atau hapus jika tidak diperlukan.</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingAdvanceReceipt(null);
+                              setAdvanceReceiptEditError('');
+                            }}
+                            disabled={isSavingAdvanceReceiptEdit}
+                            className="rounded p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+                            aria-label="Batal edit Advance Received"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2">
+                          <div>
+                            <label className="mb-1 block text-slate-600">Date Advance Payment</label>
+                            <input
+                              type="date"
+                              value={advanceReceiptEditDate}
+                              disabled={isSavingAdvanceReceiptEdit}
+                              onChange={(event) => setAdvanceReceiptEditDate(event.target.value)}
+                              className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 disabled:bg-slate-100"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-slate-600">Amount ({receipt.currency})</label>
+                            <input
+                              type="number"
+                              min="0"
+                              step={receipt.currency === 'IDR' ? '1' : '0.01'}
+                              value={advanceReceiptEditAmount}
+                              disabled={isSavingAdvanceReceiptEdit}
+                              onChange={(event) => setAdvanceReceiptEditAmount(event.target.value)}
+                              className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-right text-slate-700 disabled:bg-slate-100"
+                            />
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className="mb-1 block text-slate-600">Remark</label>
+                            <input
+                              type="text"
+                              value={advanceReceiptEditRemark}
+                              disabled={isSavingAdvanceReceiptEdit}
+                              onChange={(event) => setAdvanceReceiptEditRemark(event.target.value)}
+                              className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 disabled:bg-slate-100"
+                            />
+                          </div>
+                        </div>
+                        {advanceReceiptEditError && <p role="alert" className="mt-3 text-xs font-semibold text-rose-600">{advanceReceiptEditError}</p>}
+                        <div className="mt-4 flex flex-wrap justify-between gap-2">
+                          <button
+                            type="button"
+                            onClick={handleDeleteAdvanceReceipt}
+                            disabled={isSavingAdvanceReceiptEdit}
+                            className="flex items-center gap-1.5 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 disabled:cursor-wait disabled:opacity-50"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            HAPUS DATA
+                          </button>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingAdvanceReceipt(null);
+                                setAdvanceReceiptEditError('');
+                              }}
+                              disabled={isSavingAdvanceReceiptEdit}
+                              className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                            >
+                              Batal
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleSaveAdvanceReceiptEdit}
+                              disabled={isSavingAdvanceReceiptEdit}
+                              className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-500 disabled:cursor-wait disabled:opacity-50"
+                            >
+                              {isSavingAdvanceReceiptEdit ? 'MENYIMPAN...' : 'SIMPAN PERUBAHAN'}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </React.Fragment>
                 ))}
               </div>
             )}

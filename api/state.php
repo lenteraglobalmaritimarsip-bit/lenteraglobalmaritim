@@ -17,6 +17,64 @@ function stateRevision(array $state): string
     return hash('sha256', $encoded);
 }
 
+function validAdvancePaymentReceipt(array $receipt, string $jobId): bool
+{
+    $receivedDate = (string) ($receipt['receivedDate'] ?? '');
+    return ($receipt['paymentType'] ?? '') === 'ADVANCE_PAYMENT'
+        && ($receipt['jobId'] ?? '') === $jobId
+        && is_numeric($receipt['amount'] ?? null)
+        && (float) $receipt['amount'] > 0
+        && in_array($receipt['currency'] ?? '', ['IDR', 'USD'], true)
+        && preg_match('/^\d{4}-\d{2}-\d{2}$/', $receivedDate)
+        && checkdate((int) substr($receivedDate, 5, 2), (int) substr($receivedDate, 8, 2), (int) substr($receivedDate, 0, 4))
+        && trim((string) ($receipt['bankRemark'] ?? '')) !== '';
+}
+
+function immutableReceiptFields(array $receipt): array
+{
+    unset($receipt['receivedDate'], $receipt['amount'], $receipt['bankRemark']);
+    ksort($receipt);
+    return $receipt;
+}
+
+function normalizedMasterItem(string $key, array $item): array
+{
+    $nullableNumber = static function (array $value, string $field, int $precision): ?float {
+        if (!array_key_exists($field, $value) || $value[$field] === null || $value[$field] === '') return null;
+        return round((float) $value[$field], $precision);
+    };
+
+    if ($key === 'fixTariffs') {
+        return [
+            'id' => (string) ($item['id'] ?? ''),
+            'portId' => (string) ($item['portId'] ?? ''),
+            'serviceName' => (string) ($item['serviceName'] ?? ''),
+            'costCategory' => $item['costCategory'] ?? null,
+            'grtMin' => $nullableNumber($item, 'grtMin', 0),
+            'grtMax' => $nullableNumber($item, 'grtMax', 0),
+            'dwt' => $nullableNumber($item, 'dwt', 0),
+            'calculationBasis' => (string) ($item['calculationBasis'] ?? ''),
+            'tariffType' => $item['tariffType'] ?? null,
+            'rateIDR' => $nullableNumber($item, 'rateIDR', 4),
+            'rateUSD' => $nullableNumber($item, 'rateUSD', 4),
+            'remarks' => (string) ($item['remarks'] ?? ''),
+        ];
+    }
+
+    return [
+        'id' => (string) ($item['id'] ?? ''),
+        'portId' => empty($item['portId']) ? null : (string) $item['portId'],
+        'portName' => (string) ($item['portName'] ?? ''),
+        'code' => (string) ($item['code'] ?? ''),
+        'category' => (string) ($item['category'] ?? ''),
+        'name' => (string) ($item['name'] ?? ''),
+        'rateIDR' => $nullableNumber($item, 'rateIDR', 4),
+        'rateUSD' => $nullableNumber($item, 'rateUSD', 4),
+        'calculationType' => $item['calculationType'] ?? null,
+        'remarks' => (string) ($item['remarks'] ?? ''),
+    ];
+}
+
 function applyNonAdminMasterData(array &$state, array $before, string $role): void
 {
     foreach (['users', 'customers', 'vessels', 'ports', 'zones'] as $key) {
@@ -38,7 +96,7 @@ function applyNonAdminMasterData(array &$state, array $before, string $role): vo
             if ($id === '') jsonResponse(['error' => 'Master data item ID is required'], 400);
             $incomingIds[$id] = true;
             if (isset($existing[$id])) {
-                if (json_encode($existing[$id]) !== json_encode($item)) {
+                if (normalizedMasterItem($key, $existing[$id]) !== normalizedMasterItem($key, $item)) {
                     jsonResponse(['error' => 'Only administrators can edit or delete master data'], 403);
                 }
                 continue;
@@ -138,22 +196,25 @@ try {
                     $newReceiptsById[$receipt['id']] = $receipt;
                 }
                 foreach ($oldReceipts as $receipt) {
-                    if (!isset($receipt['id'], $newReceiptsById[$receipt['id']])
-                        || json_encode($receipt) !== json_encode($newReceiptsById[$receipt['id']])) {
-                        jsonResponse(['error' => 'FDA can only add Advance Payment receipts; existing receipts cannot be changed or removed'], 403);
+                    $receiptId = $receipt['id'] ?? null;
+                    if (!isset($receiptId, $newReceiptsById[$receiptId])) {
+                        if (($receipt['paymentType'] ?? '') !== 'ADVANCE_PAYMENT') {
+                            jsonResponse(['error' => 'FDA cannot remove invoice payment receipts'], 403);
+                        }
+                        continue;
+                    }
+                    $updatedReceipt = $newReceiptsById[$receiptId];
+                    if (json_encode($receipt) === json_encode($updatedReceipt)) continue;
+                    if (($receipt['paymentType'] ?? '') !== 'ADVANCE_PAYMENT'
+                        || ($updatedReceipt['paymentType'] ?? '') !== 'ADVANCE_PAYMENT'
+                        || immutableReceiptFields($receipt) !== immutableReceiptFields($updatedReceipt)
+                        || !validAdvancePaymentReceipt($updatedReceipt, (string) $jobId)) {
+                        jsonResponse(['error' => 'FDA may only edit the date, amount, or remark of a valid Advance Payment receipt'], 403);
                     }
                 }
                 foreach ($newReceipts as $receipt) {
                     if (isset($oldReceiptsById[$receipt['id']])) continue;
-                    $receivedDate = (string) ($receipt['receivedDate'] ?? '');
-                    if (($receipt['paymentType'] ?? '') !== 'ADVANCE_PAYMENT'
-                        || ($receipt['jobId'] ?? '') !== $jobId
-                        || !is_numeric($receipt['amount'] ?? null)
-                        || (float) $receipt['amount'] <= 0
-                        || !in_array($receipt['currency'] ?? '', ['IDR', 'USD'], true)
-                        || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $receivedDate)
-                        || !checkdate((int) substr($receivedDate, 5, 2), (int) substr($receivedDate, 8, 2), (int) substr($receivedDate, 0, 4))
-                        || trim((string) ($receipt['bankRemark'] ?? '')) === '') {
+                    if (!validAdvancePaymentReceipt($receipt, (string) $jobId)) {
                         jsonResponse(['error' => 'FDA may only add valid Advance Payment receipts'], 403);
                     }
                 }
