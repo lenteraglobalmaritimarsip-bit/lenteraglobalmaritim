@@ -1,0 +1,1282 @@
+import {
+  User,
+  Customer,
+  Vessel,
+  Port,
+  Zone,
+  FixTariff,
+  ExpensesItem,
+  VendorPartner,
+  BankAccount,
+  PaymentVoucher,
+  JobCall,
+  UserRole,
+  AuditLog,
+} from '../types';
+import {
+  INITIAL_USERS,
+  INITIAL_CUSTOMERS,
+  INITIAL_VESSELS,
+  INITIAL_PORTS,
+  INITIAL_ZONES,
+  INITIAL_FIX_TARIFFS,
+  INITIAL_EXPENSES_ITEMS,
+  INITIAL_JOB_CALLS,
+} from './initialData';
+import { apiAuth } from '../lib/api';
+import { dataApi } from '../lib/dataApi';
+
+export interface DatabaseState {
+  users: User[];
+  customers: Customer[];
+  vessels: Vessel[];
+  ports: Port[];
+  zones: Zone[];
+  fixTariffs: FixTariff[];
+  expensesItems: ExpensesItem[];
+  vendorPartners: VendorPartner[];
+  bankAccounts: BankAccount[];
+  paymentVouchers: PaymentVoucher[];
+  jobCalls: JobCall[];
+  currentRole: UserRole;
+  selectedJobId: string;
+  auditLogs: AuditLog[];
+}
+
+const LOCAL_INITIAL_JOB_CALLS: JobCall[] = [];
+const DEMO_JOB_IDS = new Set(['VC-2026-0095', 'VC-2026-0098', 'VC-2026-0099']);
+
+const withoutRemovedJobCalls = (jobCalls: JobCall[]): JobCall[] =>
+  jobCalls.filter((job) => !DEMO_JOB_IDS.has(job.jobId));
+
+const toLocalDate = (date: Date): string =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+const migrateJobData = (jobCalls: JobCall[]): { jobCalls: JobCall[]; migrated: boolean } => {
+  let migrated = false;
+  const usedFdaNumbers = new Set(
+    jobCalls
+      .map((job) => job.fda?.fdaNo)
+      .filter((number): number is string => !!number && /^\d+\/FDA-LGM-[A-Z0-9]+\/\d{2}\/\d{4}$/.test(number)),
+  );
+  const normalizedJobCalls = jobCalls.map((job) => {
+    const inquiry = job.inquiry as (Omit<JobCall['inquiry'], 'quantityUnit'> & { quantity?: number; quantityUnit?: 'MT' | 'TON' | 'MATRIX_TON' }) | undefined;
+    let normalizedJob = job;
+
+    if (inquiry) {
+      const hasLegacyQuantity = Object.prototype.hasOwnProperty.call(inquiry, 'quantity');
+      const hasLegacyUnit = inquiry.quantityUnit === 'MATRIX_TON';
+      if (hasLegacyQuantity || hasLegacyUnit) {
+        const { quantity, ...currentInquiry } = inquiry;
+        normalizedJob = {
+          ...normalizedJob,
+          inquiry: {
+            ...currentInquiry,
+            cargoQuantity: currentInquiry.cargoQuantity ?? quantity,
+            quantityUnit: currentInquiry.quantityUnit === 'MATRIX_TON' ? 'MT' : currentInquiry.quantityUnit,
+          },
+        };
+        migrated = true;
+      }
+    }
+
+    const legacyFdaNumber = /^FDA-VC-(\d{4})-(\d{4})$/.exec(job.fda?.fdaNo || '');
+    if (legacyFdaNumber) {
+      const fdaDate = /^\d{4}-\d{2}-\d{2}$/.test(job.fda.date)
+        ? job.fda.date
+        : `${legacyFdaNumber[1]}-01-01`;
+      const [year, month] = fdaDate.split('-');
+      const branchCode = normalizeBranchCode(job.inquiry?.createdByBranch || 'JKT');
+      let sequence = Number(legacyFdaNumber[2]);
+      let fdaNo = `${String(sequence).padStart(4, '0')}/FDA-LGM-${branchCode}/${month}/${year}`;
+      while (usedFdaNumbers.has(fdaNo)) {
+        sequence += 1;
+        fdaNo = `${String(sequence).padStart(4, '0')}/FDA-LGM-${branchCode}/${month}/${year}`;
+      }
+      usedFdaNumbers.add(fdaNo);
+      normalizedJob = {
+        ...normalizedJob,
+        fda: { ...normalizedJob.fda, fdaNo },
+      };
+      migrated = true;
+    }
+
+    return normalizedJob;
+  });
+  return { jobCalls: normalizedJobCalls, migrated };
+};
+
+const syncActualFDAInvoice = (job: JobCall): JobCall => {
+  const actualTotal = (job.actualCosts || []).reduce((sum, item) => sum + (item.amount || 0), 0);
+  if (!actualTotal || !job.fda?.fdaApproved) return job;
+
+  const currency = job.fda.currency || job.actualCosts?.[0]?.currency || job.currency;
+  const exchangeRate = job.fda?.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
+  const totalBilledUSD = currency === 'USD' ? actualTotal : actualTotal / exchangeRate;
+  const totalBilledIDR = currency === 'IDR' ? actualTotal : actualTotal * exchangeRate;
+
+  return {
+    ...job,
+    fda: { ...job.fda, currency, finalBilledToPrincipal: actualTotal },
+    principalInvoice: {
+      ...job.principalInvoice,
+      totalAmountUSD: totalBilledUSD,
+      totalAmountIDR: totalBilledIDR,
+      balanceDueUSD: Math.max(0, totalBilledUSD - (job.principalInvoice?.totalAmountUSD || 0) + (job.principalInvoice?.balanceDueUSD || 0)),
+      balanceDueIDR: Math.max(0, totalBilledIDR - (job.principalInvoice?.totalAmountIDR || 0) + (job.principalInvoice?.balanceDueIDR || 0)),
+    },
+    ar: job.ar?.length
+      ? job.ar.map((item, index) => index === 0 ? { ...item, requestedAmount: actualTotal, currency } : item)
+      : job.ar,
+  };
+};
+
+const normalizeBranchName = (branch?: string): string => (branch || '').trim().toLowerCase();
+const sameBranch = (left?: string, right?: string): boolean => normalizeBranchName(left) === normalizeBranchName(right);
+const normalizeBranchCode = (branch: string): string => branch.trim().toUpperCase().replace(/[^A-Z0-9]/g, '') || 'JKT';
+
+const nextFormNumber = (jobCalls: JobCall[], type: 'EPDA' | 'FDA', branch: string, date: string): string => {
+  const [year, month] = date.split('-');
+  const branchCode = normalizeBranchCode(branch);
+  const prefix = `${type}-LGM-${branchCode}`;
+  const maxSequence = jobCalls.reduce((max, job) => {
+    const number = type === 'EPDA' ? job.quotation?.epda?.quoteNo : job.fda?.fdaNo;
+    const match = number?.match(/^(\d+)\/(EPDA|FDA)-LGM-([A-Z0-9]+)\/(\d{2})\/(\d{4})$/);
+    if (!match || match[2] !== type || match[3] !== branchCode || match[5] !== year) return max;
+    return Math.max(max, Number(match[1]));
+  }, 0);
+
+  return `${String(maxSequence + 1).padStart(4, '0')}/${prefix}/${month}/${year}`;
+};
+
+export const isJobClosed = (job?: Partial<JobCall> | null): boolean => {
+  if (!job) return false;
+  return !!(job.closing?.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED');
+};
+
+export const getCurrentBranchName = (): string => {
+  return db.getActorBranch();
+};
+
+class DatabaseService {
+  private state: DatabaseState;
+  private listeners: Array<(state: DatabaseState) => void> = [];
+  private apiSaveQueue: Promise<void> = Promise.resolve();
+  private apiSyncError: unknown = null;
+  private apiRevision = '';
+  private stateVersion = 0;
+  private actor: { id?: string; name: string; role: UserRole; branch?: string } = { name: 'System', role: 'ADMIN' };
+
+  constructor() {
+    this.state = this.getDefaultState();
+  }
+
+  private getDefaultState(): DatabaseState {
+    return {
+      users: INITIAL_USERS,
+      customers: INITIAL_CUSTOMERS,
+      vessels: INITIAL_VESSELS,
+      ports: INITIAL_PORTS,
+      zones: INITIAL_ZONES,
+      fixTariffs: INITIAL_FIX_TARIFFS,
+      expensesItems: INITIAL_EXPENSES_ITEMS,
+      vendorPartners: [],
+      bankAccounts: [],
+      paymentVouchers: [],
+      jobCalls: withoutRemovedJobCalls(LOCAL_INITIAL_JOB_CALLS),
+      currentRole: 'ADMIN',
+      selectedJobId: LOCAL_INITIAL_JOB_CALLS[0]?.jobId || '',
+      auditLogs: [],
+    };
+  }
+
+  public async hydrate(): Promise<void> {
+    if (!apiAuth.enabled) throw new Error('API XAMPP harus diaktifkan untuk memuat database.');
+    const remote = await dataApi.load();
+    this.apiRevision = remote.revision;
+    if (!remote.initialized && this.actor.role === 'ADMIN') {
+      const defaults = this.getDefaultState();
+      this.state = {
+        ...defaults,
+        ...remote.state,
+        users: remote.state.users,
+        jobCalls: remote.state.jobCalls,
+        auditLogs: remote.state.auditLogs,
+        currentRole: this.actor.role,
+      };
+      this.apiRevision = await dataApi.save(this.state, this.apiRevision);
+    } else {
+      const migration = migrateJobData(remote.state.jobCalls);
+      this.state = {
+        ...remote.state,
+        jobCalls: migration.jobCalls,
+        currentRole: this.actor.role,
+      };
+      if (migration.migrated) {
+        this.apiRevision = await dataApi.save(this.state, this.apiRevision);
+      }
+    }
+    this.notify();
+  }
+
+  public async refreshRemote(): Promise<void> {
+    if (!apiAuth.enabled) return;
+    await this.apiSaveQueue;
+    const version = this.stateVersion;
+    const remote = await dataApi.load();
+    if (version !== this.stateVersion) return;
+    const migration = migrateJobData(remote.state.jobCalls);
+    this.state = {
+      ...remote.state,
+      jobCalls: migration.jobCalls,
+      currentRole: this.actor.role,
+    };
+    this.apiRevision = remote.revision;
+    if (migration.migrated) {
+      this.apiRevision = await dataApi.save(this.state, this.apiRevision);
+    }
+    this.notify();
+  }
+
+  private audit(action: string, entity: string, description: string, entityId?: string): void {
+    const entry: AuditLog = {
+      id: `AUD-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: new Date().toISOString(),
+      actorId: this.actor.id,
+      actorName: this.actor.name,
+      role: this.actor.role,
+      action, entity, entityId, description,
+    };
+    this.state.auditLogs = [entry, ...this.state.auditLogs].slice(0, 500);
+  }
+
+  public setActor(actor: { id?: string; name: string; role: UserRole; branch?: string }): void {
+    this.actor = actor;
+  }
+
+  public getActorBranch(): string {
+    return this.actor.branch?.trim() || 'Head Office';
+  }
+
+  private saveToStorage(notify = true): boolean {
+    this.stateVersion += 1;
+    if (!apiAuth.enabled) {
+      this.apiSyncError = new Error('API XAMPP harus diaktifkan untuk menyimpan database.');
+      if (notify) this.notify();
+      return false;
+    }
+    const snapshot = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
+    this.apiSaveQueue = this.apiSaveQueue
+      .then(async () => {
+        if (!this.apiRevision) throw new Error('Revisi database XAMPP tidak tersedia.');
+        this.apiRevision = await dataApi.save(snapshot, this.apiRevision);
+        this.apiSyncError = null;
+      })
+      .catch((error: unknown) => {
+        this.apiSyncError = error;
+        window.dispatchEvent(new CustomEvent('lgm:api-save-error', {
+          detail: error instanceof Error ? error.message : String(error),
+        }));
+      });
+    if (notify) this.notify();
+    return true;
+  }
+
+  private notifyAfterDelete(): void {
+    this.saveToStorage();
+  }
+
+  private async persistPaymentVoucherMutation(
+    previousVouchers: PaymentVoucher[],
+    previousAuditLogs: DatabaseState['auditLogs'],
+  ): Promise<void> {
+    if (!this.saveToStorage(false)) {
+      this.state.paymentVouchers = previousVouchers;
+      this.state.auditLogs = previousAuditLogs;
+      this.notify();
+      throw new Error('Perubahan voucher gagal disimpan ke database XAMPP.');
+    }
+
+    if (apiAuth.enabled) {
+      await this.apiSaveQueue;
+      if (this.apiSyncError) {
+        const message = this.apiSyncError instanceof Error
+          ? this.apiSyncError.message
+          : String(this.apiSyncError);
+        this.state.paymentVouchers = previousVouchers;
+        this.state.auditLogs = previousAuditLogs;
+        this.stateVersion += 1;
+        this.notify();
+        throw new Error(`Perubahan voucher gagal disimpan ke database: ${message}`);
+      }
+    }
+
+    this.notify();
+  }
+
+  public subscribe(listener: (state: DatabaseState) => void): () => void {
+    this.listeners.push(listener);
+    return () => {
+      this.listeners = this.listeners.filter((l) => l !== listener);
+    };
+  }
+
+  private notify(): void {
+    this.listeners.forEach((listener) => {
+      try {
+        listener(this.state);
+      } catch (err) {
+        console.error('Listener callback error:', err);
+      }
+    });
+  }
+
+  public async resetToInitial(): Promise<void> {
+    const fresh = this.getDefaultState();
+    this.state = fresh;
+    await this.saveToStorage();
+    this.notify();
+  }
+
+  public getState(): DatabaseState {
+    return this.state;
+  }
+
+  public getNextFDAFormNumber(branch: string, date: string): string {
+    return nextFormNumber(this.state.jobCalls, 'FDA', branch, date);
+  }
+
+  public async setRole(role: UserRole): Promise<void> {
+    this.state.currentRole = role;
+    this.notify();
+  }
+
+  public async setSelectedJobId(jobId: string): Promise<void> {
+    this.state.selectedJobId = jobId;
+    this.notify();
+  }
+
+  public resetToSeeds(): void {
+    this.state = {
+      users: INITIAL_USERS,
+      customers: INITIAL_CUSTOMERS,
+      vessels: INITIAL_VESSELS,
+      ports: INITIAL_PORTS,
+      zones: INITIAL_ZONES,
+      fixTariffs: INITIAL_FIX_TARIFFS,
+      expensesItems: INITIAL_EXPENSES_ITEMS,
+      vendorPartners: [],
+      bankAccounts: [],
+      paymentVouchers: [],
+      jobCalls: withoutRemovedJobCalls(LOCAL_INITIAL_JOB_CALLS),
+      currentRole: this.state.currentRole,
+      selectedJobId: LOCAL_INITIAL_JOB_CALLS[0]?.jobId || '',
+      auditLogs: [],
+    };
+    this.saveToStorage();
+  }
+
+  public async resetMasterDataKeepUsers(): Promise<void> {
+    this.state = {
+      ...this.state,
+      customers: [],
+      vessels: [],
+      ports: [],
+      zones: [],
+      fixTariffs: [],
+      expensesItems: [],
+    };
+    await this.saveToStorage();
+  }
+
+  public importDatabase(jsonString: string): boolean {
+    try {
+      const data = JSON.parse(jsonString);
+      if (Array.isArray(data.jobCalls) && Array.isArray(data.users)) {
+        const migration = migrateJobData(data.jobCalls);
+        this.state = {
+          ...this.state,
+          ...data,
+          jobCalls: migration.jobCalls,
+        };
+        this.saveToStorage();
+        return true;
+      }
+    } catch (err) {
+      console.error('Failed to import database JSON:', err);
+    }
+    return false;
+  }
+
+  public exportDatabase(): string {
+    return JSON.stringify(this.state, null, 2);
+  }
+
+  // --- Master Data CRUD ---
+
+  // Users
+  public async addUser(user: Omit<User, 'id'>): Promise<User> {
+    const id = `USR-${String(this.state.users.length + 1).padStart(3, '0')}`;
+    const newUser: User = { ...user, id };
+    this.state.users = [...this.state.users, newUser];
+    this.audit('CREATE', 'USER', `Created user ${newUser.name}`, newUser.id);
+    await this.saveToStorage();
+    return newUser;
+  }
+
+  public async updateUser(id: string, updates: Partial<User>): Promise<void> {
+    this.state.users = this.state.users.map((u) =>
+      u.id === id ? { ...u, ...updates } : u
+    );
+    this.audit('UPDATE', 'USER', `Updated user ${id}`, id);
+    await this.saveToStorage();
+  }
+
+  public async deleteUser(id: string): Promise<void> {
+    this.state.users = this.state.users.filter((u) => u.id !== id);
+    this.audit('DELETE', 'USER', `Deleted user ${id}`, id);
+    this.notifyAfterDelete();
+  }
+
+  // Customers
+  public async addCustomer(customer: Omit<Customer, 'id'>): Promise<Customer> {
+    const id = `CUST-${String(this.state.customers.length + 1).padStart(3, '0')}`;
+    const newCust: Customer = { ...customer, id };
+    this.state.customers = [...this.state.customers, newCust];
+    this.audit('CREATE', 'CUSTOMER', `Created customer ${newCust.companyName}`, newCust.id);
+    await this.saveToStorage();
+    return newCust;
+  }
+
+  public async updateCustomer(id: string, updates: Partial<Customer>): Promise<void> {
+    this.state.customers = this.state.customers.map((c) =>
+      c.id === id ? { ...c, ...updates } : c
+    );
+    await this.saveToStorage();
+  }
+
+  public async deleteCustomer(id: string): Promise<void> {
+    this.state.customers = this.state.customers.filter((c) => c.id !== id);
+    this.notifyAfterDelete();
+  }
+
+  // Vessels
+  public async addVessel(vessel: Omit<Vessel, 'id'>): Promise<Vessel> {
+    const id = `VES-${String(this.state.vessels.length + 1).padStart(3, '0')}`;
+    const newVessel: Vessel = { ...vessel, id };
+    this.state.vessels = [...this.state.vessels, newVessel];
+    this.audit('CREATE', 'VESSEL', `Created vessel ${newVessel.name}`, newVessel.id);
+    await this.saveToStorage();
+    return newVessel;
+  }
+
+  public async updateVessel(id: string, updates: Partial<Vessel>): Promise<void> {
+    this.state.vessels = this.state.vessels.map((v) =>
+      v.id === id ? { ...v, ...updates } : v
+    );
+    await this.saveToStorage();
+  }
+
+  public async deleteVessel(id: string): Promise<void> {
+    this.state.vessels = this.state.vessels.filter((v) => v.id !== id);
+    this.notifyAfterDelete();
+  }
+
+  // Ports
+  public async addPort(port: Omit<Port, 'id'>): Promise<Port> {
+    const id = `PRT-${String(this.state.ports.length + 1).padStart(3, '0')}`;
+    const newPort: Port = { ...port, id };
+    this.state.ports = [...this.state.ports, newPort];
+    this.audit('CREATE', 'PORT', `Created port ${newPort.name}`, newPort.id);
+    await this.saveToStorage();
+    return newPort;
+  }
+
+  public async updatePort(id: string, updates: Partial<Port>): Promise<void> {
+    this.state.ports = this.state.ports.map((p) =>
+      p.id === id ? { ...p, ...updates } : p
+    );
+    await this.saveToStorage();
+  }
+
+  public async deletePort(id: string): Promise<void> {
+    this.state.ports = this.state.ports.filter((p) => p.id !== id);
+    this.notifyAfterDelete();
+  }
+
+  // Zones
+  public addZone(zone: Omit<Zone, 'id'>): Zone {
+    const id = `ZON-${String(this.state.zones.length + 1).padStart(3, '0')}`;
+    const newZone: Zone = { ...zone, id };
+    this.state.zones = [...this.state.zones, newZone];
+    this.audit('CREATE', 'ZONE', `Created zone ${newZone.zoneName}`, newZone.id);
+    this.saveToStorage();
+    return newZone;
+  }
+
+  public updateZone(id: string, updates: Partial<Zone>): void {
+    this.state.zones = this.state.zones.map((z) =>
+      z.id === id ? { ...z, ...updates } : z
+    );
+    this.saveToStorage();
+  }
+
+  public async deleteZone(id: string): Promise<void> {
+    this.state.zones = this.state.zones.filter((z) => z.id !== id);
+    this.notifyAfterDelete();
+  }
+
+  // Fix Tariff
+  public async addFixTariff(tariff: Omit<FixTariff, 'id'>): Promise<FixTariff> {
+    const id = `TAR-${String(this.state.fixTariffs.length + 1).padStart(3, '0')}`;
+    const newTariff: FixTariff = { ...tariff, id };
+    this.state.fixTariffs = [...this.state.fixTariffs, newTariff];
+    this.audit('CREATE', 'FIX_TARIFF', `Created tariff ${newTariff.id}`, newTariff.id);
+    await this.saveToStorage();
+    return newTariff;
+  }
+
+  public async addFixTariffsBulk(tariffs: Array<Omit<FixTariff, 'id'>>): Promise<FixTariff[]> {
+    if (!tariffs.length) return [];
+    const previousTariffs = this.state.fixTariffs;
+    const startIndex = previousTariffs.length;
+    const newTariffs = tariffs.map((tariff, index) => ({
+      ...tariff,
+      id: `TAR-${String(startIndex + index + 1).padStart(4, '0')}`,
+    }));
+    this.state.fixTariffs = [...previousTariffs, ...newTariffs];
+
+    try {
+      await this.saveToStorage();
+      this.audit('CREATE_BULK', 'FIX_TARIFF', `Imported ${newTariffs.length} tariffs`);
+      this.notify();
+      return newTariffs;
+    } catch (error) {
+      this.state.fixTariffs = previousTariffs;
+      this.notify();
+      throw error;
+    }
+  }
+
+  public async updateFixTariff(id: string, updates: Partial<FixTariff>): Promise<void> {
+    this.state.fixTariffs = this.state.fixTariffs.map((t) =>
+      t.id === id ? { ...t, ...updates } : t
+    );
+    await this.saveToStorage();
+  }
+
+  public async deleteFixTariff(id: string): Promise<void> {
+    this.state.fixTariffs = this.state.fixTariffs.filter((t) => t.id !== id);
+    this.notifyAfterDelete();
+  }
+
+  // Expenses Items
+  public async addExpensesItem(item: Omit<ExpensesItem, 'id'>): Promise<ExpensesItem> {
+    const id = `EXP-${String(this.state.expensesItems.length + 1).padStart(3, '0')}`;
+    const portName = item.portName || this.state.ports.find((p) => p.id === item.portId)?.name || '';
+    const code = item.code?.trim() || id;
+    const newItem: ExpensesItem = { ...item, code, portName, id };
+    this.state.expensesItems = [...this.state.expensesItems, newItem];
+    this.audit('CREATE', 'EXPENSE_ITEM', `Created expense item ${newItem.name}`, newItem.id);
+    await this.saveToStorage();
+    return newItem;
+  }
+
+  public async updateExpensesItem(id: string, updates: Partial<ExpensesItem>): Promise<void> {
+    this.state.expensesItems = this.state.expensesItems.map((e) => {
+      if (e.id !== id) return e;
+      const resolvedPortId = updates.portId ?? e.portId;
+      const resolvedPortName = updates.portName || e.portName || this.state.ports.find((p) => p.id === resolvedPortId)?.name || e.portName || '';
+      return { ...e, ...updates, portId: resolvedPortId, portName: resolvedPortName };
+    });
+    await this.saveToStorage();
+  }
+
+  public async deleteExpensesItem(id: string): Promise<void> {
+    this.state.expensesItems = this.state.expensesItems.filter((e) => e.id !== id);
+    this.notifyAfterDelete();
+  }
+
+  // Vendor Partners
+  public async addVendorPartner(item: Omit<VendorPartner, 'id'>): Promise<VendorPartner> {
+    const list = this.state.vendorPartners || [];
+    const maxNumber = list.reduce((max, v) => Math.max(max, Number(v.id.replace(/\D/g, '')) || 0), 0);
+    const newItem: VendorPartner = { ...item, id: `VND-${String(maxNumber + 1).padStart(3, '0')}` };
+    this.state.vendorPartners = [...list, newItem];
+    this.audit('CREATE', 'VENDOR_PARTNER', `Created vendor partner ${newItem.vendorName}`, newItem.id);
+    await this.saveToStorage();
+    return newItem;
+  }
+
+  public async updateVendorPartner(id: string, updates: Partial<VendorPartner>): Promise<void> {
+    this.state.vendorPartners = (this.state.vendorPartners || []).map((v) => (v.id === id ? { ...v, ...updates, id } : v));
+    this.audit('UPDATE', 'VENDOR_PARTNER', `Updated vendor partner ${updates.vendorName || id}`, id);
+    await this.saveToStorage();
+  }
+
+  public async deleteVendorPartner(id: string): Promise<void> {
+    this.state.vendorPartners = (this.state.vendorPartners || []).filter((v) => v.id !== id);
+    this.audit('DELETE', 'VENDOR_PARTNER', `Deleted vendor partner ${id}`, id);
+    this.notifyAfterDelete();
+  }
+
+  // Bank Accounts
+  public async addBankAccount(item: Omit<BankAccount, 'id'>): Promise<BankAccount> {
+    const list = this.state.bankAccounts || [];
+    const maxNumber = list.reduce((max, v) => Math.max(max, Number(v.id.replace(/\D/g, '')) || 0), 0);
+    const newItem: BankAccount = { ...item, id: `BANK-${String(maxNumber + 1).padStart(3, '0')}` };
+    this.state.bankAccounts = [...list, newItem];
+    this.audit('CREATE', 'BANK_ACCOUNT', `Created bank account ${newItem.bankName}`, newItem.id);
+    await this.saveToStorage();
+    return newItem;
+  }
+
+  public async updateBankAccount(id: string, updates: Partial<BankAccount>): Promise<void> {
+    this.state.bankAccounts = (this.state.bankAccounts || []).map((account) => (account.id === id ? { ...account, ...updates, id } : account));
+    this.audit('UPDATE', 'BANK_ACCOUNT', `Updated bank account ${updates.bankName || id}`, id);
+    await this.saveToStorage();
+  }
+
+  public async deleteBankAccount(id: string): Promise<void> {
+    this.state.bankAccounts = (this.state.bankAccounts || []).filter((account) => account.id !== id);
+    this.audit('DELETE', 'BANK_ACCOUNT', `Deleted bank account ${id}`, id);
+    this.notifyAfterDelete();
+  }
+
+  // Payment Vouchers
+  public getNextPaymentVoucherNumber(requestDate: string): string {
+    const date = new Date(requestDate);
+    const valid = Number.isNaN(date.getTime()) ? new Date() : date;
+    const suffix = `${String(valid.getMonth() + 1).padStart(2, '0')}${String(valid.getFullYear()).slice(-2)}`;
+    const yearSuffix = suffix.slice(-2);
+    const maxSequence = (this.state.paymentVouchers || []).reduce((max, v) => {
+      const match = /^OPS-(\d+)-(\d{2})(\d{2})$/.exec(v.requestNumber);
+      return match && match[3] === yearSuffix ? Math.max(max, Number(match[1])) : max;
+    }, 0);
+    return `OPS-${String(maxSequence + 1).padStart(4, '0')}-${suffix}`;
+  }
+
+  public getNextFinanceVoucherNumber(paymentDate: string): string {
+    const date = new Date(`${paymentDate}T00:00:00`);
+    const valid = Number.isNaN(date.getTime()) ? new Date() : date;
+    const suffix = `${String(valid.getMonth() + 1).padStart(2, '0')}${String(valid.getFullYear()).slice(-2)}`;
+    const yearSuffix = suffix.slice(-2);
+    const maxSequence = (this.state.paymentVouchers || []).reduce((max, voucher) => {
+      const match = /^PVJKT-(\d+)-(\d{2})(\d{2})$/.exec(voucher.voucherNumber || '');
+      return match && match[3] === yearSuffix ? Math.max(max, Number(match[1])) : max;
+    }, 0);
+    return `PVJKT-${String(maxSequence + 1).padStart(4, '0')}-${suffix}`;
+  }
+
+  public getNextOperationalJobNumber(requestDate: string): string {
+    const date = new Date(requestDate);
+    const valid = Number.isNaN(date.getTime()) ? new Date() : date;
+    const suffix = `${String(valid.getMonth() + 1).padStart(2, '0')}${String(valid.getFullYear()).slice(-2)}`;
+    const yearSuffix = suffix.slice(-2);
+    const maxSequence = (this.state.paymentVouchers || []).reduce((max, voucher) => {
+      if (voucher.jobInfo !== 'OPERASIONAL') return max;
+      return voucher.items.reduce((itemMax, item) => {
+        const match = /^OPJ-(\d+)-(\d{2})(\d{2})$/.exec(item.jobNumber);
+        return match && match[3] === yearSuffix ? Math.max(itemMax, Number(match[1])) : itemMax;
+      }, max);
+    }, 0);
+    return `OPJ-${String(maxSequence + 1).padStart(4, '0')}-${suffix}`;
+  }
+
+  public async addPaymentVoucher(voucher: Omit<PaymentVoucher, 'id' | 'requestNumber' | 'createdAt'>): Promise<PaymentVoucher> {
+    const previousVouchers = this.state.paymentVouchers;
+    const previousAuditLogs = this.state.auditLogs;
+    const requestNumber = this.getNextPaymentVoucherNumber(voucher.requestDate);
+    const newVoucher: PaymentVoucher = { ...voucher, status: 'PENDING_MANAGER', id: `PV-${Date.now()}`, requestNumber, createdAt: new Date().toISOString() };
+    this.state.paymentVouchers = [newVoucher, ...(this.state.paymentVouchers || [])];
+    this.audit('CREATE', 'PAYMENT_VOUCHER', `Created payment voucher ${requestNumber}`, newVoucher.id);
+    await this.persistPaymentVoucherMutation(previousVouchers, previousAuditLogs);
+    return newVoucher;
+  }
+
+  public async updatePaymentVoucher(id: string, patch: Partial<Omit<PaymentVoucher, 'id' | 'requestNumber' | 'createdAt'>>): Promise<void> {
+    const existing = (this.state.paymentVouchers || []).find((v) => v.id === id);
+    if (!existing) throw new Error('Payment Voucher tidak ditemukan.');
+    const previousVouchers = this.state.paymentVouchers;
+    const previousAuditLogs = this.state.auditLogs;
+    const resubmit = existing.status === 'REJECTED';
+    this.state.paymentVouchers = this.state.paymentVouchers.map((v) => (v.id === id
+      ? { ...v, ...patch, ...(resubmit ? { status: 'PENDING_MANAGER' as const, managerNote: '', reviewedBy: '', reviewedAt: '' } : {}) }
+      : v));
+    this.audit('UPDATE', 'PAYMENT_VOUCHER', `Updated payment voucher ${existing.requestNumber}`, id);
+    await this.persistPaymentVoucherMutation(previousVouchers, previousAuditLogs);
+  }
+
+  public async reviewPaymentVoucher(id: string, decision: 'APPROVED' | 'REJECTED', reviewer: string, note = ''): Promise<void> {
+    const existing = (this.state.paymentVouchers || []).find((v) => v.id === id);
+    if (!existing) throw new Error('Payment Voucher tidak ditemukan.');
+    if ((existing.status || 'PENDING_MANAGER') !== 'PENDING_MANAGER') throw new Error('Voucher ini tidak sedang menunggu persetujuan.');
+    if (decision === 'REJECTED' && !note.trim()) throw new Error('Alasan penolakan wajib diisi.');
+    const previousVouchers = this.state.paymentVouchers;
+    const previousAuditLogs = this.state.auditLogs;
+    this.state.paymentVouchers = this.state.paymentVouchers.map((v) => (v.id === id
+      ? { ...v, status: decision, managerNote: note.trim(), reviewedBy: reviewer, reviewedAt: new Date().toISOString() }
+      : v));
+    this.audit(decision === 'APPROVED' ? 'APPROVE' : 'REJECT', 'PAYMENT_VOUCHER', `Payment voucher ${existing.requestNumber} ${decision}`, id);
+    await this.persistPaymentVoucherMutation(previousVouchers, previousAuditLogs);
+  }
+
+  public async payPaymentVoucher(
+    id: string,
+    payer: string,
+    paymentDate?: string,
+    paymentDetails: { surcharge?: number; otherExpenses?: number; description?: string; totalAmount?: number } = {},
+  ): Promise<void> {
+    const existing = (this.state.paymentVouchers || []).find((v) => v.id === id);
+    if (!existing) throw new Error('Payment Voucher tidak ditemukan.');
+    if (existing.status === 'PAID') throw new Error('Voucher ini sudah dibayar sebelumnya.');
+    if (existing.status !== 'APPROVED') {
+      throw new Error(`Voucher belum berstatus Disetujui (status saat ini: ${existing.status || 'PENDING_MANAGER'}).`);
+    }
+    const previousVouchers = this.state.paymentVouchers;
+    const previousAuditLogs = this.state.auditLogs;
+    const paidOn = paymentDate || new Date().toISOString().slice(0, 10);
+    const paidAt = new Date(`${paidOn}T12:00:00`).toISOString();
+    const voucherNumber = existing.voucherNumber || this.getNextFinanceVoucherNumber(paidOn);
+    const surcharge = Number(paymentDetails.surcharge) || 0;
+    const otherExpenses = Number(paymentDetails.otherExpenses) || 0;
+    const totalAmount = Number(paymentDetails.totalAmount) || existing.totalPaidAmount + surcharge + otherExpenses;
+    this.state.paymentVouchers = this.state.paymentVouchers.map((v) => (v.id === id
+      ? {
+          ...v,
+          voucherNumber,
+          status: 'PAID' as const,
+          paidBy: payer,
+          paidAt,
+          paymentSurcharge: surcharge,
+          paymentOtherExpenses: otherExpenses,
+          paymentDescription: paymentDetails.description || '',
+          paymentTotalAmount: totalAmount,
+        }
+      : v));
+    this.audit('PAY', 'PAYMENT_VOUCHER', `Paid payment voucher ${existing.requestNumber}`, id);
+    await this.persistPaymentVoucherMutation(previousVouchers, previousAuditLogs);
+  }
+
+  // --- JOB / VESSEL CALL LIFECYCLE ---
+
+  public getJob(jobId: string): JobCall | undefined {
+    return this.state.jobCalls.find((j) => j.jobId === jobId);
+  }
+
+  public async clearAllJobs(): Promise<void> {
+    this.state.jobCalls = [];
+    this.state.selectedJobId = '';
+    this.state.auditLogs = this.state.auditLogs.filter((log) => log.entity !== 'VESSEL_CALL');
+    await this.saveToStorage();
+  }
+
+  public updateJob(jobId: string, updates: Partial<JobCall>): boolean {
+    const existingJob = this.getJob(jobId);
+    if (existingJob && this.actor.role === 'FDA' && existingJob.managerApproval?.status !== 'APPROVED') {
+      return false;
+    }
+    if (
+      existingJob &&
+      this.actor.role === 'FDA' &&
+      (existingJob.fda?.approvalStatus === 'SUBMITTED' || existingJob.fda?.fdaApproved)
+    ) {
+      return false;
+    }
+    if (
+      existingJob &&
+      this.actor.role === 'SALES' &&
+      !sameBranch(existingJob.inquiry?.createdByBranch, this.actor.branch)
+    ) {
+      return false;
+    }
+    if (
+      existingJob &&
+      this.actor.role === 'SALES' &&
+      updates.quotation &&
+      (existingJob.managerApproval?.status === 'APPROVED' ||
+        existingJob.quotation?.epda?.status === 'SUBMITTED' ||
+        existingJob.quotation?.epda?.status === 'APPROVED')
+    ) {
+      return false;
+    }
+    const previousJobCalls = this.state.jobCalls;
+    const previousAuditLogs = this.state.auditLogs;
+    let jobUpdated = false;
+    this.state.jobCalls = this.state.jobCalls.map((j) => {
+      if (jobUpdated || j.jobId !== jobId) return j;
+      jobUpdated = true;
+      return {
+        ...j,
+        ...updates,
+        updatedAt: new Date().toISOString(),
+      };
+    });
+    if (!jobUpdated) return false;
+    this.audit('UPDATE', 'VESSEL_CALL', `Updated vessel call ${jobId}`, jobId);
+    if (!this.saveToStorage()) {
+      this.state.jobCalls = previousJobCalls;
+      this.state.auditLogs = previousAuditLogs;
+      this.notify();
+      return false;
+    }
+    return true;
+  }
+
+  public async updateJobAndPersist(
+    jobId: string,
+    updates: Partial<JobCall>,
+  ): Promise<{ saved: boolean; error?: string }> {
+    const previousJob = this.getJob(jobId);
+    const previousAuditLogs = this.state.auditLogs;
+    if (!previousJob || !this.updateJob(jobId, updates)) return { saved: false };
+
+    const updatedJob = this.getJob(jobId);
+    const updatedAuditLogs = this.state.auditLogs;
+    const save = this.apiSaveQueue;
+    await save;
+    if (!this.apiSyncError) return { saved: true };
+
+    const error = this.apiSyncError instanceof Error
+      ? this.apiSyncError.message
+      : String(this.apiSyncError);
+    if (updatedJob && this.getJob(jobId) === updatedJob) {
+      this.state.jobCalls = this.state.jobCalls.map((job) => job === updatedJob ? previousJob : job);
+    }
+    if (this.state.auditLogs === updatedAuditLogs) this.state.auditLogs = previousAuditLogs;
+    this.stateVersion += 1;
+    this.notify();
+    return { saved: false, error };
+  }
+
+  public deleteJob(jobId: string): boolean {
+    const job = this.getJob(jobId);
+    if (!job || this.actor.role !== 'SALES') return false;
+
+    const jobBranch = job.inquiry?.createdByBranch;
+    if (!sameBranch(jobBranch, this.actor.branch)) return false;
+    if (
+      job.managerApproval?.status === 'APPROVED' ||
+      job.quotation?.epda?.status === 'SUBMITTED' ||
+      job.quotation?.epda?.status === 'APPROVED' ||
+      job.fda?.fdaApproved ||
+      (job.actualCosts?.length || 0) > 0 ||
+      job.closing?.isClosed ||
+      job.currentStage === 'CLOSED' ||
+      job.status === 'CLOSED'
+    ) return false;
+
+    this.state.jobCalls = this.state.jobCalls.filter((item) => item.jobId !== jobId);
+    if (this.state.selectedJobId === jobId) this.state.selectedJobId = this.state.jobCalls[0]?.jobId || '';
+    this.audit('DELETE', 'VESSEL_CALL', `Deleted unapproved vessel call ${jobId}`, jobId);
+    this.notifyAfterDelete();
+    return true;
+  }
+
+  public async createJob(jobData: Partial<JobCall>): Promise<JobCall> {
+    const year = new Date().getFullYear();
+    const documentDate = toLocalDate(new Date());
+    const actorBranch = this.actor.role === 'SALES'
+      ? (this.actor.branch || 'Head Office')
+      : (jobData.inquiry?.createdByBranch || getCurrentBranchName());
+    const previousJobCalls = [...this.state.jobCalls];
+    const previousSelectedJobId = this.state.selectedJobId;
+    const previousAuditLogs = this.state.auditLogs;
+    const existingJobIds = new Set(previousJobCalls.map((job) => job.jobId));
+    const yearPrefix = `VC-${year}-`;
+    const maxSequence = this.state.jobCalls.reduce((max, job) => {
+      if (!job.jobId.startsWith(yearPrefix)) return max;
+      const sequence = Number(job.jobId.slice(yearPrefix.length));
+      return Number.isInteger(sequence) && sequence > max ? sequence : max;
+    }, 0);
+    let nextSeq = maxSequence + 1;
+    let generatedJobId = `VC-${year}-${String(nextSeq).padStart(4, '0')}`;
+    while (existingJobIds.has(generatedJobId)) {
+      nextSeq += 1;
+      generatedJobId = `VC-${year}-${String(nextSeq).padStart(4, '0')}`;
+    }
+    const requestedJobId = jobData.jobId?.trim();
+    const newJobId = requestedJobId && !existingJobIds.has(requestedJobId) ? requestedJobId : generatedJobId;
+    const documentSequence = nextSeq;
+    const documentNumberJobId = `VC-${year}-${String(documentSequence).padStart(4, '0')}`;
+    const epdaNo = nextFormNumber(previousJobCalls, 'EPDA', actorBranch, documentDate);
+    const fdaNo = nextFormNumber(previousJobCalls, 'FDA', actorBranch, documentDate);
+
+    const newJob: JobCall = {
+      jobId: newJobId,
+      vesselId: jobData.vesselId || '',
+      vesselName: jobData.vesselName || 'MV UNNAMED',
+      portId: jobData.portId || '',
+      portName: jobData.portName || '',
+      customerId: jobData.customerId || '',
+      customerName: jobData.customerName || '',
+      currency: jobData.currency || 'USD',
+      exchangeRateUSDToIDR: 15800,
+      eta: jobData.eta ?? '',
+      etd: jobData.etd ?? '',
+      purposeOfCall: jobData.purposeOfCall || 'CARGO_DISCHARGE',
+      currentStage: 'INQUIRY',
+      status: 'INQUIRY',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+
+      inquiry: {
+        ...(jobData.inquiry || {}),
+        inquiryNo: `INQ-${year}-${String(documentSequence).padStart(4, '0')}`,
+        date: jobData.inquiry?.date || documentDate,
+        eta: jobData.inquiry?.eta ?? jobData.eta ?? '',
+        etd: jobData.inquiry?.etd ?? jobData.etd ?? '',
+        cargoDetails: jobData.inquiry?.cargoDetails || 'General Cargo Inspection / Port Call',
+        estimatedDays: jobData.inquiry?.estimatedDays ?? 3,
+        specialRequirements: jobData.inquiry?.specialRequirements ?? '',
+        status: jobData.inquiry?.status || 'RECEIVED',
+        createdBy: jobData.inquiry?.createdBy || 'Sarah Wijaya (SALES)',
+        createdByBranch: actorBranch,
+      },
+
+      quotation: jobData.quotation || {
+        epda: {
+          quoteNo: epdaNo,
+          date: documentDate,
+          currency: 'USD',
+          totalBuyRate: 0,
+          totalSellRate: 0,
+          marginAmount: 0,
+          marginPercentage: 0,
+          status: 'DRAFT',
+          items: [],
+        },
+        crewChange: {
+          id: `CC-${generatedJobId}`,
+          date: documentDate,
+          signOnCount: 0,
+          signOffCount: 0,
+          logisticsCost: 0,
+          immigrationVisaCost: 0,
+          transportCost: 0,
+          totalCostUSD: 0,
+          totalCostIDR: 0,
+          status: 'PLANNED',
+          members: [],
+        },
+      },
+
+      managerApproval: {
+        status: 'PENDING',
+        allowedMarginTolerancePct: 5.0,
+      },
+
+      operationalData: {
+        statementOfFacts: [
+          {
+            id: `SOF-INIT-${documentNumberJobId}`,
+            timestamp: new Date().toISOString().slice(0, 16).replace('T', ' '),
+            event: 'Job opened in MaritimPort system',
+          },
+        ],
+      },
+
+      actualCosts: [],
+
+      fda: {
+        fdaNo,
+        date: documentDate,
+        totalEstimatedBuy: 0,
+        totalEstimatedSell: 0,
+        totalActualCost: 0,
+        finalBilledToPrincipal: 0,
+        varianceAmount: 0,
+        variancePercentage: 0,
+        fdaApproved: false,
+      },
+
+      ap: [],
+      ar: [],
+
+      principalInvoice: {
+        invoiceNo: `INV-${generatedJobId}`,
+        invoiceDate: new Date().toISOString().slice(0, 10),
+        dueDate: new Date(Date.now() + 86400000 * 14).toISOString().slice(0, 10),
+        totalAmountUSD: 0,
+        totalAmountIDR: 0,
+        advanceDeductedUSD: 0,
+        advanceDeductedIDR: 0,
+        balanceDueUSD: 0,
+        balanceDueIDR: 0,
+        status: 'DRAFT',
+        pdfGenerated: false,
+      },
+
+      closing: {
+        isClosed: false,
+        finalGrossMarginUSD: 0,
+        finalGrossMarginIDR: 0,
+      },
+    };
+
+    this.state.jobCalls = [newJob, ...previousJobCalls];
+    this.state.selectedJobId = newJob.jobId;
+    this.audit('CREATE', 'VESSEL_CALL', `Created vessel call ${newJob.jobId}`, newJob.jobId);
+    if (!apiAuth.enabled) {
+      this.state.jobCalls = previousJobCalls;
+      this.state.selectedJobId = previousSelectedJobId;
+      this.state.auditLogs = previousAuditLogs;
+      throw new Error('API XAMPP harus diaktifkan untuk menyimpan nomor EPDA dan FDA.');
+    }
+
+    const snapshot = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
+    const saveOperation = this.apiSaveQueue.then(async () => {
+      if (!this.apiRevision) throw new Error('Revisi database XAMPP tidak tersedia.');
+      this.apiRevision = await dataApi.save(snapshot, this.apiRevision);
+      this.apiSyncError = null;
+    });
+    this.apiSaveQueue = saveOperation.catch((error: unknown) => {
+      this.apiSyncError = error;
+      window.dispatchEvent(new CustomEvent('lgm:api-save-error', {
+        detail: error instanceof Error ? error.message : String(error),
+      }));
+    });
+
+    try {
+      await saveOperation;
+    } catch (error) {
+      if (this.getJob(newJob.jobId) === newJob) {
+        this.state.jobCalls = this.state.jobCalls.filter((job) => job !== newJob);
+        this.state.selectedJobId = previousSelectedJobId;
+        this.state.auditLogs = previousAuditLogs;
+      }
+      this.stateVersion += 1;
+      this.notify();
+      throw error instanceof Error ? error : new Error(String(error));
+    }
+    this.notify();
+    return newJob;
+  }
+
+  // --- Workflow guards / transitions ---
+  // One Job/Vessel Call ID owns the complete lifecycle. UI actions should use these guards
+  // so a later department cannot bypass an earlier approval.
+  public canApproveJob(jobId: string): { ok: boolean; message?: string } {
+    const job = this.getJob(jobId);
+    if (!job) return { ok: false, message: 'Job/Vessel Call tidak ditemukan.' };
+    if (job.managerApproval.status === 'APPROVED') return { ok: false, message: 'Job sudah disetujui Manager.' };
+    if (job.quotation.epda.status !== 'SUBMITTED') return { ok: false, message: 'EPDA belum disubmit oleh Sales.' };
+    return { ok: true };
+  }
+
+  public canFinalizeFDA(jobId: string): { ok: boolean; message?: string } {
+    const job = this.getJob(jobId);
+    if (!job) return { ok: false, message: 'Job/Vessel Call tidak ditemukan.' };
+    if (job.managerApproval.status !== 'APPROVED') return { ok: false, message: 'FDA belum dapat diproses. Manager Approval harus APPROVED.' };
+    if (job.quotation.epda.status !== 'APPROVED') return { ok: false, message: 'EPDA harus APPROVED sebelum FDA.' };
+    const approvedVoucherExists = (this.state.paymentVouchers || []).some((voucher) =>
+      (voucher.status === 'APPROVED' || voucher.status === 'PAID')
+      && voucher.items.some((item) => item.jobNumber.trim() === jobId)
+    );
+    if (!approvedVoucherExists) {
+      return { ok: false, message: `Payment Voucher untuk Job ${jobId} harus dibuat dan disetujui Manager OPS sebelum FDA dikirim.` };
+    }
+    if (!job.actualCosts.length) return { ok: false, message: 'Belum ada Actual Cost. FDA belum dapat difinalisasi.' };
+    if (job.fda.approvalStatus === 'SUBMITTED') return { ok: false, message: 'FDA sedang menunggu approval Manager OPS.' };
+    if (job.fda.fdaApproved || job.fda.approvalStatus === 'APPROVED') return { ok: false, message: 'FDA untuk Job ini sudah disetujui Manager.' };
+    return { ok: true };
+  }
+
+  public canApproveFDA(jobId: string): { ok: boolean; message?: string } {
+    const job = this.getJob(jobId);
+    if (!job) return { ok: false, message: 'Job/Vessel Call tidak ditemukan.' };
+    if (job.fda.approvalStatus !== 'SUBMITTED') return { ok: false, message: 'FDA belum dikirim oleh tim FDA.' };
+    if (job.fda.fdaApproved) return { ok: false, message: 'FDA sudah disetujui Manager OPS.' };
+    return { ok: true };
+  }
+
+  public canCloseJob(jobId: string): { ok: boolean; message?: string } {
+    const job = this.getJob(jobId);
+    if (!job) return { ok: false, message: 'Job/Vessel Call tidak ditemukan.' };
+    if (!job.fda.fdaApproved) return { ok: false, message: 'Closing belum dapat dilakukan. FDA belum Approved.' };
+    if (job.principalInvoice?.status !== 'SETTLED') {
+      return { ok: false, message: 'Closing belum dapat dilakukan. Tandai pembayaran PAID di AR setelah saldo lunas.' };
+    }
+    const invoiceCurrency = job.fda.currency || job.currency || 'IDR';
+    const exchangeRate = job.fda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
+    const rawInvoiceTotal = job.fda.finalBilledToPrincipal
+      || job.principalInvoice?.totalAmountUSD
+      || job.quotation?.epda?.totalSellRate
+      || 0;
+    const invoicePrecision = invoiceCurrency === 'IDR' ? 1 : 100;
+    const invoiceTotal = Math.round((rawInvoiceTotal + Number.EPSILON) * invoicePrecision) / invoicePrecision;
+    const rawReceivedTotal = (job.principalReceipts || []).reduce((sum, receipt) => {
+      const receiptCurrency = receipt.currency || job.currency || 'IDR';
+      const amount = receipt.amount || 0;
+      if (receiptCurrency === invoiceCurrency) return sum + amount;
+      return sum + (invoiceCurrency === 'IDR' ? amount * exchangeRate : amount / exchangeRate);
+    }, 0);
+    const receivedTotal = Math.round((rawReceivedTotal + Number.EPSILON) * invoicePrecision) / invoicePrecision;
+    const outstanding = Math.max(0, invoiceTotal - receivedTotal);
+    const floatingPointTolerance = Number.EPSILON * Math.max(1, Math.abs(invoiceTotal), Math.abs(receivedTotal)) * 4;
+    if (outstanding > floatingPointTolerance) {
+      return { ok: false, message: `Closing belum dapat dilakukan. Sisa tagihan AR ${invoiceCurrency} ${outstanding.toLocaleString('en-US')} belum lunas.` };
+    }
+    return { ok: true };
+  }
+
+  public closeJobWhenPrincipalCollected(jobId: string, closerName: string): boolean {
+    const job = this.getJob(jobId);
+    const guard = this.canCloseJob(jobId);
+    if (!job || !guard.ok || job.closing.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED') return false;
+    return this.recordJobClosure(jobId, closerName, 'FDA approved and principal payment fully received.');
+  }
+
+  // Manager Approval Action
+  public approveJobQuote(jobId: string, approverName: string, notes?: string): boolean {
+    const job = this.getJob(jobId);
+    const guard = this.canApproveJob(jobId);
+    if (!job || !guard.ok) return false;
+
+    this.audit('APPROVE', 'MANAGER_APPROVAL', `Approved quotation for ${jobId}`, jobId);
+    this.updateJob(jobId, {
+      status: 'APPROVED',
+      currentStage: 'OPERATIONAL',
+      quotation: {
+        ...job.quotation,
+        epda: { ...job.quotation.epda, status: 'APPROVED' },
+      },
+      managerApproval: {
+        status: 'APPROVED',
+        approvedBy: approverName,
+        approvedAt: new Date().toISOString(),
+        notes: notes || 'Approved by Operations Manager with authorized rate margin.',
+        allowedMarginTolerancePct: job.managerApproval.allowedMarginTolerancePct,
+      },
+    });
+    return true;
+  }
+
+  public rejectJobQuote(jobId: string, approverName: string, notes?: string): boolean {
+    const job = this.getJob(jobId);
+    if (!job) return false;
+    this.audit('REJECT', 'MANAGER_APPROVAL', `Rejected quotation for ${jobId}`, jobId);
+    this.updateJob(jobId, {
+      status: 'INQUIRY',
+      currentStage: 'QUOTATION',
+      quotation: {
+        ...job.quotation,
+        epda: { ...job.quotation.epda, status: 'DRAFT' },
+      },
+      managerApproval: {
+        status: 'REJECTED',
+        approvedBy: approverName,
+        approvedAt: new Date().toISOString(),
+        notes: notes || 'Rejected: Please review buy rates and improve margin.',
+        allowedMarginTolerancePct: job.managerApproval.allowedMarginTolerancePct,
+      },
+    });
+    return true;
+  }
+
+  public submitFDAForManager(jobId: string, updates: Pick<JobCall, 'fda' | 'ap' | 'ar' | 'principalInvoice'>, submitterName: string): boolean {
+    const guard = this.canFinalizeFDA(jobId);
+    if (!guard.ok) return false;
+
+    this.updateJob(jobId, {
+      ...updates,
+      fda: {
+        ...updates.fda,
+        fdaApproved: false,
+        approvalStatus: 'SUBMITTED',
+        submittedBy: submitterName,
+        submittedAt: new Date().toISOString(),
+        approvedBy: undefined,
+        approvedAt: undefined,
+      },
+      currentStage: 'FDA',
+      status: 'IN_PROGRESS',
+    });
+    this.audit('SUBMIT', 'FDA_APPROVAL', `Submitted FDA for Manager approval: ${jobId}`, jobId);
+    return true;
+  }
+
+  public approveFDA(jobId: string, approverName: string, notes?: string): boolean {
+    const job = this.getJob(jobId);
+    const guard = this.canApproveFDA(jobId);
+    if (!job || !guard.ok) return false;
+
+    this.updateJob(jobId, {
+      fda: {
+        ...job.fda,
+        fdaApproved: true,
+        approvalStatus: 'APPROVED',
+        approvedBy: approverName,
+        approvedAt: new Date().toISOString(),
+        notes: notes || 'FDA disetujui Manager OPS dan diteruskan ke Finance.',
+      },
+      currentStage: 'AP_AR',
+      status: 'IN_PROGRESS',
+    });
+    this.audit('APPROVE', 'FDA_APPROVAL', `Approved FDA for ${jobId}`, jobId);
+    return true;
+  }
+
+  public rejectFDA(jobId: string, reviewerName: string, notes?: string): boolean {
+    const job = this.getJob(jobId);
+    const guard = this.canApproveFDA(jobId);
+    if (!job || !guard.ok) return false;
+
+    this.updateJob(jobId, {
+      fda: {
+        ...job.fda,
+        fdaApproved: false,
+        approvalStatus: 'REJECTED',
+        approvedBy: reviewerName,
+        approvedAt: new Date().toISOString(),
+        notes: notes || 'FDA dikembalikan untuk revisi oleh Manager OPS.',
+      },
+      currentStage: 'FDA',
+      status: 'IN_PROGRESS',
+    });
+    this.audit('REJECT', 'FDA_APPROVAL', `Rejected FDA for ${jobId}`, jobId);
+    return true;
+  }
+
+  // Close Job Action — only after FDA and AR/Invoice are complete.
+  public closeJob(jobId: string, closerName: string, auditNotes?: string): boolean {
+    const job = this.getJob(jobId);
+    const guard = this.canCloseJob(jobId);
+    if (!job || !guard.ok) return false;
+
+    return this.recordJobClosure(jobId, closerName, auditNotes || 'FDA reconciliation and principal invoice settled in full.');
+  }
+
+  private recordJobClosure(jobId: string, closerName: string, auditNotes: string): boolean {
+    const job = this.getJob(jobId);
+    if (!job || job.closing.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED') return false;
+
+    const actualCostTotal = job.actualCosts.reduce((sum, item) => sum + item.amount, 0);
+    const invoiceTotal = job.principalInvoice.totalAmountUSD || job.quotation.epda.totalSellRate;
+    const grossMarginUSD = invoiceTotal - actualCostTotal;
+    const grossMarginIDR = grossMarginUSD * (job.fda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800);
+
+    const previousAuditLogs = this.state.auditLogs;
+    this.audit('CLOSE', 'VESSEL_CALL', `Closed vessel call ${jobId}`, jobId);
+    const saved = this.updateJob(jobId, {
+      currentStage: 'CLOSED',
+      status: 'CLOSED',
+      closing: {
+        isClosed: true,
+        closedAt: new Date().toISOString(),
+        closedBy: closerName,
+        finalGrossMarginUSD: grossMarginUSD,
+        finalGrossMarginIDR: grossMarginIDR,
+        postVoyageRemarks: auditNotes,
+      },
+    });
+    if (!saved) {
+      this.state.auditLogs = previousAuditLogs;
+      this.notify();
+      return false;
+    }
+    return true;
+  }
+}
+
+export const db = new DatabaseService();

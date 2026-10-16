@@ -1,0 +1,3 @@
+ALTER TABLE inquiries
+  ADD COLUMN eta DATETIME(3) NULL AFTER inquiry_date,
+  ADD COLUMN etd DATETIME(3) NULL AFTER eta;

@@ -1,0 +1,6 @@
+{
+  "name": "MaritimPort - Vessel Call & Disbursement Portal",
+  "description": "Maritime Shipping Agency Portal with Role-Based Access (Admin, Sales, Ops Manager, FDA, Finance) and Vessel Call Job Lifecycle Management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

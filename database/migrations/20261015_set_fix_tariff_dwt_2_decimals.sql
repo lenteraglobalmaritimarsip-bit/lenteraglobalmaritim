@@ -1,0 +1,2 @@
+ALTER TABLE fix_tariffs
+  MODIFY COLUMN dwt DECIMAL(18,2) NULL;
