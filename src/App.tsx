@@ -453,6 +453,7 @@ export default function App() {
                 currentUser={currentUser}
                 onSelectJob={setSelectedJobId}
                 onNavigateToQuotes={() => setActiveTab('ACTUAL_COST')}
+                onOpenFPDA={() => { setFdaPdaViewMode('CREATE'); setActiveTab('FDA_PDA_DETAIL'); }}
                 onDataSaved={notifySaved}
                 showFdaStatusColumn
               />

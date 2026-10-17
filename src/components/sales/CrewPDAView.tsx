@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, CheckCircle2, FileSpreadsheet, Pencil, Plus, Printer, Send, Trash2, X } from 'lucide-react';
 import { JobCall, Vessel, formatPurposeOfCall } from '../../types';
 import { formatInquiryDate } from '../../utils/date';
-import { getApprovedPdaDraft, openPdaDraft, PdaDocumentType, savePdaDraft, submitPdaDraft } from '../../lib/api';
+import { ContinuedPdaItemReference, getApprovedPdaDraft, openPdaDraft, PdaDocumentType, PdaDraft, savePdaDraft, submitPdaDraft } from '../../lib/api';
 
 interface CrewPDAViewProps {
   job?: JobCall;
@@ -86,7 +86,8 @@ export const createPdaPreviewHtml = (job: JobCall, items: PdaEntryItem[], curren
     : '<div class="bank"><div>Please kindly remit to our Bank Account</div><div>Bank Account Detail of PT. Lentera Global Maritim asf:</div><br><b>BANK NEGARA INDONESIA (Persero) Tbk</b><br>Address:<br>BNI BIDAKARA<br>Jl. Gatot Subroto Kab 71-73, RT.12/RW.5, Tebet Timur,<br>Kec. Tebet, Kota Jakarta Selatan, Daerah Khusus Ibukota Jakarta 12820<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number : 2824-1212-09</b><br><b>Swift Code Bank : BNINIDJAXXX</b></div>';
   const officeFooter = '<div class="office-footer">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span>email : maritim@lentera-global.com / web : www.lentera-global.com</span></div>';
 
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${documentLabel} - ${escapeHtml(job.jobId)}</title>
+  const printFileName = `${documentLabel} - ${pdaNo}`.replace(/[\\/:*?"<>|]/g, '-');
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(printFileName)}</title>
   <style>
     @page{size:A4 portrait;margin:10mm}
     body{font-family:Arial,sans-serif;color:#172033;font-size:11px;margin:0}
@@ -158,6 +159,11 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
   const [etaRemarks, setEtaRemarks] = useState(job?.inquiry?.etaRemarks || '');
   const [etdRemarks, setEtdRemarks] = useState(job?.inquiry?.etdRemarks || '');
   const [pdaNo, setPdaNo] = useState('');
+  const [salesPdaNo, setSalesPdaNo] = useState('');
+  const [salesPdaCurrency, setSalesPdaCurrency] = useState<'IDR' | 'USD' | null>(null);
+  const [salesPdaItems, setSalesPdaItems] = useState<PdaEntryItem[]>([]);
+  const [continuedPdaItems, setContinuedPdaItems] = useState<ContinuedPdaItemReference[]>([]);
+  const [continuePdaMessage, setContinuePdaMessage] = useState('');
   const [draftError, setDraftError] = useState('');
   const [draftStatus, setDraftStatus] = useState<'loading' | 'saved' | 'saving' | 'error'>('loading');
   const [approvalStatus, setApprovalStatus] = useState<'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REVISION_REQUIRED'>('DRAFT');
@@ -167,7 +173,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
   const [draftLoadAttempt, setDraftLoadAttempt] = useState(0);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [itemEditDraft, setItemEditDraft] = useState<PdaItemEditDraft | null>(null);
-  const [newItem, setNewItem] = useState({
+  const [newItem, setNewItem] = useState<PdaDraft['itemDraft']>({
     name: '',
     category: 'SIGN_ON_CREW',
     price: 0,
@@ -175,9 +181,11 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
     unit: '',
     remarks: '',
     vatApplied: false,
+    continuedPdaItems: [],
   });
   const [showPreview, setShowPreview] = useState(false);
   const printFrameRef = useRef<HTMLIFrameElement>(null);
+  const printPending = useRef(false);
   const draftRevisions = useRef(new Map<string, number>());
   const draftSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const draftSaveTimer = useRef<number | null>(null);
@@ -186,6 +194,20 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
   const draftLoaded = !!job && loadedDraftJobId === job.jobId;
   const isPdaLocked = approvalStatus === 'SUBMITTED' || approvalStatus === 'APPROVED';
   const canEditPda = draftLoaded && !isPdaLocked && !isSubmittingPda;
+  const submitDisabledReason = (() => {
+    if (!draftLoaded) {
+      return draftStatus === 'error'
+        ? 'Draft PDA gagal dimuat. Periksa pesan error di atas.'
+        : 'Menunggu draft PDA dimuat.';
+    }
+    if (isSubmittingPda) return 'Pengiriman PDA sedang diproses.';
+    if (editingItemId) return 'Simpan atau batalkan perubahan item sebelum mengirim PDA.';
+    if (items.length === 0) return 'Tambahkan minimal satu item PDA sebelum mengirim ke Manager OPS.';
+    return '';
+  })();
+  const submitButtonTitle = draftStatus === 'saving'
+    ? 'Menunggu autosave selesai sebelum PDA dikirim.'
+    : submitDisabledReason;
   const vesselMaster = vessels.find((vessel) => vessel.id === job?.vesselId);
   const total = useMemo(
     () => items.reduce((sum, item) => sum + item.quantity * item.price * (item.vatApplied ? 1.11 : 1), 0),
@@ -197,6 +219,11 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
     if (!job) return;
     let cancelled = false;
     setPdaNo('');
+    setSalesPdaNo('');
+    setSalesPdaCurrency(null);
+    setSalesPdaItems([]);
+    setContinuedPdaItems([]);
+    setContinuePdaMessage('');
     setDraftError('');
     setLoadedDraftJobId('');
     setDraftStatus('loading');
@@ -215,6 +242,10 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
       .then((draft) => {
         if (cancelled) return;
         setPdaNo(draft.pdaNo);
+        setSalesPdaNo(draft.salesPdaNo || '');
+        setSalesPdaCurrency(draft.salesPdaCurrency || null);
+        setSalesPdaItems(draft.salesPdaItems || []);
+        setContinuedPdaItems(draft.itemDraft.continuedPdaItems || []);
         setCurrency(draft.currency);
         setExchangeRate(draft.exchangeRate);
         setEta(draft.eta);
@@ -252,7 +283,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
         etd,
         etaRemarks,
         etdRemarks,
-        itemDraft: newItem,
+        itemDraft: { ...newItem, continuedPdaItems },
         items,
       };
       draftSaveQueue.current = draftSaveQueue.current
@@ -278,7 +309,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
       window.clearTimeout(timer);
       if (draftSaveTimer.current === timer) draftSaveTimer.current = null;
     };
-  }, [currency, draftLoaded, etd, etdRemarks, exchangeRate, isPdaLocked, items, job?.jobId, eta, etaRemarks, newItem, pdaNo, documentPdaType]);
+  }, [continuedPdaItems, currency, draftLoaded, etd, etdRemarks, exchangeRate, isPdaLocked, items, job?.jobId, eta, etaRemarks, newItem, pdaNo, documentPdaType]);
 
   const updateItem = (id: string, changes: Partial<PdaEntryItem>) => {
     setItems((current) => current.map((item) => item.id === id ? { ...item, ...changes } : item));
@@ -326,7 +357,42 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
         vatApplied: newItem.vatApplied,
       },
     ]);
-    setNewItem((current) => ({ ...current, name: '', quantity: 1, unit: '', remarks: '', vatApplied: false }));
+    setNewItem((current) => ({ ...current, name: '', price: 0, quantity: 1, unit: '', remarks: '', vatApplied: false }));
+  };
+  const continueFromSalesPda = () => {
+    if (documentPdaType !== 'FDA' || !canEditPda) return;
+    if (salesPdaCurrency && salesPdaCurrency !== currency) {
+      setContinuePdaMessage(`Mata uang PDA sumber ${salesPdaCurrency} berbeda dari mata uang FPDA ${currency}. Samakan mata uang sebelum melanjutkan.`);
+      return;
+    }
+    const existingItemIds = new Set(items.map((item) => item.id));
+    const existingReferences = new Map(continuedPdaItems.map((reference) => [reference.sourceItemId, reference.fpdaItemId]));
+    const sourceItemsToCopy = salesPdaItems.filter((item) => {
+      const copiedItemId = existingReferences.get(item.id);
+      return !copiedItemId || !existingItemIds.has(copiedItemId);
+    });
+    if (sourceItemsToCopy.length === 0) {
+      setContinuePdaMessage(salesPdaItems.length === 0
+        ? 'Belum ada item pada PDA Sales yang dapat dilanjutkan.'
+        : 'Semua item PDA Sales sudah ada di FPDA.');
+      return;
+    }
+    if (items.length + sourceItemsToCopy.length > 500) {
+      setContinuePdaMessage('Jumlah item FPDA akan melebihi batas 500 item.');
+      return;
+    }
+
+    const copiedItems = sourceItemsToCopy.map((item) => ({ ...item, id: crypto.randomUUID() }));
+    const copiedReferences = sourceItemsToCopy.map((item, index) => ({
+      sourceItemId: item.id,
+      fpdaItemId: copiedItems[index].id,
+    }));
+    setItems((current) => [...current, ...copiedItems]);
+    setContinuedPdaItems((current) => [
+      ...current.filter((reference) => !copiedReferences.some((copy) => copy.sourceItemId === reference.sourceItemId)),
+      ...copiedReferences,
+    ]);
+    setContinuePdaMessage(`${copiedItems.length} item berhasil dilanjutkan dari PDA.`);
   };
   const handleSubmitPda = async () => {
     if (!job || !draftLoaded || isPdaLocked || isSubmittingPda || editingItemId || items.length === 0) return;
@@ -349,7 +415,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
         etd,
         etaRemarks,
         etdRemarks,
-        itemDraft: newItem,
+        itemDraft: { ...newItem, continuedPdaItems },
         items,
         revision: currentRevision,
       });
@@ -367,11 +433,28 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
     }
   };
   const printPda = () => {
+    const printFrame = printFrameRef.current;
+    if (!printFrame) return;
+    printPending.current = true;
+    printFrame.srcdoc = previewHtml;
+  };
+
+  const handlePrintFrameLoad = () => {
+    if (!printPending.current) return;
+    printPending.current = false;
     const printWindow = printFrameRef.current?.contentWindow;
     if (!printWindow) return;
+    const originalTitle = document.title;
+    document.title = pdaNo.replaceAll('/', '-');
     printWindow.focus();
     printWindow.print();
+    document.title = originalTitle;
   };
+
+  const previewHtml = useMemo(
+    () => job ? createPdaPreviewHtml(job, items, currency, pdaNo, documentPdaType) : '',
+    [job, items, currency, pdaNo, documentPdaType],
+  );
 
   if (!job) {
     return <div role="alert" className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-200">Pilih Job terlebih dahulu untuk mengisi PDA Crew.</div>;
@@ -405,17 +488,17 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
     : 'Grand Total';
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 epda-form-root">
       {draftError && (
         <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-200">
           <span>{draftError}</span>
           <button type="button" onClick={() => setDraftLoadAttempt((attempt) => attempt + 1)} className="rounded-lg border border-rose-300/40 px-3 py-1.5 text-xs font-bold hover:bg-rose-500/20">Muat Ulang PDA</button>
         </div>
       )}
-      {approvalStatus === 'SUBMITTED' && <div role="status" className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">PDA telah dikirim ke Manager OPS dan terkunci sampai disetujui atau dikembalikan untuk revisi.</div>}
-      {approvalStatus === 'APPROVED' && <div role="status" className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">PDA telah disetujui Manager OPS dan terkunci.</div>}
-      {approvalStatus === 'REVISION_REQUIRED' && <div role="status" className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-200">PDA dikembalikan untuk revisi.{reviewNotes ? ` Catatan Manager: ${reviewNotes}` : ''}</div>}
-      <div className="flex flex-col justify-between gap-4 rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl sm:flex-row sm:items-center">
+      {approvalStatus === 'SUBMITTED' && <div role="status" className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /><div><b>PDA sudah dikirim ke Manager OPS.</b><div className="mt-1">Menunggu review Manager OPS. PDA terkunci sampai Manager menyetujui atau mengembalikannya untuk revisi.</div></div></div>}
+      {approvalStatus === 'APPROVED' && <div role="status" className="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /><div><b>PDA telah disetujui Manager OPS.</b><div className="mt-1">PDA hanya dapat dilihat dan tidak dapat diedit atau dikirim ulang.</div></div></div>}
+      {approvalStatus === 'REVISION_REQUIRED' && <div role="status" className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800"><X className="mt-0.5 h-4 w-4 shrink-0" /><div><b>PDA dikembalikan untuk revisi.</b>{reviewNotes && <div className="mt-1">Catatan Manager: {reviewNotes}</div>}</div></div>}
+      <div className="epda-page-header flex flex-col justify-between gap-4 rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl sm:flex-row sm:items-center">
         <div>
           <div className="flex items-center gap-2 text-xs font-mono font-bold uppercase tracking-wider text-emerald-400">
             <FileSpreadsheet className="h-4 w-4" /><span>{pdaType} / PDA</span><span className="text-cyan-300">• JOB ID: {job.jobId}</span>
@@ -424,22 +507,25 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
           <p className="text-xs text-slate-400">Port Disbursement Account untuk kebutuhan Crew Change</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-          <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-950 p-1.5">
+          <div className="account-toolbar-panel account-currency-switch flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-950 p-1.5">
             <button type="button" disabled={!canEditPda} onClick={() => setCurrency('IDR')} className={`h-12 rounded-lg px-5 text-base font-bold disabled:cursor-wait disabled:opacity-50 ${currency === 'IDR' ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}>IDR (Rp)</button>
             <button type="button" disabled={!canEditPda} onClick={() => setCurrency('USD')} className={`h-12 rounded-lg px-5 text-base font-bold disabled:cursor-wait disabled:opacity-50 ${currency === 'USD' ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}>USD ($)</button>
           </div>
-          <label className="flex h-16 items-center gap-2 rounded-xl border border-slate-700 bg-slate-950 px-5 text-base text-slate-300">
+          <label className="account-toolbar-panel account-rate-control flex h-16 items-center gap-2 rounded-xl border border-slate-700 bg-slate-950 px-5 text-base text-slate-300">
             Kurs USD
-            <input type="number" min={0} step={1} disabled={!canEditPda} value={exchangeRate} onChange={(event) => setExchangeRate(Number(event.target.value) || 0)} className="h-9 w-28 rounded-lg border border-slate-700 bg-slate-900 px-3 text-right text-base text-white disabled:opacity-50" />
+            <input type="number" min={0} step={1} disabled={!canEditPda} value={exchangeRate} onChange={(event) => setExchangeRate(Number(event.target.value) || 0)} className="account-rate-input h-9 w-28 rounded-lg border border-slate-700 bg-slate-900 px-3 text-right text-base text-white disabled:opacity-50" />
           </label>
           {approvalStatus === 'SUBMITTED' ? (
-            <span className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-5 py-4 text-xs font-bold text-amber-200">Menunggu Approval Manager OPS</span>
+            <span className="inline-flex items-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2 text-xs font-bold text-amber-800"><CheckCircle2 className="h-4 w-4" />MENUNGGU APPROVAL MANAGER OPS</span>
           ) : approvalStatus === 'APPROVED' ? (
-            <span className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-5 py-4 text-xs font-bold text-emerald-200">PDA Disetujui</span>
+            <span className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-100 px-3.5 py-2 text-xs font-bold text-blue-700"><CheckCircle2 className="h-4 w-4" />DISETUJUI MANAGER OPS</span>
           ) : (
-            <button type="button" disabled={!canEditPda || draftStatus === 'saving' || !!editingItemId || items.length === 0} onClick={() => void handleSubmitPda()} className="flex h-[54px] items-center gap-2 rounded-xl bg-emerald-600 px-6 text-base font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="button" title={submitButtonTitle || undefined} disabled={!canEditPda || draftStatus === 'saving' || !!editingItemId || items.length === 0} onClick={() => void handleSubmitPda()} className="flex h-[54px] items-center gap-2 rounded-xl bg-emerald-600 px-6 text-base font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
               <Send className="h-6 w-6" /> {isSubmittingPda ? 'Mengirim...' : approvalStatus === 'REVISION_REQUIRED' ? 'Kirim Ulang ke Manager OPS' : 'Kirim ke Manager OPS'}
             </button>
+          )}
+          {approvalStatus !== 'SUBMITTED' && approvalStatus !== 'APPROVED' && (
+            <span role="status" className="min-h-4 w-full text-right text-xs text-amber-300">{submitDisabledReason || '\u00a0'}</span>
           )}
           <button type="button" onClick={onBack} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-200 hover:bg-slate-800">
             <ArrowLeft className="h-4 w-4" /> Kembali ke Quotes
@@ -447,13 +533,14 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4"><span className="text-xs font-bold uppercase text-slate-400">No. PDA</span><b className="mt-1 block font-mono text-cyan-300">{pdaNo || (draftStatus === 'error' ? 'Gagal dimuat' : 'Memuat nomor...')}</b><span className="mt-1 block text-[10px] text-slate-500">{draftStatus === 'loading' ? 'Memuat draft...' : draftStatus === 'saving' ? 'Menyimpan otomatis...' : draftStatus === 'saved' ? 'Tersimpan otomatis' : 'Belum tersimpan'}</span></div>
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4"><span className="text-xs font-bold uppercase text-slate-400">Principal / Vessel</span><b className="mt-1 block text-white">{job.customerName} • {job.vesselName}</b></div>
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4"><span className="text-xs font-bold uppercase text-slate-400">Grand Total</span><span className="mt-1 block font-mono text-emerald-300">{formatAmount(total, currency)}</span></div>
+      <div className={`epda-summary-grid grid grid-cols-1 gap-4 ${documentPdaType === 'FDA' ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
+        {documentPdaType === 'FDA' && <div className="epda-summary-card rounded-2xl border border-slate-800 bg-slate-900 p-4"><span className="text-xs font-bold uppercase text-slate-400">No. FPDA</span><b className="mt-1 block font-mono text-cyan-300">{pdaNo || (draftStatus === 'error' ? 'Gagal dimuat' : 'Memuat nomor...')}</b><span className="mt-1 block text-[10px] text-slate-500">Nomor FPDA tersimpan otomatis</span></div>}
+        <div className="epda-summary-card rounded-2xl border border-slate-800 bg-slate-900 p-4"><span className="text-xs font-bold uppercase text-slate-400">No. PDA</span><b className="mt-1 block font-mono text-cyan-300">{documentPdaType === 'FDA' ? salesPdaNo || 'Belum tersedia' : pdaNo || (draftStatus === 'error' ? 'Gagal dimuat' : 'Memuat nomor...')}</b>{documentPdaType !== 'FDA' && <span className="mt-1 block text-[10px] text-slate-500">{draftStatus === 'loading' ? 'Memuat draft...' : draftStatus === 'saving' ? 'Menyimpan otomatis...' : draftStatus === 'saved' ? 'Tersimpan otomatis' : 'Belum tersimpan'}</span>}</div>
+        <div className="epda-summary-card rounded-2xl border border-slate-800 bg-slate-900 p-4"><span className="text-xs font-bold uppercase text-slate-400">Principal / Vessel</span><b className="mt-1 block text-white">{job.customerName} • {job.vesselName}</b></div>
+        <div className="epda-summary-card epda-summary-total rounded-2xl border border-slate-800 bg-slate-900 p-4"><span className="text-xs font-bold uppercase text-slate-400">Grand Total</span><span className="mt-1 block font-mono text-emerald-300">{formatAmount(total, currency)}</span></div>
       </div>
 
-      <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl">
+      <section className="epda-results-card rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl">
         <div className="mb-4">
           <div className="text-[10px] font-mono font-bold uppercase text-emerald-400">Inquiry Vessel Details</div>
           <h2 className="mt-1 text-lg font-black text-white">Informasi Lengkap Inquiry Vessel</h2>
@@ -472,7 +559,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl">
+      <section className="epda-results-card rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl">
         <div className="mb-4">
           <div className="text-[10px] font-mono font-bold uppercase text-emerald-400">{documentLabel}</div>
           <h2 className="mt-1 text-lg font-black text-white">Create {documentLabel}</h2>
@@ -485,18 +572,30 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl">
+      <section className="epda-results-card rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl">
         <div className="mb-4 flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
           <div><h2 className="text-base font-bold uppercase tracking-wider text-white">Hasil Entry {documentLabel}</h2><span className="text-xs text-slate-400">Draft dan perubahan entry disimpan otomatis</span></div>
           <div className="flex flex-wrap gap-2">
+            {documentPdaType === 'FDA' && !viewApprovedSalesPda && (
+              <button
+                type="button"
+                disabled={!canEditPda || draftStatus === 'saving' || salesPdaItems.length === 0}
+                onClick={continueFromSalesPda}
+                title={salesPdaItems.length === 0 ? 'Belum ada item dari PDA Sales untuk dilanjutkan.' : undefined}
+                className="flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Plus className="h-3.5 w-3.5" /> Lanjutkan dari PDA
+              </button>
+            )}
             <button type="button" disabled={!draftLoaded || draftStatus === 'saving'} onClick={() => setShowPreview(true)} className="flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-2 text-xs font-bold text-slate-200 disabled:cursor-not-allowed disabled:opacity-50"><CheckCircle2 className="h-3.5 w-3.5"/>Lihat Hasil PDA</button>
             <button type="button" disabled={!draftLoaded || draftStatus === 'saving'} onClick={printPda} className="flex items-center gap-1.5 rounded-lg bg-white px-3 py-2 text-xs font-bold text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"><Printer className="h-3.5 w-3.5"/>Cetak / PDF</button>
           </div>
         </div>
+        {continuePdaMessage && documentPdaType === 'FDA' && <div role="status" className="mb-3 rounded-lg border border-cyan-800 bg-cyan-950/40 px-3 py-2 text-xs text-cyan-200">{continuePdaMessage}</div>}
         <div className="pda-results-card mb-4 overflow-x-auto rounded-lg border border-slate-700">
           <table className="w-full min-w-[1080px] text-left text-xs">
             <thead className="bg-slate-950 text-[10px] uppercase tracking-wider text-slate-400"><tr>
-              <th className="border-l border-slate-700 p-3.5">No</th><th className="border-l border-slate-700 p-3.5">Description</th><th className="border-l border-slate-700 p-3.5 text-right">Qty</th><th className="border-l border-slate-700 p-3.5">Unit</th><th className="border-l border-slate-700 p-3.5 text-right">Price ({currency})</th><th className="border-l border-slate-700 p-3.5 text-right">Amount ({currency})</th><th className="border-l border-slate-700 p-3.5">Remarks</th><th className="border-l border-slate-700 p-3.5">Aksi</th>
+              <th className="border-l border-slate-700 p-3.5 text-center">No</th><th className="border-l border-slate-700 p-3.5 text-center">Description</th><th className="border-l border-slate-700 p-3.5 text-center">Qty</th><th className="border-l border-slate-700 p-3.5 text-center">Unit</th><th className="border-l border-slate-700 p-3.5 text-center">Price ({currency})</th><th className="border-l border-slate-700 p-3.5 text-center">Amount ({currency})</th><th className="border-l border-slate-700 p-3.5 text-center">Remarks</th><th className="border-l border-slate-700 p-3.5 text-center">Aksi</th>
             </tr></thead>
             <tbody className="divide-y divide-slate-800">
               {pdaGroups.map((group) => {
@@ -520,22 +619,22 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
                             </div>
                           ) : <span className="font-bold text-white">{item.description}</span>}
                         </td>
-                        <td className="border-l border-slate-800 p-3.5">
+                        <td className="border-l border-slate-800 p-3.5 text-center">
                           {editingItemId === item.id && itemEditDraft
-                            ? <input type="number" min="0" step="0.01" value={itemEditDraft.quantity} onChange={(event) => setItemEditDraft({ ...itemEditDraft, quantity: Number(event.target.value) || 0 })} className="w-20 rounded border border-slate-600 bg-slate-950 px-2 py-1.5 text-right text-white" />
+                            ? <input type="number" min="0" step="0.01" value={itemEditDraft.quantity} onChange={(event) => setItemEditDraft({ ...itemEditDraft, quantity: Number(event.target.value) || 0 })} className="w-20 rounded border border-slate-600 bg-slate-950 px-2 py-1.5 text-center text-white" />
                             : item.quantity}
                         </td>
-                        <td className="border-l border-slate-800 p-3.5">
+                        <td className="border-l border-slate-800 p-3.5 text-center">
                           {editingItemId === item.id && itemEditDraft
-                            ? <input value={itemEditDraft.unit} onChange={(event) => setItemEditDraft({ ...itemEditDraft, unit: event.target.value })} placeholder="Pax / Trip" className="w-full rounded border border-slate-600 bg-slate-950 px-2 py-1.5 text-white placeholder-slate-500" />
+                            ? <input value={itemEditDraft.unit} onChange={(event) => setItemEditDraft({ ...itemEditDraft, unit: event.target.value })} placeholder="Pax / Trip" className="w-full rounded border border-slate-600 bg-slate-950 px-2 py-1.5 text-center text-white placeholder-slate-500" />
                             : item.unit}
                         </td>
-                        <td className="border-l border-slate-800 p-3.5">
+                        <td className="border-l border-slate-800 p-3.5 text-right">
                           {editingItemId === item.id && itemEditDraft
                             ? <input type="number" min="0" step="0.01" value={itemEditDraft.price} onChange={(event) => setItemEditDraft({ ...itemEditDraft, price: Number(event.target.value) || 0 })} className="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1.5 text-right text-white" />
-                            : item.price}
+                            : formatAmountValue(item.price)}
                         </td>
-                        <td className="border-l border-slate-800 p-3.5 text-right font-mono font-bold text-white">{formatAmount((editingItemId === item.id && itemEditDraft ? itemEditDraft.quantity : item.quantity) * (editingItemId === item.id && itemEditDraft ? itemEditDraft.price : item.price), currency)}</td>
+                        <td className="border-l border-slate-800 p-3.5 text-right font-mono font-bold text-white">{formatAmountValue((editingItemId === item.id && itemEditDraft ? itemEditDraft.quantity : item.quantity) * (editingItemId === item.id && itemEditDraft ? itemEditDraft.price : item.price))}</td>
                         <td className="border-l border-slate-800 p-3.5">
                           {editingItemId === item.id && itemEditDraft ? (
                             <div className="space-y-2">
@@ -561,13 +660,13 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
                         </td>
                       </tr>
                     ))}
-                    <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-slate-200">TOTAL</td><td className="border-l border-slate-800 p-2.5 text-right font-mono text-xs font-bold text-white">{formatAmount(groupTotal, currency)}</td><td colSpan={2} className="border-l border-slate-800" /></tr>
-                    {groupVat > 0 && <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-slate-200">VAT 11%</td><td className="border-l border-slate-800 p-2.5 text-right font-mono text-xs font-bold text-white">{formatAmount(groupVat, currency)}</td><td colSpan={2} className="border-l border-slate-800" /></tr>}
+                    <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-slate-200">TOTAL</td><td className="border-l border-slate-800 p-2.5 text-right font-mono text-xs font-bold text-white">{formatAmountValue(groupTotal)}</td><td colSpan={2} className="border-l border-slate-800" /></tr>
+                    {groupVat > 0 && <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-slate-200">VAT 11%</td><td className="border-l border-slate-800 p-2.5 text-right font-mono text-xs font-bold text-white">{formatAmountValue(groupVat)}</td><td colSpan={2} className="border-l border-slate-800" /></tr>}
                   </React.Fragment>
                 );
               })}
               {!items.length && <tr><td colSpan={8} className="p-8 text-center text-slate-500">Belum ada item. Klik Tambah Item untuk mulai entry.</td></tr>}
-              <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-3.5 text-right font-bold uppercase tracking-wider text-slate-200">{grandTotalLabel}</td><td className="border-l border-slate-800 p-3.5 text-right font-mono text-xs font-bold text-white">{formatAmount(total, currency)}</td><td colSpan={2} className="border-l border-slate-800" /></tr>
+              <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-3.5 text-right font-bold uppercase tracking-wider text-slate-200">{grandTotalLabel}</td><td className="border-l border-slate-800 p-3.5 text-right font-mono text-xs font-bold text-white">{formatAmountValue(total)}</td><td colSpan={2} className="border-l border-slate-800" /></tr>
             </tbody>
           </table>
         </div>
@@ -607,7 +706,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
               </div>
               <div>
                 <label className="mb-1 block text-slate-600">Price</label>
-                <input type="number" min="0" step="0.01" disabled={!canEditPda} value={newItem.price} onChange={(event) => setNewItem({ ...newItem, price: Number(event.target.value) || 0 })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none disabled:opacity-50" />
+                <input type="number" min="0" step="0.01" disabled={!canEditPda} value={newItem.price || ''} onChange={(event) => setNewItem({ ...newItem, price: Number(event.target.value) || 0 })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none disabled:opacity-50" />
               </div>
               <div>
                 <label className="mb-1 block text-slate-600">QTY</label>
@@ -642,18 +741,18 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
             <div className="flex items-center justify-between gap-3 border-b border-slate-700 p-3">
               <div><div className="text-xs font-bold uppercase tracking-wider text-cyan-300">Preview PDA Crew</div><div className="text-sm text-white">{job.jobId}</div></div>
               <div className="flex gap-2">
-                <button type="button" onClick={() => printFrameRef.current?.contentWindow?.print()} className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white hover:bg-blue-600">Cetak / Simpan PDF</button>
+                <button type="button" onClick={printPda} className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white hover:bg-blue-600">Cetak / Simpan PDF</button>
                 <button type="button" onClick={() => setShowPreview(false)} className="rounded-lg px-3 py-2 text-xs font-bold text-slate-300 hover:bg-slate-800">Tutup</button>
               </div>
             </div>
-            <iframe title={`Pratinjau ${documentLabel} ${job.jobId}`} srcDoc={createPdaPreviewHtml(job, items, currency, pdaNo, documentPdaType)} className="min-h-0 flex-1 bg-white" />
+            <iframe title={`Pratinjau ${documentLabel} ${job.jobId}`} srcDoc={previewHtml} className="min-h-0 flex-1 bg-white" />
           </div>
         </div>
       )}
       <iframe
         ref={printFrameRef}
         title={`Dokumen cetak PDA ${job.jobId}`}
-        srcDoc={createPdaPreviewHtml(job, items, currency, pdaNo, documentPdaType)}
+        onLoad={handlePrintFrameLoad}
         aria-hidden="true"
         tabIndex={-1}
         style={{ position: 'fixed', left: '-10000px', top: 0, width: '210mm', height: '297mm', border: 0 }}

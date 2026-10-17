@@ -80,6 +80,48 @@ function pdaSourceNumber(PDO $connection, string $jobId, string $pdaType): strin
     return $number;
 }
 
+function pdaNextFpdaNumber(PDO $connection, string $branchCode): string
+{
+    $numberDate = new DateTimeImmutable('now', new DateTimeZone('Asia/Jakarta'));
+    $year = (int) $numberDate->format('Y');
+    $month = $numberDate->format('m');
+    $sequence = $connection->prepare(
+        'INSERT INTO fpda_number_sequences (year, branch_code, last_sequence) '
+        . 'VALUES (:year, :branch_code, 1) '
+        . 'ON DUPLICATE KEY UPDATE last_sequence = last_sequence + 1'
+    );
+    $sequence->execute(['year' => $year, 'branch_code' => $branchCode]);
+
+    $readSequence = $connection->prepare(
+        'SELECT last_sequence FROM fpda_number_sequences WHERE year = :year AND branch_code = :branch_code'
+    );
+    $readSequence->execute(['year' => $year, 'branch_code' => $branchCode]);
+    $number = (int) $readSequence->fetchColumn();
+
+    return sprintf('%04d/FPDA-LGM-%s/%s/%04d', $number, $branchCode, $month, $year);
+}
+
+function pdaNextSalesPdaNumber(PDO $connection, string $branchCode): string
+{
+    $numberDate = new DateTimeImmutable('now', new DateTimeZone('Asia/Jakarta'));
+    $year = (int) $numberDate->format('Y');
+    $month = $numberDate->format('m');
+    $sequence = $connection->prepare(
+        'INSERT INTO pda_number_sequences (year, branch_code, last_sequence) '
+        . 'VALUES (:year, :branch_code, 1) '
+        . 'ON DUPLICATE KEY UPDATE last_sequence = last_sequence + 1'
+    );
+    $sequence->execute(['year' => $year, 'branch_code' => $branchCode]);
+
+    $readSequence = $connection->prepare(
+        'SELECT last_sequence FROM pda_number_sequences WHERE year = :year AND branch_code = :branch_code'
+    );
+    $readSequence->execute(['year' => $year, 'branch_code' => $branchCode]);
+    $number = (int) $readSequence->fetchColumn();
+
+    return sprintf('%04d/PDA-LGM-%s/%s/%04d', $number, $branchCode, $month, $year);
+}
+
 function pdaDefaults(array $value): array
 {
     $currency = $value['currency'] ?? 'USD';
@@ -129,6 +171,21 @@ function validatePdaItemDraft(mixed $item): array
     ) {
         jsonResponse(['error' => 'Draft input item PDA tidak valid'], 400);
     }
+    $continuedPdaItems = $item['continuedPdaItems'] ?? [];
+    if (!is_array($continuedPdaItems) || count($continuedPdaItems) > 500) {
+        jsonResponse(['error' => 'Referensi item PDA lanjutan tidak valid'], 400);
+    }
+    $continuedSourceIds = [];
+    foreach ($continuedPdaItems as $reference) {
+        if (!is_array($reference)
+            || !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', (string) ($reference['sourceItemId'] ?? ''))
+            || !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', (string) ($reference['fpdaItemId'] ?? ''))
+            || isset($continuedSourceIds[$reference['sourceItemId']])
+        ) {
+            jsonResponse(['error' => 'Referensi item PDA lanjutan tidak valid'], 400);
+        }
+        $continuedSourceIds[$reference['sourceItemId']] = true;
+    }
     return [
         'name' => trim($item['name']),
         'category' => $item['category'],
@@ -137,16 +194,18 @@ function validatePdaItemDraft(mixed $item): array
         'unit' => trim($item['unit']),
         'remarks' => trim($item['remarks']),
         'vatApplied' => $item['vatApplied'],
+        'continuedPdaItems' => array_values($continuedPdaItems),
     ];
 }
 
 function readPdaDraft(PDO $connection, array $document): array
 {
+    $pdaType = $document['pda_type'] ?? 'SALES';
     $query = $connection->prepare(
         'SELECT id, category, description, quantity, unit, price, remarks, vat_applied '
         . 'FROM pda_items WHERE job_id = :job_id AND pda_type = :pda_type ORDER BY line_no'
     );
-    $query->execute(['job_id' => $document['job_id'], 'pda_type' => $document['pda_type'] ?? 'SALES']);
+    $query->execute(['job_id' => $document['job_id'], 'pda_type' => $pdaType]);
     $items = array_map(static fn (array $item): array => [
         'id' => $item['id'],
         'category' => $item['category'],
@@ -158,10 +217,54 @@ function readPdaDraft(PDO $connection, array $document): array
         'vatApplied' => (bool) $item['vat_applied'],
     ], $query->fetchAll());
 
+    $salesPdaNo = null;
+    $salesPdaCurrency = null;
+    $salesPdaItems = [];
+    if ($pdaType === 'FDA') {
+        $salesPdaQuery = $connection->prepare(
+            "SELECT pda_no, currency FROM pda_documents WHERE job_id = :job_id AND pda_type = 'SALES' LIMIT 1"
+        );
+        $salesPdaQuery->execute(['job_id' => $document['job_id']]);
+        $salesPda = $salesPdaQuery->fetch();
+        if ($salesPda) {
+            $salesPdaNo = $salesPda['pda_no'];
+            $salesPdaCurrency = $salesPda['currency'];
+            $salesPdaItemsQuery = $connection->prepare(
+                "SELECT id, category, description, quantity, unit, price, remarks, vat_applied "
+                . "FROM pda_items WHERE job_id = :job_id AND pda_type = 'SALES' ORDER BY line_no"
+            );
+            $salesPdaItemsQuery->execute(['job_id' => $document['job_id']]);
+            $salesPdaItems = array_map(static fn (array $item): array => [
+                'id' => $item['id'],
+                'category' => $item['category'],
+                'description' => $item['description'],
+                'quantity' => (float) $item['quantity'],
+                'unit' => $item['unit'],
+                'price' => (float) $item['price'],
+                'remarks' => $item['remarks'],
+                'vatApplied' => (bool) $item['vat_applied'],
+            ], $salesPdaItemsQuery->fetchAll());
+        }
+    }
+
+    $itemDraft = json_decode((string) $document['item_draft'], true) ?: [
+        'name' => '',
+        'category' => 'SIGN_ON_CREW',
+        'price' => 0,
+        'quantity' => 1,
+        'unit' => '',
+        'remarks' => '',
+        'vatApplied' => false,
+    ];
+    $itemDraft['continuedPdaItems'] ??= [];
+
     return [
         'jobId' => $document['job_id'],
-        'pdaType' => $document['pda_type'] ?? 'SALES',
+        'pdaType' => $pdaType,
         'pdaNo' => $document['pda_no'],
+        'salesPdaNo' => $salesPdaNo,
+        'salesPdaCurrency' => $salesPdaCurrency,
+        'salesPdaItems' => $salesPdaItems,
         'approvalStatus' => $document['approval_status'],
         'submittedBy' => $document['submitted_by'],
         'submittedAt' => $document['submitted_at'],
@@ -174,15 +277,7 @@ function readPdaDraft(PDO $connection, array $document): array
         'etd' => $document['etd'] ?? '',
         'etaRemarks' => $document['eta_remarks'] ?? '',
         'etdRemarks' => $document['etd_remarks'] ?? '',
-        'itemDraft' => json_decode((string) $document['item_draft'], true) ?: [
-            'name' => '',
-            'category' => 'SIGN_ON_CREW',
-            'price' => 0,
-            'quantity' => 1,
-            'unit' => '',
-            'remarks' => '',
-            'vatApplied' => false,
-        ],
+        'itemDraft' => $itemDraft,
         'revision' => (int) $document['revision'],
         'items' => $items,
     ];
@@ -238,6 +333,20 @@ try {
         requireMethod('GET');
         pdaRequireManager($user);
         $query = $connection->query("SELECT * FROM pda_documents WHERE approval_status = 'SUBMITTED' ORDER BY submitted_at, pda_type, pda_no");
+        $drafts = array_map(static fn (array $document): array => readPdaDraft($connection, $document), $query->fetchAll());
+        jsonResponse(['drafts' => $drafts]);
+    }
+
+    if ($action === 'revisions') {
+        requireMethod('GET');
+        $branchCode = pdaUserBranch($user, 'SALES');
+        $query = $connection->prepare(
+            "SELECT * FROM pda_documents "
+            . "WHERE pda_type = 'SALES' AND approval_status = 'REVISION_REQUIRED' "
+            . 'AND (branch_code = :branch_code OR created_by_user_id = :user_id) '
+            . 'ORDER BY reviewed_at DESC, pda_no'
+        );
+        $query->execute(['branch_code' => $branchCode, 'user_id' => (string) $user['id']]);
         $drafts = array_map(static fn (array $document): array => readPdaDraft($connection, $document), $query->fetchAll());
         jsonResponse(['drafts' => $drafts]);
     }
@@ -321,7 +430,7 @@ try {
         $pdaType = pdaDocumentType($body['pdaType'] ?? 'SALES');
         $branchCode = pdaUserBranch($user, $pdaType);
         if ($jobId === '' || strlen($jobId) > 50) jsonResponse(['error' => 'Job ID tidak valid'], 400);
-        $referenceNo = pdaSourceNumber($connection, $jobId, $pdaType);
+        pdaSourceNumber($connection, $jobId, $pdaType);
         $defaults = pdaDefaults(is_array($body['defaults'] ?? null) ? $body['defaults'] : []);
 
         $connection->beginTransaction();
@@ -331,6 +440,9 @@ try {
         $document = $query->fetch();
 
         if (!$document) {
+            $documentNumber = $pdaType === 'FDA'
+                ? pdaNextFpdaNumber($connection, $documentBranchCode)
+                : pdaNextSalesPdaNumber($connection, $documentBranchCode);
             $defaultItemDraft = json_encode([
                 'name' => '',
                 'category' => 'SIGN_ON_CREW',
@@ -348,7 +460,7 @@ try {
             $insert->execute([
                 'job_id' => $jobId,
                 'pda_type' => $pdaType,
-                'pda_no' => $referenceNo,
+                'pda_no' => $documentNumber,
                 'branch_code' => $documentBranchCode,
                 'user_id' => $user['id'],
                 'currency' => $defaults['currency'],
@@ -361,12 +473,11 @@ try {
             ]);
             $query->execute(['job_id' => $jobId, 'pda_type' => $pdaType]);
             $document = $query->fetch();
-        } elseif (!hash_equals((string) $document['pda_no'], $referenceNo)) {
-            $updateReference = $connection->prepare(
-                'UPDATE pda_documents SET pda_no = :pda_no WHERE job_id = :job_id AND pda_type = :pda_type'
-            );
-            $updateReference->execute(['pda_no' => $referenceNo, 'job_id' => $jobId, 'pda_type' => $pdaType]);
-            $document['pda_no'] = $referenceNo;
+        } else {
+            if (!hash_equals((string) $document['branch_code'], $documentBranchCode)) {
+                $connection->rollBack();
+                jsonResponse(['error' => 'PDA ini dimiliki branch lain'], 403);
+            }
         }
 
         if (!hash_equals((string) $document['branch_code'], $documentBranchCode)) {

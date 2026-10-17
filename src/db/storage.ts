@@ -227,6 +227,7 @@ class DatabaseService {
     const version = this.stateVersion;
     const remote = await dataApi.load();
     if (version !== this.stateVersion) return;
+    if (remote.revision === this.apiRevision) return;
     const migration = migrateJobData(remote.state.jobCalls);
     this.state = {
       ...remote.state,

@@ -8,6 +8,7 @@ interface ApiErrorPayload { error?: string; }
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api/${path}`, {
     ...options,
+    cache: options.method === undefined || options.method === 'GET' ? 'no-store' : options.cache,
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
@@ -72,12 +73,20 @@ export interface PdaDraftItem {
   vatApplied: boolean;
 }
 
+export interface ContinuedPdaItemReference {
+  sourceItemId: string;
+  fpdaItemId: string;
+}
+
 export type PdaDocumentType = 'SALES' | 'FDA';
 
 export interface PdaDraft {
   jobId: string;
   pdaType: PdaDocumentType;
   pdaNo: string;
+  salesPdaNo?: string | null;
+  salesPdaCurrency?: 'IDR' | 'USD' | null;
+  salesPdaItems?: PdaDraftItem[];
   approvalStatus: 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REVISION_REQUIRED';
   submittedBy: string | null;
   submittedAt: string | null;
@@ -98,6 +107,7 @@ export interface PdaDraft {
     unit: string;
     remarks: string;
     vatApplied: boolean;
+    continuedPdaItems?: ContinuedPdaItemReference[];
   };
   revision: number;
   items: PdaDraftItem[];
@@ -140,6 +150,12 @@ export async function submitPdaDraft(jobId: string, revision: number, pdaType: P
 export async function listPendingPdaDrafts(): Promise<PdaDraft[]> {
   if (!apiEnabled) throw new Error('Approval PDA memerlukan koneksi API aktif.');
   const result = await request<{ drafts: PdaDraft[] }>('pda.php?action=pending');
+  return result.drafts;
+}
+
+export async function listPdaRevisionDrafts(): Promise<PdaDraft[]> {
+  if (!apiEnabled) throw new Error('Status revisi PDA memerlukan koneksi API aktif.');
+  const result = await request<{ drafts: PdaDraft[] }>('pda.php?action=revisions');
   return result.drafts;
 }
 

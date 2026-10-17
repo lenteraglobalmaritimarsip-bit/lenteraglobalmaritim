@@ -6,7 +6,7 @@ import {
 import { UserRole, JobCall, PaymentVoucher, ActiveTab } from '../../types';
 import { AuthAccount, initials } from '../../auth';
 import { LogOut } from 'lucide-react';
-import { apiAuth } from '../../lib/api';
+import { apiAuth, listPdaRevisionDrafts, listPendingPdaDrafts, PdaDraft } from '../../lib/api';
 import { dataApi } from '../../lib/dataApi';
 
 interface HeaderProps {
@@ -30,6 +30,7 @@ type HeaderNotification = {
   jobId?: string;
   tab?: ActiveTab;
   kind: 'APPROVAL' | 'INFO' | 'WARNING';
+  requiresAction?: boolean;
 };
 
 export const Header: React.FC<HeaderProps> = ({
@@ -46,6 +47,8 @@ export const Header: React.FC<HeaderProps> = ({
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const headerActionsRef = useRef<HTMLDivElement>(null);
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>([]);
+  const [pendingPdaDrafts, setPendingPdaDrafts] = useState<PdaDraft[]>([]);
+  const [pdaRevisionDrafts, setPdaRevisionDrafts] = useState<PdaDraft[]>([]);
   useEffect(() => {
     let cancelled = false;
     setReadNotificationIds([]);
@@ -56,6 +59,47 @@ export const Header: React.FC<HeaderProps> = ({
       .catch((error) => console.error('Gagal memuat status notifikasi:', error));
     return () => { cancelled = true; };
   }, [currentUser.id]);
+
+  useEffect(() => {
+    if (currentRole !== 'MANAGER_OPS' && currentRole !== 'SALES') {
+      setPendingPdaDrafts([]);
+      setPdaRevisionDrafts([]);
+      return;
+    }
+
+    let cancelled = false;
+    const refreshPdaNotifications = () => {
+      if (currentRole === 'MANAGER_OPS') {
+        void listPendingPdaDrafts()
+          .then((drafts) => {
+            if (!cancelled) setPendingPdaDrafts(drafts);
+          })
+          .catch((error: unknown) => {
+            console.error('Gagal memuat notifikasi PDA untuk Manager OPS:', error);
+          });
+      } else {
+        void listPdaRevisionDrafts()
+          .then((drafts) => {
+            if (!cancelled) setPdaRevisionDrafts(drafts);
+          })
+          .catch((error: unknown) => {
+            console.error('Gagal memuat notifikasi revisi PDA untuk Sales:', error);
+          });
+      }
+    };
+    refreshPdaNotifications();
+    const intervalId = window.setInterval(refreshPdaNotifications, 30000);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refreshPdaNotifications();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [currentRole]);
 
   const roleMeta: Record<UserRole, { label: string; desc: string; icon: any }> = {
     ADMIN: { label:'ADMIN', desc:'Master Data & System', icon:ShieldCheck },
@@ -90,6 +134,35 @@ export const Header: React.FC<HeaderProps> = ({
   const notifications: HeaderNotification[] = (() => {
     const items: HeaderNotification[] = [];
     const push = (n: HeaderNotification) => { if (!items.some(x => x.id === n.id)) items.push(n); };
+
+    if (currentRole === 'MANAGER_OPS') {
+      pendingPdaDrafts.forEach((draft) => {
+        const job = jobCalls.find((item) => item.jobId === draft.jobId);
+        push({
+          id: `pda-approval-${draft.pdaType}-${draft.jobId}-${draft.submittedAt || draft.revision}`,
+          title: `${draft.pdaType === 'FDA' ? 'FPDA' : 'PDA'} menunggu approval`,
+          message: `${draft.pdaNo} · ${draft.jobId}${job ? ` · ${job.vesselName}` : ''} dikirim oleh ${draft.submittedBy || 'Sales'} dan menunggu keputusan Manager OPS.`,
+          jobId: draft.jobId,
+          tab: 'APPROVAL',
+          kind: 'APPROVAL',
+        });
+      });
+    }
+
+    if (currentRole === 'SALES') {
+      pdaRevisionDrafts.forEach((draft) => {
+        const job = jobCalls.find((item) => item.jobId === draft.jobId);
+        push({
+          id: `pda-revision-${draft.pdaType}-${draft.jobId}-${draft.reviewedAt || 'review'}-${draft.revision}`,
+          title: 'PDA dikembalikan untuk revisi',
+          message: `${draft.pdaNo} · ${draft.jobId}${job ? ` · ${job.vesselName}` : ''}. Catatan Manager: ${draft.reviewNotes || 'Mohon periksa dan lakukan revisi pada PDA.'}`,
+          jobId: draft.jobId,
+          tab: 'PDA_CREW_DETAIL',
+          kind: 'WARNING',
+          requiresAction: true,
+        });
+      });
+    }
 
     jobCalls.forEach((job) => {
       const isExecutedOrClosed = !!(job.closing?.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED');
@@ -221,7 +294,7 @@ export const Header: React.FC<HeaderProps> = ({
       .slice(0, 30);
   })();
 
-  const visibleNotifications = notifications.filter(n => !readNotificationIds.includes(n.id));
+  const visibleNotifications = notifications.filter(n => n.requiresAction || !readNotificationIds.includes(n.id));
   const unreadCount = visibleNotifications.length;
   const persistReads = (ids: string[]) => {
     const next = Array.from(new Set(ids));

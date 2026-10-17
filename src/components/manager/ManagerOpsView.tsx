@@ -190,7 +190,9 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
     setReviewingPdaJobId(draft.jobId);
     setPdaApprovalError('');
     try {
-      await reviewPdaDraft(draft.jobId, decision, approvalNotes[`${draft.jobId}:PDA`] || '', draft.pdaType);
+      const notes = approvalNotes[`${draft.jobId}:PDA`]?.trim()
+        || (decision === 'REVISION_REQUIRED' ? 'Mohon periksa dan lakukan revisi pada PDA.' : '');
+      await reviewPdaDraft(draft.jobId, decision, notes, draft.pdaType);
       setPendingPdaDrafts((current) => current.filter((item) => item.jobId !== draft.jobId));
       setActionSuccess(decision === 'APPROVED'
         ? `PDA ${draft.pdaNo} disetujui.`
@@ -789,7 +791,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                   <div className="flex flex-col items-center gap-3 pt-1 sm:flex-row">
                     <input type="text" placeholder="Catatan approval / revisi PDA..." value={approvalNotes[`${draft.jobId}:PDA`] || ''} onChange={(event) => setApprovalNotes({ ...approvalNotes, [`${draft.jobId}:PDA`]: event.target.value })} className="w-full flex-1 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none" />
                     <div className="flex w-full items-center gap-2 sm:w-auto">
-                      <button type="button" disabled={reviewingPdaJobId === draft.jobId || !(approvalNotes[`${draft.jobId}:PDA`] || '').trim()} onClick={() => void handleReviewPda(draft, 'REVISION_REQUIRED')} className="flex-1 rounded-lg border border-rose-500/30 bg-rose-600/20 px-3.5 py-2 text-xs font-bold text-rose-300 transition hover:bg-rose-600/30 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-initial"><XCircle className="mr-1 inline h-4 w-4"/>Kembalikan untuk Revisi</button>
+                      <button type="button" disabled={reviewingPdaJobId === draft.jobId} onClick={() => void handleReviewPda(draft, 'REVISION_REQUIRED')} className="flex-1 rounded-lg border border-rose-500/30 bg-rose-600/20 px-3.5 py-2 text-xs font-bold text-rose-300 transition hover:bg-rose-600/30 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-initial"><XCircle className="mr-1 inline h-4 w-4"/>Kembalikan untuk Revisi</button>
                       <button type="button" disabled={reviewingPdaJobId === draft.jobId} onClick={() => void handleReviewPda(draft, 'APPROVED')} className="flex-1 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-lg transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-initial"><CheckCircle2 className="mr-1 inline h-4 w-4"/>Approve PDA</button>
                     </div>
                   </div>
@@ -800,7 +802,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
 
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
             <h2 className="text-base font-bold text-white uppercase tracking-wider mb-2">
-              Antrian Approval Dokumen EPDA
+              Antrian Approval EPDA
             </h2>
             <p className="text-xs text-slate-400 mb-4">
               Manager Ops melakukan review EPDA, kelayakan biaya, dan margin sebelum diteruskan ke FDA.
@@ -816,48 +818,33 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                 {pendingApprovals.map((job) => (
                   <div
                     key={job.jobId}
-                    className="p-4 bg-slate-950 rounded-xl border border-slate-800 hover:border-indigo-500/50 transition space-y-3"
+                    className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4 shadow-sm"
                   >
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                    <div className="flex flex-col justify-between gap-2 border-b border-slate-200 pb-3 sm:flex-row sm:items-center">
                       <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-mono font-bold text-cyan-400 bg-slate-900 px-2 py-0.5 rounded">
-                            {job.jobId}
-                          </span>
-                          <span className="text-xs font-mono text-slate-400">
-                            {job.quotation.epda.quoteNo}
-                          </span>
-                        </div>
-                        <h4 className="text-base font-bold text-white font-mono mt-1">
-                          {job.vesselName} • {job.customerName}
-                        </h4>
+                        <span className="rounded bg-white px-2 py-0.5 text-xs font-mono font-bold text-blue-700">{job.jobId}</span>
+                        <h4 className="mt-1 text-base font-bold text-slate-800">{job.vesselName} • {job.customerName}</h4>
+                        <p className="mt-1 text-xs text-slate-500">EPDA No. {job.quotation.epda.quoteNo} · Dikirim {job.quotation.epda.submittedAt ? formatDateDisplay(job.quotation.epda.submittedAt, true) : '-'} oleh {job.quotation.epda.submittedBy || job.inquiry?.createdByName || 'Sales'}</p>
                       </div>
-
+                      <span className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700">MENUNGGU APPROVAL</span>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 text-[11px]">
-                      <div className={`rounded-lg border p-2 ${job.quotation.epda.status === 'SUBMITTED' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : 'border-amber-500/30 bg-amber-500/10 text-amber-300'}`}>EPDA: <b>{job.quotation.epda.status}</b></div>
-                    </div>
-
-                    <div className="text-xs text-slate-300 bg-slate-900 p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
-                      <div>
-                        <span className="text-slate-500">Pelabuhan:</span> {job.portName} •{' '}
-                        <span className="text-slate-500">ETA:</span> {formatDateDisplay(job.eta, true)}
-                      </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-3">
                       <button
+                        type="button"
                         onClick={() => {
                           const next = expandedDetailJobId === job.jobId ? null : job.jobId;
                           setExpandedDetailJobId(next);
                           onSelectJob(job.jobId);
                         }}
-                        className="text-indigo-400 hover:text-indigo-300 underline font-semibold"
+                        className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-700 underline hover:text-emerald-800"
                       >
                         {expandedDetailJobId === job.jobId ? 'Tutup EPDA' : 'Lihat EPDA Cetak/PDF'}
                       </button>
                     </div>
  
                     {expandedDetailJobId === job.jobId && (
-                      <div className="mt-3 overflow-hidden rounded-xl border border-slate-800 bg-slate-950 p-3">
+                      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white p-3">
                         <QuotesEPDAView
                           job={job}
                           vessels={vessels}
@@ -871,7 +858,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                       </div>
                     )}
 
-                    <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
+                    <div className="flex flex-col items-center gap-3 pt-1 sm:flex-row">
                       <input
                         type="text"
                         placeholder="Catatan persetujuan / instruksi operasional..."
@@ -879,23 +866,23 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                         onChange={(e) =>
                           setApprovalNotes({ ...approvalNotes, [job.jobId]: e.target.value })
                         }
-                        className="flex-1 w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                        className="w-full flex-1 rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm text-slate-800 placeholder-slate-400 focus:border-indigo-500 focus:outline-none"
                       />
 
-                      <div className="flex items-center gap-2 w-full sm:w-auto">
+                      <div className="flex w-full items-center gap-2 sm:w-auto">
                         <button
+                          type="button"
                           onClick={() => handleReject(job.jobId)}
-                          className="flex-1 sm:flex-initial px-3.5 py-2 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 text-xs font-bold transition flex items-center justify-center gap-1.5"
+                          className="flex-1 rounded-lg border border-rose-300 bg-rose-500/50 px-3.5 py-3 text-sm font-bold text-white transition hover:bg-rose-600 sm:flex-initial"
                         >
-                          <XCircle className="w-4 h-4" />
-                          <span>Reject / Revisi</span>
+                          <XCircle className="mr-1 inline h-4 w-4" />Kembalikan untuk Revisi
                         </button>
                         <button
+                          type="button"
                           onClick={() => handleApprove(job.jobId)}
-                          className="flex-1 sm:flex-initial px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-900/30 transition flex items-center justify-center gap-1.5"
+                          className="flex-1 rounded-lg bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500 sm:flex-initial"
                         >
-                          <CheckCircle2 className="w-4 h-4" />
-                          <span>Approve Dokumen</span>
+                          <CheckCircle2 className="mr-1 inline h-4 w-4" />Approve EPDA
                         </button>
                       </div>
                     </div>
@@ -917,38 +904,30 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                 <p className="text-sm font-bold text-white">Tidak ada permohonan approval yang tertunda saat ini.</p>
               </div>
             ) : pendingFDAApprovals.map((job) => {
-              const currency = job.fda.currency || job.actualCosts?.[0]?.currency || job.currency || 'USD';
-              const actualCostTotal = job.fda.totalActualCost || job.actualCosts.reduce((sum, item) => sum + Number(item.amount || 0), 0);
               return (
-                <div key={`${job.jobId}:FDA-APPROVAL`} className="space-y-3 rounded-xl border border-slate-800 bg-slate-950 p-4">
-                  <div className="flex flex-col justify-between gap-2 border-b border-slate-800 pb-3 sm:flex-row sm:items-center">
+                <div key={`${job.jobId}:FDA-APPROVAL`} className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
+                  <div className="flex flex-col justify-between gap-2 border-b border-slate-200 pb-3 sm:flex-row sm:items-center">
                     <div>
-                      <span className="rounded bg-slate-900 px-2 py-0.5 text-xs font-mono font-bold text-cyan-400">{job.jobId}</span>
-                      <h3 className="mt-1 text-base font-bold text-white">{job.vesselName} • {job.customerName}</h3>
-                      <p className="mt-1 text-xs text-slate-400">Dikirim oleh {job.fda.submittedBy || 'FDA'}{job.fda.submittedAt ? ` • ${formatDateDisplay(job.fda.submittedAt, true)}` : ''}</p>
+                      <span className="rounded bg-white px-2 py-0.5 text-xs font-mono font-bold text-blue-700">{job.jobId}</span>
+                      <h3 className="mt-1 text-base font-bold text-slate-800">{job.vesselName} • {job.customerName}</h3>
+                      <p className="mt-1 text-xs text-slate-500">FDA No. {job.fda.fdaNo || '-'} · Dikirim {job.fda.submittedAt ? formatDateDisplay(job.fda.submittedAt, true) : '-'} oleh {job.fda.submittedBy || 'FDA'}</p>
                     </div>
-                    <span className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-300">MENUNGGU APPROVAL</span>
+                    <span className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700">MENUNGGU APPROVAL</span>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
-                    <div className="rounded-lg border border-slate-800 bg-slate-900 p-3"><span className="text-slate-400">No. FDA</span><strong className="mt-1 block font-mono text-cyan-300">{job.fda.fdaNo || '-'}</strong></div>
-                    <div className="rounded-lg border border-slate-800 bg-slate-900 p-3"><span className="text-slate-400">Total Actual Cost</span><strong className="mt-1 block font-mono text-white">{formatEPDAAmount(actualCostTotal, currency)}</strong></div>
-                    <div className="rounded-lg border border-slate-800 bg-slate-900 p-3"><span className="text-slate-400">Tagihan Principal</span><strong className="mt-1 block font-mono text-emerald-300">{formatEPDAAmount(job.fda.finalBilledToPrincipal || 0, currency)}</strong></div>
-                  </div>
-
-                  <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+                  <div className="rounded-xl border border-slate-200 bg-white p-3">
                     <button
                       type="button"
                       onClick={() => {
                         setExpandedFDAApprovalJobId(expandedFDAApprovalJobId === job.jobId ? null : job.jobId);
                         onSelectJob(job.jobId);
                       }}
-                      className="text-xs font-semibold text-emerald-300 underline hover:text-emerald-200"
+                      className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-700 underline hover:text-emerald-800"
                     >
                       {expandedFDAApprovalJobId === job.jobId ? 'Tutup FDA' : 'Lihat FDA Cetak/PDF'}
                     </button>
                     {expandedFDAApprovalJobId === job.jobId && (
-                      <div className="mt-3 overflow-hidden rounded-xl border border-slate-800 bg-slate-950 p-3">
+                      <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white p-3">
                         <FDAView
                           initialTab="APPROVAL"
                           printPreviewOnly
@@ -965,10 +944,10 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                   </div>
 
                   <div className="flex flex-col items-center gap-3 pt-1 sm:flex-row">
-                    <input type="text" placeholder="Catatan approval / revisi FDA..." value={approvalNotes[`${job.jobId}:FDA`] || ''} onChange={(event) => setApprovalNotes({ ...approvalNotes, [`${job.jobId}:FDA`]: event.target.value })} className="w-full flex-1 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none" />
+                    <input type="text" placeholder="Catatan approval / revisi FDA..." value={approvalNotes[`${job.jobId}:FDA`] || ''} onChange={(event) => setApprovalNotes({ ...approvalNotes, [`${job.jobId}:FDA`]: event.target.value })} className="w-full flex-1 rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm text-slate-800 placeholder-slate-400 focus:border-indigo-500 focus:outline-none" />
                     <div className="flex w-full items-center gap-2 sm:w-auto">
-                      <button type="button" onClick={() => handleRejectFDA(job.jobId)} className="flex-1 rounded-lg border border-rose-500/30 bg-rose-600/20 px-3.5 py-2 text-xs font-bold text-rose-300 transition hover:bg-rose-600/30 sm:flex-initial"><XCircle className="mr-1 inline h-4 w-4"/>Reject / Revisi</button>
-                      <button type="button" onClick={() => handleApproveFDA(job.jobId)} className="flex-1 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-lg transition hover:bg-indigo-500 sm:flex-initial"><CheckCircle2 className="mr-1 inline h-4 w-4"/>Approve & Kirim ke Finance</button>
+                      <button type="button" onClick={() => handleRejectFDA(job.jobId)} className="flex-1 rounded-lg border border-rose-300 bg-rose-500/50 px-3.5 py-3 text-sm font-bold text-white transition hover:bg-rose-600 sm:flex-initial"><XCircle className="mr-1 inline h-4 w-4"/>Kembalikan untuk Revisi</button>
+                      <button type="button" onClick={() => handleApproveFDA(job.jobId)} className="flex-1 rounded-lg bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500 sm:flex-initial"><CheckCircle2 className="mr-1 inline h-4 w-4"/>Approve FDA</button>
                     </div>
                   </div>
                 </div>

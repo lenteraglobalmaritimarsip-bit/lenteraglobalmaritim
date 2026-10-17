@@ -30,6 +30,7 @@ interface InquiriesViewProps {
   onSelectJob: (jobId: string) => void;
   onNavigateToQuotes: () => void;
   onOpenPDA?: () => void;
+  onOpenFPDA?: () => void;
   onDataSaved?: () => void;
   showFdaStatusColumn?: boolean;
 }
@@ -140,6 +141,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
   onSelectJob,
   onNavigateToQuotes,
   onOpenPDA,
+  onOpenFPDA,
   onDataSaved,
   showFdaStatusColumn = false,
 }) => {
@@ -565,6 +567,22 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                           <Eye className="h-4 w-4" />
                         </button>
                       )}
+                      {showFdaStatusColumn
+                        && currentUser.role === 'FDA'
+                        && onOpenFPDA
+                        && job.managerApproval.status === 'APPROVED'
+                        && Boolean(job.fda?.fdaNo?.trim())
+                        && (
+                          <button
+                            type="button"
+                            title="Buka Quotes FPDA"
+                            aria-label={`Buka Quotes FPDA untuk ${job.jobId}`}
+                            onClick={() => { onSelectJob(job.jobId); onOpenFPDA(); }}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-cyan-500/30 bg-cyan-500/15 text-cyan-300 transition hover:bg-cyan-500/25"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                        )}
                       {canEditOrVoidJob && (
                         <button
                           type="button"
