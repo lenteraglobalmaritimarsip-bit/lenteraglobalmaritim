@@ -10,7 +10,7 @@ START → SALES / INQUIRY → QUOTATION (EPDA) → MANAGER APPROVAL → OPERATIO
 
 Inquiry yang belum masuk approval dapat dikoreksi oleh Sales dari cabang pembuatnya dengan alasan wajib; Job ID tetap. Job yang tidak dapat dipakai lagi dibatalkan sebagai VOID, bukan dihapus, sehingga nomor, data, alasan, waktu, dan pembatalnya tetap menjadi riwayat audit. Registry nomor Job menyimpan semua nomor yang pernah diterbitkan agar tidak digunakan kembali. Untuk database yang sudah berjalan, terapkan migrasi `database/migrations/20261017_add_vessel_call_void_fields.sql` dan `database/migrations/20261017_add_job_call_number_registry.sql`.
 
-Menu **Sales > Quotes > Buat PDA** menyediakan UI entry sementara untuk PDA Crew dengan kolom No, Description, Qty, Unit, Price, Amount, dan Remarks, serta preview/cetak PDF. Entry hanya berada di state halaman dan tidak disimpan ke database.
+Menu **Sales > Quotes > Buat PDA** menyediakan form PDA Crew dengan nomor otomatis berformat `xxxx/PDA-LGM-ttt/mm/yyyy` (`ttt` mengikuti branch user aktif). Urutan nomor dimulai dari `0001` setiap tahun untuk masing-masing branch. Data header, rincian item, dan isian item yang belum ditambahkan disimpan otomatis ke MariaDB saat entry; draft dimuat kembali saat form dibuka untuk job yang sama.
 
 ## Standar pesan informasi
 

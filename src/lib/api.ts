@@ -60,3 +60,53 @@ export const apiAuth = {
     });
   },
 };
+
+export interface PdaDraftItem {
+  id: string;
+  category: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  price: number;
+  remarks: string;
+  vatApplied: boolean;
+}
+
+export interface PdaDraft {
+  pdaNo: string;
+  currency: 'IDR' | 'USD';
+  exchangeRate: number;
+  eta: string;
+  etd: string;
+  etaRemarks: string;
+  etdRemarks: string;
+  itemDraft: {
+    name: string;
+    category: string;
+    price: number;
+    quantity: number;
+    unit: string;
+    remarks: string;
+    vatApplied: boolean;
+  };
+  revision: number;
+  items: PdaDraftItem[];
+}
+
+export async function openPdaDraft(jobId: string, defaults: Omit<PdaDraft, 'pdaNo' | 'revision' | 'items' | 'itemDraft'>): Promise<PdaDraft> {
+  if (!apiEnabled) throw new Error('Penyimpanan PDA memerlukan koneksi API aktif.');
+  const result = await request<{ draft: PdaDraft }>('pda.php?action=open', {
+    method: 'POST',
+    body: JSON.stringify({ jobId, defaults }),
+  });
+  return result.draft;
+}
+
+export async function savePdaDraft(jobId: string, draft: PdaDraft): Promise<number> {
+  if (!apiEnabled) throw new Error('Penyimpanan PDA memerlukan koneksi API aktif.');
+  const result = await request<{ revision: number }>('pda.php?action=save', {
+    method: 'PUT',
+    body: JSON.stringify({ jobId, draft }),
+  });
+  return result.revision;
+}
