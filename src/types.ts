@@ -510,6 +510,7 @@ export type ActiveTab =
   | 'INQUIRIES'
   | 'QUOTES_EPDA'
   | 'QUOTES_EPDA_DETAIL'
+  | 'PDA_CREW_DETAIL'
   | 'FDA_INQUIRIES'
   | 'FDA_QUOTES_EPDA'
   | 'FDA_CREATE_VOUCHER'

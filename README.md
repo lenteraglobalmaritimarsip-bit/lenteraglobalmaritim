@@ -10,6 +10,8 @@ START → SALES / INQUIRY → QUOTATION (EPDA) → MANAGER APPROVAL → OPERATIO
 
 Inquiry yang belum masuk approval dapat dikoreksi oleh Sales dari cabang pembuatnya dengan alasan wajib; Job ID tetap. Job yang tidak dapat dipakai lagi dibatalkan sebagai VOID, bukan dihapus, sehingga nomor, data, alasan, waktu, dan pembatalnya tetap menjadi riwayat audit. Registry nomor Job menyimpan semua nomor yang pernah diterbitkan agar tidak digunakan kembali. Untuk database yang sudah berjalan, terapkan migrasi `database/migrations/20261017_add_vessel_call_void_fields.sql` dan `database/migrations/20261017_add_job_call_number_registry.sql`.
 
+Menu **Sales > Quotes > Buat PDA** menyediakan UI entry sementara untuk PDA Crew dengan kolom No, Description, Qty, Unit, Price, Amount, dan Remarks, serta preview/cetak PDF. Entry hanya berada di state halaman dan tidak disimpan ke database.
+
 ## Standar pesan informasi
 
 Pesan informasi, status, peringatan, dan validasi di semua role menggunakan gaya terpusat di `src/index.css`: panel biru muda, border biru, teks gelap, font Inter/system, ukuran 14 px, dan radius 8 px. Gunakan `role="status"` untuk pembaruan non-kritis dan `role="alert"` untuk kesalahan/validasi agar gaya dan aksesibilitas tetap konsisten. Notifikasi login menampilkan nama lengkap pemegang user dan menggunakan standar yang sama di seluruh role. Jangan menimpa warnanya dengan kelas role-specific.

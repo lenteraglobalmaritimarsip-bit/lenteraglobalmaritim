@@ -10,6 +10,7 @@ import { SalesDashboardView } from './components/sales/SalesDashboardView';
 import { InquiriesView } from './components/sales/InquiriesView';
 import { QuotesListView } from './components/sales/QuotesListView';
 import { QuotesEPDAView } from './components/sales/QuotesEPDAView';
+import { CrewPDAView } from './components/sales/CrewPDAView';
 import { JobsEntryView } from './components/sales/JobsEntryView';
 import { ManagerOpsView } from './components/manager/ManagerOpsView';
 import { ManagementVesselView } from './components/manager/ManagementVesselView';
@@ -404,8 +405,10 @@ export default function App() {
                 vessels={data.vessels}
                 onSelectJob={setSelectedJobId}
                 onOpenEPDA={() => setActiveTab('QUOTES_EPDA_DETAIL')}
+                onOpenPDA={() => setActiveTab('PDA_CREW_DETAIL')}
                 enablePagination
                 showStatusColumn
+                showPdaButton
               />
             )}
 
@@ -419,6 +422,14 @@ export default function App() {
                 fixTariffs={data.fixTariffs}
                 expensesItems={data.expensesItems}
                 onDataSaved={notifySaved}
+              />
+            )}
+
+            {currentRole === 'SALES' && activeTab === 'PDA_CREW_DETAIL' && (
+              <CrewPDAView
+                job={currentJob}
+                vessels={data.vessels}
+                onBack={() => setActiveTab('QUOTES_EPDA')}
               />
             )}
 

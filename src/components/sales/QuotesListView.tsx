@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileSpreadsheet, Search } from 'lucide-react';
+import { FileSpreadsheet, Search, UsersRound } from 'lucide-react';
 import { JobCall, Vessel } from '../../types';
 import { formatDateDisplay, isInquiryDateInRange } from '../../utils/date';
 import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateRangePicker';
@@ -9,6 +9,7 @@ interface QuotesListViewProps {
   vessels: Vessel[];
   onSelectJob: (jobId: string) => void;
   onOpenEPDA: () => void;
+  onOpenPDA?: () => void;
   title?: string;
   description?: string;
   moduleLabel?: string;
@@ -16,9 +17,10 @@ interface QuotesListViewProps {
   enablePagination?: boolean;
   showStatusColumn?: boolean;
   statusColumnType?: 'quote' | 'fda';
+  showPdaButton?: boolean;
 }
 
-export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessels, onSelectJob, onOpenEPDA, title = 'Quotes EPDA', description = 'Daftar quotation EPDA berdasarkan register vessel call.', moduleLabel = 'Sales and Operator - Quotes Module', actionLabel = 'Buat EPDA', enablePagination = false, showStatusColumn = false, statusColumnType = 'quote' }) => {
+export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessels, onSelectJob, onOpenEPDA, onOpenPDA, title = 'Quotes EPDA', description = 'Daftar quotation EPDA berdasarkan register vessel call.', moduleLabel = 'Sales and Operator - Quotes Module', actionLabel = 'Buat EPDA', enablePagination = false, showStatusColumn = false, statusColumnType = 'quote', showPdaButton = false }) => {
   const [search, setSearch] = useState('');
   const [inquiryDateRange, setInquiryDateRange] = useState<InquiryDateRange>({ from: '', to: '' });
   const [quotePage, setQuotePage] = useState(1);
@@ -111,16 +113,16 @@ export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessel
         <thead className="bg-slate-950 text-[10px] uppercase tracking-wider text-slate-400">
           <tr>
             <th className="w-[3%] p-2">No</th>
-            <th className={`${showStatusColumn ? 'w-[8%]' : 'w-[9%]'} p-2`}>Req Inquiry</th>
+            <th className={`${showPdaButton || showStatusColumn ? 'w-[8%]' : 'w-[9%]'} p-2`}>Req Inquiry</th>
             <th className="w-[10%] p-2">REG Vessel Call</th>
-            <th className={`${showStatusColumn ? 'w-[7%]' : 'w-[8%]'} p-2`}>Date Quotes</th>
-            <th className={`${showStatusColumn ? 'w-[6%]' : 'w-[7%]'} p-2`}>IMO</th>
-            <th className={`${showStatusColumn ? 'w-[14%]' : 'w-[15%]'} p-2`}>Customer / Principal</th>
-            <th className={`${showStatusColumn ? 'w-[10%]' : 'w-[11%]'} p-2`}>Vessel</th>
-            <th className={`${showStatusColumn ? 'w-[9%]' : 'w-[10%]'} p-2`}>Port</th>
-            <th className={`${showStatusColumn ? 'w-[9%]' : 'w-[10%]'} p-2`}>ETA</th>
-            {showStatusColumn && <th className="w-[11%] p-2">Status</th>}
-            <th className={`${showStatusColumn ? 'w-[13%]' : 'w-[17%]'} p-2 text-center`}>Detail</th>
+            <th className={`${showPdaButton || showStatusColumn ? 'w-[7%]' : 'w-[8%]'} p-2`}>Date Quotes</th>
+            <th className={`${showPdaButton || showStatusColumn ? 'w-[6%]' : 'w-[7%]'} p-2`}>IMO</th>
+            <th className={`${showPdaButton ? 'w-[12%]' : showStatusColumn ? 'w-[14%]' : 'w-[15%]'} p-2`}>Customer / Principal</th>
+            <th className={`${showPdaButton ? 'w-[8%]' : showStatusColumn ? 'w-[10%]' : 'w-[11%]'} p-2`}>Vessel</th>
+            <th className={`${showPdaButton ? 'w-[8%]' : showStatusColumn ? 'w-[9%]' : 'w-[10%]'} p-2`}>Port</th>
+            <th className={`${showPdaButton ? 'w-[8%]' : showStatusColumn ? 'w-[9%]' : 'w-[10%]'} p-2`}>ETA</th>
+            {showStatusColumn && <th className={`${showPdaButton ? 'w-[9%]' : 'w-[11%]'} p-2`}>Status</th>}
+            <th className={`${showPdaButton ? 'w-[21%]' : showStatusColumn ? 'w-[13%]' : 'w-[17%]'} p-2 text-center`}>Detail</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-800">
@@ -150,14 +152,26 @@ export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessel
                   );
                 })()}
                 <td className="p-2 text-center">
-                  <button
-                    type="button"
-                    onClick={() => { onSelectJob(job.jobId); onOpenEPDA(); }}
-                    className="mx-auto flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-blue-500"
-                  >
-                    <FileSpreadsheet className="h-3.5 w-3.5" />
-                    {actionLabel}
-                  </button>
+                  <div className="flex flex-wrap items-center justify-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => { onSelectJob(job.jobId); onOpenEPDA(); }}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-blue-500"
+                    >
+                      <FileSpreadsheet className="h-3.5 w-3.5" />
+                      {actionLabel}
+                    </button>
+                    {showPdaButton && (
+                      <button
+                        type="button"
+                        onClick={() => { onSelectJob(job.jobId); onOpenPDA?.(); }}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-blue-500"
+                      >
+                        <UsersRound className="h-3.5 w-3.5" />
+                        Buat PDA
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             );
