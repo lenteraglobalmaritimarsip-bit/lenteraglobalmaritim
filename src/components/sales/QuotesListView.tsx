@@ -14,9 +14,11 @@ interface QuotesListViewProps {
   moduleLabel?: string;
   actionLabel?: string;
   enablePagination?: boolean;
+  showStatusColumn?: boolean;
+  statusColumnType?: 'quote' | 'fda';
 }
 
-export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessels, onSelectJob, onOpenEPDA, title = 'Quotes EPDA', description = 'Daftar quotation EPDA berdasarkan register vessel call.', moduleLabel = 'Sales and Operator - Quotes Module', actionLabel = 'Buat EPDA', enablePagination = false }) => {
+export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessels, onSelectJob, onOpenEPDA, title = 'Quotes EPDA', description = 'Daftar quotation EPDA berdasarkan register vessel call.', moduleLabel = 'Sales and Operator - Quotes Module', actionLabel = 'Buat EPDA', enablePagination = false, showStatusColumn = false, statusColumnType = 'quote' }) => {
   const [search, setSearch] = useState('');
   const [inquiryDateRange, setInquiryDateRange] = useState<InquiryDateRange>({ from: '', to: '' });
   const [quotePage, setQuotePage] = useState(1);
@@ -34,6 +36,35 @@ export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessel
   const visibleQuotes = enablePagination
     ? filteredQuotes.slice((currentQuotePage - 1) * quotePageSize, currentQuotePage * quotePageSize)
     : filteredQuotes;
+  const getQuoteStatus = (job: JobCall) => {
+    if (statusColumnType === 'fda') {
+      if (job.voidedAt) return { label: 'Dibatalkan', style: 'bg-rose-500/20 text-rose-300' };
+      if (job.closing?.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED') {
+        return { label: 'Closed', style: 'bg-slate-500/20 text-slate-300' };
+      }
+      if (job.fda?.fdaApproved) return { label: 'Kirim ke Finance', style: 'bg-emerald-500/20 text-emerald-300' };
+      if (job.fda?.approvalStatus === 'SUBMITTED') {
+        return { label: 'Menunggu Approval FDA', style: 'bg-blue-500/20 text-blue-300' };
+      }
+      if (job.currentStage === 'FDA' || job.currentStage === 'AP_AR' || job.currentStage === 'PRINCIPAL_INVOICE') {
+        return { label: 'Proses FDA', style: 'bg-amber-500/20 text-amber-300' };
+      }
+      if (job.managerApproval?.status === 'APPROVED') {
+        return { label: 'Siap Proses FDA', style: 'bg-emerald-500/20 text-emerald-300' };
+      }
+      if (job.quotation?.epda?.status === 'SUBMITTED') {
+        return { label: 'Menunggu Approval Manager', style: 'bg-blue-500/20 text-blue-300' };
+      }
+      return { label: 'Draft Job', style: 'bg-amber-500/20 text-amber-300' };
+    }
+
+    if (job.voidedAt) return { label: 'Dibatalkan', style: 'bg-rose-500/20 text-rose-300' };
+    if (job.managerApproval?.status === 'REJECTED') return { label: 'Perlu Revisi', style: 'bg-amber-500/20 text-amber-300' };
+    if (job.managerApproval?.status === 'APPROVED') return { label: 'Disetujui Manager', style: 'bg-emerald-500/20 text-emerald-300' };
+    if (job.quotation?.epda?.status === 'SUBMITTED') return { label: 'Menunggu Approval', style: 'bg-blue-500/20 text-blue-300' };
+    if (job.quotation?.epda?.status === 'APPROVED') return { label: 'EPDA Disetujui', style: 'bg-emerald-500/20 text-emerald-300' };
+    return { label: 'Draft', style: 'bg-slate-500/20 text-slate-300' };
+  };
 
   return (
   <div className="space-y-5">
@@ -80,15 +111,16 @@ export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessel
         <thead className="bg-slate-950 text-[10px] uppercase tracking-wider text-slate-400">
           <tr>
             <th className="w-[3%] p-2">No</th>
-            <th className="w-[9%] p-2">Req Inquiry</th>
+            <th className={`${showStatusColumn ? 'w-[8%]' : 'w-[9%]'} p-2`}>Req Inquiry</th>
             <th className="w-[10%] p-2">REG Vessel Call</th>
-            <th className="w-[8%] p-2">Date Quotes</th>
-            <th className="w-[7%] p-2">IMO</th>
-            <th className="w-[15%] p-2">Customer / Principal</th>
-            <th className="w-[11%] p-2">Vessel</th>
-            <th className="w-[10%] p-2">Port</th>
-            <th className="w-[10%] p-2">ETA</th>
-            <th className="w-[17%] p-2 text-center">Detail</th>
+            <th className={`${showStatusColumn ? 'w-[7%]' : 'w-[8%]'} p-2`}>Date Quotes</th>
+            <th className={`${showStatusColumn ? 'w-[6%]' : 'w-[7%]'} p-2`}>IMO</th>
+            <th className={`${showStatusColumn ? 'w-[14%]' : 'w-[15%]'} p-2`}>Customer / Principal</th>
+            <th className={`${showStatusColumn ? 'w-[10%]' : 'w-[11%]'} p-2`}>Vessel</th>
+            <th className={`${showStatusColumn ? 'w-[9%]' : 'w-[10%]'} p-2`}>Port</th>
+            <th className={`${showStatusColumn ? 'w-[9%]' : 'w-[10%]'} p-2`}>ETA</th>
+            {showStatusColumn && <th className="w-[11%] p-2">Status</th>}
+            <th className={`${showStatusColumn ? 'w-[13%]' : 'w-[17%]'} p-2 text-center`}>Detail</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-800">
@@ -107,6 +139,16 @@ export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessel
                 <td className="break-words p-2 text-slate-300">{job.quotation?.epda?.eta
                   ? formatDateDisplay(job.quotation.epda.eta, true)
                   : job.quotation?.epda?.etaRemarks || '-'}</td>
+                {showStatusColumn && (() => {
+                  const status = getQuoteStatus(job);
+                  return (
+                    <td className="break-words p-2">
+                      <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${status.style}`}>
+                        {status.label}
+                      </span>
+                    </td>
+                  );
+                })()}
                 <td className="p-2 text-center">
                   <button
                     type="button"
@@ -120,7 +162,7 @@ export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessel
               </tr>
             );
           })}
-          {!filteredQuotes.length && <tr><td colSpan={10} className="p-8 text-center text-slate-500">Tidak ada quotation sesuai pencarian.</td></tr>}
+          {!filteredQuotes.length && <tr><td colSpan={showStatusColumn ? 11 : 10} className="p-8 text-center text-slate-500">Tidak ada quotation sesuai pencarian.</td></tr>}
         </tbody>
       </table>
     </div>

@@ -405,6 +405,7 @@ export default function App() {
                 onSelectJob={setSelectedJobId}
                 onOpenEPDA={() => setActiveTab('QUOTES_EPDA_DETAIL')}
                 enablePagination
+                showStatusColumn
               />
             )}
 
@@ -439,6 +440,7 @@ export default function App() {
                 onSelectJob={setSelectedJobId}
                 onNavigateToQuotes={() => setActiveTab('ACTUAL_COST')}
                 onDataSaved={notifySaved}
+                showFdaStatusColumn
               />
             )}
 
@@ -453,6 +455,8 @@ export default function App() {
                 moduleLabel="FDA Operator"
                 actionLabel="Buat FDA"
                 enablePagination
+                showStatusColumn
+                statusColumnType="fda"
               />
             )}
 

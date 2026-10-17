@@ -29,6 +29,7 @@ interface InquiriesViewProps {
   onSelectJob: (jobId: string) => void;
   onNavigateToQuotes: () => void;
   onDataSaved?: () => void;
+  showFdaStatusColumn?: boolean;
 }
 
 interface SearchableMasterSelectProps {
@@ -137,6 +138,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
   onSelectJob,
   onNavigateToQuotes,
   onDataSaved,
+  showFdaStatusColumn = false,
 }) => {
   const [showNewForm, setShowNewForm] = useState(false);
   const [editingJobId, setEditingJobId] = useState('');
@@ -154,7 +156,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
     if (job.voidedAt) {
       return { label: 'Dibatalkan', color: 'bg-rose-500/20 text-rose-300' };
     }
-    if (currentUser.role === 'FDA') {
+    if (showFdaStatusColumn) {
       if (job.closing?.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED') {
         return { label: 'Closed', color: 'bg-slate-500/20 text-slate-300' };
       }
@@ -163,7 +165,23 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
         return { label: 'Kirim ke Finance', color: 'bg-emerald-500/20 text-emerald-300' };
       }
 
-      return { label: 'DRAFT', color: 'bg-amber-500/20 text-amber-300' };
+      if (job.fda?.approvalStatus === 'SUBMITTED') {
+        return { label: 'Menunggu Approval FDA', color: 'bg-blue-500/20 text-blue-300' };
+      }
+
+      if (job.currentStage === 'FDA' || job.currentStage === 'AP_AR' || job.currentStage === 'PRINCIPAL_INVOICE') {
+        return { label: 'Proses FDA', color: 'bg-amber-500/20 text-amber-300' };
+      }
+
+      if (job.managerApproval?.status === 'APPROVED') {
+        return { label: 'Siap Proses FDA', color: 'bg-emerald-500/20 text-emerald-300' };
+      }
+
+      if (job.quotation?.epda?.status === 'SUBMITTED') {
+        return { label: 'Menunggu Approval Manager', color: 'bg-blue-500/20 text-blue-300' };
+      }
+
+      return { label: 'Draft Job', color: 'bg-amber-500/20 text-amber-300' };
     }
 
     if (job.managerApproval.status === 'APPROVED') {
@@ -457,7 +475,8 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
               <th className="w-[6%] p-2">Create Name</th>
               <th className="w-[6%] p-2">ETA</th>
               <th className="w-[6%] p-2">ETD</th>
-              <th className="w-[7%] p-2">Status</th>
+              {showFdaStatusColumn && <th className="w-[7%] p-2">Status</th>}
+              {currentUser.role !== 'FDA' && <th className="w-[7%] p-2">Status</th>}
               <th className="w-[10%] p-2 text-center">Aksi</th>
             </tr>
           </thead>
@@ -492,7 +511,14 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                   <td className="break-words p-2 text-slate-300">{job.inquiry.createdByName || job.inquiry.createdBy || '-'}</td>
                   <td className="break-words p-2 text-slate-300">{job.eta ? formatDateDisplay(job.eta, true) : job.inquiry.etaRemarks || '-'}</td>
                   <td className="break-words p-2 text-slate-300">{job.etd ? formatDateDisplay(job.etd, true) : job.inquiry.etdRemarks || '-'}</td>
-                  <td className="p-2">
+                  {showFdaStatusColumn && (
+                    <td className="p-2">
+                      <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold ${jobStatus.color}`}>
+                        {jobStatus.label}
+                      </span>
+                    </td>
+                  )}
+                  {!showFdaStatusColumn && <td className="p-2">
                     <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold ${jobStatus.color}`}>
                       {jobStatus.label}
                     </span>
@@ -501,7 +527,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                         {job.voidedBy || 'User'} - {job.voidReason || 'Alasan tidak tersedia'}
                       </div>
                     )}
-                  </td>
+                  </td>}
                   <td className="p-2 text-center">
                     <div className="flex items-center justify-center gap-2">
                       {isFinalApproved && (
