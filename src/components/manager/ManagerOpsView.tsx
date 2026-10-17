@@ -21,7 +21,9 @@ import { formatDateDisplay, formatInquiryDate, formatInquiryDateRange, isInquiry
 import { formatCostCategoryLabel } from '../../utils/costCategories';
 import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateRangePicker';
 import { QuotesEPDAView } from '../sales/QuotesEPDAView';
+import { createPdaPreviewHtml } from '../sales/CrewPDAView';
 import { FDAView } from '../fda/FDAView';
+import { listPendingPdaDrafts, PdaDraft, reviewPdaDraft } from '../../lib/api';
 
 interface ManagerOpsViewProps {
   initialTab?: 'DASHBOARD' | 'QUOTES_VIEW' | 'APPROVAL';
@@ -50,13 +52,31 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
   useEffect(() => {
     setSubTab(initialTab);
   }, [initialTab]);
+  useEffect(() => {
+    if (subTab !== 'APPROVAL') return;
+    let cancelled = false;
+    setPdaApprovalLoading(true);
+    setPdaApprovalError('');
+    void listPendingPdaDrafts()
+      .then((drafts) => { if (!cancelled) setPendingPdaDrafts(drafts); })
+      .catch((error: unknown) => {
+        if (!cancelled) setPdaApprovalError(error instanceof Error ? error.message : 'Antrian approval PDA gagal dimuat.');
+      })
+      .finally(() => { if (!cancelled) setPdaApprovalLoading(false); });
+    return () => { cancelled = true; };
+  }, [subTab]);
   const [search, setSearch] = useState('');
   const [reviewDateRange, setReviewDateRange] = useState<InquiryDateRange>({ from: '', to: '' });
   const [reviewPage, setReviewPage] = useState(1);
   const [dashboardPage, setDashboardPage] = useState(1);
   const [approvalNotes, setApprovalNotes] = useState<{ [key: string]: string }>({});
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [pendingPdaDrafts, setPendingPdaDrafts] = useState<PdaDraft[]>([]);
+  const [pdaApprovalError, setPdaApprovalError] = useState('');
+  const [pdaApprovalLoading, setPdaApprovalLoading] = useState(false);
+  const [reviewingPdaJobId, setReviewingPdaJobId] = useState<string | null>(null);
   const [expandedDetailJobId, setExpandedDetailJobId] = useState<string | null>(null);
+  const [expandedPdaApprovalJobId, setExpandedPdaApprovalJobId] = useState<string | null>(null);
   const [expandedFDAApprovalJobId, setExpandedFDAApprovalJobId] = useState<string | null>(null);
   const [expandedQuoteDetail, setExpandedQuoteDetail] = useState<string | null>(null);
   const managerActorName = `${approverName.trim()} (Manager Ops)`;
@@ -164,6 +184,23 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
     const result = db.rejectFDA(jobId, managerActorName, notes);
     setActionSuccess(result ? `FDA ${jobId} dikembalikan ke tim FDA untuk revisi.` : 'FDA tidak dapat dikembalikan karena statusnya bukan SUBMITTED.');
     setTimeout(() => setActionSuccess(null), 4000);
+  };
+
+  const handleReviewPda = async (draft: PdaDraft, decision: 'APPROVED' | 'REVISION_REQUIRED') => {
+    setReviewingPdaJobId(draft.jobId);
+    setPdaApprovalError('');
+    try {
+      await reviewPdaDraft(draft.jobId, decision, approvalNotes[`${draft.jobId}:PDA`] || '', draft.pdaType);
+      setPendingPdaDrafts((current) => current.filter((item) => item.jobId !== draft.jobId));
+      setActionSuccess(decision === 'APPROVED'
+        ? `PDA ${draft.pdaNo} disetujui.`
+        : `PDA ${draft.pdaNo} dikembalikan ke Sales untuk revisi.`);
+      setTimeout(() => setActionSuccess(null), 4000);
+    } catch (error) {
+      setPdaApprovalError(error instanceof Error ? error.message : 'Review PDA gagal disimpan.');
+    } finally {
+      setReviewingPdaJobId(null);
+    }
   };
 
   const filteredReviewJobs = jobCalls.filter((job) => {
@@ -701,6 +738,66 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
       {/* APPROVAL TAB */}
       {subTab === 'APPROVAL' && (
         <div className="space-y-4">
+          <div className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl">
+            <div>
+              <h2 className="text-base font-bold uppercase tracking-wider text-white">Antrian Approval PDA Crew</h2>
+              <p className="mt-1 text-xs text-slate-400">Periksa rincian PDA sebelum menyetujui atau mengembalikannya ke Sales.</p>
+            </div>
+            {pdaApprovalError && <div role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-200">{pdaApprovalError}</div>}
+            {pdaApprovalLoading ? (
+              <div className="rounded-xl border border-slate-800 bg-slate-950 p-6 text-center text-sm text-slate-400">Memuat antrean PDA...</div>
+            ) : pendingPdaDrafts.length === 0 ? (
+              <div className="rounded-xl border border-slate-800 bg-slate-950 p-8 text-center">
+                <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-emerald-400" />
+                <p className="text-sm font-bold text-white">Tidak ada permohonan approval yang tertunda saat ini.</p>
+              </div>
+            ) : pendingPdaDrafts.map((draft) => {
+              const job = jobCalls.find((item) => item.jobId === draft.jobId);
+              const currency = draft.currency;
+              const total = draft.items.reduce((sum, item) => sum + item.quantity * item.price * (item.vatApplied ? 1.11 : 1), 0);
+              return (
+                <div key={draft.jobId} className="space-y-3 rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  <div className="flex flex-col justify-between gap-2 border-b border-slate-800 pb-3 sm:flex-row sm:items-center">
+                    <div>
+                      <span className="rounded bg-slate-900 px-2 py-0.5 text-xs font-mono font-bold text-cyan-400">{draft.jobId}</span>
+                      <h3 className="mt-1 text-base font-bold text-white">{job ? `${job.vesselName} • ${job.customerName}` : 'Vessel call PDA'}</h3>
+                      <p className="mt-1 text-xs text-slate-400">PDA {draft.pdaType} · No. {draft.pdaNo} · Dikirim {draft.submittedAt ? formatDateDisplay(draft.submittedAt, true) : '-'} oleh {draft.submittedBy || draft.pdaType}</p>
+                    </div>
+                    <span className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-300">MENUNGGU APPROVAL</span>
+                  </div>
+                  {job ? (
+                    <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-900 p-3">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedPdaApprovalJobId((current) => current === draft.jobId ? null : draft.jobId)}
+                        className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-300 underline hover:text-emerald-200"
+                      >
+                        <Eye className="h-4 w-4" />
+                        {expandedPdaApprovalJobId === draft.jobId ? 'Tutup PDA Cetak/PDF' : 'Lihat PDA Cetak/PDF'}
+                      </button>
+                      {expandedPdaApprovalJobId === draft.jobId && (
+                        <iframe
+                          title={`Pratinjau PDA ${draft.pdaNo}`}
+                          srcDoc={createPdaPreviewHtml(job, draft.items, draft.currency, draft.pdaNo, draft.pdaType)}
+                          className="h-[72vh] min-h-[520px] w-full rounded border border-slate-700 bg-white"
+                        />
+                      )}
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">Detail job untuk PDA ini tidak ditemukan.</div>
+                  )}
+                  <div className="flex flex-col items-center gap-3 pt-1 sm:flex-row">
+                    <input type="text" placeholder="Catatan approval / revisi PDA..." value={approvalNotes[`${draft.jobId}:PDA`] || ''} onChange={(event) => setApprovalNotes({ ...approvalNotes, [`${draft.jobId}:PDA`]: event.target.value })} className="w-full flex-1 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none" />
+                    <div className="flex w-full items-center gap-2 sm:w-auto">
+                      <button type="button" disabled={reviewingPdaJobId === draft.jobId || !(approvalNotes[`${draft.jobId}:PDA`] || '').trim()} onClick={() => void handleReviewPda(draft, 'REVISION_REQUIRED')} className="flex-1 rounded-lg border border-rose-500/30 bg-rose-600/20 px-3.5 py-2 text-xs font-bold text-rose-300 transition hover:bg-rose-600/30 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-initial"><XCircle className="mr-1 inline h-4 w-4"/>Kembalikan untuk Revisi</button>
+                      <button type="button" disabled={reviewingPdaJobId === draft.jobId} onClick={() => void handleReviewPda(draft, 'APPROVED')} className="flex-1 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-lg transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-initial"><CheckCircle2 className="mr-1 inline h-4 w-4"/>Approve PDA</button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
             <h2 className="text-base font-bold text-white uppercase tracking-wider mb-2">
               Antrian Approval Dokumen EPDA
@@ -712,10 +809,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
             {pendingApprovals.length === 0 ? (
               <div className="p-8 text-center bg-slate-950 rounded-xl border border-slate-800/80">
                 <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
-                <p className="text-sm font-bold text-white">Semua Dokumen Telah Di-Review!</p>
-                <p className="text-xs text-slate-400 mt-1">
-                  Tidak ada permohonan approval penawaran yang tertunda saat ini.
-                </p>
+                <p className="text-sm font-bold text-white">Tidak ada permohonan approval yang tertunda saat ini.</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -820,7 +914,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
             {pendingFDAApprovals.length === 0 ? (
               <div className="rounded-xl border border-slate-800 bg-slate-950 p-8 text-center">
                 <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-emerald-400" />
-                <p className="text-sm font-bold text-white">Tidak ada FDA menunggu approval</p>
+                <p className="text-sm font-bold text-white">Tidak ada permohonan approval yang tertunda saat ini.</p>
               </div>
             ) : pendingFDAApprovals.map((job) => {
               const currency = job.fda.currency || job.actualCosts?.[0]?.currency || job.currency || 'USD';

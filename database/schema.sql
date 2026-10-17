@@ -40,6 +40,13 @@ CREATE TABLE pda_number_sequences (
   PRIMARY KEY (year, branch_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE fpda_number_sequences (
+  year SMALLINT UNSIGNED NOT NULL,
+  branch_code VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  last_sequence INT UNSIGNED NOT NULL,
+  PRIMARY KEY (year, branch_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE pda_number_issues (
   request_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
   user_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -250,7 +257,8 @@ CREATE TABLE vessel_calls (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE pda_documents (
-  job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  pda_type ENUM('SALES', 'FDA') NOT NULL DEFAULT 'SALES',
   pda_no VARCHAR(180) CHARACTER SET ascii COLLATE ascii_bin NOT NULL UNIQUE,
   branch_code VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   created_by_user_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -261,9 +269,17 @@ CREATE TABLE pda_documents (
   eta_remarks TEXT NOT NULL,
   etd_remarks TEXT NOT NULL,
   item_draft JSON NOT NULL,
+  approval_status ENUM('DRAFT', 'SUBMITTED', 'APPROVED', 'REVISION_REQUIRED') NOT NULL DEFAULT 'DRAFT',
+  submitted_by VARCHAR(150) NULL,
+  submitted_at DATETIME(3) NULL,
+  reviewed_by VARCHAR(150) NULL,
+  reviewed_at DATETIME(3) NULL,
+  review_notes TEXT NULL,
   revision INT UNSIGNED NOT NULL DEFAULT 1,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (job_id, pda_type),
+  INDEX idx_pda_documents_approval_status (approval_status),
   INDEX idx_pda_documents_branch (branch_code),
   CONSTRAINT fk_pda_documents_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id) ON DELETE CASCADE,
   CONSTRAINT fk_pda_documents_user FOREIGN KEY (created_by_user_id) REFERENCES users(id)
@@ -272,16 +288,17 @@ CREATE TABLE pda_documents (
 CREATE TABLE pda_items (
   id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
   job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  pda_type ENUM('SALES', 'FDA') NOT NULL DEFAULT 'SALES',
   line_no INT UNSIGNED NOT NULL,
-  category ENUM('SIGN_ON_CREW', 'SIGN_OFF_CREW', 'CREW_MUTATION', 'MEDICAL_TREATMENT', 'CREW_BRIEFING') NOT NULL,
+  category ENUM('SIGN_ON_CREW', 'SIGN_OFF_CREW', 'CREW_MUTATION', 'MEDICAL_TREATMENT', 'CREW_BRIEFING', 'AGENCY_FEE') NOT NULL,
   description VARCHAR(250) NOT NULL,
   quantity DECIMAL(18,6) NOT NULL DEFAULT 1 CHECK (quantity >= 0),
   unit VARCHAR(80) NOT NULL DEFAULT '',
   price DECIMAL(30,12) NOT NULL DEFAULT 0 CHECK (price >= 0),
   remarks TEXT NOT NULL,
   vat_applied TINYINT(1) NOT NULL DEFAULT 0,
-  UNIQUE KEY uq_pda_items_line (job_id, line_no),
-  CONSTRAINT fk_pda_items_document FOREIGN KEY (job_id) REFERENCES pda_documents(job_id) ON DELETE CASCADE
+  UNIQUE KEY uq_pda_items_line (job_id, pda_type, line_no),
+  CONSTRAINT fk_pda_items_document FOREIGN KEY (job_id, pda_type) REFERENCES pda_documents(job_id, pda_type) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE job_call_number_registry (

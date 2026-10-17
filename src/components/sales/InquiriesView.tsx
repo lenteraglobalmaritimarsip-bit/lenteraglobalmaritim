@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   FileQuestion,
   Plus,
@@ -19,6 +19,7 @@ import { db } from '../../db/storage';
 import { AuthAccount } from '../../auth';
 import { formatDateDisplay, formatInquiryDate, isInquiryDateInRange } from '../../utils/date';
 import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateRangePicker';
+import { listApprovedPdaJobIds } from '../../lib/api';
 
 interface InquiriesViewProps {
   jobCalls: JobCall[];
@@ -28,6 +29,7 @@ interface InquiriesViewProps {
   currentUser: AuthAccount;
   onSelectJob: (jobId: string) => void;
   onNavigateToQuotes: () => void;
+  onOpenPDA?: () => void;
   onDataSaved?: () => void;
   showFdaStatusColumn?: boolean;
 }
@@ -137,6 +139,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
   currentUser,
   onSelectJob,
   onNavigateToQuotes,
+  onOpenPDA,
   onDataSaved,
   showFdaStatusColumn = false,
 }) => {
@@ -151,6 +154,16 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
   const [masterDataError, setMasterDataError] = useState('');
   const [createInquiryError, setCreateInquiryError] = useState('');
   const [isCreatingInquiry, setIsCreatingInquiry] = useState(false);
+  const [approvedPdaJobIds, setApprovedPdaJobIds] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    if (currentUser.role !== 'SALES') return;
+    let cancelled = false;
+    void listApprovedPdaJobIds()
+      .then((jobIds) => { if (!cancelled) setApprovedPdaJobIds(new Set(jobIds)); })
+      .catch(() => { if (!cancelled) setApprovedPdaJobIds(new Set()); });
+    return () => { cancelled = true; };
+  }, [currentUser.branch, currentUser.role]);
 
   const getJobStatus = (job: JobCall): { label: string; color: string } => {
     if (job.voidedAt) {
@@ -537,6 +550,17 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                           aria-label="Lihat Quotes EPDA yang telah disetujui"
                           onClick={() => { onSelectJob(job.jobId); onNavigateToQuotes(); }}
                           className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-500/30 bg-emerald-500/15 text-emerald-300 transition hover:bg-emerald-500/25"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                      )}
+                      {currentUser.role === 'SALES' && onOpenPDA && approvedPdaJobIds.has(job.jobId) && (
+                        <button
+                          type="button"
+                          title="Lihat PDA yang telah disetujui"
+                          aria-label={`Lihat PDA yang telah disetujui untuk ${job.jobId}`}
+                          onClick={() => { onSelectJob(job.jobId); onOpenPDA(); }}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-cyan-500/30 bg-cyan-500/15 text-cyan-300 transition hover:bg-cyan-500/25"
                         >
                           <Eye className="h-4 w-4" />
                         </button>

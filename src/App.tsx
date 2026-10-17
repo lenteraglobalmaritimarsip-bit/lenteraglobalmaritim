@@ -71,6 +71,7 @@ export default function App() {
   const [databaseError, setDatabaseError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<AuthAccount | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('DASHBOARD');
+  const [fdaPdaViewMode, setFdaPdaViewMode] = useState<'CREATE' | 'VIEW_SALES'>('CREATE');
   const [viewSessionKey, setViewSessionKey] = useState(0);
   const [selectedJobId, setSelectedJobId] = useState<string>(
     data.jobCalls[0]?.jobId || ''
@@ -395,6 +396,7 @@ export default function App() {
                 currentUser={currentUser}
                 onSelectJob={setSelectedJobId}
                 onNavigateToQuotes={() => setActiveTab('QUOTES_EPDA_DETAIL')}
+                onOpenPDA={() => setActiveTab('PDA_CREW_DETAIL')}
                 onDataSaved={notifySaved}
               />
             )}
@@ -409,6 +411,7 @@ export default function App() {
                 enablePagination
                 showStatusColumn
                 showPdaButton
+                pdaReferenceSource="EPDA"
               />
             )}
 
@@ -461,6 +464,8 @@ export default function App() {
                 vessels={data.vessels}
                 onSelectJob={setSelectedJobId}
                 onOpenEPDA={() => setActiveTab('ACTUAL_COST')}
+                onOpenPDA={() => { setFdaPdaViewMode('CREATE'); setActiveTab('FDA_PDA_DETAIL'); }}
+                onViewApprovedPDA={() => { setFdaPdaViewMode('VIEW_SALES'); setActiveTab('FDA_PDA_DETAIL'); }}
                 title="Created FDA"
                 description="Pembuatan Final Disbursement Account."
                 moduleLabel="FDA Operator"
@@ -468,6 +473,20 @@ export default function App() {
                 enablePagination
                 showStatusColumn
                 statusColumnType="fda"
+                showPdaButton
+                showApprovedPdaEyeButton
+                pdaActionLabel="Buat FPDA"
+                pdaReferenceSource="FDA"
+              />
+            )}
+
+            {currentRole === 'FDA' && activeTab === 'FDA_PDA_DETAIL' && roleVisibleJobCalls.length > 0 && (
+              <CrewPDAView
+                job={currentJob}
+                vessels={data.vessels}
+                pdaType={fdaPdaViewMode === 'VIEW_SALES' ? 'SALES' : 'FDA'}
+                viewApprovedSalesPda={fdaPdaViewMode === 'VIEW_SALES'}
+                onBack={() => setActiveTab('FDA_QUOTES_EPDA')}
               />
             )}
 
@@ -552,6 +571,7 @@ export default function App() {
                   jobCalls={roleVisibleJobCalls}
                   vessels={data.vessels}
                   activeJob={currentJob}
+                  activeUserBranch={currentUser?.branch}
                   onSelectJob={setSelectedJobId}
                   fixTariffs={data.fixTariffs}
                   expensesItems={data.expensesItems}

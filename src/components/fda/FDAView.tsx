@@ -35,6 +35,7 @@ interface FDAViewProps {
   jobCalls: JobCall[];
   vessels: Vessel[];
   activeJob: JobCall;
+  activeUserBranch?: string;
   onSelectJob: (jobId: string) => void;
   fixTariffs?: FixTariff[];
   expensesItems?: ExpensesItem[];
@@ -47,6 +48,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   jobCalls,
   vessels,
   activeJob,
+  activeUserBranch,
   onSelectJob,
   fixTariffs = [],
   expensesItems = [],
@@ -1077,7 +1079,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   const fdaDate = new Date(activeJob.fda?.date || activeJob.createdAt);
   const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-  const fdaNo = activeJob.fda?.fdaNo || db.getNextFDAFormNumber(activeJob.inquiry?.createdByBranch || 'JKT', today);
+  const fdaBranch = activeUserBranch || activeJob.inquiry?.createdByBranch || 'JKT';
+  const fdaNo = activeJob.fda?.fdaNo || db.getNextFDAFormNumber(fdaBranch, today);
 
   const buildFDAHtmlSalesTemplate = (print: boolean) => {
     const escape = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -1358,7 +1361,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     const now = nowDate.toISOString();
     const today = new Date(nowDate.getTime() - nowDate.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
     const invoiceNo = activeJob.principalInvoice?.invoiceNo || `INV-${activeJob.jobId}`;
-    const fdaNoGenerated = activeJob.fda?.fdaNo || db.getNextFDAFormNumber(activeJob.inquiry?.createdByBranch || 'JKT', today);
+    const fdaNoGenerated = activeJob.fda?.fdaNo || db.getNextFDAFormNumber(fdaBranch, today);
     const apFromActual = activeJob.ap?.length ? activeJob.ap : activeJob.actualCosts.map((it, idx) => ({
       id: `AP-${activeJob.jobId}-${idx + 1}`, jobId: activeJob.jobId, voucherNo: it.invoiceOrVoucherNo || `PV-${activeJob.jobId}-${idx + 1}`,
       vendorName: it.vendorName || 'Vendor / Instansi', description: it.description, invoiceDate: it.date,

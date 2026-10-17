@@ -139,7 +139,8 @@ const normalizeBranchCode = (branch: string): string => branch.trim().toUpperCas
 const nextFormNumber = (jobCalls: JobCall[], type: 'EPDA' | 'FDA', branch: string, date: string): string => {
   const [year, month] = date.split('-');
   const branchCode = normalizeBranchCode(branch);
-  const prefix = `${type}-LGM-${branchCode}`;
+  const documentType = type;
+  const prefix = `${documentType}-LGM-${branchCode}`;
   const maxSequence = jobCalls.reduce((max, job) => {
     const number = type === 'EPDA' ? job.quotation?.epda?.quoteNo : job.fda?.fdaNo;
     const match = number?.match(/^(\d+)\/(EPDA|FDA)-LGM-([A-Z0-9]+)\/(\d{2})\/(\d{4})$/);
