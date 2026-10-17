@@ -1237,11 +1237,125 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
             <span>VAT / PPN 11% Global<small>Ditambahkan pada Grand Total</small></span>
           </label>
         </div>
-        <div className="overflow-x-auto"><table className="w-full text-left text-xs border-separate border-spacing-0"><thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider"><tr><th className="p-3.5 border-l border-slate-700">No</th><th className="p-3.5 border-l border-slate-700">Description</th><th className="p-3.5 border-l border-slate-700">Tariff</th><th className="p-3.5 text-right border-l border-slate-700">Amount ({viewCurrency})</th><th className="p-3.5 border-l border-slate-700">Remark</th></tr></thead><tbody className="divide-y divide-slate-800">                {groupedItems.map((group, categoryIndex) => {
-          const total = group.items.reduce((sum, item) => sum + item.totalBuyRate, 0);
-          const vat = categoryVatAmount(group.items);
-          return <React.Fragment key={group.category}><tr className={`epda-category-row ${categoryTone.screen} font-bold`}><td colSpan={5} className="font-black uppercase tracking-[0.16em] border-l border-slate-700"><span className="epda-category-label">{categoryLabel(group.category)}</span></td></tr>{group.items.map((it, index) => <tr key={it.id} className="transition-colors hover:bg-slate-700/40"><td className="p-3.5 font-mono text-slate-300 border-l border-slate-800">{index + 1}{it.vatApplied && <span className="ml-0.5 font-bold text-blue-400" title="VAT 11%" aria-label="VAT 11%">*</span>}</td><td className="p-3.5 font-bold text-white border-l border-slate-800">{editingItemId === it.id ? <input value={itemEditDraft.description} onChange={(event) => setItemEditDraft({ ...itemEditDraft, description: event.target.value })} aria-label={`Description ${it.name}`} className="w-full rounded border border-slate-600 bg-slate-950 px-2 py-1 text-white"/> : it.name}</td><td className="p-3.5 font-mono text-cyan-300 border-l border-slate-800">{editingItemId === it.id ? <input inputMode="decimal" value={itemEditDraft.tariff} onChange={(event) => setItemEditDraft({ ...itemEditDraft, tariff: event.target.value })} aria-label={`Tariff ${it.name}`} className="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1 text-white"/> : getItemTariff(it)}</td><td className="p-3.5 text-right font-mono font-bold text-white border-l border-slate-800"><div className="flex items-center justify-end gap-2">{editingItemId === it.id ? <><input autoFocus inputMode="decimal" value={itemEditDraft.amount} onChange={(event) => setItemEditDraft({ ...itemEditDraft, amount: event.target.value })} aria-label={`Amount ${it.name}`} className="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1 text-right text-white"/><button type="button" onClick={() => saveEditedItem(it.id)} className="rounded p-1 text-emerald-300 hover:bg-emerald-500/20" title="Simpan amount" aria-label={`Simpan amount ${it.name}`}><Check className="h-4 w-4"/></button><button type="button" onClick={cancelEditItem} className="rounded p-1 text-slate-400 hover:bg-slate-700" title="Batal edit amount"><X className="h-4 w-4"/></button></> : formatAmount(it.totalBuyRate)}</div></td><td className="p-3.5 text-slate-300 border-l border-slate-800"><div className="flex items-center justify-between gap-3">{editingItemId === it.id ? <input value={itemEditDraft.remarks} onChange={(event) => setItemEditDraft({ ...itemEditDraft, remarks: event.target.value })} aria-label={`Remark ${it.name}`} className="w-full rounded border border-slate-600 bg-slate-950 px-2 py-1 text-white"/> : <span>{it.remarks || '-'}</span>}<div className="flex items-center gap-1"><>{!isReviewOnly && !isEPDALockedInDatabase() && editingItemId !== it.id && <button type="button" onClick={() => startEditItem(it)} className="rounded p-1.5 text-cyan-300 hover:bg-cyan-500/20" title="Edit item" aria-label={`Edit ${it.name}`}><Pencil className="h-3.5 w-3.5"/></button>}<button type="button" onClick={() => autosaveItems(items.filter((item) => item.id !== it.id))} className="p-1.5 rounded-md text-rose-300 hover:bg-rose-500/20 hover:text-rose-200" title="Hapus item EPDA" aria-label={`Hapus ${it.name}`}><Trash2 className="w-3.5 h-3.5" /></button></></div></div></td></tr>)}<tr className="bg-slate-950/70"><td colSpan={3} className="p-2.5 text-right font-bold uppercase tracking-wider text-slate-200 border-l border-slate-800">TOTAL</td><td className="epda-subtotal-amount p-2.5 text-right font-mono text-xs font-bold text-white border-l border-slate-800">{formatAmount(total)}</td><td className="border-l border-slate-800" /></tr>{group.items.some((item) => item.vatApplied) && <tr className="bg-slate-950/70"><td colSpan={3} className="p-2.5 text-right font-bold uppercase tracking-wider text-slate-200 border-l border-slate-800">VAT 11%</td><td className="p-2.5 text-right font-mono text-xs font-bold text-white border-l border-slate-800">{formatAmount(vat)}</td><td className="border-l border-slate-800" /></tr>}<tr className="bg-slate-950/70"><td colSpan={3} className="p-2.5 text-right font-bold uppercase tracking-wider text-slate-200 border-l border-slate-800">SUB TOTAL {categoryIndex + 1}</td><td className="epda-subtotal-amount p-2.5 text-right font-mono text-xs font-bold text-white border-l border-slate-800">{formatAmount(total + vat)}</td><td className="border-l border-slate-800" /></tr></React.Fragment>;
-        })}</tbody><tfoot className="bg-slate-950">{epdaPph23Amount > 0 && <tr><td colSpan={3} className="p-3.5 text-right font-bold uppercase tracking-wider text-rose-300 border-l border-slate-800">PPH 23 (2%)</td><td className="p-3.5 text-right font-mono text-xs font-bold text-rose-300 border-l border-slate-800">-{formatAmount(epdaPph23Amount)}</td><td className="border-l border-slate-800"/></tr>}<tr className="epda-grand-total-row"><td colSpan={3} className="p-3.5 text-right font-black uppercase tracking-wider text-white border-l border-slate-800">{epdaSubTotalLabel}</td><td className="p-3.5 text-right font-mono text-xs font-black text-white border-l border-slate-800">{formatAmount(epdaGrandTotalBeforeGlobalVat)}</td><td className="border-l border-slate-800"/></tr>{epdaGlobalVatApplied && <><tr><td colSpan={3} className="p-3.5 text-right font-bold uppercase tracking-wider text-amber-300 border-l border-slate-800">VAT / PPN 11% Global</td><td className="p-3.5 text-right font-mono text-xs font-bold text-amber-300 border-l border-slate-800">{formatAmount(epdaGlobalVatAmount)}</td><td className="border-l border-slate-800"/></tr><tr><td colSpan={3} className="p-3.5 text-right font-black uppercase tracking-wider text-white border-l border-slate-800">TOTAL TERMASUK VAT GLOBAL</td><td className="p-3.5 text-right font-mono text-xs font-black text-white border-l border-slate-800">{formatAmount(totalSellUSD)}</td><td className="border-l border-slate-800"/></tr></>}</tfoot></table></div>
+        <div className="epda-results-card pda-results-card overflow-x-auto rounded-lg">
+          <table className="w-full min-w-[900px] table-fixed text-left text-xs border-separate border-spacing-0">
+            <colgroup>
+              <col className="w-[7%]" />
+              <col className="w-[32%]" />
+              <col className="w-[23%]" />
+              <col className="w-[18%]" />
+              <col className="w-[20%]" />
+            </colgroup>
+            <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider">
+              <tr>
+                <th className="border-l border-slate-700 p-3.5 text-center">No</th>
+                <th className="border-l border-slate-700 p-3.5 text-center">Description</th>
+                <th className="border-l border-slate-700 p-3.5 text-center">Tariff</th>
+                <th className="border-l border-slate-700 p-3.5 text-center">Amount ({viewCurrency})</th>
+                <th className="border-l border-slate-700 p-3.5 text-center">Remark</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {groupedItems.map((group, categoryIndex) => {
+                const total = group.items.reduce((sum, item) => sum + item.totalBuyRate, 0);
+                const vat = categoryVatAmount(group.items);
+                return (
+                  <React.Fragment key={group.category}>
+                    <tr className={`epda-category-row ${categoryTone.screen} font-bold`}>
+                      <td colSpan={5} className="border-l border-slate-700">
+                        <span className="epda-category-label">{categoryLabel(group.category)}</span>
+                      </td>
+                    </tr>
+                    {group.items.map((it, index) => (
+                      <tr key={it.id} className="transition-colors hover:bg-slate-700/40">
+                        <td className="border-l border-slate-800 p-3.5 font-mono text-slate-300">
+                          {index + 1}{it.vatApplied && <span className="ml-0.5 font-bold text-blue-400" title="VAT 11%" aria-label="VAT 11%">*</span>}
+                        </td>
+                        <td className="border-l border-slate-800 p-3.5 font-bold text-white">
+                          {editingItemId === it.id
+                            ? <input value={itemEditDraft.description} onChange={(event) => setItemEditDraft({ ...itemEditDraft, description: event.target.value })} aria-label={`Description ${it.name}`} className="w-full rounded border border-slate-600 bg-slate-950 px-2 py-1 text-white" />
+                            : it.name}
+                        </td>
+                        <td className="border-l border-slate-800 p-3.5 font-mono text-cyan-300">
+                          {editingItemId === it.id
+                            ? <input inputMode="decimal" value={itemEditDraft.tariff} onChange={(event) => setItemEditDraft({ ...itemEditDraft, tariff: event.target.value })} aria-label={`Tariff ${it.name}`} className="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1 text-white" />
+                            : getItemTariff(it)}
+                        </td>
+                        <td className="border-l border-slate-800 p-3.5 text-right font-mono font-bold text-white">
+                          <div className="flex items-center justify-end gap-2">
+                            {editingItemId === it.id
+                              ? <>
+                                  <input autoFocus inputMode="decimal" value={itemEditDraft.amount} onChange={(event) => setItemEditDraft({ ...itemEditDraft, amount: event.target.value })} aria-label={`Amount ${it.name}`} className="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1 text-right text-white" />
+                                  <button type="button" onClick={() => saveEditedItem(it.id)} className="rounded p-1 text-emerald-300 hover:bg-emerald-500/20" title="Simpan amount" aria-label={`Simpan amount ${it.name}`}><Check className="h-4 w-4" /></button>
+                                  <button type="button" onClick={cancelEditItem} className="rounded p-1 text-slate-400 hover:bg-slate-700" title="Batal edit amount"><X className="h-4 w-4" /></button>
+                                </>
+                              : formatAmount(it.totalBuyRate)}
+                          </div>
+                        </td>
+                        <td className="border-l border-slate-800 p-3.5 text-slate-300">
+                          <div className="flex items-center justify-between gap-3">
+                            {editingItemId === it.id
+                              ? <input value={itemEditDraft.remarks} onChange={(event) => setItemEditDraft({ ...itemEditDraft, remarks: event.target.value })} aria-label={`Remark ${it.name}`} className="w-full rounded border border-slate-600 bg-slate-950 px-2 py-1 text-white" />
+                              : <span>{it.remarks || '-'}</span>}
+                            <div className="flex items-center gap-1">
+                              {!isReviewOnly && !isEPDALockedInDatabase() && editingItemId !== it.id && <button type="button" onClick={() => startEditItem(it)} className="rounded p-1.5 text-cyan-300 hover:bg-cyan-500/20" title="Edit item" aria-label={`Edit ${it.name}`}><Pencil className="h-3.5 w-3.5" /></button>}
+                              <button type="button" onClick={() => autosaveItems(items.filter((item) => item.id !== it.id))} className="rounded-md p-1.5 text-rose-300 hover:bg-rose-500/20 hover:text-rose-200" title="Hapus item EPDA" aria-label={`Hapus ${it.name}`}><Trash2 className="h-3.5 w-3.5" /></button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="bg-slate-950/70">
+                      <td colSpan={3} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-slate-200">TOTAL</td>
+                      <td className="epda-subtotal-amount border-l border-slate-800 p-2.5 text-right font-mono text-xs font-bold text-white">{formatAmount(total)}</td>
+                      <td className="border-l border-slate-800" />
+                    </tr>
+                    {group.items.some((item) => item.vatApplied) && (
+                      <tr className="bg-slate-950/70">
+                        <td colSpan={3} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-slate-200">VAT 11%</td>
+                        <td className="border-l border-slate-800 p-2.5 text-right font-mono text-xs font-bold text-white">{formatAmount(vat)}</td>
+                        <td className="border-l border-slate-800" />
+                      </tr>
+                    )}
+                    <tr className="bg-slate-950/70">
+                      <td colSpan={3} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-slate-200">SUB TOTAL {categoryIndex + 1}</td>
+                      <td className="epda-subtotal-amount border-l border-slate-800 p-2.5 text-right font-mono text-xs font-bold text-white">{formatAmount(total + vat)}</td>
+                      <td className="border-l border-slate-800" />
+                    </tr>
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+            <tfoot className="bg-slate-950">
+              {epdaPph23Amount > 0 && (
+                <tr>
+                  <td colSpan={3} className="border-l border-slate-800 p-3.5 text-right font-bold uppercase tracking-wider text-rose-300">PPH 23 (2%)</td>
+                  <td className="border-l border-slate-800 p-3.5 text-right font-mono text-xs font-bold text-rose-300">-{formatAmount(epdaPph23Amount)}</td>
+                  <td className="border-l border-slate-800" />
+                </tr>
+              )}
+              <tr className="epda-grand-total-row">
+                <td colSpan={3} className="border-l border-slate-800 p-3.5 text-right font-black uppercase tracking-wider text-white">{epdaSubTotalLabel}</td>
+                <td className="border-l border-slate-800 p-3.5 text-right font-mono text-xs font-black text-white">{formatAmount(epdaGrandTotalBeforeGlobalVat)}</td>
+                <td className="border-l border-slate-800" />
+              </tr>
+              {epdaGlobalVatApplied && (
+                <>
+                  <tr>
+                    <td colSpan={3} className="border-l border-slate-800 p-3.5 text-right font-bold uppercase tracking-wider text-amber-300">VAT / PPN 11% Global</td>
+                    <td className="border-l border-slate-800 p-3.5 text-right font-mono text-xs font-bold text-amber-300">{formatAmount(epdaGlobalVatAmount)}</td>
+                    <td className="border-l border-slate-800" />
+                  </tr>
+                  <tr>
+                    <td colSpan={3} className="border-l border-slate-800 p-3.5 text-right font-black uppercase tracking-wider text-white">TOTAL TERMASUK VAT GLOBAL</td>
+                    <td className="border-l border-slate-800 p-3.5 text-right font-mono text-xs font-black text-white">{formatAmount(totalSellUSD)}</td>
+                    <td className="border-l border-slate-800" />
+                  </tr>
+                </>
+              )}
+            </tfoot>
+          </table>
+        </div>
       </div>
 
       {!isReviewOnly && <div className="rounded-2xl border border-slate-300 bg-[#edf2f4] p-5 shadow-sm">

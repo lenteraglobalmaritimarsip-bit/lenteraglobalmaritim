@@ -860,7 +860,20 @@ button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid 
 .epda-results-card table tfoot tr:last-child td,.fda-results-card table tbody tr:last-child td{border-bottom-color:#dce5f0}
 .epda-form-root .epda-results-card table .epda-category-row td,.fda-form-root .fda-results-card table .fda-category-row td{background:#eaf0f8!important;color:#34445e!important}
 .epda-form-root .epda-results-card table .epda-category-label,.fda-form-root .fda-results-card table .fda-category-label{color:#34445e!important;-webkit-text-fill-color:#34445e!important;font-size:10px!important;letter-spacing:.12em}
-.pda-results-card table .epda-category-row td{height:auto;min-height:30px;padding:9px 12px!important;background:#eaf0f8!important;color:#34445e!important;line-height:1.4!important;white-space:normal}
+.epda-results-card.pda-results-card table thead th,.fda-results-card.pda-results-card table thead th{
+  height:46px;padding:12px 14px!important;line-height:1.35!important;vertical-align:middle;
+}
+.epda-results-card.pda-results-card table tbody td,.fda-results-card.pda-results-card table tbody td,
+.epda-results-card.pda-results-card table tfoot td,.fda-results-card.pda-results-card table tfoot td{
+  padding:8px 12px!important;line-height:1.35!important;vertical-align:middle;
+}
+.epda-results-card.pda-results-card table .epda-category-row td,
+.fda-results-card.pda-results-card table .fda-category-row td{
+  padding:7px 12px!important;line-height:1.3!important;
+}
+.epda-results-card.pda-results-card table .epda-category-row td,
+.fda-results-card.pda-results-card table .fda-category-row td,
+.pda-results-card table .epda-category-row td{height:auto;min-height:0;padding:7px 12px!important;background:#eaf0f8!important;color:#34445e!important;line-height:1.3!important;white-space:normal}
 .pda-results-card table .epda-category-label{display:block!important;color:#34445e!important;-webkit-text-fill-color:#34445e!important;font-size:10px!important;font-weight:900!important;letter-spacing:.12em;line-height:1.4!important}
 .epda-results-card table td,.fda-results-card table td{border-color:#edf1f6}
 .epda-results-card table tfoot tr:last-child td{font-weight:800}

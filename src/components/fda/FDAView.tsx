@@ -1961,15 +1961,22 @@ export const FDAView: React.FC<FDAViewProps> = ({
                 <span>VAT / PPN 11% Global<small>Ditambahkan pada Grand Total</small></span>
               </label>
             </div>
-            <div className="overflow-visible">
-              <table className="w-full text-left text-xs border-separate border-spacing-0">
+            <div className="fda-results-card pda-results-card overflow-x-auto rounded-lg">
+              <table className="w-full min-w-[900px] table-fixed text-left text-xs border-separate border-spacing-0">
+                <colgroup>
+                  <col className="w-[7%]" />
+                  <col className="w-[32%]" />
+                  <col className="w-[23%]" />
+                  <col className="w-[18%]" />
+                  <col className="w-[20%]" />
+                </colgroup>
                 <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider">
                   <tr>
-                    <th className="p-3.5 border-l border-slate-700">No</th>
-                    <th className="p-3.5 border-l border-slate-700">Description</th>
-                    <th className="p-3.5 border-l border-slate-700">Tariff</th>
-                    <th className="p-3.5 text-right border-l border-slate-700">Amount ({viewCurrency})</th>
-                    <th className="p-3 border-l border-slate-700 text-center">Remark</th>
+                    <th className="border-l border-slate-700 p-3.5 text-center">No</th>
+                    <th className="border-l border-slate-700 p-3.5 text-center">Description</th>
+                    <th className="border-l border-slate-700 p-3.5 text-center">Tariff</th>
+                    <th className="border-l border-slate-700 p-3.5 text-center">Amount ({viewCurrency})</th>
+                    <th className="border-l border-slate-700 p-3.5 text-center">Remark</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
