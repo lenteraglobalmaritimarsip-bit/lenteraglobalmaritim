@@ -491,6 +491,9 @@ export interface JobCall {
 
   createdAt: string;
   updatedAt: string;
+  voidedAt?: string;
+  voidedBy?: string;
+  voidReason?: string;
 }
 
 export type ActiveTab =

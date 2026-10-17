@@ -222,6 +222,9 @@ function loadAppState(): array
             'currency' => $job['currency'], 'exchangeRateUSDToIDR' => (float) $job['exchange_rate_usd_to_idr'],
             'eta' => appDateTime($job['eta']) ?? '', 'etd' => appDateTime($job['etd']) ?? '', 'purposeOfCall' => $inquiry['purpose_of_call'] ?? $job['purpose_of_call'],
             'currentStage' => $job['current_stage'], 'status' => $job['status'],
+            'voidedAt' => appDateTime($job['voided_at'] ?? null) ?? '',
+            'voidedBy' => $job['voided_by_name'] ?? '',
+            'voidReason' => $job['void_reason'] ?? '',
             'createdAt' => appDateTime($job['created_at']), 'updatedAt' => appDateTime($job['updated_at']),
             'inquiry' => ['inquiryNo' => $inquiry['inquiry_no'] ?? '', 'date' => $inquiry['inquiry_date'] ?? date('Y-m-d'), 'eta' => appDateTime($inquiry['eta'] ?? null) ?? '', 'etd' => appDateTime($inquiry['etd'] ?? null) ?? '', 'etaRemarks' => $inquiry['eta_remarks'] ?? '', 'etdRemarks' => $inquiry['etd_remarks'] ?? '', 'cargoQuantity' => isset($inquiry['cargo_quantity']) ? (float) $inquiry['cargo_quantity'] : null, 'quantityUnit' => ($inquiry['quantity_unit'] ?? 'TON') === 'MATRIX_TON' ? 'MT' : ($inquiry['quantity_unit'] ?? 'TON'), 'cargoDetails' => $inquiry['cargo_details'] ?? '', 'estimatedDays' => (float) ($inquiry['estimated_days'] ?? 0), 'specialRequirements' => $inquiry['special_requirements'] ?? '', 'status' => $inquiry['status'] ?? 'RECEIVED', 'createdBy' => $inquiry['created_by_name'] ?? '', 'createdByName' => $inquiry['created_by_name'] ?? '', 'createdByUserId' => ($inquiry['created_by_user_id'] ?? null) ?: null, 'createdByBranch' => $inquiry['created_by_branch'] ?? ''],
             'quotation' => ['epda' => $epda, 'crewChange' => $crewChange],
@@ -238,7 +241,8 @@ function loadAppState(): array
     }
 
     $auditLogs = array_map(static fn (array $row): array => ['id' => $row['id'], 'timestamp' => appDateTime($row['logged_at']), 'actorId' => $row['actor_id'], 'actorName' => $row['actor_name'], 'role' => $row['actor_role'], 'action' => $row['action'], 'entity' => $row['entity'], 'entityId' => $row['entity_id'], 'description' => $row['description']], tableRows('audit_logs'));
-    return ['users' => $users, 'customers' => $customers, 'vessels' => $vessels, 'ports' => $ports, 'zones' => $zones, 'fixTariffs' => $fixTariffs, 'expensesItems' => $expensesItems, 'vendorPartners' => $vendorPartners, 'bankAccounts' => $bankAccounts, 'paymentVouchers' => $paymentVouchers, 'jobCalls' => $jobCalls, 'currentRole' => $_SESSION['user']['role'] ?? 'ADMIN', 'selectedJobId' => $jobCalls[0]['jobId'] ?? '', 'auditLogs' => $auditLogs];
+    $reservedJobIds = array_column(tableRows('job_call_number_registry'), 'job_id');
+    return ['users' => $users, 'customers' => $customers, 'vessels' => $vessels, 'ports' => $ports, 'zones' => $zones, 'fixTariffs' => $fixTariffs, 'expensesItems' => $expensesItems, 'vendorPartners' => $vendorPartners, 'bankAccounts' => $bankAccounts, 'paymentVouchers' => $paymentVouchers, 'jobCalls' => $jobCalls, 'reservedJobIds' => $reservedJobIds, 'currentRole' => $_SESSION['user']['role'] ?? 'ADMIN', 'selectedJobId' => $jobCalls[0]['jobId'] ?? '', 'auditLogs' => $auditLogs];
 }
 
 function insertRow(PDO $pdo, string $table, array $row): void
@@ -293,6 +297,24 @@ function uniqueRecordId(array &$used, string $id, string $scope): string
 function replaceAppState(array $state): void
 {
     $pdo = db();
+    $vesselCallColumns = tableColumns($pdo, 'vessel_calls');
+    $missingVoidColumns = $vesselCallColumns === null
+        ? ['voided_at', 'voided_by_name', 'void_reason']
+        : array_values(array_diff(['voided_at', 'voided_by_name', 'void_reason'], $vesselCallColumns));
+    $hasVoidedJobs = count(array_filter($state['jobCalls'] ?? [], static fn (array $job): bool => !empty($job['voidedAt']))) > 0;
+    if ($hasVoidedJobs && $missingVoidColumns) {
+        throw new DatabaseSchemaException(
+            'Database schema mismatch: vessel_calls is missing void columns: '
+            . implode(', ', $missingVoidColumns)
+            . '. Apply database/migrations/20261017_add_vessel_call_void_fields.sql before voiding a Job.'
+        );
+    }
+    if (tableColumns($pdo, 'job_call_number_registry') === null && !empty($state['jobCalls'])) {
+        throw new DatabaseSchemaException(
+            'Database schema mismatch: job_call_number_registry is missing. '
+            . 'Apply database/migrations/20261017_add_job_call_number_registry.sql before saving a Job.'
+        );
+    }
     $paymentVoucherColumns = tableColumns($pdo, 'payment_vouchers');
     $requiredPaymentVoucherColumns = [
         'id', 'request_number', 'request_date', 'job_info', 'request_by', 'request_by_user_id', 'vendor_name',
@@ -345,7 +367,7 @@ function replaceAppState(array $state): void
             }
         }
         foreach (($state['jobCalls'] ?? []) as $job) {
-            insertRow($pdo, 'vessel_calls', ['job_id' => $job['jobId'], 'vessel_id' => $job['vesselId'], 'port_id' => $job['portId'], 'customer_id' => $job['customerId'], 'currency' => $job['currency'], 'exchange_rate_usd_to_idr' => $job['exchangeRateUSDToIDR'] ?? 15800, 'eta' => sqlDate($job['eta'] ?? null), 'etd' => sqlDate($job['etd'] ?? null), 'purpose_of_call' => $job['purposeOfCall'], 'current_stage' => $job['currentStage'], 'status' => $job['status'], 'created_at' => sqlDate($job['createdAt'] ?? null) ?? date('Y-m-d H:i:s'), 'updated_at' => sqlDate($job['updatedAt'] ?? null) ?? date('Y-m-d H:i:s')]);
+            insertRow($pdo, 'vessel_calls', ['job_id' => $job['jobId'], 'vessel_id' => $job['vesselId'], 'port_id' => $job['portId'], 'customer_id' => $job['customerId'], 'currency' => $job['currency'], 'exchange_rate_usd_to_idr' => $job['exchangeRateUSDToIDR'] ?? 15800, 'eta' => sqlDate($job['eta'] ?? null), 'etd' => sqlDate($job['etd'] ?? null), 'purpose_of_call' => $job['purposeOfCall'], 'current_stage' => $job['currentStage'], 'status' => $job['status'], 'voided_at' => sqlDate($job['voidedAt'] ?? null), 'voided_by_name' => $job['voidedBy'] ?? null, 'void_reason' => $job['voidReason'] ?? null, 'created_at' => sqlDate($job['createdAt'] ?? null) ?? date('Y-m-d H:i:s'), 'updated_at' => sqlDate($job['updatedAt'] ?? null) ?? date('Y-m-d H:i:s')]);
             $inquiry = $job['inquiry'] ?? [];
             insertRow($pdo, 'inquiries', ['job_id' => $job['jobId'], 'inquiry_no' => $inquiry['inquiryNo'], 'inquiry_date' => sqlDate($inquiry['date'] ?? null, true) ?? date('Y-m-d'), 'purpose_of_call' => $job['purposeOfCall'], 'eta' => sqlDate($inquiry['eta'] ?? $job['eta'] ?? null) ?? null, 'etd' => sqlDate($inquiry['etd'] ?? $job['etd'] ?? null) ?? null, 'eta_remarks' => $inquiry['etaRemarks'] ?? null, 'etd_remarks' => $inquiry['etdRemarks'] ?? null, 'cargo_quantity' => $inquiry['cargoQuantity'] ?? null, 'quantity_unit' => ($inquiry['quantityUnit'] ?? null) === 'MATRIX_TON' ? 'MT' : ($inquiry['quantityUnit'] ?? null), 'cargo_details' => $inquiry['cargoDetails'] ?? '', 'estimated_days' => $inquiry['estimatedDays'] ?? 0, 'special_requirements' => $inquiry['specialRequirements'] ?? '', 'status' => $inquiry['status'] ?? 'RECEIVED', 'created_by_user_id' => !empty($inquiry['createdByUserId']) ? $inquiry['createdByUserId'] : null, 'created_by_name' => $inquiry['createdByName'] ?? $inquiry['createdBy'] ?? '', 'created_by_branch' => $inquiry['createdByBranch'] ?? null]);
             foreach (['EPDA' => 'epda'] as $quoteType => $key) {
@@ -375,6 +397,20 @@ function replaceAppState(array $state): void
             insertRow($pdo, 'closing_records', ['job_id' => $job['jobId'], 'is_closed' => $closing['isClosed'] ?? false, 'closed_at' => sqlDate($closing['closedAt'] ?? null), 'closed_by_name' => $closing['closedBy'] ?? null, 'final_gross_margin_usd' => $closing['finalGrossMarginUSD'] ?? 0, 'final_gross_margin_idr' => $closing['finalGrossMarginIDR'] ?? 0, 'post_voyage_remarks' => $closing['postVoyageRemarks'] ?? null]);
         }
         foreach (($state['auditLogs'] ?? []) as $log) insertRow($pdo, 'audit_logs', ['id' => $log['id'], 'logged_at' => sqlDate($log['timestamp'] ?? null) ?? date('Y-m-d H:i:s'), 'actor_id' => $log['actorId'] ?? null, 'actor_name' => $log['actorName'] ?? 'System', 'actor_role' => $log['role'] ?? 'ADMIN', 'action' => $log['action'] ?? 'UPDATE', 'entity' => $log['entity'] ?? 'SYSTEM', 'entity_id' => $log['entityId'] ?? null, 'description' => $log['description'] ?? '']);
+        if (tableColumns($pdo, 'job_call_number_registry') !== null) {
+            $registerJobId = $pdo->prepare('INSERT IGNORE INTO job_call_number_registry (job_id) VALUES (?)');
+            $jobIdsToRegister = array_unique(array_merge(
+                $state['reservedJobIds'] ?? [],
+                array_map(static fn (array $job): string => (string) $job['jobId'], $state['jobCalls'] ?? []),
+                array_map(
+                    static fn (array $log): string => (string) ($log['entityId'] ?? ''),
+                    array_filter($state['auditLogs'] ?? [], static fn (array $log): bool => ($log['entity'] ?? '') === 'VESSEL_CALL'),
+                ),
+            ));
+            foreach ($jobIdsToRegister as $jobId) {
+                if ($jobId !== '') $registerJobId->execute([$jobId]);
+            }
+        }
         $pdo->commit();
     } catch (Throwable $error) {
         if ($pdo->inTransaction()) $pdo->rollBack();

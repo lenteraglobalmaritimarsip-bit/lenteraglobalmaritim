@@ -90,6 +90,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!databaseReady || !loginToast) return;
+    const timeout = window.setTimeout(() => setLoginToast(null), 2600);
+    return () => window.clearTimeout(timeout);
+  }, [databaseReady, loginToast]);
+
+  useEffect(() => {
     const stopEnterNavigation = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const isEditable = !!target && (
@@ -128,8 +134,7 @@ export default function App() {
     setViewSessionKey((key) => key + 1);
     db.setActor({ id: freshAccount.id, name: freshAccount.name, role: freshAccount.role, branch: freshAccount.branch });
     db.setRole(freshAccount.role);
-    setLoginToast(`Selamat datang, ${freshAccount.name.split(' ')[0]}!`);
-    setTimeout(() => setLoginToast(null), 2600);
+    setLoginToast(`Selamat datang, ${freshAccount.name}!`);
     setActiveTab(getDefaultTabForRole(freshAccount.role));
   };
 
@@ -271,18 +276,18 @@ export default function App() {
 
   if (!authReady) return <div className="lgm-splash"><div className="lgm-splash-inner"><div className="lgm-spinner" /><span>Memeriksa sesi...</span></div></div>;
   if (!currentUser) return <LoginView onLogin={handleLogin} />;
-  if (!databaseReady) return <div className="lgm-splash"><div className="lgm-splash-inner">{!databaseError && <div className="lgm-spinner" />}<span className={databaseError ? 'lgm-splash-error' : undefined}>{databaseError ? `Database XAMPP gagal dimuat: ${databaseError}` : 'Memuat database XAMPP...'}</span></div></div>;
+  if (!databaseReady) return <div className="lgm-splash"><div className="lgm-splash-inner">{!databaseError && <div className="lgm-spinner" />}{databaseError ? <div role="alert" className="lgm-splash-error">Database XAMPP gagal dimuat: {databaseError}</div> : <span>Memuat database XAMPP...</span>}</div></div>;
 
   return (
     <div className="maritim-app flex flex-col font-sans">
       {loginToast && (
-        <div className="fixed right-5 top-5 z-50 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-700 shadow-lg shadow-emerald-900/10">
+        <div role="status" className="fixed right-5 top-5 z-50 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-700 shadow-lg shadow-emerald-900/10">
           {loginToast}
         </div>
       )}
 
       {saveToast && (
-        <div className="fixed right-5 top-20 z-50 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 shadow-lg shadow-blue-900/10">
+        <div role="status" className="fixed right-5 top-20 z-50 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 shadow-lg shadow-blue-900/10">
           {saveToast}
         </div>
       )}

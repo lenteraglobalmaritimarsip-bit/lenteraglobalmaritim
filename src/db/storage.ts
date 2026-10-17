@@ -38,6 +38,7 @@ export interface DatabaseState {
   bankAccounts: BankAccount[];
   paymentVouchers: PaymentVoucher[];
   jobCalls: JobCall[];
+  reservedJobIds?: string[];
   currentRole: UserRole;
   selectedJobId: string;
   auditLogs: AuditLog[];
@@ -247,7 +248,12 @@ class DatabaseService {
       role: this.actor.role,
       action, entity, entityId, description,
     };
-    this.state.auditLogs = [entry, ...this.state.auditLogs].slice(0, 500);
+    const logs = [entry, ...this.state.auditLogs];
+    const permanentJobNumberLogs = logs.filter((log) => log.entity === 'VESSEL_CALL' && log.action === 'DELETE');
+    const recentLogs = logs
+      .filter((log) => log.entity !== 'VESSEL_CALL' || log.action !== 'DELETE')
+      .slice(0, Math.max(0, 500 - permanentJobNumberLogs.length));
+    this.state.auditLogs = [...permanentJobNumberLogs, ...recentLogs];
   }
 
   public setActor(actor: { id?: string; name: string; role: UserRole; branch?: string }): void {
@@ -767,12 +773,12 @@ class DatabaseService {
   public async clearAllJobs(): Promise<void> {
     this.state.jobCalls = [];
     this.state.selectedJobId = '';
-    this.state.auditLogs = this.state.auditLogs.filter((log) => log.entity !== 'VESSEL_CALL');
     await this.saveToStorage();
   }
 
-  public updateJob(jobId: string, updates: Partial<JobCall>): boolean {
+  public updateJob(jobId: string, updates: Partial<JobCall>, auditDescription?: string): boolean {
     const existingJob = this.getJob(jobId);
+    if (existingJob?.voidedAt) return false;
     if (existingJob && this.actor.role === 'FDA' && existingJob.managerApproval?.status !== 'APPROVED') {
       return false;
     }
@@ -813,7 +819,7 @@ class DatabaseService {
       };
     });
     if (!jobUpdated) return false;
-    this.audit('UPDATE', 'VESSEL_CALL', `Updated vessel call ${jobId}`, jobId);
+    this.audit('UPDATE', 'VESSEL_CALL', auditDescription || `Updated vessel call ${jobId}`, jobId);
     if (!this.saveToStorage()) {
       this.state.jobCalls = previousJobCalls;
       this.state.auditLogs = previousAuditLogs;
@@ -826,10 +832,11 @@ class DatabaseService {
   public async updateJobAndPersist(
     jobId: string,
     updates: Partial<JobCall>,
+    auditDescription?: string,
   ): Promise<{ saved: boolean; error?: string }> {
     const previousJob = this.getJob(jobId);
     const previousAuditLogs = this.state.auditLogs;
-    if (!previousJob || !this.updateJob(jobId, updates)) return { saved: false };
+    if (!previousJob || !this.updateJob(jobId, updates, auditDescription)) return { saved: false };
 
     const updatedJob = this.getJob(jobId);
     const updatedAuditLogs = this.state.auditLogs;
@@ -849,12 +856,16 @@ class DatabaseService {
     return { saved: false, error };
   }
 
-  public deleteJob(jobId: string): boolean {
+  public async updateInquiryAndPersist(
+    jobId: string,
+    updates: Pick<JobCall, 'vesselId' | 'vesselName' | 'portId' | 'portName' | 'customerId' | 'customerName' | 'eta' | 'etd' | 'purposeOfCall' | 'inquiry'>,
+    reason: string,
+  ): Promise<{ saved: boolean; error?: string }> {
     const job = this.getJob(jobId);
-    if (!job || this.actor.role !== 'SALES') return false;
-
-    const jobBranch = job.inquiry?.createdByBranch;
-    if (!sameBranch(jobBranch, this.actor.branch)) return false;
+    const normalizedReason = reason.trim();
+    if (!job || !normalizedReason || this.actor.role !== 'SALES' || !sameBranch(job.inquiry?.createdByBranch, this.actor.branch)) {
+      return { saved: false };
+    }
     if (
       job.managerApproval?.status === 'APPROVED' ||
       job.quotation?.epda?.status === 'SUBMITTED' ||
@@ -863,14 +874,62 @@ class DatabaseService {
       (job.actualCosts?.length || 0) > 0 ||
       job.closing?.isClosed ||
       job.currentStage === 'CLOSED' ||
-      job.status === 'CLOSED'
-    ) return false;
+      job.status === 'CLOSED' ||
+      job.voidedAt
+    ) return { saved: false };
 
-    this.state.jobCalls = this.state.jobCalls.filter((item) => item.jobId !== jobId);
-    if (this.state.selectedJobId === jobId) this.state.selectedJobId = this.state.jobCalls[0]?.jobId || '';
-    this.audit('DELETE', 'VESSEL_CALL', `Deleted unapproved vessel call ${jobId}`, jobId);
-    this.notifyAfterDelete();
-    return true;
+    const before = {
+      vesselId: job.vesselId,
+      portId: job.portId,
+      customerId: job.customerId,
+      eta: job.eta,
+      etd: job.etd,
+      purposeOfCall: job.purposeOfCall,
+      inquiry: job.inquiry,
+    };
+    const after = {
+      vesselId: updates.vesselId,
+      portId: updates.portId,
+      customerId: updates.customerId,
+      eta: updates.eta,
+      etd: updates.etd,
+      purposeOfCall: updates.purposeOfCall,
+      inquiry: updates.inquiry,
+    };
+    return this.updateJobAndPersist(
+      jobId,
+      updates,
+      `Koreksi Inquiry ${jobId}. Alasan: ${normalizedReason}. Sebelum: ${JSON.stringify(before)}. Sesudah: ${JSON.stringify(after)}`,
+    );
+  }
+
+  public async voidJobAndPersist(
+    jobId: string,
+    reason: string,
+  ): Promise<{ saved: boolean; error?: string }> {
+    const job = this.getJob(jobId);
+    const normalizedReason = reason.trim();
+    if (!job || !normalizedReason || this.actor.role !== 'SALES' || !sameBranch(job.inquiry?.createdByBranch, this.actor.branch)) {
+      return { saved: false };
+    }
+
+    if (
+      job.managerApproval?.status === 'APPROVED' ||
+      job.quotation?.epda?.status === 'SUBMITTED' ||
+      job.quotation?.epda?.status === 'APPROVED' ||
+      job.fda?.fdaApproved ||
+      (job.actualCosts?.length || 0) > 0 ||
+      job.closing?.isClosed ||
+      job.currentStage === 'CLOSED' ||
+      job.status === 'CLOSED' ||
+      job.voidedAt
+    ) return { saved: false };
+
+    return this.updateJobAndPersist(jobId, {
+      voidedAt: new Date().toISOString(),
+      voidedBy: this.actor.name,
+      voidReason: normalizedReason,
+    }, `VOID vessel call ${jobId}. Alasan: ${normalizedReason}`);
   }
 
   public async createJob(jobData: Partial<JobCall>): Promise<JobCall> {
@@ -882,11 +941,20 @@ class DatabaseService {
     const previousJobCalls = [...this.state.jobCalls];
     const previousSelectedJobId = this.state.selectedJobId;
     const previousAuditLogs = this.state.auditLogs;
-    const existingJobIds = new Set(previousJobCalls.map((job) => job.jobId));
+    const existingJobIds = new Set([
+      ...previousJobCalls.map((job) => job.jobId),
+      ...(this.state.reservedJobIds || []),
+    ]);
     const yearPrefix = `VC-${year}-`;
-    const maxSequence = this.state.jobCalls.reduce((max, job) => {
-      if (!job.jobId.startsWith(yearPrefix)) return max;
-      const sequence = Number(job.jobId.slice(yearPrefix.length));
+    const maxSequence = [
+      ...this.state.jobCalls.map((job) => job.jobId),
+      ...(this.state.reservedJobIds || []),
+      ...this.state.auditLogs
+        .filter((log) => log.entity === 'VESSEL_CALL' && log.action === 'DELETE')
+        .map((log) => log.entityId || ''),
+    ].reduce((max, jobId) => {
+      if (!jobId.startsWith(yearPrefix)) return max;
+      const sequence = Number(jobId.slice(yearPrefix.length));
       return Number.isInteger(sequence) && sequence > max ? sequence : max;
     }, 0);
     let nextSeq = maxSequence + 1;

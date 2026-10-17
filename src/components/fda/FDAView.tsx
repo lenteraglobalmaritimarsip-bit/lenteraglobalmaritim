@@ -22,11 +22,12 @@ import {
 } from 'lucide-react';
 import { JobCall, ActualCostItem, ActiveTab, Vessel, FixTariff, ExpensesItem, Currency, DisbursementItem, PrincipalReceipt, formatPurposeOfCall } from '../../types';
 import { db } from '../../db/storage';
-import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, filterTariffsByGRT, hasTariffGRTRestriction, selectPreferredTariffOptions } from '../../utils/tariff';
+import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, filterTariffsByGRT, selectPreferredTariffOptions } from '../../utils/tariff';
 import { formatDateDisplay, formatInquiryDate, getLatestInquiryMonthRange, isInquiryDateInRange } from '../../utils/date';
 import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateRangePicker';
 import { formatCostCategoryLabel, getCostCategoryRank, normalizeCostCategory } from '../../utils/costCategories';
 import { findMatchingExpensesItem, findMatchingFixTariff } from '../../utils/masterDataIdentity';
+import { createMasterItemSearchOptions, MasterItemSearch, MasterItemSearchOption } from '../shared/MasterItemSearch';
 
 interface FDAViewProps {
   initialTab?: 'DASHBOARD' | 'JOB_ID' | 'ACTUAL_COST' | 'QUOTES_VIEW' | 'APPROVAL';
@@ -115,13 +116,19 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const [viewCurrency, setViewCurrency] = useState<'USD' | 'IDR'>(
     activeJob.fda?.currency || activeJob.actualCosts?.[0]?.currency || activeJob.quotation?.epda?.currency || activeJob.currency || 'USD'
   );
-  const [exchangeRateInput, setExchangeRateInput] = useState<number>(activeJob.fda?.exchangeRateUSDToIDR || activeJob.exchangeRateUSDToIDR || 15800);
-  const exchangeRateRef = useRef(exchangeRateInput);
+  const [exchangeRateInput, setExchangeRateInput] = useState(() =>
+    activeJob.fda?.exchangeRateUSDToIDR
+      ? String(activeJob.fda.exchangeRateUSDToIDR)
+      : ''
+  );
+  const exchangeRateRef = useRef(activeJob.fda?.exchangeRateUSDToIDR || 0);
   const [jobDateRange, setJobDateRange] = useState<InquiryDateRange>(() =>
     getLatestInquiryMonthRange(jobCalls.map((job) => job.inquiry?.date))
   );
   const [jobSearch, setJobSearch] = useState('');
   const [actualEntryMode, setActualEntryMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
+  const [manualItemReference, setManualItemReference] = useState<MasterItemSearchOption | null>(null);
+  const [autoSelectedItemKey, setAutoSelectedItemKey] = useState('');
   const manualTypeDefaultedRef = useRef(false);
   const [manualTariffText, setManualTariffText] = useState('');
   const [actualQuantity, setActualQuantity] = useState(1);
@@ -368,10 +375,10 @@ export const FDAView: React.FC<FDAViewProps> = ({
   }, [activeJob.jobId, activeJob.fda?.currency, activeJob.actualCosts, activeJob.quotation?.epda?.currency, activeJob.currency]);
 
   useEffect(() => {
-    const savedRate = activeJob.fda?.exchangeRateUSDToIDR || activeJob.exchangeRateUSDToIDR || 15800;
-    exchangeRateRef.current = savedRate;
-    setExchangeRateInput(savedRate);
-  }, [activeJob.jobId, activeJob.fda?.exchangeRateUSDToIDR, activeJob.exchangeRateUSDToIDR]);
+    const savedRate = activeJob.fda?.exchangeRateUSDToIDR;
+    exchangeRateRef.current = savedRate || 0;
+    setExchangeRateInput(savedRate ? String(savedRate) : '');
+  }, [activeJob.jobId]);
 
   useEffect(() => () => {
     const currentJob = db.getJob(activeJob.jobId);
@@ -381,7 +388,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
     });
   }, [activeJob.jobId, subTab, isFDAReadOnly]);
 
-  const effectiveExchangeRate = Number(exchangeRateInput || activeJob.exchangeRateUSDToIDR || 15800);
+  const effectiveExchangeRate = Number(exchangeRateInput) > 0
+    ? Number(exchangeRateInput)
+    : activeJob.fda?.exchangeRateUSDToIDR || activeJob.exchangeRateUSDToIDR || 15800;
 
   // Form states for adding actual cost
   const [newActual, setNewActual] = useState({
@@ -456,15 +465,10 @@ export const FDAView: React.FC<FDAViewProps> = ({
       || (!!currentPortName && !!targetPortName && currentPortName.toLowerCase() === targetPortName.toLowerCase());
   };
   const buildAutoServiceOptions = (currency: Currency) => {
-    const serviceKey = (name: string, category: string) => `${name.trim().toLowerCase()}|${category.trim().toUpperCase()}`;
-    const currentCurrencyFixTariffs = fixTariffs.filter((tariff) =>
-      (tariff.costCategory || '').trim().toUpperCase() === 'PORT_SERVICE'
-      && portMatches(tariff.portId, tariff.portName)
-      && rateForCurrency(currency, tariff.rateIDR, tariff.rateUSD, 0) > 0
+    const portFixTariffs = fixTariffs.filter((tariff) => portMatches(tariff.portId, tariff.portName));
+    const currentCurrencyFixTariffs = portFixTariffs.filter((tariff) =>
+      rateForCurrency(currency, tariff.rateIDR, tariff.rateUSD, 0) > 0
     );
-    const rangedFixTariffKeys = new Set(currentCurrencyFixTariffs
-      .filter(hasTariffGRTRestriction)
-      .map((tariff) => serviceKey(tariff.serviceName, tariff.costCategory || 'PORT_EXPENSES')));
     const applicableFixTariffs = filterTariffsByGRT(
       currentCurrencyFixTariffs
         .map((tariff) => ({ ...tariff, name: tariff.serviceName, category: tariff.costCategory || 'PORT_EXPENSES' })),
@@ -491,11 +495,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
       })),
     ...expensesItems
       .filter((item) =>
-        item.category.trim().toUpperCase() !== 'PORT_SERVICE'
-        &&
         portMatches(item.portId, item.portName)
         && rateForCurrency(currency, item.rateIDR, item.rateUSD, 0) > 0
-        && !rangedFixTariffKeys.has(serviceKey(item.name, item.category))
       )
       .map((item) => ({
         name: item.name,
@@ -512,7 +513,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
         legacyRate: 0,
         minCharge: 0,
         currency,
-          source: 'EXPENSES_ITEM' as const,
+        source: 'EXPENSES_ITEM' as const,
       })),
           ]);
     return options.sort((a, b) =>
@@ -521,15 +522,28 @@ export const FDAView: React.FC<FDAViewProps> = ({
     );
         };
   const autoServiceOptions = buildAutoServiceOptions(viewCurrency);
+  const masterItemSearchOptions = createMasterItemSearchOptions(
+    fixTariffs,
+    expensesItems,
+    new Set(autoServiceOptions.map((option) => JSON.stringify([option.name, option.category]))),
+  );
 
   const autoServiceOptionKey = (name: string, category: string) => JSON.stringify([name, category]);
+  const keepIncompatibleItemAsReference = (option: MasterItemSearchOption) => {
+    setManualItemReference(option);
+    setAutoSelectedItemKey('');
+    setNewActual((current) => ({ ...current, description: '', rate: 0, minCharge: 0 }));
+  };
   const applySelectedAutoService = (selectedKey: string) => {
     const selected = autoServiceOptions.find((option) => autoServiceOptionKey(option.name, option.category) === selectedKey);
     if (!selected) {
+      setAutoSelectedItemKey('');
       setNewActual({ ...newActual, description: '', rate: 0, minCharge: 0 });
       return;
     }
 
+    setAutoSelectedItemKey(selectedKey);
+    setManualItemReference(null);
     setNewActual({
       ...newActual,
       description: selected.name,
@@ -690,10 +704,10 @@ export const FDAView: React.FC<FDAViewProps> = ({
   };
   const handleExchangeRateChange = (nextValue: string) => {
     if (isFDAReadOnly) return;
+    setExchangeRateInput(nextValue);
     const numericValue = Number(nextValue);
     if (!Number.isFinite(numericValue) || numericValue <= 0) return;
     exchangeRateRef.current = numericValue;
-    setExchangeRateInput(numericValue);
     const currentJob = db.getJob(activeJob.jobId);
     if (!currentJob) return;
     db.updateJob(activeJob.jobId, {
@@ -792,6 +806,11 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const handleAddActualCost = (e?: React.FormEvent) => {
     e?.preventDefault();
     if (isFDAReadOnly) return;
+    if (actualEntryMode === 'AUTO' && !autoSelectedItemKey) {
+      setMsg('Pilih item master yang sesuai, atau gunakan mode Manual.');
+      setTimeout(() => setMsg(null), 4000);
+      return;
+    }
     if (activeJob.managerApproval?.status !== 'APPROVED') {
       setMsg('Actual Cost belum dapat diinput. Tunggu Manager Approval.');
       setTimeout(() => setMsg(null), 4000);
@@ -854,6 +873,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
     setNewActual({ description: '', category: 'PORT_EXPENSES', vendorName: '', vendorInvoiceNo: '', amountBuy: 0, amountSellBilled: 0, notes: '', attachmentName: '', calculationBasis: 'PER_GRT', tariffType: 'FIXED', rate: 0, minCharge: 0, vatApplied: false });
     setActualQuantity(1);
     manualTypeDefaultedRef.current = false;
+    setAutoSelectedItemKey('');
+    setManualItemReference(null);
     setTimeout(() => setMsg(null), 3000);
   };
 
@@ -1390,26 +1411,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   return (
     <div className="space-y-6 fda-form-root" aria-readonly={isFDAReadOnly}>
-      {/* Top Banner */}
-      <div className="fda-page-header bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 text-cyan-400 text-xs font-mono font-bold uppercase tracking-wider">
-            <FileCheck2 className="w-4 h-4" />
-            <span>FINAL DISBURSEMENT ACCOUNT (FDA)</span>
-          </div>
-          <h1 className="text-2xl font-black text-white mt-1">
-            FDA PORTAL
-          </h1>
-          <p className="text-xs text-slate-400">
-            Finalisasi biaya aktual berdasarkan Job/Vessel Call ID, lalu diteruskan ke Finance.
-          </p>
-        </div>
-
-        {/* Navigation is handled by the role sidebar. */}
-      </div>
-
       {msg && (
-        <div className="p-3 bg-cyan-500/20 border border-cyan-500/40 rounded-xl text-cyan-300 text-xs flex items-center gap-2">
+        <div role="status" className="p-3 bg-cyan-500/20 border border-cyan-500/40 rounded-xl text-cyan-300 text-xs flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4" />
           <span>{msg}</span>
         </div>
@@ -1761,12 +1764,12 @@ export const FDAView: React.FC<FDAViewProps> = ({
               <p className="text-xs text-slate-400">Entry final port disbursement account untuk diteruskan ke Finance.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-950 p-1.5">
+              <div className="account-toolbar-panel account-currency-switch flex items-center gap-2 rounded-xl border p-1.5">
                 <button
                   type="button"
                   disabled={isFDAReadOnly}
                   onClick={() => handleViewCurrencyChange('IDR')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold ${viewCurrency === 'IDR' ? 'bg-emerald-600 text-white' : 'text-slate-500'} disabled:cursor-not-allowed disabled:opacity-50`}
+                  className={`h-12 px-5 rounded-lg text-base font-bold ${viewCurrency === 'IDR' ? 'bg-emerald-600 text-white' : 'text-slate-500'} disabled:cursor-not-allowed disabled:opacity-50`}
                 >
                   IDR (Rp)
                 </button>
@@ -1774,12 +1777,12 @@ export const FDAView: React.FC<FDAViewProps> = ({
                   type="button"
                   disabled={isFDAReadOnly}
                   onClick={() => handleViewCurrencyChange('USD')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold ${viewCurrency === 'USD' ? 'bg-emerald-600 text-white' : 'text-slate-500'} disabled:cursor-not-allowed disabled:opacity-50`}
+                  className={`h-12 px-5 rounded-lg text-base font-bold ${viewCurrency === 'USD' ? 'bg-emerald-600 text-white' : 'text-slate-500'} disabled:cursor-not-allowed disabled:opacity-50`}
                 >
                   USD ($)
                 </button>
               </div>
-              <label className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-400">
+              <label className="account-toolbar-panel account-rate-control flex h-16 items-center gap-2 rounded-xl border px-5 text-base">
                 Kurs USD
                 <input
                   type="number"
@@ -1789,7 +1792,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                   readOnly={isFDAReadOnly}
                   onChange={(e) => handleExchangeRateChange(e.target.value)}
                   onBlur={(e) => handleExchangeRateChange(e.currentTarget.value)}
-                  className="w-24 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-right text-xs text-white"
+                  className="account-rate-input h-9 w-28 rounded-lg border px-3 text-right text-base"
                 />
               </label>
               {isFDAApproved ? (
@@ -1806,9 +1809,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
                 <button
                   type="button"
                   onClick={handleFinalizeFDA}
-                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5"
+                  className="h-[54px] px-6 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-base font-bold flex items-center gap-2"
                 >
-                  <Send className="w-4 h-4" />
+                  <Send className="w-6 h-6" />
                   Kirim ke Manager untuk Approval
                 </button>
               )}
@@ -2116,10 +2119,10 @@ export const FDAView: React.FC<FDAViewProps> = ({
               </div>
 
               <div className="flex items-center gap-2">
-                <button type="button" onClick={() => setActualEntryMode('AUTO')} className={`rounded-lg border px-3 py-2 text-[11px] font-semibold ${actualEntryMode === 'AUTO' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-slate-700 hover:border-emerald-500 hover:text-emerald-600'}`}>
+                <button type="button" onClick={() => { setActualEntryMode('AUTO'); setAutoSelectedItemKey(''); }} className={`rounded-lg border px-3 py-2 text-[11px] font-semibold ${actualEntryMode === 'AUTO' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-slate-700 hover:border-emerald-500 hover:text-emerald-600'}`}>
                   Otomatis
                 </button>
-                <button type="button" onClick={() => { setActualEntryMode('MANUAL'); if (!manualTypeDefaultedRef.current && !editingActualId) { setNewActual((current) => ({ ...current, tariffType: 'FIXED' })); manualTypeDefaultedRef.current = true; } }} className={`rounded-lg border px-3 py-2 text-[11px] font-semibold ${actualEntryMode === 'MANUAL' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-slate-700 hover:border-emerald-500 hover:text-emerald-600'}`}>
+                <button type="button" onClick={() => { setActualEntryMode('MANUAL'); setNewActual((current) => ({ ...current, ...(!editingActualId && manualItemReference ? { description: manualItemReference.name, category: normalizeCostCategory(manualItemReference.category) || current.category } : {}), ...(!manualTypeDefaultedRef.current && !editingActualId ? { tariffType: 'FIXED' as const } : {}) })); if (!manualTypeDefaultedRef.current && !editingActualId) manualTypeDefaultedRef.current = true; }} className={`rounded-lg border px-3 py-2 text-[11px] font-semibold ${actualEntryMode === 'MANUAL' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-slate-700 hover:border-emerald-500 hover:text-emerald-600'}`}>
                   Manual
                 </button>
               </div>
@@ -2149,7 +2152,20 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
             {actualEntryMode === 'AUTO' ? (
               <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2 lg:grid-cols-6">
-                <div className="lg:col-span-2"><label className="mb-1 block text-slate-600">Item Service</label>{autoServiceOptions.length > 0 ? <select value={autoServiceOptionKey(newActual.description, newActual.category)} onChange={(e) => applySelectedAutoService(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="">Pilih item service</option>{autoServiceOptions.map((option) => <option key={autoServiceOptionKey(option.name, option.category)} value={autoServiceOptionKey(option.name, option.category)}>{option.name}</option>)}</select> : <input required value={newActual.description} onChange={(e) => setNewActual({ ...newActual, description: e.target.value })} placeholder="Nama biaya final otomatis" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none" />}</div>
+                <div className="lg:col-span-2">
+                  <label className="mb-1 block text-slate-600">Item Service</label>
+                  <MasterItemSearch
+                    options={masterItemSearchOptions}
+                    value={autoSelectedItemKey}
+                    onSelect={applySelectedAutoService}
+                    onIncompatibleSelect={keepIncompatibleItemAsReference}
+                    placeholder="Search disini"
+                    ariaLabel="Cari item service master FDA"
+                  />
+                  {!masterItemSearchOptions.length && (
+                    <p className="mt-1 text-[10px] text-slate-500">Belum ada item tarif atau Expenses Item di master data.</p>
+                  )}
+                </div>
                 <div><label className="mb-1 block text-slate-600">Category Cost</label><select value={newActual.category} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"><option value="PORT_SERVICE">PORT SERVICE</option><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="AGENCY_FEE">AGENCY FEE</option></select></div>
                 <div><label className="mb-1 block text-slate-600">Type</label><select value={newActual.tariffType} disabled className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="QTY_CARGO">QTY_CARGO</option></select></div>
                 <div><label className="mb-1 block text-slate-600">Rate</label><input type="text" inputMode="decimal" readOnly value={formatRateAmount(Number(newActual.rate) || 0)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-slate-500" /></div>
@@ -2163,7 +2179,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2 lg:grid-cols-6">
-                <div className="lg:col-span-2"><label className="mb-1 block text-slate-600">Item Service</label><input required value={newActual.description} onChange={(e) => setNewActual({ ...newActual, description: e.target.value })} placeholder="Nama biaya final manual" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none" /></div>
+                <div className="lg:col-span-2"><label className="mb-1 block text-slate-600">Item Service{manualItemReference && newActual.description === manualItemReference.name ? ' (referensi Master Data)' : ''}</label><input required value={newActual.description} onChange={(e) => setNewActual({ ...newActual, description: e.target.value })} placeholder="Nama biaya final manual" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none" /></div>
                 <div><label className="mb-1 block text-slate-600">Category Cost</label><select value={newActual.category} onChange={(e) => setNewActual({ ...newActual, category: e.target.value })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="PORT_SERVICE">PORT SERVICE</option><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="AGENCY_FEE">AGENCY FEE</option></select></div>
                 <div><label className="mb-1 block text-slate-600">Type</label><select value={newActual.tariffType} onChange={(e) => setNewActual({ ...newActual, tariffType: e.target.value as 'FIXED' | 'VARIABLE' | 'QTY_CARGO' })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="QTY_CARGO">QTY_CARGO</option></select></div>
                 <div><label className="mb-1 block text-slate-600">QTY</label><input type="number" min="1" value={actualQuantity} onChange={(e) => setActualQuantity(Math.max(1, Number(e.target.value) || 1))} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>

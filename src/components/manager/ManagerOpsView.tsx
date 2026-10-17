@@ -292,7 +292,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
       </div>
 
       {actionSuccess && (
-        <div className="p-3.5 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-emerald-300 text-xs flex items-center gap-2">
+        <div role="status" className="p-3.5 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-emerald-300 text-xs flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4" />
           <span>{actionSuccess}</span>
         </div>

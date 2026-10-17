@@ -253,8 +253,8 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
             </button>
           </div>
         </div>
-        {invalidDateInput && <p className="mt-3 text-xs font-semibold text-rose-600">Tanggal harus valid dengan format dd/mm/yyyy.</p>}
-        {!invalidDateInput && invalidDateRange && <p className="mt-3 text-xs font-semibold text-rose-600">START harus sebelum atau sama dengan END.</p>}
+        {invalidDateInput && <p role="alert" className="mt-3 text-xs font-semibold text-rose-600">Tanggal harus valid dengan format dd/mm/yyyy.</p>}
+        {!invalidDateInput && invalidDateRange && <p role="alert" className="mt-3 text-xs font-semibold text-rose-600">START harus sebelum atau sama dengan END.</p>}
       </div>
 
       <style>{`.finance-history-scroll{scrollbar-width:none;-ms-overflow-style:none}.finance-history-scroll::-webkit-scrollbar{display:none}`}</style>

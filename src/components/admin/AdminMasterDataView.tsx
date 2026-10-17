@@ -804,7 +804,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
               'code' in error ? `kode ${error.code}` : '',
             ].filter(Boolean).join(' | ') || JSON.stringify(error)
           : String(error || 'kesalahan tidak dikenal');
-      setUploadMessage(`Upload Fix Tariff gagal diproses: ${detail}`);
+      const uploadType = activeTab === 'FIX_TARIFF' ? 'Fix Tariff' : 'Expenses Item';
+      setUploadMessage(`Upload ${uploadType} gagal diproses: ${detail}`);
     }
   };
 
@@ -955,8 +956,18 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   const isMasterFormOpen = activeTab !== 'USERS' && (showAddModal || editingMaster !== null);
   const isFormOpen = isUserFormOpen || isMasterFormOpen;
   const userForm = editingUser ? editUserForm : newUser;
+  const portNamesById = new Map<string, string>(ports.map((port): [string, string] => [port.id, port.name]));
+  const getMasterPortName = (portId?: string, portName?: string) =>
+    portName || (portId ? portNamesById.get(portId) : undefined) || '';
+  const compareMasterNames = (first: string, second: string) =>
+    first.localeCompare(second, 'id-ID', { sensitivity: 'base', numeric: true });
   const filteredFixTariffs = fixTariffs.filter((tariff) =>
-    `${tariff.portName || ''} ${tariff.serviceName}`.toLowerCase().includes(searchQuery.toLowerCase())
+    `${getMasterPortName(tariff.portId, tariff.portName)} ${tariff.serviceName}`.toLowerCase().includes(searchQuery.toLowerCase())
+  ).sort((first, second) =>
+    compareMasterNames(
+      getMasterPortName(first.portId, first.portName),
+      getMasterPortName(second.portId, second.portName)
+    ) || compareMasterNames(first.serviceName, second.serviceName)
   );
   const fixTariffPageSize = 10;
   const fixTariffPageCount = Math.max(1, Math.ceil(filteredFixTariffs.length / fixTariffPageSize));
@@ -968,7 +979,12 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     currentFixTariffPage * fixTariffPageSize
   );
   const filteredExpensesItems = expensesItems.filter((item) =>
-    `${item.name} ${item.code} ${item.category}`.toLowerCase().includes(searchQuery.toLowerCase())
+    `${getMasterPortName(item.portId, item.portName)} ${item.name} ${item.code} ${item.category}`.toLowerCase().includes(searchQuery.toLowerCase())
+  ).sort((first, second) =>
+    compareMasterNames(
+      getMasterPortName(first.portId, first.portName),
+      getMasterPortName(second.portId, second.portName)
+    ) || compareMasterNames(first.name, second.name)
   );
   const expensesItemPageSize = 10;
   const expensesItemPageCount = Math.max(1, Math.ceil(filteredExpensesItems.length / expensesItemPageSize));
@@ -1136,7 +1152,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
               </label>
             </div>
             {(editingUser ? userEditError : addFormError) && (
-              <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+              <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
                 {editingUser ? userEditError : addFormError}
               </div>
             )}
@@ -1172,7 +1188,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       </div>}
 
       {!isFormOpen && uploadMessage && (activeTab === 'FIX_TARIFF' || activeTab === 'EXPENSES_ITEM') && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-700">
+        <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-700">
           {uploadMessage}
         </div>
       )}
@@ -1727,7 +1743,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 </>
               )}
 
-              {addFormError && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{addFormError}</div>}
+              {addFormError && <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{addFormError}</div>}
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
                 <button type="button" onClick={closeMasterEditor} className="master-data-cancel px-4 py-2 rounded-lg font-semibold">Batal</button>
                 <button type="submit" className="master-data-submit px-4 py-2 rounded-lg text-xs font-semibold">Simpan Perubahan</button>
@@ -2268,7 +2284,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     <label className="text-slate-400 block mb-1">A/C Number:</label>
                     <input value={newVendor.accountNumber} onChange={(e) => setNewVendor({ ...newVendor, accountNumber: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono" placeholder="Nomor rekening" />
                   </div>
-                  {addFormError && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{addFormError}</div>}
+                  {addFormError && <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{addFormError}</div>}
                 </>
               )}
 
@@ -2290,7 +2306,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     <label className="text-slate-400 block mb-1">A/c Number:</label>
                     <input required value={newBankAccount.accountNumber} onChange={(e) => setNewBankAccount({ ...newBankAccount, accountNumber: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono" placeholder="Nomor rekening" />
                   </div>
-                  {addFormError && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{addFormError}</div>}
+                  {addFormError && <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{addFormError}</div>}
                 </>
               )}
 

@@ -8,6 +8,12 @@ START → SALES / INQUIRY → QUOTATION (EPDA) → MANAGER APPROVAL → OPERATIO
 
 **Aturan utama:** 1 Job / Vessel Call = 1 Job ID. Contoh: `VC-2026-0098`.
 
+Inquiry yang belum masuk approval dapat dikoreksi oleh Sales dari cabang pembuatnya dengan alasan wajib; Job ID tetap. Job yang tidak dapat dipakai lagi dibatalkan sebagai VOID, bukan dihapus, sehingga nomor, data, alasan, waktu, dan pembatalnya tetap menjadi riwayat audit. Registry nomor Job menyimpan semua nomor yang pernah diterbitkan agar tidak digunakan kembali. Untuk database yang sudah berjalan, terapkan migrasi `database/migrations/20261017_add_vessel_call_void_fields.sql` dan `database/migrations/20261017_add_job_call_number_registry.sql`.
+
+## Standar pesan informasi
+
+Pesan informasi, status, peringatan, dan validasi di semua role menggunakan gaya terpusat di `src/index.css`: panel biru muda, border biru, teks gelap, font Inter/system, ukuran 14 px, dan radius 8 px. Gunakan `role="status"` untuk pembaruan non-kritis dan `role="alert"` untuk kesalahan/validasi agar gaya dan aksesibilitas tetap konsisten. Notifikasi login menampilkan nama lengkap pemegang user dan menggunakan standar yang sama di seluruh role. Jangan menimpa warnanya dengan kelas role-specific.
+
 ## Cara menjalankan di Windows + VS Code
 
 ### 1. Install Node.js
@@ -67,7 +73,7 @@ npm run dev
 ## Catatan data
 Data aplikasi disimpan di **MariaDB melalui PHP API** (`api/`). Browser tidak menyimpan data aplikasi (hanya cookie sesi HttpOnly).
 Setup database, akun admin pertama, dan migrasi: lihat [api/README.md](api/README.md). Skema lengkap ada di `database/schema.sql`;
-database lama cukup menjalankan file di `database/migrations/` berurutan (terbaru: `20261016_add_payment_voucher_proof.sql`).
+database lama cukup menjalankan file yang diperlukan di `database/migrations/` sesuai skema versi database (terbaru: file migrasi `20261017_*`).
 
 ## Struktur modul
 - Dashboard

@@ -30,6 +30,30 @@ button{ cursor:pointer; }
     radial-gradient(circle at 80% -10%, rgba(37,99,235,.09), transparent 32%),
     #eef4fb;
 }
+
+:where([data-app-feedback], [role="status"], [role="alert"]) {
+  padding: 10px 12px !important;
+  border: 1px solid #bfdbfe !important;
+  border-radius: 8px !important;
+  background: #eff6ff !important;
+  color: #334155 !important;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  line-height: 1.45 !important;
+}
+
+:where([data-app-feedback], [role="status"], [role="alert"]) :where(*) {
+  color: inherit !important;
+  font-family: inherit !important;
+  font-size: inherit !important;
+  font-weight: inherit !important;
+  line-height: inherit !important;
+}
+
+:where([data-app-feedback], [role="status"], [role="alert"]) :where(b, strong) {
+  font-weight: 600 !important;
+}
 .maritim-header{
   height:64px;
   background:linear-gradient(90deg,#123d93 0%,#1747ad 58%,#1d58d0 100%);
@@ -773,6 +797,20 @@ button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid 
 .epda-page-header .bg-slate-950,.fda-page-header .bg-slate-950{background:rgba(8,25,58,.36)!important;border-color:rgba(255,255,255,.17)!important}
 .epda-page-header .bg-slate-900,.fda-page-header .bg-slate-900{background:rgba(8,25,58,.32)!important;border-color:rgba(255,255,255,.18)!important}
 .epda-page-header input{color:#fff!important}
+.maritim-main .epda-page-header h1{color:#172033!important}
+.maritim-main .epda-page-header p{color:#71809a!important}
+.maritim-main .epda-page-header{
+  background:linear-gradient(145deg,#fff 0%,#f7faff 100%)!important;
+  border:1px solid #d9e4f0!important;
+  border-radius:16px!important;
+  box-shadow:0 8px 24px rgba(27,58,100,.07)!important;
+}
+.epda-page-header::after{display:none}
+.epda-page-header .text-emerald-400{color:#168b5b!important}
+.epda-page-header .text-cyan-300{color:#1769e8!important}
+.epda-page-header .text-slate-400{color:#71809a!important}
+.epda-page-header h1{font-size:28px!important;font-weight:900!important;line-height:1.15!important}
+.epda-page-header p{margin-top:4px;font-size:13px!important;line-height:1.45!important}
 .epda-summary-card{
   position:relative;min-height:88px;overflow:hidden;
   display:flex;flex-direction:column;justify-content:center;gap:6px;
@@ -829,6 +867,27 @@ button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid 
 .epda-form-root input:not([type=checkbox]),.epda-form-root select,.epda-form-root textarea,
 .fda-form-root input:not([type=checkbox]),.fda-form-root select,.fda-form-root textarea{
   border-radius:8px;
+}
+.epda-page-header .account-toolbar-panel,.fda-page-header .account-toolbar-panel{
+  background:#f5f8fc!important;
+  border:1px solid #d7e3f1!important;
+  box-shadow:0 4px 12px rgba(27,58,100,.07)!important;
+}
+.epda-page-header .account-rate-control,.fda-page-header .account-rate-control{
+  color:#71809a!important;
+}
+.epda-page-header .account-rate-input,.fda-page-header .account-rate-input{
+  background:#fff!important;
+  border:1px solid #d7e3f1!important;
+  border-radius:10px!important;
+  color:#25344b!important;
+  font-size:16px!important;
+  height:36px!important;
+  box-shadow:0 2px 8px rgba(27,58,100,.04)!important;
+}
+.epda-page-header .account-currency-switch button:not(.bg-emerald-600),
+.fda-page-header .account-currency-switch button:not(.bg-emerald-600){
+  color:#91a0b5!important;
 }
 @media(max-width:640px){
   .erp-tax-option{flex-basis:100%;padding:10px 12px}

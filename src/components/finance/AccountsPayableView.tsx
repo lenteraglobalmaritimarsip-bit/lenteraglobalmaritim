@@ -767,7 +767,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
         </div>
       </div>
 
-      {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">{error}</div>}
+      {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">{error}</div>}
 
       <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
         <div className="relative max-w-md">

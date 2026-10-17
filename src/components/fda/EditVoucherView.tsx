@@ -124,7 +124,7 @@ export const EditVoucherView: React.FC<EditVoucherViewProps> = ({ jobCalls, vend
                 <td className="p-3">
                   <span className={`rounded px-2 py-0.5 text-[10px] font-bold ${voucherStatusBadge(voucher.status).className}`}>{voucherStatusBadge(voucher.status).label}</span>
                   {voucher.status === 'REJECTED' && voucher.managerNote && (
-                    <div className="mt-1 max-w-[220px] text-[10px] text-rose-600">Alasan: {voucher.managerNote}</div>
+                    <div role="status" className="mt-1 max-w-[220px] text-[10px] text-rose-600">Alasan: {voucher.managerNote}</div>
                   )}
                 </td>
                 <td className="p-3 text-center">

@@ -186,8 +186,7 @@ export function selectPreferredTariffOptions<T extends {
     const existing = selected[existingIndex];
     const preferOption = option.source === 'FIX_TARIFF'
       && existing.source !== 'FIX_TARIFF'
-      || option.source === 'FIX_TARIFF'
-        && existing.source === 'FIX_TARIFF'
+      || option.source === existing.source
         && prefersSpecificTariffGRTRange(option.grtMin, option.grtMax, existing.grtMin, existing.grtMax);
     if (!preferOption) return selected;
     return selected.map((item, index) => index === existingIndex ? option : item);

@@ -2,10 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import { FileSpreadsheet, Plus, Trash2, Save, Ship, Building, CheckCircle2, Download, Printer, Eye, Send, Pencil, Check, X } from 'lucide-react';
 import { JobCall, DisbursementItem, Currency, User, Vessel, FixTariff, ExpensesItem, formatPurposeOfCall } from '../../types';
 import { db } from '../../db/storage';
-import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, filterTariffsByGRT, hasTariffGRTRestriction, selectPreferredTariffOptions } from '../../utils/tariff';
+import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, filterTariffsByGRT, selectPreferredTariffOptions } from '../../utils/tariff';
 import { formatCostCategoryLabel, getCostCategoryRank, normalizeCostCategory } from '../../utils/costCategories';
 import { formatInquiryDate } from '../../utils/date';
 import { findMatchingExpensesItem, findMatchingFixTariff } from '../../utils/masterDataIdentity';
+import { createMasterItemSearchOptions, MasterItemSearch, MasterItemSearchOption } from '../shared/MasterItemSearch';
 
 interface QuotesEPDAViewProps {
   job?: JobCall;
@@ -65,7 +66,13 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     totalSellRate: Number(item.unitSellRate || item.unitBuyRate || 0) * (item.quantity || 1),
     unitSellRate: Number(item.unitSellRate || item.unitBuyRate || 0),
   })));
-  const [exchangeRate, setExchangeRate] = useState<number>(job.quotation.epda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800);
+  const savedExchangeRate = job.quotation.epda.exchangeRateUSDToIDR;
+  const [exchangeRate, setExchangeRate] = useState(() =>
+    savedExchangeRate ? String(savedExchangeRate) : ''
+  );
+  useEffect(() => {
+    setExchangeRate(savedExchangeRate ? String(savedExchangeRate) : '');
+  }, [job.jobId, savedExchangeRate]);
   const previewFrameRef = useRef<HTMLIFrameElement>(null);
   const [isSaved, setIsSaved] = useState(false);
   const [isSavingEPDANumber, setIsSavingEPDANumber] = useState(false);
@@ -86,6 +93,8 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [itemEditDraft, setItemEditDraft] = useState({ description: '', tariff: '', amount: '', remarks: '' });
   const [itemEntryMode, setItemEntryMode] = useState<'AUTO' | 'MANUAL'>('AUTO');
+  const [manualItemReference, setManualItemReference] = useState<MasterItemSearchOption | null>(null);
+  const [autoSelectedItemKey, setAutoSelectedItemKey] = useState('');
   const manualTypeDefaultedRef = useRef(false);
   const [manualTariffText, setManualTariffText] = useState('');
   const [newItem, setNewItem] = useState({
@@ -299,15 +308,10 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       || (!!currentPortName && !!targetPortName && currentPortName.toLowerCase() === targetPortName.toLowerCase());
   };
   const buildAutoServiceOptions = (currency: Currency) => {
-    const serviceKey = (name: string, category: string) => `${name.trim().toLowerCase()}|${category.trim().toUpperCase()}`;
-    const currentCurrencyFixTariffs = fixTariffs.filter((tariff) =>
-      (tariff.costCategory || '').trim().toUpperCase() === 'PORT_SERVICE'
-      && portMatches(tariff.portId, tariff.portName)
-      && rateForCurrency(currency, tariff.rateIDR, tariff.rateUSD, 0) > 0
+    const portFixTariffs = fixTariffs.filter((tariff) => portMatches(tariff.portId, tariff.portName));
+    const currentCurrencyFixTariffs = portFixTariffs.filter((tariff) =>
+      rateForCurrency(currency, tariff.rateIDR, tariff.rateUSD, 0) > 0
     );
-    const rangedFixTariffKeys = new Set(currentCurrencyFixTariffs
-      .filter(hasTariffGRTRestriction)
-      .map((tariff) => serviceKey(tariff.serviceName, tariff.costCategory || 'PORT_EXPENSES')));
     const applicableFixTariffs = filterTariffsByGRT(
       currentCurrencyFixTariffs
         .map((tariff) => ({ ...tariff, name: tariff.serviceName, category: tariff.costCategory || 'PORT_EXPENSES' })),
@@ -335,11 +339,8 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       })),
     ...expensesItems
       .filter((item) =>
-        item.category.trim().toUpperCase() !== 'PORT_SERVICE'
-        &&
         portMatches(item.portId, item.portName)
         && rateForCurrency(currency, item.rateIDR, item.rateUSD, 0) > 0
-        && !rangedFixTariffKeys.has(serviceKey(item.name, item.category))
       )
       .map((item) => ({
         name: item.name,
@@ -357,7 +358,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
         legacyRate: 0,
         minCharge: 0,
         currency,
-          source: 'EXPENSES_ITEM' as const,
+        source: 'EXPENSES_ITEM' as const,
       })),
           ]);
     return options.sort((a, b) =>
@@ -366,6 +367,11 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     );
         };
   const autoServiceOptions = buildAutoServiceOptions(viewCurrency);
+  const masterItemSearchOptions = createMasterItemSearchOptions(
+    fixTariffs,
+    expensesItems,
+    new Set(autoServiceOptions.map((option) => JSON.stringify([option.name, option.category]))),
+  );
 
   useEffect(() => {
     if (printPreviewOnly || isReviewOnly || epdaQuote.items?.length) return;
@@ -376,19 +382,23 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     const currentImo = vessels.find((vessel) => vessel.id === job.vesselId)?.imoNumber.trim().toLowerCase();
     if (!currentImo) return;
 
-    const previousQuote = allJobs
+    const previousQuotes = allJobs
       .filter((candidate) => candidate.jobId !== job.jobId)
       .filter((candidate) => vessels.find((vessel) => vessel.id === candidate.vesselId)?.imoNumber.trim().toLowerCase() === currentImo)
       .filter((candidate) => candidate.quotation?.epda?.items?.length)
       .sort((first, second) =>
         (second.quotation.epda.date || second.createdAt).localeCompare(first.quotation.epda.date || first.createdAt)
-      )[0]?.quotation.epda;
-    if (!previousQuote?.items.length) return;
+      )
+      .map((candidate) => candidate.quotation.epda);
+    if (!previousQuotes.length) return;
 
     const optionByService = new Map(autoServiceOptions.map((option) => [
       `${option.name.trim().toLowerCase()}|${normalizeCostCategory(option.category)}`,
       option,
     ]));
+    const previousQuote = previousQuotes.find((quote) => quote.items.some((item) =>
+      optionByService.has(`${item.name.trim().toLowerCase()}|${normalizeCostCategory(item.category)}`)
+    )) || previousQuotes[0];
     const refreshedItems = previousQuote.items.flatMap((previousItem, index) => {
       const option = optionByService.get(
         `${previousItem.name.trim().toLowerCase()}|${normalizeCostCategory(previousItem.category)}`,
@@ -427,11 +437,11 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       }];
     });
     if (!refreshedItems.length) {
-      setAutoLoadMessage(`EPDA terakhir untuk IMO ${currentImo.toUpperCase()} ditemukan, tetapi tidak ada Description yang memiliki master tarif/Expenses Item untuk Port dan GRT kapal saat ini.`);
+      setAutoLoadMessage(`Riwayat EPDA untuk IMO ${currentImo.toUpperCase()} ditemukan, tetapi tidak ada Description yang cocok dengan Fix Tariff berdasarkan Port/GRT atau Expenses Item berdasarkan Port dan mata uang.`);
       return;
     }
 
-    const attemptKey = `${job.jobId}|${job.portId}|${viewCurrency}`;
+    const attemptKey = `${job.jobId}|${currentImo}|${job.portId}|${vesselMaster?.grt || 0}|${viewCurrency}`;
     if (autoLoadAttemptedRef.current === attemptKey) return;
     autoLoadAttemptedRef.current = attemptKey;
     setAutoLoadError('');
@@ -450,7 +460,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
         setAutoLoadMessage('');
         return;
       }
-      setAutoLoadMessage(`${refreshedItems.length} item dari EPDA terakhir untuk IMO ${currentImo.toUpperCase()} dimuat dengan tarif Port dan GRT saat ini.`);
+      setAutoLoadMessage(`${refreshedItems.length} item dari riwayat EPDA IMO ${currentImo.toUpperCase()} dimuat dengan tarif Port dan GRT saat ini.`);
       onDataSaved?.();
     }).catch((error: unknown) => {
       if (currentJobIdRef.current !== job.jobId) return;
@@ -482,13 +492,21 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   };
 
   const autoServiceOptionKey = (name: string, category: string) => JSON.stringify([name, category]);
+  const keepIncompatibleItemAsReference = (option: MasterItemSearchOption) => {
+    setManualItemReference(option);
+    setAutoSelectedItemKey('');
+    setNewItem((current) => ({ ...current, name: '', rate: 0, minCharge: 0 }));
+  };
   const applySelectedAutoService = (selectedKey: string) => {
     const selected = autoServiceOptions.find((option) => autoServiceOptionKey(option.name, option.category) === selectedKey);
     if (!selected) {
+      setAutoSelectedItemKey('');
       setNewItem({ ...newItem, name: '', rate: 0, minCharge: 0 });
       return;
     }
 
+    setAutoSelectedItemKey(selectedKey);
+    setManualItemReference(null);
     setNewItem({
       ...newItem,
       name: selected.name,
@@ -506,7 +524,20 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     db.updateJob(job.jobId, {
       quotation: {
         ...job.quotation,
-        epda: { ...job.quotation.epda, quoteNo: epdaNo, items: currencyItems, currency: viewCurrency, exchangeRateUSDToIDR: exchangeRate, pph23Applied: epdaPph23Applied, globalVatApplied: epdaGlobalVatApplied, totalBuyRate: totalBuyUSD, totalSellRate: totalSellUSD, marginAmount: marginUSD, marginPercentage: Number(marginPct), status: 'SUBMITTED' },
+        epda: {
+          ...job.quotation.epda,
+          quoteNo: epdaNo,
+          items: currencyItems,
+          currency: viewCurrency,
+          ...(Number(exchangeRate) > 0 ? { exchangeRateUSDToIDR: Number(exchangeRate) } : {}),
+          pph23Applied: epdaPph23Applied,
+          globalVatApplied: epdaGlobalVatApplied,
+          totalBuyRate: totalBuyUSD,
+          totalSellRate: totalSellUSD,
+          marginAmount: marginUSD,
+          marginPercentage: Number(marginPct),
+          status: 'SUBMITTED',
+        },
       },
       currentStage: 'QUOTATION',
     });
@@ -540,16 +571,16 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   };
 
   const saveExchangeRate = (value: string) => {
-    if (isReviewOnly || isEPDALockedInDatabase()) return;
+    const parsedRate = Number(value);
+    if (isReviewOnly || isEPDALockedInDatabase() || !Number.isFinite(parsedRate) || parsedRate <= 0) return;
     const currentJob = db.getJob(job.jobId);
     if (!currentJob) return;
-    const parsedRate = Number(value);
     db.updateJob(job.jobId, {
       quotation: {
         ...currentJob.quotation,
         epda: {
           ...currentJob.quotation?.epda,
-          exchangeRateUSDToIDR: Number.isFinite(parsedRate) && parsedRate > 0 ? parsedRate : 15800,
+          exchangeRateUSDToIDR: parsedRate,
         },
       },
     });
@@ -558,6 +589,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
 
   const autosaveItems = (nextItems: DisbursementItem[]) => {
     if (isReviewOnly || isEPDALockedInDatabase()) return;
+    if (nextItems.length > 0) setAutoLoadMessage('');
     const manualItems = nextItems.map((item) => ({
       ...item,
       currency: viewCurrency,
@@ -681,6 +713,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   const handleAddItem = (e: React.FormEvent) => {
     e.preventDefault();
     if (isReviewOnly) return;
+    if (itemEntryMode === 'AUTO' && !autoSelectedItemKey) return;
     if (!newItem.name.trim()) return;
 
     const quantity = Number(newItem.quantity) || 1;
@@ -750,6 +783,8 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       vatApplied: false,
     });
     manualTypeDefaultedRef.current = false;
+    setAutoSelectedItemKey('');
+    setManualItemReference(null);
   };
 
   const handleSubmit = () => {
@@ -1055,22 +1090,43 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       <style>{`.epda-form-root table tfoot td{font-weight:400!important}.epda-form-root input,.epda-form-root select,.epda-form-root textarea{font-weight:400!important}`}</style>
       {isSavingEPDANumber && <div role="status" className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 text-xs text-blue-200">Nomor EPDA sedang diperbarui dan disimpan ke database: {epdaNo}</div>}
       {epdaNumberMigrationError && <div role="alert" className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3 text-xs text-rose-200">Nomor EPDA baru belum tersimpan di database. {epdaNumberMigrationError}</div>}
-      <div className="epda-page-header bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="epda-page-header bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 text-emerald-400 text-xs font-mono font-bold uppercase"><FileSpreadsheet className="w-4 h-4"/><span>SALES / EPDA</span><span className="text-black">• JOB ID: {job.jobId}</span></div>
-          <h1 className="text-2xl font-black text-white mt-1">Quotes EPDA</h1>
-          <p className="text-xs text-slate-400">Estimate Port Disbursement of Account sesuai format dokumen PDF LGM.</p>
+          <div className="flex items-center gap-2 text-emerald-400 text-xs font-mono font-bold uppercase tracking-wider"><FileSpreadsheet className="w-4 h-4"/><span>SALES / EPDA</span><span className="text-cyan-300">• JOB ID: {job.jobId}</span></div>
+          <h1 className="text-2xl font-black text-white mt-1">Create EPDA</h1>
+          <p className="text-xs text-slate-400">Estimate Port Disbursement of Account</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800"><button onClick={() => handleViewCurrencyChange('IDR')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${viewCurrency==='IDR'?'bg-emerald-600 text-white':'text-slate-400'}`}>IDR (Rp)</button><button onClick={() => handleViewCurrencyChange('USD')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${viewCurrency==='USD'?'bg-emerald-600 text-white':'text-slate-400'}`}>USD ($)</button></div>
-          <div className="text-xs text-slate-400 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">Kurs USD <input value={exchangeRate} readOnly={isReviewOnly} onChange={e=>setExchangeRate(Number(e.target.value)||0)} onBlur={e => saveExchangeRate(e.currentTarget.value)} className="w-20 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-white text-right"/></div>
-          {!isReviewOnly && <button onClick={handleSubmit} className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5"><Send className="w-4 h-4"/>Kirim ke Manager OPS</button>}
-          {isReviewOnly && <span className="px-3.5 py-2 rounded-xl border border-blue-200 bg-blue-100 text-blue-700 text-xs font-bold">{isManagerApproved ? 'VIEW ONLY · APPROVED' : 'TERKIRIM · MENUNGGU APPROVAL'}</span>}
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+        <div className="account-toolbar-panel account-currency-switch flex items-center gap-2 rounded-xl border p-1.5">
+          <button type="button" onClick={() => handleViewCurrencyChange('IDR')} className={`h-12 px-5 rounded-lg text-base font-bold ${viewCurrency === 'IDR' ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}>IDR (Rp)</button>
+          <button type="button" onClick={() => handleViewCurrencyChange('USD')} className={`h-12 px-5 rounded-lg text-base font-bold ${viewCurrency === 'USD' ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}>USD ($)</button>
+        </div>
+        <label className="account-toolbar-panel account-rate-control flex h-16 items-center gap-2 rounded-xl border px-5 text-base">
+          Kurs USD
+          <input type="number" min={1} step={1} value={exchangeRate} readOnly={isReviewOnly} onChange={e=>setExchangeRate(e.target.value)} onBlur={e => saveExchangeRate(e.currentTarget.value)} className="account-rate-input h-9 w-28 rounded-lg border px-3 text-right text-base"/>
+        </label>
+        {!isReviewOnly && <button onClick={handleSubmit} className="h-[54px] px-6 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-base font-bold flex items-center gap-2"><Send className="w-6 h-6"/>Kirim ke Manager OPS</button>}
+        {isReviewOnly && (
+          <span className={`inline-flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-bold ${
+            isManagerApproved
+              ? 'border-blue-200 bg-blue-100 text-blue-700'
+              : 'border-amber-300 bg-amber-50 text-amber-800'
+          }`}>
+            <CheckCircle2 className="h-4 w-4" />
+            {isManagerApproved ? 'VIEW ONLY · APPROVED' : 'MENUNGGU APPROVAL MANAGER OPS'}
+          </span>
+        )}
         </div>
       </div>
 
-      {isReviewOnly && <div role="status" className="flex items-start gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-700"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0"/><div><b>{isManagerApproved ? 'EPDA telah disetujui Manager OPS.' : 'EPDA sudah dikirim ke Manager OPS.'}</b><div className="mt-1">{isManagerApproved ? `Disetujui oleh ${job.managerApproval?.approvedBy || 'Manager OPS'}${job.managerApproval?.approvedAt ? ` pada ${formatDate(job.managerApproval.approvedAt)}` : ''}. EPDA hanya dapat dilihat dan tidak dapat diedit atau dikirim ulang.` : 'Menunggu review Manager OPS. EPDA terkunci sampai Manager menyetujui atau mengembalikannya untuk revisi.'}</div></div></div>}
+      {isReviewOnly && <div role="status" className={`flex items-start gap-2 rounded-xl border p-3 text-xs ${
+        isManagerApproved
+          ? 'border-blue-200 bg-blue-50 text-blue-800'
+          : 'border-amber-300 bg-amber-50 text-amber-900'
+      }`}><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0"/><div><b>{isManagerApproved ? 'EPDA telah disetujui Manager OPS.' : 'EPDA sudah dikirim ke Manager OPS.'}</b><div className="mt-1">{isManagerApproved ? `Disetujui oleh ${job.managerApproval?.approvedBy || 'Manager OPS'}${job.managerApproval?.approvedAt ? ` pada ${formatDate(job.managerApproval.approvedAt)}` : ''}. EPDA hanya dapat dilihat dan tidak dapat diedit atau dikirim ulang.` : 'Menunggu review Manager OPS. EPDA terkunci sampai Manager menyetujui atau mengembalikannya untuk revisi.'}</div></div></div>}
 
+      {autoLoadMessage && <div role="status" className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-slate-800">{autoLoadMessage}</div>}
+      {autoLoadError && <div role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">{autoLoadError}</div>}
       {isSaved && <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-emerald-300 text-xs flex items-center gap-2"><CheckCircle2 className="w-4 h-4"/>EPDA tersimpan dan status menjadi SUBMITTED untuk Manager OPS.</div>}
 
       <div className="epda-summary-grid grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1122,7 +1178,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
         <div className="mb-4">
           <div className="text-[10px] font-mono font-bold uppercase text-emerald-400">Quotes EPDA</div>
-          <h2 className="text-lg font-black text-white mt-1">Inquiry form Quotes EPDA</h2>
+          <h2 className="text-lg font-black text-white mt-1">Create EPDA</h2>
         </div>
         {epdaScheduleError && <div role="alert" className="mb-3 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">{epdaScheduleError}</div>}
         <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2">
@@ -1171,8 +1227,6 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
 
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4"><div><h2 className="text-base font-bold text-white uppercase tracking-wider">Hasil Quotes EPDA</h2><span className="text-xs text-slate-400">Hasil entry data manual Estimasi Biaya</span></div><div className="flex flex-wrap gap-2"><button onClick={()=>openPreview(false)} className="px-3 py-2 rounded-lg bg-slate-800 text-slate-200 text-xs font-bold flex items-center gap-1.5"><Eye className="w-3.5 h-3.5"/>Lihat Hasil EPDA</button><button onClick={downloadExcel} className="px-3 py-2 rounded-lg bg-emerald-600/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold flex items-center gap-1.5"><Download className="w-3.5 h-3.5"/>Download Excel</button><button onClick={()=>openPreview(true)} className="px-3 py-2 rounded-lg bg-white text-slate-900 text-xs font-bold flex items-center gap-1.5"><Printer className="w-3.5 h-3.5"/>Cetak / PDF</button></div></div>
-        {autoLoadMessage && <div role="status" className="mb-3 rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-xs text-blue-200">{autoLoadMessage}</div>}
-        {autoLoadError && <div role="alert" className="mb-3 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">{autoLoadError}</div>}
         <div className="erp-tax-controls mb-3 flex flex-wrap gap-2">
           <label className={`erp-tax-option erp-tax-option-pph ${epdaPph23Applied ? 'is-active' : ''} ${isReviewOnly || isEPDALockedInDatabase() ? 'is-disabled' : ''}`}>
             <input type="checkbox" checked={epdaPph23Applied} disabled={isReviewOnly || isEPDALockedInDatabase()} onChange={(event) => setEPDAPph23Applied(event.target.checked)} />
@@ -1200,10 +1254,10 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
           </div>
 
           <div className="flex items-center gap-2">
-            <button type="button" onClick={() => setItemEntryMode('AUTO')} className={`rounded-lg border px-3 py-2 text-[11px] font-semibold ${itemEntryMode === 'AUTO' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-slate-700 hover:border-emerald-500 hover:text-emerald-600'}`}>
+            <button type="button" onClick={() => { setItemEntryMode('AUTO'); setAutoSelectedItemKey(''); }} className={`rounded-lg border px-3 py-2 text-[11px] font-semibold ${itemEntryMode === 'AUTO' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-slate-700 hover:border-emerald-500 hover:text-emerald-600'}`}>
               Otomatis
             </button>
-            <button type="button" onClick={() => { setItemEntryMode('MANUAL'); if (!manualTypeDefaultedRef.current) { setNewItem((current) => ({ ...current, tariffType: 'FIXED' })); manualTypeDefaultedRef.current = true; } }} className={`rounded-lg border px-3 py-2 text-[11px] font-semibold ${itemEntryMode === 'MANUAL' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-slate-700 hover:border-emerald-500 hover:text-emerald-600'}`}>
+            <button type="button" onClick={() => { setItemEntryMode('MANUAL'); setNewItem((current) => ({ ...current, ...(manualItemReference ? { name: manualItemReference.name, category: normalizeCostCategory(manualItemReference.category) || current.category } : {}), ...(!manualTypeDefaultedRef.current ? { tariffType: 'FIXED' as const } : {}) })); if (!manualTypeDefaultedRef.current) manualTypeDefaultedRef.current = true; }} className={`rounded-lg border px-3 py-2 text-[11px] font-semibold ${itemEntryMode === 'MANUAL' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-slate-700 hover:border-emerald-500 hover:text-emerald-600'}`}>
               Manual
             </button>
           </div>
@@ -1235,19 +1289,16 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
           <form id="epda-auto-entry-form" onSubmit={handleAddItem} className="grid grid-cols-1 gap-3 text-xs font-normal md:grid-cols-2 lg:grid-cols-6">
             <div className="lg:col-span-2">
               <label className="mb-1 block text-slate-600">Item Service</label>
-              {autoServiceOptions.length > 0 ? (
-                <select
-                  value={autoServiceOptionKey(newItem.name, newItem.category)}
-                  onChange={(e) => applySelectedAutoService(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"
-                >
-                  <option value="">Pilih item service</option>
-                  {autoServiceOptions.map((option) => (
-                    <option key={autoServiceOptionKey(option.name, option.category)} value={autoServiceOptionKey(option.name, option.category)}>{option.name}</option>
-                  ))}
-                </select>
-              ) : (
-                <input required value={newItem.name} onChange={e => setNewItem({ ...newItem, name: e.target.value })} placeholder="Nama service otomatis" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none"/>
+              <MasterItemSearch
+                options={masterItemSearchOptions}
+                value={autoSelectedItemKey}
+                onSelect={applySelectedAutoService}
+                onIncompatibleSelect={keepIncompatibleItemAsReference}
+                placeholder="Search disini"
+                ariaLabel="Cari item service master EPDA"
+              />
+              {!masterItemSearchOptions.length && (
+                <p className="mt-1 text-[10px] text-slate-500">Belum ada item tarif atau Expenses Item di master data.</p>
               )}
             </div>
             <div>
@@ -1299,7 +1350,9 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
         ) : (
           <form id="epda-entry-form" onSubmit={handleAddItem} className="grid grid-cols-1 gap-3 text-xs font-normal md:grid-cols-2 lg:grid-cols-6">
             <div className="lg:col-span-2">
-              <label className="mb-1 block text-slate-600">Item Service</label>
+              <label className="mb-1 block text-slate-600">
+                Item Service{manualItemReference && newItem.name === manualItemReference.name ? ' (referensi Master Data)' : ''}
+              </label>
               <input required value={newItem.name} onChange={e => setNewItem({ ...newItem, name: e.target.value })} placeholder="Nama service manual" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none"/>
             </div>
             <div>

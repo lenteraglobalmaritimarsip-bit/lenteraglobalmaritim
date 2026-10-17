@@ -151,7 +151,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
               </button>
             </div>
 
-            {error && <div className="lgm-login-error">{error}</div>}
+            {error && <div role="alert" className="lgm-login-error">{error}</div>}
             <button type="submit" className="lgm-login-submit" disabled={loading}>
               {loading ? 'Memverifikasi...' : 'Login ke Portal'}
               <ArrowRight size={18} />

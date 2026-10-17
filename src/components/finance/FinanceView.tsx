@@ -703,14 +703,14 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       </div>
 
       {msg && (
-        <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-emerald-300 text-xs flex items-center gap-2">
+        <div role="status" className="p-3 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-emerald-300 text-xs flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4" />
           <span>{msg}</span>
         </div>
       )}
 
       {financeGateMessage && subTab !== 'DASHBOARD' && (
-        <div className="p-4 bg-slate-800 border border-slate-600 rounded-xl text-slate-200 text-xs flex items-center gap-2">
+        <div role="status" className="p-4 bg-slate-800 border border-slate-600 rounded-xl text-slate-200 text-xs flex items-center gap-2">
           <AlertCircle className="w-4 h-4" />
           <span>{financeGateMessage}</span>
         </div>

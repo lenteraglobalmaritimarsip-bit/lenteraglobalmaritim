@@ -332,7 +332,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
           </label>
         </div>
         {vendorPartners.length === 0 && (
-          <p className="mt-3 text-[11px] text-amber-700">Belum ada data Vendor Partners. Minta Admin menambahkannya di Master Data.</p>
+          <p role="status" className="mt-3 text-[11px] text-amber-700">Belum ada data Vendor Partners. Minta Admin menambahkannya di Master Data.</p>
         )}
       </div>
 
@@ -434,11 +434,11 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
         </div>
       </div>
 
-      {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">{error}</div>}
-      {message && <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-700">{message}</div>}
+      {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">{error}</div>}
+      {message && <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-700">{message}</div>}
 
       {draftRestored && !editingVoucher && (
-        <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs font-semibold text-sky-700">
+        <div role="status" className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs font-semibold text-sky-700">
           Draft sebelumnya dipulihkan. Perubahan disimpan otomatis sampai voucher disimpan.
         </div>
       )}
