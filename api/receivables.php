@@ -15,13 +15,14 @@ try {
         $action = (string) ($_GET['action'] ?? 'options');
         if ($action === 'history') {
             $rows = $pdo->query(
-                'SELECT id, job_id, invoice_type, invoice_no, income_date, principal_name, vessel_name, '
+                'SELECT id, subject_data, job_id, invoice_type, invoice_no, income_date, principal_name, vessel_name, '
                 . 'pph23_amount_idr, remark, bank_account_id, bank_name, account_name, account_number, '
                 . 'idr_amount, usd_amount, attachment_name, attachment_data_url, created_by_name, created_at '
                 . 'FROM accounts_receivable_entries ORDER BY income_date DESC, created_at DESC'
             )->fetchAll();
             $entries = array_map(static fn (array $row): array => [
                 'id' => $row['id'],
+                'subjectData' => $row['subject_data'],
                 'jobId' => $row['job_id'],
                 'invoiceType' => $row['invoice_type'],
                 'invoiceNo' => $row['invoice_no'],
@@ -91,6 +92,7 @@ try {
     requireMethod('POST');
     requireCsrfToken();
     $body = requestJson();
+    $subjectData = (string) ($body['subjectData'] ?? 'PRINCIPAL');
     $jobId = trim((string) ($body['jobId'] ?? ''));
     $invoiceType = (string) ($body['invoiceType'] ?? '');
     $invoiceNo = trim((string) ($body['invoiceNo'] ?? ''));
@@ -103,14 +105,17 @@ try {
     $attachmentName = trim((string) ($body['attachmentName'] ?? ''));
     $attachmentDataUrl = (string) ($body['attachmentDataUrl'] ?? '');
 
-    if ($jobId === '' || strlen($jobId) > 50 || !in_array($invoiceType, ['FDA', 'FPDA'], true)
-        || $invoiceNo === '' || strlen($invoiceNo) > 180
+    if (!in_array($subjectData, ['OPERATIONAL', 'PRINCIPAL'], true)
         || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $incomeDate)
         || !checkdate((int) substr($incomeDate, 5, 2), (int) substr($incomeDate, 8, 2), (int) substr($incomeDate, 0, 4))
         || $bankAccountId === '' || $remark === '' || strlen($remark) > 5000
         || $attachmentName === '' || strlen($attachmentName) > 255
         || !preg_match('/^data:image\/(jpeg|png);base64,([A-Za-z0-9+\/]+={0,2})$/D', $attachmentDataUrl, $attachmentMatch)) {
         jsonResponse(['error' => 'Data Accounts Receivable belum lengkap atau tidak valid'], 400);
+    }
+    if ($subjectData === 'PRINCIPAL' && ($jobId === '' || strlen($jobId) > 50
+        || !in_array($invoiceType, ['FDA', 'FPDA'], true) || $invoiceNo === '' || strlen($invoiceNo) > 180)) {
+        jsonResponse(['error' => 'Principal, Vessel, dan Invoice wajib dipilih untuk Subject Data Principal'], 400);
     }
     $attachmentBytes = base64_decode($attachmentMatch[2], true);
     $attachmentInfo = $attachmentBytes === false ? false : getimagesizefromstring($attachmentBytes);
@@ -129,26 +134,33 @@ try {
     $usdAmount = round((float) $usdAmount, 2);
     if ($idrAmount <= 0 && $usdAmount <= 0) jsonResponse(['error' => 'Isi IDR Amount atau USD Amount'], 400);
 
-    if ($invoiceType === 'FDA') {
-        $invoiceQuery = $pdo->prepare(
-            "SELECT vc.job_id, f.fda_no AS invoice_no, c.company_name AS principal_name, v.name AS vessel_name "
-            . 'FROM vessel_calls vc INNER JOIN fda_records f ON f.job_id = vc.job_id '
-            . 'INNER JOIN customers c ON c.id = vc.customer_id INNER JOIN vessels v ON v.id = vc.vessel_id '
-            . 'LEFT JOIN closing_records cr ON cr.job_id = vc.job_id '
-            . "WHERE vc.job_id = :job_id AND f.fda_no = :invoice_no AND vc.status <> 'CLOSED' AND vc.current_stage <> 'CLOSED' AND COALESCE(cr.is_closed, 0) = 0 LIMIT 1"
-        );
+    $invoice = ['principal_name' => null, 'vessel_name' => null];
+    if ($subjectData === 'PRINCIPAL') {
+        if ($invoiceType === 'FDA') {
+            $invoiceQuery = $pdo->prepare(
+                "SELECT vc.job_id, f.fda_no AS invoice_no, c.company_name AS principal_name, v.name AS vessel_name "
+                . 'FROM vessel_calls vc INNER JOIN fda_records f ON f.job_id = vc.job_id '
+                . 'INNER JOIN customers c ON c.id = vc.customer_id INNER JOIN vessels v ON v.id = vc.vessel_id '
+                . 'LEFT JOIN closing_records cr ON cr.job_id = vc.job_id '
+                . "WHERE vc.job_id = :job_id AND f.fda_no = :invoice_no AND vc.status <> 'CLOSED' AND vc.current_stage <> 'CLOSED' AND COALESCE(cr.is_closed, 0) = 0 LIMIT 1"
+            );
+        } else {
+            $invoiceQuery = $pdo->prepare(
+                "SELECT vc.job_id, pd.pda_no AS invoice_no, c.company_name AS principal_name, v.name AS vessel_name "
+                . 'FROM vessel_calls vc INNER JOIN pda_documents pd ON pd.job_id = vc.job_id AND pd.pda_type = \'FDA\' '
+                . 'INNER JOIN customers c ON c.id = vc.customer_id INNER JOIN vessels v ON v.id = vc.vessel_id '
+                . 'LEFT JOIN closing_records cr ON cr.job_id = vc.job_id '
+                . "WHERE vc.job_id = :job_id AND pd.pda_no = :invoice_no AND vc.status <> 'CLOSED' AND vc.current_stage <> 'CLOSED' AND COALESCE(cr.is_closed, 0) = 0 LIMIT 1"
+            );
+        }
+        $invoiceQuery->execute(['job_id' => $jobId, 'invoice_no' => $invoiceNo]);
+        $invoice = $invoiceQuery->fetch();
+        if (!$invoice) jsonResponse(['error' => 'Invoice FDA/FPDA tidak ditemukan atau Job sudah ditutup'], 409);
     } else {
-        $invoiceQuery = $pdo->prepare(
-            "SELECT vc.job_id, pd.pda_no AS invoice_no, c.company_name AS principal_name, v.name AS vessel_name "
-            . 'FROM vessel_calls vc INNER JOIN pda_documents pd ON pd.job_id = vc.job_id AND pd.pda_type = \'FDA\' '
-            . 'INNER JOIN customers c ON c.id = vc.customer_id INNER JOIN vessels v ON v.id = vc.vessel_id '
-            . 'LEFT JOIN closing_records cr ON cr.job_id = vc.job_id '
-            . "WHERE vc.job_id = :job_id AND pd.pda_no = :invoice_no AND vc.status <> 'CLOSED' AND vc.current_stage <> 'CLOSED' AND COALESCE(cr.is_closed, 0) = 0 LIMIT 1"
-        );
+        $jobId = null;
+        $invoiceType = null;
+        $invoiceNo = null;
     }
-    $invoiceQuery->execute(['job_id' => $jobId, 'invoice_no' => $invoiceNo]);
-    $invoice = $invoiceQuery->fetch();
-    if (!$invoice) jsonResponse(['error' => 'Invoice FDA/FPDA tidak ditemukan atau Job sudah ditutup'], 409);
 
     $bankQuery = $pdo->prepare('SELECT bank_name, account_name, account_number FROM bank_accounts WHERE id = :id LIMIT 1');
     $bankQuery->execute(['id' => $bankAccountId]);
@@ -157,13 +169,14 @@ try {
 
     $insert = $pdo->prepare(
         'INSERT INTO accounts_receivable_entries '
-        . '(id, job_id, invoice_type, invoice_no, income_date, principal_name, vessel_name, pph23_amount_idr, remark, '
+        . '(id, subject_data, job_id, invoice_type, invoice_no, income_date, principal_name, vessel_name, pph23_amount_idr, remark, '
         . 'bank_account_id, bank_name, account_name, account_number, idr_amount, usd_amount, attachment_name, attachment_data_url, created_by_user_id, created_by_name) '
-        . 'VALUES (:id, :job_id, :invoice_type, :invoice_no, :income_date, :principal_name, :vessel_name, :pph23, :remark, '
+        . 'VALUES (:id, :subject_data, :job_id, :invoice_type, :invoice_no, :income_date, :principal_name, :vessel_name, :pph23, :remark, '
         . ':bank_account_id, :bank_name, :account_name, :account_number, :idr_amount, :usd_amount, :attachment_name, :attachment_data_url, :user_id, :user_name)'
     );
     $insert->execute([
         'id' => 'AR-' . bin2hex(random_bytes(16)),
+        'subject_data' => $subjectData,
         'job_id' => $jobId,
         'invoice_type' => $invoiceType,
         'invoice_no' => $invoiceNo,

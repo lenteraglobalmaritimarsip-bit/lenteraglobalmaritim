@@ -4,6 +4,8 @@ import { BankAccount, JobCall, PaymentVoucher } from '../../types';
 import { db } from '../../db/storage';
 import { dataApi } from '../../lib/dataApi';
 import { printPaymentVoucher } from '../../utils/voucherPrint';
+import { formatDateDisplay } from '../../utils/date';
+import { DateInput } from '../shared/DateInput';
 
 interface AccountsPayableViewProps {
   mode?: 'INPUT' | 'HISTORY';
@@ -25,12 +27,7 @@ interface PaymentFormDraft {
 const money = (value: number) =>
   new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
 
-const formatDate = (value: string) => {
-  const date = new Date(`${String(value).slice(0, 10)}T00:00:00`);
-  return Number.isNaN(date.getTime())
-    ? value || '-'
-    : date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
-};
+const formatDate = (value: string) => formatDateDisplay(value);
 
 const todayIso = () => {
   const today = new Date();
@@ -41,13 +38,7 @@ const todayIso = () => {
 };
 
 const formatDisplayDate = (value: string) => {
-  if (!value) return '-';
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return value;
-  const day = String(date.getDate()).padStart(2, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const year = date.getFullYear();
-  return `${day}/${month}/${year}`;
+  return formatDateDisplay(value);
 };
 
 const MAX_PAYMENT_PROOF_SIZE = 1024 * 1024;
@@ -348,15 +339,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
         <td class="amount">${money(item.paidAmount)}</td>
       </tr>
     `).join('');
-    const printedAt = new Date().toLocaleString('id-ID', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    });
+    const printedAt = formatDateDisplay(new Date(), true);
     const body = `
       <!doctype html>
       <html>
@@ -817,10 +800,10 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
         {mode === 'HISTORY' && (
           <div className="ml-auto flex flex-wrap items-end gap-3">
             <label className="grid gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">START
-              <input type="date" value={startDate} max={endDate || undefined} onChange={(event) => { setStartDate(event.target.value); setPage(1); setExpandedId(null); }} className="h-10 rounded-lg border border-slate-200 px-3 text-xs font-semibold normal-case text-slate-700" />
+              <DateInput value={startDate} max={endDate || undefined} onChange={(value) => { setStartDate(value); setPage(1); setExpandedId(null); }} ariaLabel="tanggal awal" inputClassName="h-10 w-full rounded-lg border border-slate-200 px-3 text-xs font-semibold normal-case text-slate-700" />
             </label>
             <label className="grid gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">END
-              <input type="date" value={endDate} min={startDate || undefined} onChange={(event) => { setEndDate(event.target.value); setPage(1); setExpandedId(null); }} className="h-10 rounded-lg border border-slate-200 px-3 text-xs font-semibold normal-case text-slate-700" />
+              <DateInput value={endDate} min={startDate || undefined} onChange={(value) => { setEndDate(value); setPage(1); setExpandedId(null); }} ariaLabel="tanggal akhir" inputClassName="h-10 w-full rounded-lg border border-slate-200 px-3 text-xs font-semibold normal-case text-slate-700" />
             </label>
           </div>
         )}

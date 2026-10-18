@@ -5,6 +5,7 @@ import { db } from '../../db/storage';
 import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, filterTariffsByGRT, selectPreferredTariffOptions } from '../../utils/tariff';
 import { formatCostCategoryLabel, getCostCategoryRank, normalizeCostCategory } from '../../utils/costCategories';
 import { formatInquiryDate } from '../../utils/date';
+import { DateTimeInput } from '../shared/DateTimeInput';
 import { findMatchingExpensesItem, findMatchingFixTariff } from '../../utils/masterDataIdentity';
 import { createMasterItemSearchOptions, MasterItemSearch, MasterItemSearchOption } from '../shared/MasterItemSearch';
 
@@ -121,7 +122,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   const formatDate = (value: string) => {
     const datePart = value?.split('T')[0] || '';
     const [year, month, day] = datePart.split('-');
-    return year && month && day ? `${day}/${month}/${year}` : value || '-';
+    return year && month && day ? `${day}-${month}-${year}` : value || '-';
   };
   const formatVesselDate = (value: string, includeTime = false) => {
     if (!value) return '-';
@@ -149,7 +150,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     ? formatVesselDate(epdaSchedule.etd, true)
     : epdaSchedule.etdRemarks || '-';
   const today = new Date();
-  const todayDisplayDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
+  const todayDisplayDate = `${String(today.getDate()).padStart(2, '0')}-${String(today.getMonth() + 1).padStart(2, '0')}-${today.getFullYear()}`;
 
   const formatEntryAmount = (value: number | '') => {
     if (value === '') return '';
@@ -888,7 +889,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     .replaceAll('.footer{left:0;right:0;text-align:center!important;font-size:12px;line-height:1.45;font-weight:600;color:#111}.footer .contact{color:#e11d48;text-decoration:underline}', '.bank{display:inline-block;width:42%;margin-top:24px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.signature-main{display:block}.signature-role{display:block;margin-top:120px;padding-top:12px}.office-footer{left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center!important;font-size:9px;line-height:1.45;font-weight:600;color:#111;z-index:3}.office-footer .contact{color:#e11d48;text-decoration:underline}')
     .replaceAll('th,td{border:1px solid #777;padding:6px 7px}th{background:#e8ecf2;text-align:left}', 'table{border:2px solid #6b7280}th,td{border:0;padding:6px 7px}th{background:#e8ecf2;text-align:center;border-bottom:2px solid #9ca3af}.item-row td{border:0}.subtotal td{border-top:1px solid #d1d5db}.office-footer{left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center!important;font-size:9px;line-height:1.45;font-weight:600;color:#111;z-index:3}.office-footer .contact{color:#e11d48;text-decoration:underline}')
     .replaceAll(quoteDate, formatInquiryDate(quoteDate))
-    .replaceAll(new Date().toLocaleDateString('id-ID'), todayDisplayDate)
+    .replaceAll(formatInquiryDate(new Date()), todayDisplayDate)
     .replace(/<\/body>/i, `${printFooter}${officeFooter}</body>`));
     if (job.eta) enhancedHtml = enhancedHtml.replaceAll(job.eta, formatVesselDate(job.eta, true));
     if (job.etd) enhancedHtml = enhancedHtml.replaceAll(job.etd, formatVesselDate(job.etd, true));
@@ -1184,22 +1185,22 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
         <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2">
           <label className="block text-slate-400">
             ETA
-            <input
-              type="datetime-local"
+            <DateTimeInput
               value={epdaSchedule.eta}
               disabled={printPreviewOnly || isSavingEpdaSchedule}
-              onChange={(event) => setEpdaSchedule({ ...epdaSchedule, eta: event.target.value })}
-              className="mt-1 h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 font-mono text-white disabled:opacity-60"
+              onChange={(value) => setEpdaSchedule({ ...epdaSchedule, eta: value })}
+              ariaLabel="ETA"
+              inputClassName="mt-1 h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 font-mono text-white disabled:opacity-60"
             />
           </label>
           <label className="block text-slate-400">
             ETD
-            <input
-              type="datetime-local"
+            <DateTimeInput
               value={epdaSchedule.etd}
               disabled={printPreviewOnly || isSavingEpdaSchedule}
-              onChange={(event) => setEpdaSchedule({ ...epdaSchedule, etd: event.target.value })}
-              className="mt-1 h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 font-mono text-white disabled:opacity-60"
+              onChange={(value) => setEpdaSchedule({ ...epdaSchedule, etd: value })}
+              ariaLabel="ETD"
+              inputClassName="mt-1 h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 font-mono text-white disabled:opacity-60"
             />
           </label>
           <label className="block text-slate-400">

@@ -25,6 +25,8 @@ import { db } from '../../db/storage';
 import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, filterTariffsByGRT, selectPreferredTariffOptions } from '../../utils/tariff';
 import { formatDateDisplay, formatInquiryDate, getLatestInquiryMonthRange, isInquiryDateInRange } from '../../utils/date';
 import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateRangePicker';
+import { DateInput } from '../shared/DateInput';
+import { DateTimeInput } from '../shared/DateTimeInput';
 import { formatCostCategoryLabel, getCostCategoryRank, normalizeCostCategory } from '../../utils/costCategories';
 import { findMatchingExpensesItem, findMatchingFixTariff } from '../../utils/masterDataIdentity';
 import { createMasterItemSearchOptions, MasterItemSearch, MasterItemSearchOption } from '../shared/MasterItemSearch';
@@ -1913,11 +1915,11 @@ export const FDAView: React.FC<FDAViewProps> = ({
             <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2">
               <label className="block text-slate-400">
                 ETA
-                <input type="datetime-local" value={fdaSchedule.eta} disabled={isFDAReadOnly} onChange={(event) => updateFDASchedule('eta', event.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 font-mono text-white disabled:opacity-60" />
+                <DateTimeInput value={fdaSchedule.eta} disabled={isFDAReadOnly} onChange={(value) => updateFDASchedule('eta', value)} ariaLabel="ETA" inputClassName="mt-1 h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 font-mono text-white disabled:opacity-60" />
               </label>
               <label className="block text-slate-400">
                 ETD
-                <input type="datetime-local" value={fdaSchedule.etd} disabled={isFDAReadOnly} onChange={(event) => updateFDASchedule('etd', event.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 font-mono text-white disabled:opacity-60" />
+                <DateTimeInput value={fdaSchedule.etd} disabled={isFDAReadOnly} onChange={(value) => updateFDASchedule('etd', value)} ariaLabel="ETD" inputClassName="mt-1 h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 font-mono text-white disabled:opacity-60" />
               </label>
               <label className="block text-slate-400">
                 Keterangan ETA
@@ -2246,12 +2248,12 @@ export const FDAView: React.FC<FDAViewProps> = ({
             </div>
             <div>
               <label className="mb-1 block text-slate-600">Date Advance Payment</label>
-              <input
-                type="date"
+              <DateInput
                 value={advancePaymentDate}
                 disabled={isFDAReadOnly || isSavingAdvancePayment}
-                onChange={(event) => setAdvancePaymentDate(event.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 disabled:cursor-not-allowed disabled:bg-slate-100"
+                onChange={setAdvancePaymentDate}
+                ariaLabel="tanggal uang muka"
+                inputClassName="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 disabled:cursor-not-allowed disabled:bg-slate-100"
               />
             </div>
             <div>
@@ -2344,12 +2346,12 @@ export const FDAView: React.FC<FDAViewProps> = ({
                         <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2">
                           <div>
                             <label className="mb-1 block text-slate-600">Date Advance Payment</label>
-                            <input
-                              type="date"
+                            <DateInput
                               value={advanceReceiptEditDate}
                               disabled={isSavingAdvanceReceiptEdit}
-                              onChange={(event) => setAdvanceReceiptEditDate(event.target.value)}
-                              className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 disabled:bg-slate-100"
+                              onChange={setAdvanceReceiptEditDate}
+                              ariaLabel="tanggal uang muka"
+                              inputClassName="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 disabled:bg-slate-100"
                             />
                           </div>
                           <div>

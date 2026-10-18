@@ -19,6 +19,7 @@ import { db } from '../../db/storage';
 import { AuthAccount } from '../../auth';
 import { formatDateDisplay, formatInquiryDate, isInquiryDateInRange } from '../../utils/date';
 import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateRangePicker';
+import { DateTimeInput } from '../shared/DateTimeInput';
 import { listApprovedPdaJobIds } from '../../lib/api';
 
 interface InquiriesViewProps {
@@ -856,20 +857,20 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
                 <div className="w-full">
                   <label className="text-slate-500 block mb-1 font-semibold">Estimated Time Arrival (ETA)</label>
-                  <input
-                    type="datetime-local"
+                  <DateTimeInput
                     value={form.eta}
-                    onChange={(e) => setForm({ ...form, eta: e.target.value })}
-                    className="w-full h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-white font-mono"
+                    onChange={(value) => setForm({ ...form, eta: value })}
+                    ariaLabel="ETA"
+                    inputClassName="w-full h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-white font-mono"
                   />
                 </div>
                 <div>
                   <label className="text-slate-500 block mb-1 font-semibold">Estimated Time Departure (ETD)</label>
-                  <input
-                    type="datetime-local"
+                  <DateTimeInput
                     value={form.etd}
-                    onChange={(e) => setForm({ ...form, etd: e.target.value })}
-                    className="w-full h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-white font-mono"
+                    onChange={(value) => setForm({ ...form, etd: value })}
+                    ariaLabel="ETD"
+                    inputClassName="w-full h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-white font-mono"
                   />
                 </div>
                 <div>

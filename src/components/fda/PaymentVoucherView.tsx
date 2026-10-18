@@ -5,6 +5,7 @@ import { db } from '../../db/storage';
 import { dataApi } from '../../lib/dataApi';
 import { parseTariffNumber } from '../../utils/tariff';
 import { printPaymentVoucher } from '../../utils/voucherPrint';
+import { DateInput } from '../shared/DateInput';
 
 interface PaymentVoucherViewProps {
   jobCalls: JobCall[];
@@ -292,11 +293,11 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
           </label>
           <label className="block">
             <span className="font-semibold text-slate-500">Request Date</span>
-            <input type="date" required value={requestDate} onChange={(e) => setRequestDate(e.target.value || todayIso())} className={`${inputClass} mt-1`} />
+            <DateInput required value={requestDate} onChange={(value) => setRequestDate(value || todayIso())} ariaLabel="request date" inputClassName={`${inputClass} mt-1`} />
           </label>
           <label className="block">
             <span className="font-semibold text-slate-500">Requested Payment Date</span>
-            <input type="date" required value={requestedPaymentDate} onChange={(e) => setRequestedPaymentDate(e.target.value)} className={`${inputClass} mt-1`} />
+            <DateInput required value={requestedPaymentDate} onChange={setRequestedPaymentDate} ariaLabel="requested payment date" inputClassName={`${inputClass} mt-1`} />
           </label>
           <label className="block">
             <span className="font-semibold text-slate-500">Info JOB</span>

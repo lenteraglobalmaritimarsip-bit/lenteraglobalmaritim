@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Check, ChevronDown, ChevronRight, X } from 'lucide-react';
 import { PaymentVoucher } from '../../types';
 import { db } from '../../db/storage';
+import { formatDateDisplay } from '../../utils/date';
 
 interface VoucherApprovalViewProps {
   paymentVouchers: PaymentVoucher[];
@@ -13,12 +14,7 @@ type Filter = 'PENDING_MANAGER' | 'ALL';
 const money = (value: number) =>
   new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
 
-const formatDate = (value: string) => {
-  const date = new Date(`${String(value).slice(0, 10)}T00:00:00`);
-  return Number.isNaN(date.getTime())
-    ? value || '-'
-    : date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
-};
+const formatDate = (value: string) => formatDateDisplay(value);
 
 export const voucherStatusBadge = (status?: PaymentVoucher['status']) => {
   switch (status) {

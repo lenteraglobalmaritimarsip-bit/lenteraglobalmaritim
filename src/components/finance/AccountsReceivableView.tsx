@@ -1,9 +1,10 @@
 import React, { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Download, Printer } from 'lucide-react';
 import ExcelJS from 'exceljs';
-import { AccountsReceivableEntry, BankAccount, ReceivableInvoiceOption, ReceivableInvoiceType } from '../../types';
+import { AccountsReceivableEntry, BankAccount, ReceivableInvoiceOption, ReceivableInvoiceType, ReceivableSubjectData } from '../../types';
 import { createAccountsReceivableEntry, loadAccountsReceivableHistory, loadAccountsReceivableOptions } from '../../lib/api';
 import { formatDateDisplay } from '../../utils/date';
+import { DateInput } from '../shared/DateInput';
 
 interface AccountsReceivableViewProps {
   mode: 'INPUT' | 'HISTORY';
@@ -39,6 +40,7 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [subjectData, setSubjectData] = useState<ReceivableSubjectData>('PRINCIPAL');
   const [principalName, setPrincipalName] = useState('');
   const [vesselName, setVesselName] = useState('');
   const [selectedInvoiceKey, setSelectedInvoiceKey] = useState('');
@@ -100,15 +102,19 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
   const handleDownloadHistory = async () => {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('History Receivable');
-    worksheet.addRow(['No', 'Date Income', 'Principal', 'Vessel', 'Invoice Type', 'Invoice No', 'PPh 23 (IDR)', 'Remark', 'Bank', 'A/C Name', 'A/C Number', 'IDR Amount', 'USD Amount', 'Photo Bukti Kas', 'Created By']);
+    worksheet.addRow(['No', 'Date Income', 'Subject Data', 'Principal', 'Vessel', 'Invoice Type', 'Invoice No', 'PPh 23 (IDR)', 'Remark', 'Bank', 'A/C Name', 'A/C Number', 'IDR Amount', 'USD Amount', 'Photo Bukti Kas', 'Created By']);
     filteredEntries.forEach((entry, index) => worksheet.addRow([
-      index + 1, entry.incomeDate, entry.principalName, entry.vesselName, entry.invoiceType, entry.invoiceNo,
+      index + 1, entry.incomeDate, entry.subjectData === 'OPERATIONAL' ? 'Operasional' : 'Principal',
+      entry.subjectData === 'OPERATIONAL' ? '-' : entry.principalName || '-',
+      entry.subjectData === 'OPERATIONAL' ? '-' : entry.vesselName || '-',
+      entry.subjectData === 'OPERATIONAL' ? '-' : entry.invoiceType || '-',
+      entry.subjectData === 'OPERATIONAL' ? '-' : entry.invoiceNo || '-',
       entry.pph23AmountIDR, entry.remark, entry.bankName, entry.accountName, entry.accountNumber,
       entry.idrAmount, entry.usdAmount, entry.attachmentName, entry.createdBy,
     ]));
     worksheet.getRow(1).font = { bold: true };
-    [8, 14].forEach((column) => { worksheet.getColumn(column).width = 32; });
-    [7, 12, 13].forEach((column) => { worksheet.getColumn(column).numFmt = '#,##0.00'; });
+    [9, 15].forEach((column) => { worksheet.getColumn(column).width = 32; });
+    [8, 13, 14].forEach((column) => { worksheet.getColumn(column).numFmt = '#,##0.00'; });
     worksheet.columns.forEach((column) => { if (!column.width) column.width = 18; });
     const buffer = await workbook.xlsx.writeBuffer();
     const url = URL.createObjectURL(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
@@ -123,7 +129,11 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
     const formatPrintAmount = (value: number) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value || 0);
     const totalIDR = filteredEntries.reduce((total, entry) => total + entry.idrAmount, 0);
     const totalUSD = filteredEntries.reduce((total, entry) => total + entry.usdAmount, 0);
-    const rows = filteredEntries.map((entry) => `<tr><td>${escapeHtml(formatDateDisplay(entry.incomeDate))}</td><td>${escapeHtml(entry.principalName)}</td><td>${escapeHtml(entry.vesselName)}</td><td>${escapeHtml(`${entry.invoiceType} · ${entry.invoiceNo}`)}</td><td>${escapeHtml(formatAmount(entry.pph23AmountIDR, 'IDR'))}</td><td>${escapeHtml(entry.remark)}</td><td>${escapeHtml(entry.bankName)}</td><td>${escapeHtml(`${entry.accountName} · ${entry.accountNumber}`)}</td><td class="amount">${escapeHtml(formatPrintAmount(entry.idrAmount))}</td><td class="amount">${escapeHtml(formatPrintAmount(entry.usdAmount))}</td></tr>`).join('');
+    const rows = filteredEntries.map((entry) => {
+      const principalEntry = entry.subjectData === 'PRINCIPAL';
+      const invoice = principalEntry ? `${entry.invoiceType || ''} · ${entry.invoiceNo || '-'}` : '-';
+      return `<tr><td>${escapeHtml(formatDateDisplay(entry.incomeDate))}</td><td>${principalEntry ? 'Principal' : 'Operasional'}</td><td>${escapeHtml(principalEntry ? entry.principalName || '-' : '-')}</td><td>${escapeHtml(principalEntry ? entry.vesselName || '-' : '-')}</td><td>${escapeHtml(invoice)}</td><td>${escapeHtml(formatAmount(entry.pph23AmountIDR, 'IDR'))}</td><td>${escapeHtml(entry.remark)}</td><td>${escapeHtml(entry.bankName)}</td><td>${escapeHtml(`${entry.accountName} · ${entry.accountNumber}`)}</td><td class="amount">${escapeHtml(formatPrintAmount(entry.idrAmount))}</td><td class="amount">${escapeHtml(formatPrintAmount(entry.usdAmount))}</td></tr>`;
+    }).join('');
     const range = startDate || endDate
       ? `${startDate ? formatDateDisplay(startDate) : 'Awal'} - ${endDate ? formatDateDisplay(endDate) : 'Akhir'}`
       : 'Semua Tanggal';
@@ -133,11 +143,12 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
     const printTitle = `Incoming Funds Transfers ${fileDateRange} - Dicetak ${printedOn}`;
     const printWindow = window.open('', '_blank', 'width=1400,height=900');
     if (!printWindow) return;
-    printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(printTitle)}</title><style>@page{size:A4 landscape;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#1f2937;margin:0}.report-header{align-items:center;border-bottom:2px solid #158060;display:flex;gap:18px;justify-content:center;margin-bottom:14px;padding:0 0 12px;text-align:center}.report-logo{height:70px;object-fit:contain;width:90px}.report-heading h1{font-size:18px;margin:0 0 5px}.report-heading h2{font-size:13px;letter-spacing:.08em;margin:0 0 5px}.report-heading p{font-size:10px;color:#475569;margin:0}p.count{font-size:9px;color:#64748b;margin:0 0 10px}table{width:100%;border-collapse:collapse;font-size:7px}th{background:#eef3f9;text-align:left;padding:5px;border:1px solid #d5deea}th.amount,td.amount{text-align:right;white-space:nowrap}td{padding:5px;border:1px solid #dfe6ef;vertical-align:top;overflow-wrap:anywhere}tr:nth-child(even){background:#fafcff}tfoot td{background:#eef3f9;font-weight:700}@media print{thead{display:table-header-group}tr{break-inside:avoid}}</style></head><body><header class="report-header"><img class="report-logo" src="/lenteraglobalmaritim/lgm-logo.png" alt="Logo PT. Lentera Global Maritim"><div class="report-heading"><h1>PT. LENTERA GLOBAL MARITIM</h1><h2>INCOMING FUNDS TRANFERS</h2><p>Bulan Laporan: ${escapeHtml(range)}</p></div></header><p class="count">${filteredEntries.length} data</p><table><thead><tr><th>Date Income</th><th>Principal</th><th>Vessel</th><th>Invoice</th><th>PPh 23</th><th>Remark</th><th>Bank</th><th>A/C Account</th><th class="amount">IDR Amount</th><th class="amount">USD Amount</th></tr></thead><tbody>${rows || '<tr><td colspan="10">Tidak ada data pada periode ini.</td></tr>'}</tbody><tfoot><tr><td colspan="8" style="text-align:right">TOTAL</td><td class="amount">${escapeHtml(formatPrintAmount(totalIDR))}</td><td class="amount">${escapeHtml(formatPrintAmount(totalUSD))}</td></tr></tfoot></table><script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}</script></body></html>`);
+    printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(printTitle)}</title><style>@page{size:A4 landscape;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#1f2937;margin:0}.report-header{align-items:center;border-bottom:2px solid #158060;display:flex;gap:18px;justify-content:center;margin-bottom:14px;padding:0 0 12px;text-align:center}.report-logo{height:70px;object-fit:contain;width:90px}.report-heading h1{font-size:18px;margin:0 0 5px}.report-heading h2{font-size:13px;letter-spacing:.08em;margin:0 0 5px}.report-heading p{font-size:10px;color:#475569;margin:0}p.count{font-size:9px;color:#64748b;margin:0 0 10px}table{width:100%;border-collapse:collapse;font-size:7px}th{background:#eef3f9;text-align:left;padding:5px;border:1px solid #d5deea}th.amount,td.amount{text-align:right;white-space:nowrap}td{padding:5px;border:1px solid #dfe6ef;vertical-align:top;overflow-wrap:anywhere}tr:nth-child(even){background:#fafcff}tfoot td{background:#eef3f9;font-weight:700}@media print{thead{display:table-header-group}tr{break-inside:avoid}}</style></head><body><header class="report-header"><img class="report-logo" src="/lenteraglobalmaritim/lgm-logo.png" alt="Logo PT. Lentera Global Maritim"><div class="report-heading"><h1>PT. LENTERA GLOBAL MARITIM</h1><h2>INCOMING FUNDS TRANFERS</h2><p>Bulan Laporan: ${escapeHtml(range)}</p></div></header><p class="count">${filteredEntries.length} data</p><table><thead><tr><th>Date Income</th><th>Subject Data</th><th>Principal</th><th>Vessel</th><th>Invoice</th><th>PPh 23</th><th>Remark</th><th>Bank</th><th>A/C Account</th><th class="amount">IDR Amount</th><th class="amount">USD Amount</th></tr></thead><tbody>${rows || '<tr><td colspan="11">Tidak ada data pada periode ini.</td></tr>'}</tbody><tfoot><tr><td colspan="9" style="text-align:right">TOTAL</td><td class="amount">${escapeHtml(formatPrintAmount(totalIDR))}</td><td class="amount">${escapeHtml(formatPrintAmount(totalUSD))}</td></tr></tfoot></table><script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}</script></body></html>`);
     printWindow.document.close();
   };
 
   const resetForm = () => {
+    setSubjectData('PRINCIPAL');
     setPrincipalName('');
     setVesselName('');
     setSelectedInvoiceKey('');
@@ -191,21 +202,24 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
     const parsedPph23 = Number(pph23AmountIDR.replace(/,/g, '') || 0);
     const parsedIdr = Number(idrAmount.replace(/,/g, '') || 0);
     const parsedUsd = Number(usdAmount.replace(/,/g, '') || 0);
-    if (!selectedInvoice || !selectedBank || !incomeDate || !remark.trim() || !attachment
+    if ((subjectData === 'PRINCIPAL' && !selectedInvoice) || !selectedBank || !incomeDate || !remark.trim() || !attachment
       || !Number.isFinite(parsedPph23) || parsedPph23 < 0
       || !Number.isFinite(parsedIdr) || parsedIdr < 0
       || !Number.isFinite(parsedUsd) || parsedUsd < 0
       || (parsedIdr <= 0 && parsedUsd <= 0)) {
-      setError('Lengkapi tanggal, invoice, rekening, photo bukti kas, remark, dan isi salah satu amount IDR/USD dengan nilai di atas nol.');
+      setError('Lengkapi tanggal, rekening, photo bukti kas, remark, dan isi salah satu amount IDR/USD dengan nilai di atas nol. Untuk Principal, pilih Principal, Vessel, dan Invoice.');
       return;
     }
 
     setIsSaving(true);
     try {
       await createAccountsReceivableEntry({
-        jobId: selectedInvoice.jobId,
-        invoiceType: selectedInvoice.invoiceType,
-        invoiceNo: selectedInvoice.invoiceNo,
+        subjectData,
+        ...(subjectData === 'PRINCIPAL' && selectedInvoice ? {
+          jobId: selectedInvoice.jobId,
+          invoiceType: selectedInvoice.invoiceType,
+          invoiceNo: selectedInvoice.invoiceNo,
+        } : {}),
         incomeDate,
         bankAccountId: selectedBank.id,
         pph23AmountIDR: parsedPph23,
@@ -238,22 +252,36 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
       ) : mode === 'INPUT' ? (
         <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm md:grid-cols-2 xl:grid-cols-3">
           <label className="text-xs font-semibold text-slate-600">Date Income *
-            <input type="date" required value={incomeDate} onChange={(event) => setIncomeDate(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900" />
+            <DateInput required value={incomeDate} onChange={setIncomeDate} ariaLabel="date income" inputClassName="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900" />
           </label>
-          <label className="text-xs font-semibold text-slate-600">Principal *
-            <select required value={principalName} onChange={(event) => { setPrincipalName(event.target.value); setVesselName(''); setSelectedInvoiceKey(''); }} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900">
+          <label className="text-xs font-semibold text-slate-600">Subject Data *
+            <select required value={subjectData} onChange={(event) => {
+              const nextSubjectData = event.target.value as ReceivableSubjectData;
+              setSubjectData(nextSubjectData);
+              if (nextSubjectData === 'OPERATIONAL') {
+                setPrincipalName('');
+                setVesselName('');
+                setSelectedInvoiceKey('');
+              }
+            }} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900">
+              <option value="OPERATIONAL">Operasional</option>
+              <option value="PRINCIPAL">Principal</option>
+            </select>
+          </label>
+          <label className="text-xs font-semibold text-slate-600">Principal {subjectData === 'PRINCIPAL' ? '*' : ''}
+            <select required={subjectData === 'PRINCIPAL'} disabled={subjectData === 'OPERATIONAL'} value={principalName} onChange={(event) => { setPrincipalName(event.target.value); setVesselName(''); setSelectedInvoiceKey(''); }} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 disabled:bg-slate-100">
               <option value="">Pilih Principal</option>
               {principals.map((principal) => <option key={principal} value={principal}>{principal}</option>)}
             </select>
           </label>
-          <label className="text-xs font-semibold text-slate-600">Vessel *
-            <select required disabled={!principalName} value={vesselName} onChange={(event) => { setVesselName(event.target.value); setSelectedInvoiceKey(''); }} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 disabled:bg-slate-100">
+          <label className="text-xs font-semibold text-slate-600">Vessel {subjectData === 'PRINCIPAL' ? '*' : ''}
+            <select required={subjectData === 'PRINCIPAL'} disabled={subjectData === 'OPERATIONAL' || !principalName} value={vesselName} onChange={(event) => { setVesselName(event.target.value); setSelectedInvoiceKey(''); }} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 disabled:bg-slate-100">
               <option value="">Pilih Vessel</option>
               {vessels.map((vessel) => <option key={vessel} value={vessel}>{vessel}</option>)}
             </select>
           </label>
-          <label className="text-xs font-semibold text-slate-600">Invoice *
-            <select required disabled={!vesselName} value={selectedInvoiceKey} onChange={(event) => setSelectedInvoiceKey(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 disabled:bg-slate-100">
+          <label className="text-xs font-semibold text-slate-600">Invoice {subjectData === 'PRINCIPAL' ? '*' : ''}
+            <select required={subjectData === 'PRINCIPAL'} disabled={subjectData === 'OPERATIONAL' || !vesselName} value={selectedInvoiceKey} onChange={(event) => setSelectedInvoiceKey(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 disabled:bg-slate-100">
               <option value="">Pilih FDA / FPDA</option>
               {filteredInvoices.map((option) => <option key={invoiceOptionKey(option)} value={invoiceOptionKey(option)}>{option.invoiceType} · {option.invoiceNo} · {option.jobId}</option>)}
             </select>
@@ -284,7 +312,7 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
             <textarea required rows={3} value={remark} onChange={(event) => setRemark(event.target.value)} className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" />
           </label>
           <div className="md:col-span-2 xl:col-span-3 flex justify-end">
-            <button type="submit" disabled={isSaving || invoiceOptions.length === 0 || bankAccounts.length === 0} className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="submit" disabled={isSaving || bankAccounts.length === 0 || (subjectData === 'PRINCIPAL' && invoiceOptions.length === 0)} className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50">
               {isSaving ? 'Menyimpan...' : 'Tambah Uang Masuk'}
             </button>
           </div>
@@ -294,10 +322,10 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
         <div className="flex flex-wrap items-end justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-end gap-3">
             <label className="grid gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">START
-              <input type="date" value={startDate} max={endDate || undefined} onChange={(event) => setStartDate(event.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-xs font-semibold normal-case text-slate-700" />
+              <DateInput value={startDate} max={endDate || undefined} onChange={setStartDate} ariaLabel="tanggal awal" inputClassName="h-10 w-full rounded-lg border border-slate-200 px-3 text-xs font-semibold normal-case text-slate-700" />
             </label>
             <label className="grid gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">END
-              <input type="date" value={endDate} min={startDate || undefined} onChange={(event) => setEndDate(event.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-xs font-semibold normal-case text-slate-700" />
+              <DateInput value={endDate} min={startDate || undefined} onChange={setEndDate} ariaLabel="tanggal akhir" inputClassName="h-10 w-full rounded-lg border border-slate-200 px-3 text-xs font-semibold normal-case text-slate-700" />
             </label>
           </div>
           <div className="flex gap-2">
@@ -310,16 +338,17 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
           <table className="w-full min-w-[1400px] text-left text-xs">
             <thead className="border-b border-slate-200 bg-slate-50 text-[10px] uppercase text-slate-500">
               <tr>
-                <th className="p-3">Date Income</th><th className="p-3">Principal</th><th className="p-3">Vessel</th><th className="p-3">Invoice</th><th className="p-3 text-right">PPh 23 (IDR)</th><th className="p-3">Remark</th><th className="p-3">Bank</th><th className="p-3">A/C Account</th><th className="p-3 text-right">IDR Amount</th><th className="p-3 text-right">USD Amount</th><th className="p-3">Photo Bukti Kas</th>
+                <th className="p-3">Date Income</th><th className="p-3">Subject Data</th><th className="p-3">Principal</th><th className="p-3">Vessel</th><th className="p-3">Invoice</th><th className="p-3 text-right">PPh 23 (IDR)</th><th className="p-3">Remark</th><th className="p-3">Bank</th><th className="p-3">A/C Account</th><th className="p-3 text-right">IDR Amount</th><th className="p-3 text-right">USD Amount</th><th className="p-3">Photo Bukti Kas</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredEntries.length === 0 ? <tr><td colSpan={11} className="p-8 text-center text-slate-500">Belum ada data receivable pada periode ini.</td></tr> : filteredEntries.map((entry) => (
+              {filteredEntries.length === 0 ? <tr><td colSpan={12} className="p-8 text-center text-slate-500">Belum ada data receivable pada periode ini.</td></tr> : filteredEntries.map((entry) => (
                 <tr key={entry.id} className="hover:bg-slate-50">
                   <td className="p-3 text-slate-700">{formatDateDisplay(entry.incomeDate)}</td>
-                  <td className="p-3 font-semibold text-slate-900">{entry.principalName}</td>
-                  <td className="p-3 text-slate-700">{entry.vesselName}</td>
-                  <td className="p-3 font-mono text-slate-700">{entry.invoiceType} · {entry.invoiceNo}</td>
+                  <td className="p-3 text-slate-700">{entry.subjectData === 'OPERATIONAL' ? 'Operasional' : 'Principal'}</td>
+                  <td className="p-3 font-semibold text-slate-900">{entry.subjectData === 'OPERATIONAL' ? '-' : entry.principalName || '-'}</td>
+                  <td className="p-3 text-slate-700">{entry.subjectData === 'OPERATIONAL' ? '-' : entry.vesselName || '-'}</td>
+                  <td className="p-3 font-mono text-slate-700">{entry.subjectData === 'OPERATIONAL' ? '-' : `${entry.invoiceType || ''} · ${entry.invoiceNo || '-'}`}</td>
                   <td className="p-3 text-right font-mono">{formatAmount(entry.pph23AmountIDR, 'IDR')}</td>
                   <td className="max-w-[280px] p-3 text-slate-700">{entry.remark}</td>
                   <td className="p-3 text-slate-700">{entry.bankName}</td>

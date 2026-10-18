@@ -423,7 +423,7 @@ try {
         $branchCode = $role === 'FDA' ? pdaUserBranch($user, 'FDA') : '';
         $branchFilter = $branchCode !== '' ? ' AND pd.branch_code = :branch_code' : '';
         $query = $connection->prepare(
-            "SELECT pd.job_id, pd.currency, pd.exchange_rate, pd.item_draft, "
+            "SELECT pd.job_id, pd.pda_no, pd.currency, pd.exchange_rate, pd.item_draft, "
             . 'pi.category, pi.quantity, pi.price, pi.vat_applied '
             . 'FROM pda_documents pd INNER JOIN pda_items pi '
             . 'ON pi.job_id = pd.job_id AND pi.pda_type = pd.pda_type '
@@ -438,6 +438,7 @@ try {
                 $itemDraft = json_decode((string) $row['item_draft'], true) ?: [];
                 $documents[$jobId] = [
                     'jobId' => $jobId,
+                    'pdaNo' => $row['pda_no'],
                     'currency' => $row['currency'],
                     'exchangeRate' => (float) $row['exchange_rate'],
                     'pph23Applied' => !empty($itemDraft['pph23Applied']),
@@ -472,6 +473,7 @@ try {
                 : 0.0;
             $totals[] = [
                 'jobId' => $document['jobId'],
+                'pdaNo' => $document['pdaNo'],
                 'currency' => $document['currency'],
                 'exchangeRate' => $document['exchangeRate'],
                 'total' => $subtotal + $itemVat - $pph23 + $globalVat,

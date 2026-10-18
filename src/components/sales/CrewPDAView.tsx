@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, CheckCircle2, FileSpreadsheet, Pencil, Plus, Printer, Send, Trash2, X } from 'lucide-react';
 import { JobCall, Vessel, formatPurposeOfCall } from '../../types';
-import { formatInquiryDate } from '../../utils/date';
+import { formatDateDisplay, formatInquiryDate } from '../../utils/date';
+import { DateTimeInput } from '../shared/DateTimeInput';
 import { ContinuedPdaItemReference, openPdaDraft, PdaDocumentType, PdaDraft, savePdaDraft, submitPdaDraft } from '../../lib/api';
 
 interface CrewPDAViewProps {
@@ -85,18 +86,12 @@ const formatAmountValue = (amount: number) =>
 
 const formatPdaDateMade = (value?: string) => {
   if (!value) return '-';
-  const date = new Date(value.replace(' ', 'T'));
-  return Number.isNaN(date.getTime())
-    ? value.slice(0, 10)
-    : date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return formatDateDisplay(value);
 };
 
 const formatPdaScheduleOrRemark = (dateTime?: string, remarks?: string) => {
   if (!dateTime) return remarks?.trim() || '-';
-  const date = new Date(dateTime.replace(' ', 'T'));
-  return Number.isNaN(date.getTime())
-    ? dateTime
-    : date.toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+  return formatDateDisplay(dateTime.replace(' ', 'T'), true);
 };
 
 export const createPdaPreviewHtml = (
@@ -644,8 +639,8 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
           <h2 className="mt-1 text-lg font-black text-white">Create {documentLabel}</h2>
         </div>
         <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2">
-          <label className="text-slate-400">ETA<input type="datetime-local" disabled={!canEditPda} value={eta} onChange={(event) => setEta(event.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 font-mono text-white disabled:opacity-50" /></label>
-          <label className="text-slate-400">ETD<input type="datetime-local" disabled={!canEditPda} value={etd} onChange={(event) => setEtd(event.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 font-mono text-white disabled:opacity-50" /></label>
+          <label className="text-slate-400">ETA<DateTimeInput disabled={!canEditPda} value={eta} onChange={setEta} ariaLabel="ETA" inputClassName="mt-1 h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 font-mono text-white disabled:opacity-50" /></label>
+          <label className="text-slate-400">ETD<DateTimeInput disabled={!canEditPda} value={etd} onChange={setEtd} ariaLabel="ETD" inputClassName="mt-1 h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 font-mono text-white disabled:opacity-50" /></label>
           <label className="text-slate-400">Keterangan ETA<input type="text" disabled={!canEditPda} value={etaRemarks} onChange={(event) => setEtaRemarks(event.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:opacity-50" /></label>
           <label className="text-slate-400">Keterangan ETD<input type="text" disabled={!canEditPda} value={etdRemarks} onChange={(event) => setEtdRemarks(event.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:opacity-50" /></label>
         </div>

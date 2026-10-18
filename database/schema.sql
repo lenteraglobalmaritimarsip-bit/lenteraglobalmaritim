@@ -562,12 +562,13 @@ CREATE TABLE principal_receipts (
 
 CREATE TABLE accounts_receivable_entries (
   id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
-  job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-  invoice_type ENUM('FDA', 'FPDA') NOT NULL,
-  invoice_no VARCHAR(180) NOT NULL,
+  job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin,
+  invoice_type ENUM('FDA', 'FPDA'),
+  invoice_no VARCHAR(180),
   income_date DATE NOT NULL,
-  principal_name VARCHAR(200) NOT NULL,
-  vessel_name VARCHAR(200) NOT NULL,
+  subject_data ENUM('OPERATIONAL', 'PRINCIPAL') NOT NULL DEFAULT 'PRINCIPAL',
+  principal_name VARCHAR(200),
+  vessel_name VARCHAR(200),
   pph23_amount_idr DECIMAL(30,2) NOT NULL DEFAULT 0 CHECK (pph23_amount_idr >= 0),
   remark TEXT NOT NULL,
   bank_account_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin,

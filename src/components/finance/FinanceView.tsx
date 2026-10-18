@@ -49,6 +49,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   onNavigate,
 }) => {
   const [subTab, setSubTab] = useState<'DASHBOARD' | 'JOB_INVOICE_OPEN' | 'INVOICES' | 'AP' | 'AR' | 'REPORTS'>(initialTab);
+  const [invoiceDocumentType, setInvoiceDocumentType] = useState<'FDA' | 'FPDA'>('FDA');
   const [approvedFpdaTotals, setApprovedFpdaTotals] = useState<ApprovedSalesPdaTotal[]>([]);
   const [invoiceSearch, setInvoiceSearch] = useState('');
   const [invoiceDateRange, setInvoiceDateRange] = useState<InquiryDateRange>({ from: '', to: '' });
@@ -143,7 +144,10 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   };
   const invoiceIssueDate = activeJob.principalInvoice?.invoiceDate || new Date().toISOString().slice(0, 10);
   const invoiceDueDate = activeJob.principalInvoice?.dueDate || new Date(new Date(invoiceIssueDate).getTime() + 30 * 86400000).toISOString().slice(0, 10);
-  const invoiceDocumentNumber = activeJob.fda?.fdaNo || '-';
+  const activeFpdaInvoice = approvedFpdaTotals.find((fpda) => fpda.jobId === activeJob.jobId);
+  const invoiceDocumentNumber = invoiceDocumentType === 'FPDA'
+    ? activeFpdaInvoice?.pdaNo || '-'
+    : activeJob.fda?.fdaNo || '-';
   const invoiceBankInfo = jobCurrency === 'USD'
     ? 'BANK MANDIRI TEBET SUPOMO | Account Holder : PT.Lentera Global Maritim | Account Number (USD) : 120-00-5575599-0 | Swift Code Bank : BMRIIDJAXXX'
     : 'BANK NEGARA INDONESIA (Persero) Tbk | Account Holder : PT.Lentera Global Maritim | Account Number : 2824-1212-09 | Swift Code Bank : BNINIDJAXXX';
@@ -153,7 +157,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     return normalizeToIDR(billed.amount, billed.currency, getJobExchangeRate(job));
   };
 
-  const getJobPrincipalBilledRaw = (job: JobCall) => {
+  const getJobFdaBilledRaw = (job: JobCall) => {
     const currency = (job.fda?.currency || job.currency || 'IDR') as Currency;
     const baseBilled = job.fda?.finalBilledToPrincipal
       || job.principalInvoice?.totalAmountUSD
@@ -164,17 +168,22 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
         currency,
         getJobExchangeRate(job),
       ), 0);
+    return { amount: baseBilled, currency };
+  };
+
+  const getJobPrincipalBilledRaw = (job: JobCall) => {
+    const fdaBilled = getJobFdaBilledRaw(job);
     const fpdaBilled = approvedFpdaTotals
       .filter((fpda) => fpda.jobId === job.jobId)
       .reduce((sum, fpda) => sum + convertCurrencyPrecisely(
         fpda.total,
         fpda.currency,
-        currency,
+        fdaBilled.currency,
         fpda.exchangeRate || getJobExchangeRate(job),
       ), 0);
     return {
-      amount: roundInvoiceAmount(baseBilled + fpdaBilled, currency),
-      currency,
+      amount: roundInvoiceAmount(fdaBilled.amount + fpdaBilled, fdaBilled.currency),
+      currency: fdaBilled.currency,
     };
   };
 
@@ -483,9 +492,14 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     setTimeout(() => setMsg(null), 4000);
   };
 
-  const rawInvoiceAmount = getJobPrincipalBilledRaw(activeJob).amount;
+  const activeFpdaAmount = activeFpdaInvoice
+    ? convertCurrencyPrecisely(activeFpdaInvoice.total, activeFpdaInvoice.currency, jobCurrency, activeFpdaInvoice.exchangeRate || getJobExchangeRate(activeJob))
+    : 0;
+  const rawInvoiceAmount = invoiceDocumentType === 'FPDA'
+    ? activeFpdaAmount
+    : getJobFdaBilledRaw(activeJob).amount;
   const invoiceAmount = roundInvoiceAmount(rawInvoiceAmount, jobCurrency);
-  const fdaBillingTotal = invoiceAmount;
+  const fdaBillingTotal = roundInvoiceAmount(getJobPrincipalBilledRaw(activeJob).amount, jobCurrency);
   const financeGateMessage = !isFDAApproved(activeJob)
     ? 'Finance menunggu FDA Final. AP, AR, Principal Invoice dan Closing baru aktif setelah FDA Approved.'
     : '';
@@ -581,7 +595,9 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
 
-    const rows = invoiceGroups.map((group) => `
+    const rows = invoiceDocumentType === 'FPDA'
+      ? `<tr><td>Final Port Disbursement Account (FPDA)</td><td>${escapeHtml(jobCurrency)}</td><td class="amount">${escapeHtml(formatCurrencyNumber(invoiceAmount, jobCurrency))}</td></tr>`
+      : invoiceGroups.map((group) => `
       <tr class="category"><td colspan="3">${escapeHtml(invoiceCategoryLabel(group.category))}</td></tr>
       ${group.items.map((item) => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.currency)}</td><td class="amount">${escapeHtml(formatCurrencyNumber(convertCurrency(item.totalSellRate, item.currency, jobCurrency, getJobExchangeRate(activeJob)), jobCurrency))}</td></tr>`).join('')}
     `).join('');
@@ -595,7 +611,11 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       ? 'BANK MANDIRI TEBET SUPOMO | Account Holder : PT.Lentera Global Maritim | Account Number (USD) : 120-00-5575599-0 | Swift Code Bank : BMRIIDJAXXX'
       : 'BANK NEGARA INDONESIA (Persero) Tbk | Account Holder : PT.Lentera Global Maritim | Account Number : 2824-1212-09 | Swift Code Bank : BNINIDJAXXX';
 
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Official Principal Invoice ${escapeHtml(invoiceDocumentNumber)}</title>
+    const invoiceTitle = invoiceDocumentType === 'FPDA' ? 'Official FPDA Invoice' : 'Official Principal Invoice';
+    const invoiceSubtitle = invoiceDocumentType === 'FPDA'
+      ? 'Tagihan resmi Final Port Disbursement Account untuk Principal kapal'
+      : 'Tagihan resmi port disbursement account diterbitkan untuk Principal kapal';
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(invoiceTitle)} ${escapeHtml(invoiceDocumentNumber)}</title>
       <style>
         @page { size: A4; margin: 12mm 12mm 16mm; }
         html, body { margin: 0; padding: 0; background: #fff; font-family: Arial, Helvetica, sans-serif; color: #1f2a37; font-size: 11px; line-height: 1.35; }
@@ -645,8 +665,8 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
         </div>
 
         <div class="title-wrap">
-          <h1>OFFICIAL PRINCIPAL INVOICE</h1>
-          <div class="subtitle">Tagihan resmi port disbursement account diterbitkan untuk Principal kapal</div>
+          <h1>${escapeHtml(invoiceTitle)}</h1>
+          <div class="subtitle">${escapeHtml(invoiceSubtitle)}</div>
         </div>
 
         <div class="meta-grid">
@@ -746,7 +766,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
             <div className="flex items-center justify-between border-b border-slate-700 px-4 py-3 gap-3">
               <div className="min-w-0">
                 <div className="text-xs font-bold uppercase tracking-wider text-cyan-300">Preview Invoice</div>
-                <div className="truncate text-sm text-white">Official Principal Invoice</div>
+                <div className="truncate text-sm text-white">{invoiceDocumentType === 'FPDA' ? 'Official FPDA Invoice' : 'Official Principal Invoice'}</div>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -796,7 +816,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
               </div>
             </div>
 
-            <div className="mb-4 flex items-center justify-between gap-4 rounded-xl border border-slate-700 bg-slate-900 p-3">
+            <div className="mb-4 flex items-end justify-between gap-4 rounded-xl border border-slate-700 bg-slate-900 p-3">
               <div className="relative flex-1 max-w-[760px]">
                 <SearchIcon className="h-4 w-4 text-slate-400 absolute left-3 top-2.5" />
                 <input
@@ -850,6 +870,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                     paginatedInvoiceJobs.map((job, index) => {
                       const invoiceCurrency = getJobCurrency(job);
                       const invoiceTotal = getJobPrincipalBilledRaw(job).amount;
+                      const fpdaInvoice = approvedFpdaTotals.find((fpda) => fpda.jobId === job.jobId && fpda.pdaNo);
                       return (
                         <tr key={job.jobId} className="hover:bg-slate-800/40">
                           <td className="p-3 font-mono text-slate-300">{(currentInvoicePage - 1) * invoicePageSize + index + 1}</td>
@@ -886,18 +907,32 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                               <button
                                 onClick={() => {
                                   onSelectJob(job.jobId);
+                                  setInvoiceDocumentType('FDA');
                                   setSubTab('INVOICES');
                                 }}
-                                className="px-2.5 py-1 rounded-md border border-cyan-500/30 bg-cyan-500/10 text-cyan-200 text-[10px] font-bold tracking-wide hover:bg-cyan-500/20 transition-colors"
+                                className="inline-flex h-9 w-[88px] shrink-0 items-center justify-center whitespace-nowrap rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2 text-center text-[10px] font-bold tracking-wide text-cyan-200 transition-colors hover:bg-cyan-500/20"
                               >
-                                Invoice
+                                Invoice FDA
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!fpdaInvoice}
+                                title={fpdaInvoice ? 'Buat invoice FPDA' : 'FPDA belum approved'}
+                                onClick={() => {
+                                  onSelectJob(job.jobId);
+                                  setInvoiceDocumentType('FPDA');
+                                  setSubTab('INVOICES');
+                                }}
+                                className="inline-flex h-9 w-[88px] shrink-0 items-center justify-center whitespace-nowrap rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 text-center text-[10px] font-bold tracking-wide text-emerald-200 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-500"
+                              >
+                                Invoice FPDA
                               </button>
                               {job.fda?.pdfDataUrl ? (
                                 <button
                                   type="button"
                                   onClick={() => openPdfInNewTab(job.fda?.pdfDataUrl || '')}
                                   title="Lihat file PDF FDA"
-                                  className="inline-flex items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-[10px] font-semibold tracking-wide text-cyan-200 transition-colors hover:border-cyan-400/40 hover:bg-cyan-500/20"
+                                  className="inline-flex h-9 w-[88px] shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2 text-center text-[10px] font-semibold tracking-wide text-cyan-200 transition-colors hover:border-cyan-400/40 hover:bg-cyan-500/20"
                                 >
                                   <Eye className="h-3 w-3" />
                                   Lihat Data
@@ -906,7 +941,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                                 <button
                                   type="button"
                                   disabled
-                                  className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-800 px-2.5 py-1 text-[10px] font-semibold tracking-wide text-slate-500 cursor-not-allowed"
+                                  className="inline-flex h-9 w-[88px] shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-md border border-slate-700 bg-slate-800 px-2 text-center text-[10px] font-semibold tracking-wide text-slate-500 cursor-not-allowed"
                                 >
                                   <Eye className="h-3 w-3" />
                                   Lihat Data
@@ -917,7 +952,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                                   onSelectJob(job.jobId);
                                   setSubTab('AP');
                                 }}
-                                className="px-2.5 py-1 rounded-md border border-amber-500/30 bg-amber-500/10 text-amber-200 text-[10px] font-bold tracking-wide hover:bg-amber-500/20 transition-colors"
+                                className="inline-flex h-9 w-[88px] shrink-0 items-center justify-center whitespace-nowrap rounded-md border border-amber-500/30 bg-amber-500/10 px-2 text-center text-[10px] font-bold tracking-wide text-amber-200 transition-colors hover:bg-amber-500/20"
                               >
                                 Terima
                               </button>
@@ -926,7 +961,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                                   onSelectJob(job.jobId);
                                   setSubTab('AR');
                                 }}
-                                className="px-2.5 py-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 text-[10px] font-bold tracking-wide hover:bg-emerald-500/20 transition-colors"
+                                className="inline-flex h-9 w-[88px] shrink-0 items-center justify-center whitespace-nowrap rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 text-center text-[10px] font-bold tracking-wide text-emerald-200 transition-colors hover:bg-emerald-500/20"
                               >
                                 Closing
                               </button>
@@ -1092,6 +1127,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                           <button
                             onClick={() => {
                               onSelectJob(j.jobId);
+                              setInvoiceDocumentType('FDA');
                               setSubTab('INVOICES');
                             }}
                             title="Lihat Official Principal Invoice"
@@ -1157,10 +1193,12 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   JOB REF: {activeJob.jobId}
                 </span>
                 <h2 className="text-xl font-black text-white font-mono mt-1">
-                  OFFICIAL PRINCIPAL INVOICE
+                  {invoiceDocumentType === 'FPDA' ? 'OFFICIAL FPDA INVOICE' : 'OFFICIAL PRINCIPAL INVOICE'}
                 </h2>
                 <p className="text-xs text-slate-400">
-                  Tagihan resmi port disbursement account diterbitkan untuk Principal kapal
+                  {invoiceDocumentType === 'FPDA'
+                    ? 'Tagihan Final Port Disbursement Account untuk Principal kapal'
+                    : 'Tagihan resmi port disbursement account diterbitkan untuk Principal kapal'}
                 </p>
               </div>
 
@@ -1217,7 +1255,13 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
-                  {invoiceGroups.map((group) => (
+                  {invoiceDocumentType === 'FPDA' ? (
+                    <tr>
+                      <td className="p-3 font-semibold text-white">Final Port Disbursement Account (FPDA)</td>
+                      <td className="p-3 text-right font-mono text-slate-400">{jobCurrency}</td>
+                      <td className="p-3 text-right font-mono font-bold text-cyan-300">{formatCurrencyNumber(invoiceAmount, jobCurrency)}</td>
+                    </tr>
+                  ) : invoiceGroups.map((group) => (
                     <React.Fragment key={group.category}>
                       <tr className="font-bold uppercase tracking-wider" style={{ backgroundColor: '#e8eef6', color: '#52637a' }}>
                         <td colSpan={3} className="p-2.5">{invoiceCategoryLabel(group.category)}</td>

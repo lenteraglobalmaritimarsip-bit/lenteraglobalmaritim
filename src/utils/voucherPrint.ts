@@ -1,5 +1,6 @@
 import { PaymentVoucher } from '../types';
 import { db } from '../db/storage';
+import { formatDateDisplay } from './date';
 
 const money = (value: number) =>
   new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
@@ -27,14 +28,14 @@ export interface PrintableVoucher {
 // Returns an error message, or null when the print window opened.
 export const printPaymentVoucher = (voucher: PrintableVoucher): string | null => {
   const { requestNumber, requestBy, jobInfo } = voucher;
-  const formattedDate = new Date(`${String(voucher.requestDate).slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const formattedRequestedPaymentDate = new Date(`${String(voucher.requestedPaymentDate).slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const formattedDate = formatDateDisplay(voucher.requestDate);
+  const formattedRequestedPaymentDate = formatDateDisplay(voucher.requestedPaymentDate);
   const paidTimestamp = voucher.paidAt ? new Date(voucher.paidAt) : null;
   const formattedPaidDate = paidTimestamp && !Number.isNaN(paidTimestamp.getTime())
-    ? paidTimestamp.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    ? formatDateDisplay(voucher.paidAt)
     : '-';
   const printedAt = new Date();
-  const printedDate = printedAt.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const printedDate = formatDateDisplay(printedAt);
   const printedTime = printedAt.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
   const jobNumbers = [...new Set(voucher.items.map((item) => item.jobNumber.trim()).filter(Boolean))].join(', ');
   const infoJob = jobInfo === 'JOB_VESSEL' ? 'JOB Vessel' : 'Operasional';

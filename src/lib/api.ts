@@ -1,5 +1,5 @@
 import { AuthAccount } from '../auth';
-import { AccountsReceivableEntry, BankAccount, ReceivableInvoiceOption, ReceivableInvoiceType } from '../types';
+import { AccountsReceivableEntry, BankAccount, ReceivableInvoiceOption, ReceivableInvoiceType, ReceivableSubjectData } from '../types';
 
 const apiEnabled = import.meta.env.VITE_API_AUTH_ENABLED === 'true';
 let csrfToken = '';
@@ -174,6 +174,7 @@ export interface ApprovedSalesPdaTotal {
   currency: 'IDR' | 'USD';
   exchangeRate: number;
   total: number;
+  pdaNo?: string;
 }
 
 export async function listApprovedSalesPdaTotals(): Promise<ApprovedSalesPdaTotal[]> {
@@ -232,9 +233,10 @@ export async function loadAccountsReceivableHistory(): Promise<AccountsReceivabl
 }
 
 export async function createAccountsReceivableEntry(entry: {
-  jobId: string;
-  invoiceType: ReceivableInvoiceType;
-  invoiceNo: string;
+  subjectData: ReceivableSubjectData;
+  jobId?: string;
+  invoiceType?: ReceivableInvoiceType;
+  invoiceNo?: string;
   incomeDate: string;
   bankAccountId: string;
   pph23AmountIDR: number;

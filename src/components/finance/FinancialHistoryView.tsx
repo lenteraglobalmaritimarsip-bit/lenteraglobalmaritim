@@ -3,6 +3,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, Download } from 'lucide-react'
 import ExcelJS from 'exceljs';
 import { listFpdaNumbers } from '../../lib/api';
 import { JobCall, PaymentVoucher } from '../../types';
+import { formatDateDisplay } from '../../utils/date';
 
 interface FinancialHistoryViewProps {
   paymentVouchers: PaymentVoucher[];
@@ -12,27 +13,22 @@ interface FinancialHistoryViewProps {
 const money = (value: number) =>
   new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
 
-const formatDate = (value: string) => {
-  const date = new Date(`${String(value).slice(0, 10)}T00:00:00`);
-  return Number.isNaN(date.getTime())
-    ? value || '-'
-    : date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
-};
+const formatDate = (value: string) => formatDateDisplay(value);
 
 const formatDateInput = (value: string) => {
   const digits = value.replace(/\D/g, '').slice(0, 8);
   if (digits.length <= 2) return digits;
-  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
-  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}-${digits.slice(2, 4)}-${digits.slice(4)}`;
 };
 
 const dateInputValue = (value: string) => {
   const [year, month, day] = value.split('-');
-  return year && month && day ? `${day}/${month}/${year}` : '';
+  return year && month && day ? `${day}-${month}-${year}` : '';
 };
 
 const parseDateInput = (value: string) => {
-  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
+  const match = /^(\d{2})-(\d{2})-(\d{4})$/.exec(value);
   if (!match) return '';
   const [, day, month, year] = match;
   const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
@@ -198,7 +194,7 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
                 <input
                   type="text"
                   inputMode="numeric"
-                  placeholder="dd/mm/yyyy"
+                  placeholder="dd-mm-yyyy"
                   maxLength={10}
                   value={startDateInput}
                   onChange={(event) => {
@@ -230,7 +226,7 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
                 <input
                   type="text"
                   inputMode="numeric"
-                  placeholder="dd/mm/yyyy"
+                  placeholder="dd-mm-yyyy"
                   maxLength={10}
                   value={endDateInput}
                   onChange={(event) => {
@@ -266,7 +262,7 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
             </button>
           </div>
         </div>
-        {invalidDateInput && <p role="alert" className="mt-3 text-xs font-semibold text-rose-600">Tanggal harus valid dengan format dd/mm/yyyy.</p>}
+        {invalidDateInput && <p role="alert" className="mt-3 text-xs font-semibold text-rose-600">Tanggal harus valid dengan format dd-mm-yyyy.</p>}
         {!invalidDateInput && invalidDateRange && <p role="alert" className="mt-3 text-xs font-semibold text-rose-600">START harus sebelum atau sama dengan END.</p>}
       </div>
 

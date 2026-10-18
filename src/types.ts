@@ -297,6 +297,7 @@ export interface PrincipalReceipt {
 }
 
 export type ReceivableInvoiceType = 'FDA' | 'FPDA';
+export type ReceivableSubjectData = 'OPERATIONAL' | 'PRINCIPAL';
 
 export interface ReceivableInvoiceOption {
   jobId: string;
@@ -310,12 +311,13 @@ export interface ReceivableInvoiceOption {
 
 export interface AccountsReceivableEntry {
   id: string;
-  jobId: string;
-  invoiceType: ReceivableInvoiceType;
-  invoiceNo: string;
+  subjectData: ReceivableSubjectData;
+  jobId: string | null;
+  invoiceType: ReceivableInvoiceType | null;
+  invoiceNo: string | null;
   incomeDate: string;
-  principalName: string;
-  vesselName: string;
+  principalName: string | null;
+  vesselName: string | null;
   pph23AmountIDR: number;
   remark: string;
   bankAccountId: string;

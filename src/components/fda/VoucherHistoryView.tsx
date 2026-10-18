@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Download, Printer, Search } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { PaymentVoucher } from '../../types';
+import { formatDateDisplay } from '../../utils/date';
+import { DateInput } from '../shared/DateInput';
 
 interface VoucherHistoryViewProps {
   paymentVouchers: PaymentVoucher[];
@@ -12,12 +14,7 @@ type StatusFilter = 'ALL' | 'PROCESS' | 'APPROVED' | 'REJECTED';
 const money = (value: number) =>
   new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
 
-const formatDate = (value: string) => {
-  const date = new Date(`${String(value).slice(0, 10)}T00:00:00`);
-  return Number.isNaN(date.getTime())
-    ? value || '-'
-    : date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
-};
+const formatDate = (value: string) => formatDateDisplay(value);
 
 const statusGroup = (voucher: PaymentVoucher): Exclude<StatusFilter, 'ALL'> => {
   if (voucher.status === 'APPROVED' || voucher.status === 'PAID') return 'APPROVED';
@@ -160,10 +157,10 @@ export const VoucherHistoryView: React.FC<VoucherHistoryViewProps> = ({ paymentV
         <div className="mt-4 flex flex-wrap items-end justify-between gap-3 border-t border-slate-100 pt-4">
           <div className="flex flex-wrap items-end gap-3">
             <label className="grid gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">START
-              <input type="date" value={startDate} max={endDate || undefined} onChange={(event) => { setStartDate(event.target.value); setPage(1); setExpandedId(null); }} className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold normal-case text-slate-700" />
+              <DateInput value={startDate} max={endDate || undefined} onChange={(value) => { setStartDate(value); setPage(1); setExpandedId(null); }} ariaLabel="tanggal awal" inputClassName="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold normal-case text-slate-700" />
             </label>
             <label className="grid gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">END
-              <input type="date" value={endDate} min={startDate || undefined} onChange={(event) => { setEndDate(event.target.value); setPage(1); setExpandedId(null); }} className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold normal-case text-slate-700" />
+              <DateInput value={endDate} min={startDate || undefined} onChange={(value) => { setEndDate(value); setPage(1); setExpandedId(null); }} ariaLabel="tanggal akhir" inputClassName="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold normal-case text-slate-700" />
             </label>
           </div>
           <div className="flex gap-2">

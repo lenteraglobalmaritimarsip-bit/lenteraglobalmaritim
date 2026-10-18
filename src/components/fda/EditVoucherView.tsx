@@ -3,6 +3,7 @@ import { Eye, Pencil, Search } from 'lucide-react';
 import { JobCall, PaymentVoucher, VendorPartner } from '../../types';
 import { PaymentVoucherView } from './PaymentVoucherView';
 import { printPaymentVoucher } from '../../utils/voucherPrint';
+import { formatDateDisplay } from '../../utils/date';
 import { voucherStatusBadge } from '../manager/VoucherApprovalView';
 
 interface EditVoucherViewProps {
@@ -15,12 +16,7 @@ interface EditVoucherViewProps {
 const money = (value: number) =>
   new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
 
-const formatDate = (value: string) => {
-  const date = new Date(`${String(value).slice(0, 10)}T00:00:00`);
-  return Number.isNaN(date.getTime())
-    ? value || '-'
-    : date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
-};
+const formatDate = (value: string) => formatDateDisplay(value);
 
 export const EditVoucherView: React.FC<EditVoucherViewProps> = ({ jobCalls, vendorPartners, paymentVouchers, requestBy }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
