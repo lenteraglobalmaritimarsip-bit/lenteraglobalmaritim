@@ -18,6 +18,18 @@ const invoiceOptionKey = (option: ReceivableInvoiceOption) =>
   `${option.jobId}:${option.invoiceType}:${option.invoiceNo}`;
 const MAX_RECEIVABLE_ATTACHMENT_SIZE = 1024 * 1024;
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const formatGroupedAmountInput = (value: string, maximumFractionDigits = 0) => {
+  const ungrouped = value.replace(/,/g, '');
+  const allowed = maximumFractionDigits > 0 ? ungrouped.replace(/[^\d.]/g, '') : ungrouped.replace(/\D/g, '');
+  const decimalIndex = allowed.indexOf('.');
+  const integerPart = decimalIndex >= 0 ? allowed.slice(0, decimalIndex) : allowed;
+  const fractionPart = decimalIndex >= 0
+    ? allowed.slice(decimalIndex + 1).replace(/\./g, '').slice(0, maximumFractionDigits)
+    : '';
+  const groupedInteger = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  if (maximumFractionDigits > 0 && decimalIndex >= 0) return `${groupedInteger || '0'}.${fractionPart}`;
+  return groupedInteger;
+};
 
 export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ mode }) => {
   const [invoiceOptions, setInvoiceOptions] = useState<ReceivableInvoiceOption[]>([]);
@@ -34,8 +46,8 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
   const [bankAccountId, setBankAccountId] = useState('');
   const [pph23AmountIDR, setPph23AmountIDR] = useState('0');
   const [remark, setRemark] = useState('');
-  const [idrAmount, setIdrAmount] = useState('');
-  const [usdAmount, setUsdAmount] = useState('');
+  const [idrAmount, setIdrAmount] = useState('0');
+  const [usdAmount, setUsdAmount] = useState('0');
   const [attachment, setAttachment] = useState<{ name: string; dataUrl: string } | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const [startDate, setStartDate] = useState('');
@@ -108,11 +120,20 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
   };
 
   const handlePrintHistory = () => {
-    const rows = filteredEntries.map((entry) => `<tr><td>${escapeHtml(formatDateDisplay(entry.incomeDate))}</td><td>${escapeHtml(entry.principalName)}</td><td>${escapeHtml(entry.vesselName)}</td><td>${escapeHtml(`${entry.invoiceType} · ${entry.invoiceNo}`)}</td><td>${escapeHtml(formatAmount(entry.pph23AmountIDR, 'IDR'))}</td><td>${escapeHtml(entry.remark)}</td><td>${escapeHtml(entry.bankName)}</td><td>${escapeHtml(`${entry.accountName} · ${entry.accountNumber}`)}</td><td>${escapeHtml(formatAmount(entry.idrAmount, 'IDR'))}</td><td>${escapeHtml(formatAmount(entry.usdAmount, 'USD'))}</td><td>${entry.attachmentDataUrl ? `<img src="${escapeHtml(entry.attachmentDataUrl)}" alt="${escapeHtml(entry.attachmentName)}" />` : '-'}</td></tr>`).join('');
-    const range = `${startDate || 'Awal'} - ${endDate || 'Akhir'}`;
+    const formatPrintAmount = (value: number) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value || 0);
+    const totalIDR = filteredEntries.reduce((total, entry) => total + entry.idrAmount, 0);
+    const totalUSD = filteredEntries.reduce((total, entry) => total + entry.usdAmount, 0);
+    const rows = filteredEntries.map((entry) => `<tr><td>${escapeHtml(formatDateDisplay(entry.incomeDate))}</td><td>${escapeHtml(entry.principalName)}</td><td>${escapeHtml(entry.vesselName)}</td><td>${escapeHtml(`${entry.invoiceType} · ${entry.invoiceNo}`)}</td><td>${escapeHtml(formatAmount(entry.pph23AmountIDR, 'IDR'))}</td><td>${escapeHtml(entry.remark)}</td><td>${escapeHtml(entry.bankName)}</td><td>${escapeHtml(`${entry.accountName} · ${entry.accountNumber}`)}</td><td class="amount">${escapeHtml(formatPrintAmount(entry.idrAmount))}</td><td class="amount">${escapeHtml(formatPrintAmount(entry.usdAmount))}</td></tr>`).join('');
+    const range = startDate || endDate
+      ? `${startDate ? formatDateDisplay(startDate) : 'Awal'} - ${endDate ? formatDateDisplay(endDate) : 'Akhir'}`
+      : 'Semua Tanggal';
+    const now = new Date();
+    const printedOn = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const fileDateRange = `${startDate || 'awal'}-${endDate || 'akhir'}`;
+    const printTitle = `Incoming Funds Transfers ${fileDateRange} - Dicetak ${printedOn}`;
     const printWindow = window.open('', '_blank', 'width=1400,height=900');
     if (!printWindow) return;
-    printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>History Receivable</title><style>@page{size:A4 landscape;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#1f2937;margin:0}h1{font-size:18px;margin:0 0 4px}p{font-size:10px;color:#64748b;margin:0 0 12px}table{width:100%;border-collapse:collapse;font-size:7px}th{background:#eef3f9;text-align:left;padding:5px;border:1px solid #d5deea}td{padding:5px;border:1px solid #dfe6ef;vertical-align:top;overflow-wrap:anywhere}tr:nth-child(even){background:#fafcff}img{max-width:48px;max-height:36px;object-fit:contain}@media print{thead{display:table-header-group}tr{break-inside:avoid}}</style></head><body><h1>History Receivable</h1><p>Periode: ${escapeHtml(range)} · ${filteredEntries.length} data</p><table><thead><tr><th>Date Income</th><th>Principal</th><th>Vessel</th><th>Invoice</th><th>PPh 23</th><th>Remark</th><th>Bank</th><th>A/C Account</th><th>IDR Amount</th><th>USD Amount</th><th>Photo Bukti Kas</th></tr></thead><tbody>${rows || '<tr><td colspan="11">Tidak ada data pada periode ini.</td></tr>'}</tbody></table><script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}</script></body></html>`);
+    printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(printTitle)}</title><style>@page{size:A4 landscape;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#1f2937;margin:0}.report-header{align-items:center;border-bottom:2px solid #158060;display:flex;gap:18px;justify-content:center;margin-bottom:14px;padding:0 0 12px;text-align:center}.report-logo{height:70px;object-fit:contain;width:90px}.report-heading h1{font-size:18px;margin:0 0 5px}.report-heading h2{font-size:13px;letter-spacing:.08em;margin:0 0 5px}.report-heading p{font-size:10px;color:#475569;margin:0}p.count{font-size:9px;color:#64748b;margin:0 0 10px}table{width:100%;border-collapse:collapse;font-size:7px}th{background:#eef3f9;text-align:left;padding:5px;border:1px solid #d5deea}th.amount,td.amount{text-align:right;white-space:nowrap}td{padding:5px;border:1px solid #dfe6ef;vertical-align:top;overflow-wrap:anywhere}tr:nth-child(even){background:#fafcff}tfoot td{background:#eef3f9;font-weight:700}@media print{thead{display:table-header-group}tr{break-inside:avoid}}</style></head><body><header class="report-header"><img class="report-logo" src="/lenteraglobalmaritim/lgm-logo.png" alt="Logo PT. Lentera Global Maritim"><div class="report-heading"><h1>PT. LENTERA GLOBAL MARITIM</h1><h2>INCOMING FUNDS TRANFERS</h2><p>Bulan Laporan: ${escapeHtml(range)}</p></div></header><p class="count">${filteredEntries.length} data</p><table><thead><tr><th>Date Income</th><th>Principal</th><th>Vessel</th><th>Invoice</th><th>PPh 23</th><th>Remark</th><th>Bank</th><th>A/C Account</th><th class="amount">IDR Amount</th><th class="amount">USD Amount</th></tr></thead><tbody>${rows || '<tr><td colspan="10">Tidak ada data pada periode ini.</td></tr>'}</tbody><tfoot><tr><td colspan="8" style="text-align:right">TOTAL</td><td class="amount">${escapeHtml(formatPrintAmount(totalIDR))}</td><td class="amount">${escapeHtml(formatPrintAmount(totalUSD))}</td></tr></tfoot></table><script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}</script></body></html>`);
     printWindow.document.close();
   };
 
@@ -124,8 +145,8 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
     setBankAccountId('');
     setPph23AmountIDR('0');
     setRemark('');
-    setIdrAmount('');
-    setUsdAmount('');
+    setIdrAmount('0');
+    setUsdAmount('0');
     setAttachment(null);
     if (attachmentInputRef.current) attachmentInputRef.current.value = '';
   };
@@ -167,9 +188,9 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
     if (isSaving) return;
     setError('');
     setMessage('');
-    const parsedPph23 = Number(pph23AmountIDR || 0);
-    const parsedIdr = Number(idrAmount || 0);
-    const parsedUsd = Number(usdAmount || 0);
+    const parsedPph23 = Number(pph23AmountIDR.replace(/,/g, '') || 0);
+    const parsedIdr = Number(idrAmount.replace(/,/g, '') || 0);
+    const parsedUsd = Number(usdAmount.replace(/,/g, '') || 0);
     if (!selectedInvoice || !selectedBank || !incomeDate || !remark.trim() || !attachment
       || !Number.isFinite(parsedPph23) || parsedPph23 < 0
       || !Number.isFinite(parsedIdr) || parsedIdr < 0
@@ -238,7 +259,7 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
             </select>
           </label>
           <label className="text-xs font-semibold text-slate-600">PPh 23 (IDR)
-            <input type="number" min="0" step="1" value={pph23AmountIDR} onChange={(event) => setPph23AmountIDR(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900" />
+            <input type="text" inputMode="numeric" value={pph23AmountIDR} onChange={(event) => setPph23AmountIDR(formatGroupedAmountInput(event.target.value))} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900" />
           </label>
           <label className="text-xs font-semibold text-slate-600">Bank *
             <select required value={bankAccountId} onChange={(event) => setBankAccountId(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900">
@@ -250,10 +271,10 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
             <input readOnly value={selectedBank ? `${selectedBank.accountName} · ${selectedBank.accountNumber}` : ''} placeholder="Otomatis dari pilihan Bank" className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-600" />
           </label>
           <label className="text-xs font-semibold text-slate-600">IDR Amount
-            <input type="number" min="0" step="1" value={idrAmount} onChange={(event) => setIdrAmount(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900" />
+            <input type="text" inputMode="numeric" value={idrAmount} onChange={(event) => setIdrAmount(formatGroupedAmountInput(event.target.value))} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900" />
           </label>
           <label className="text-xs font-semibold text-slate-600">USD Amount
-            <input type="number" min="0" step="0.01" value={usdAmount} onChange={(event) => setUsdAmount(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900" />
+            <input type="text" inputMode="decimal" value={usdAmount} onChange={(event) => setUsdAmount(formatGroupedAmountInput(event.target.value, 2))} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900" />
           </label>
           <label className="text-xs font-semibold text-slate-600">Photo Bukti Kas *
             <input ref={attachmentInputRef} type="file" required accept="image/jpeg,image/png" onChange={(event) => void handleAttachmentChange(event)} className="mt-1 block w-full text-sm text-slate-700 file:mr-3 file:rounded-md file:border file:border-slate-300 file:bg-white file:px-3 file:py-2 file:text-xs file:font-semibold" />

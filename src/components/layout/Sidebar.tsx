@@ -105,7 +105,6 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
 
         {currentRole==='FINANCE' && <>
           {item({label:'Financial Overview',tab:'FINANCE_DASHBOARD',icon:LayoutDashboard})}
-          {item({label:'JOB Invoice',tab:'JOB_INVOICE_OPEN',icon:FileText})}
           <button type="button" className="maritim-nav-group-title maritim-nav-group-toggle" aria-expanded={accountsReceivableOpen} onClick={()=>setAccountsReceivableOpen((open)=>!open)}>
             <CircleDollarSign/><span>Accounts Receivable</span>{accountsReceivableOpen?<ChevronDown/>:<ChevronRight/>}
           </button>
@@ -129,6 +128,7 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
             {item({label:'Edit Payment',tab:'FINANCE_EDIT_VOUCHER',icon:FileText})}
             {item({label:'History',tab:'FINANCE_PAYMENT_HISTORY',icon:ClipboardCheck})}
           </div>}
+          {item({label:'JOB Invoice',tab:'JOB_INVOICE_OPEN',icon:FileText})}
           {item({label:'JOB Closing',tab:'CLOSING',icon:CheckSquare})}
           {item({label:'Monitoring Vessel Calls',tab:'ACTIVE_VESSEL_CALLS',icon:Ship})}
         </>}

@@ -226,7 +226,10 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
 
   const openPaymentProof = (voucher: PaymentVoucher) => {
     const dataUrl = voucher.paymentProofDataUrl;
-    if (!dataUrl) return;
+    if (!dataUrl) {
+      setError(`Bukti pembayaran untuk voucher ${voucher.requestNumber} belum diunggah.`);
+      return;
+    }
     const proofWindow = window.open('', '_blank');
     if (!proofWindow) {
       setError('Tab bukti pembayaran diblokir browser. Izinkan pop-up untuk melihat bukti.');
@@ -904,17 +907,15 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                               >
                                 <FileText size={16} />
                               </button>
-                              {voucher.paymentProofDataUrl && (
-                                <button
-                                  type="button"
-                                  title="Lihat bukti pembayaran"
-                                  aria-label={`Lihat bukti pembayaran ${voucher.requestNumber}`}
-                                  onClick={() => openPaymentProof(voucher)}
-                                  className="rounded-lg p-1.5 text-slate-500 hover:bg-blue-50 hover:text-blue-700"
-                                >
-                                  <Eye size={16} />
-                                </button>
-                              )}
+                              <button
+                                type="button"
+                                title={voucher.paymentProofDataUrl ? 'Lihat bukti pembayaran' : 'Bukti pembayaran belum diunggah'}
+                                aria-label={`Lihat bukti pembayaran ${voucher.requestNumber}`}
+                                onClick={() => openPaymentProof(voucher)}
+                                className="rounded-lg p-1.5 text-slate-500 hover:bg-blue-50 hover:text-blue-700"
+                              >
+                                <Eye size={16} />
+                              </button>
                             </>
                           )}
                           <button type="button" title="Lihat Request Payment" aria-label={`Lihat Request Payment ${voucher.requestNumber}`} onClick={() => handlePrintVoucher(voucher)} className="rounded-lg p-1.5 text-slate-500 hover:bg-blue-50 hover:text-blue-700">

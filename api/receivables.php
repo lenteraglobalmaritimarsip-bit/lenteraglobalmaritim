@@ -158,7 +158,7 @@ try {
     $insert = $pdo->prepare(
         'INSERT INTO accounts_receivable_entries '
         . '(id, job_id, invoice_type, invoice_no, income_date, principal_name, vessel_name, pph23_amount_idr, remark, '
-        . '(bank_account_id, bank_name, account_name, account_number, idr_amount, usd_amount, attachment_name, attachment_data_url, created_by_user_id, created_by_name) '
+        . 'bank_account_id, bank_name, account_name, account_number, idr_amount, usd_amount, attachment_name, attachment_data_url, created_by_user_id, created_by_name) '
         . 'VALUES (:id, :job_id, :invoice_type, :invoice_no, :income_date, :principal_name, :vessel_name, :pph23, :remark, '
         . ':bank_account_id, :bank_name, :account_name, :account_number, :idr_amount, :usd_amount, :attachment_name, :attachment_data_url, :user_id, :user_name)'
     );
