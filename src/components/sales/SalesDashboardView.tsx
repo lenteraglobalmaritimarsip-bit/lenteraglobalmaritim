@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   FileQuestion, FileSpreadsheet, FolderKanban, TrendingUp,
   DollarSign, Clock, CheckCircle2, Users, Ship, CalendarDays
 } from 'lucide-react';
 import { JobCall, ActiveTab } from '../../types';
 import { formatDateDisplay, formatInquiryDate } from '../../utils/date';
+import { ApprovedSalesPdaTotal, listApprovedSalesPdaTotals } from '../../lib/api';
 
 interface SalesDashboardViewProps {
   jobCalls: JobCall[];
@@ -23,6 +24,15 @@ const statusClass=(status:string)=>{
 };
 
 export const SalesDashboardView:React.FC<SalesDashboardViewProps>=({jobCalls,onNavigate})=>{
+  const [approvedPdaTotals, setApprovedPdaTotals] = useState<ApprovedSalesPdaTotal[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void listApprovedSalesPdaTotals()
+      .then((totals) => { if (!cancelled) setApprovedPdaTotals(totals); })
+      .catch((error) => console.error('Approved Sales PDA totals failed to load:', error));
+    return () => { cancelled = true; };
+  }, []);
+
   const getTimestamp = (value: string, fallback: string) => {
     const timestamp = Date.parse(value);
     if (Number.isFinite(timestamp)) return timestamp;
@@ -45,7 +55,7 @@ export const SalesDashboardView:React.FC<SalesDashboardViewProps>=({jobCalls,onN
   const totalApprovedEpdaIDR = jobCalls
     .filter((job) => job.managerApproval.status === 'APPROVED' && job.quotation.epda.status === 'APPROVED')
     .reduce((total, job) => {
-      const epdaTotal = Number(job.quotation.epda.totalBuyRate ?? job.quotation.epda.totalSellRate ?? 0);
+      const epdaTotal = Number(job.quotation.epda.totalSellRate || job.quotation.epda.totalBuyRate || 0);
       const currency = job.quotation.epda.currency || job.currency || 'USD';
       const exchangeRate = Number(job.quotation.epda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800);
       const normalizedTotal = currency === 'USD'
@@ -53,6 +63,15 @@ export const SalesDashboardView:React.FC<SalesDashboardViewProps>=({jobCalls,onN
         : epdaTotal;
       return total + (currency === 'USD' ? normalizedTotal * exchangeRate : normalizedTotal);
     }, 0);
+  const visibleJobIds = new Set(jobCalls.map((job) => job.jobId));
+  const approvedPdaTotalIDR = approvedPdaTotals.reduce((sum, pda) => {
+    if (!visibleJobIds.has(pda.jobId)) return sum;
+    const normalizedTotal = pda.currency === 'USD'
+      ? Math.round((pda.total + Number.EPSILON) * 100) / 100
+      : pda.total;
+    return sum + (pda.currency === 'USD' ? normalizedTotal * pda.exchangeRate : normalizedTotal);
+  }, 0);
+  const totalApprovedEpdaAndPdaIDR = totalApprovedEpdaIDR + approvedPdaTotalIDR;
   const formatIDR = (value: number) => new Intl.NumberFormat('id-ID', {
     style: 'currency',
     currency: 'IDR',
@@ -63,7 +82,7 @@ export const SalesDashboardView:React.FC<SalesDashboardViewProps>=({jobCalls,onN
     {label:'CUSTOMERS',value:new Set(jobCalls.map(j=>j.customerName)).size,icon:Users,cls:'blue',note:'Customer aktif'},
     {label:'INQUIRIES',value:jobCalls.length,icon:FileQuestion,cls:'cyan',note:'Inquiry masuk'},
     {label:'QUOTES',value:activeQuotes,icon:FileSpreadsheet,cls:'green',note:'Dalam proses'},
-    {label:'TOTAL EPDA',value:formatIDR(totalApprovedEpdaIDR),icon:FileSpreadsheet,cls:'orange',note:'Grand total EPDA approved'},
+    {label:'TOTAL EPDA + PDA',value:formatIDR(totalApprovedEpdaAndPdaIDR),icon:FileSpreadsheet,cls:'orange',note:'Grand total EPDA + PDA approved'},
   ];
 
   return <div className="space-y-5">

@@ -171,6 +171,11 @@ function validatePdaItemDraft(mixed $item): array
     ) {
         jsonResponse(['error' => 'Draft input item PDA tidak valid'], 400);
     }
+    $pph23Applied = $item['pph23Applied'] ?? false;
+    $globalVatApplied = $item['globalVatApplied'] ?? false;
+    if (!is_bool($pph23Applied) || !is_bool($globalVatApplied)) {
+        jsonResponse(['error' => 'Pilihan pajak draft PDA tidak valid'], 400);
+    }
     $continuedPdaItems = $item['continuedPdaItems'] ?? [];
     if (!is_array($continuedPdaItems) || count($continuedPdaItems) > 500) {
         jsonResponse(['error' => 'Referensi item PDA lanjutan tidak valid'], 400);
@@ -194,6 +199,8 @@ function validatePdaItemDraft(mixed $item): array
         'unit' => trim($item['unit']),
         'remarks' => trim($item['remarks']),
         'vatApplied' => $item['vatApplied'],
+        'pph23Applied' => $pph23Applied,
+        'globalVatApplied' => $globalVatApplied,
         'continuedPdaItems' => array_values($continuedPdaItems),
     ];
 }
@@ -255,13 +262,18 @@ function readPdaDraft(PDO $connection, array $document): array
         'unit' => '',
         'remarks' => '',
         'vatApplied' => false,
+        'pph23Applied' => false,
+        'globalVatApplied' => false,
     ];
     $itemDraft['continuedPdaItems'] ??= [];
+    $itemDraft['pph23Applied'] ??= false;
+    $itemDraft['globalVatApplied'] ??= false;
 
     return [
         'jobId' => $document['job_id'],
         'pdaType' => $pdaType,
         'pdaNo' => $document['pda_no'],
+        'createdAt' => $document['created_at'] ?? '',
         'salesPdaNo' => $salesPdaNo,
         'salesPdaCurrency' => $salesPdaCurrency,
         'salesPdaItems' => $salesPdaItems,
@@ -394,6 +406,31 @@ try {
         jsonResponse(['status' => $decision]);
     }
 
+    if ($action === 'approved-totals') {
+        requireMethod('GET');
+        $role = $user['role'] ?? '';
+        if (!in_array($role, ['SALES', 'MANAGER_OPS'], true)) jsonResponse(['error' => 'Role tidak dapat melihat total PDA Sales'], 403);
+        $branchCode = $role === 'SALES' ? pdaUserBranch($user, 'SALES') : '';
+        $branchFilter = $branchCode !== '' ? ' AND pd.branch_code = :branch_code' : '';
+        $query = $connection->prepare(
+            "SELECT pd.job_id, pd.currency, pd.exchange_rate, "
+            . "SUM(pi.quantity * pi.price * (1 + CASE WHEN pi.vat_applied = 1 THEN 0.11 ELSE 0 END)) AS total "
+            . "FROM pda_documents pd "
+            . "INNER JOIN manager_approvals ma ON ma.job_id = pd.job_id AND ma.status = 'APPROVED' "
+            . "INNER JOIN pda_items pi ON pi.job_id = pd.job_id AND pi.pda_type = pd.pda_type "
+            . "WHERE pd.pda_type = 'SALES' AND pd.approval_status = 'APPROVED'" . $branchFilter . " "
+            . "GROUP BY pd.job_id, pd.currency, pd.exchange_rate ORDER BY pd.job_id"
+        );
+        $query->execute($branchCode !== '' ? ['branch_code' => $branchCode] : []);
+        $totals = array_map(static fn (array $row): array => [
+            'jobId' => $row['job_id'],
+            'currency' => $row['currency'],
+            'exchangeRate' => (float) $row['exchange_rate'],
+            'total' => (float) $row['total'],
+        ], $query->fetchAll());
+        jsonResponse(['totals' => $totals]);
+    }
+
     if ($action === 'approved') {
         requireMethod('GET');
         if (!in_array($user['role'] ?? '', ['SALES', 'FDA'], true)) jsonResponse(['error' => 'Role tidak dapat melihat PDA approved'], 403);
@@ -451,6 +488,8 @@ try {
                 'unit' => '',
                 'remarks' => '',
                 'vatApplied' => false,
+                'pph23Applied' => false,
+                'globalVatApplied' => false,
             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
             $insert = $connection->prepare(
                 'INSERT INTO pda_documents '

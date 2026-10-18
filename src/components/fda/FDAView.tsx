@@ -665,6 +665,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     ? Math.round((globalVatBase * 0.11 + Number.EPSILON) * 100) / 100
     : 0;
   const totalActualBuyAfterGlobalVat = (totalActualBuy > 0 ? totalActualBuyAfterPph23 : totalQuotedEPDA) + globalVatAmount;
+  const fdaGrandTotal = globalVatApplied ? totalActualBuyAfterGlobalVat : totalActualBuyAfterPph23;
   const convertReceiptCurrency = (amount: number, from: Currency, to: Currency) => {
     if (from === to) return amount;
     return from === 'USD' ? amount * effectiveExchangeRate : amount / effectiveExchangeRate;
@@ -1104,7 +1105,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     const total = totalActualBuyAfterGlobalVat;
     const totalBeforeGlobalVat = totalActualBuy > 0 ? totalActualBuyAfterPph23 : totalQuotedEPDA;
     const globalVatRows = globalVatApplied
-      ? `<tr class="global-vat"><td colspan="3">VAT / PPN 11% Global</td><td class="amount">${money(globalVatAmount, viewCurrency)}</td><td></td></tr><tr class="net-total"><td colspan="3">TOTAL TERMASUK VAT GLOBAL</td><td class="amount">${money(total, viewCurrency)}</td><td></td></tr>`
+      ? `<tr class="global-vat"><td colspan="3">VAT 11%</td><td class="amount">${money(globalVatAmount, viewCurrency)}</td><td></td></tr><tr class="net-total"><td colspan="3">GRAND TOTAL + VAT 11%</td><td class="amount">${money(total, viewCurrency)}</td><td></td></tr>`
       : '';
     const vessel = vessels.find((item) => item.id === activeJob.vesselId);
     const bank = viewCurrency === 'USD'
@@ -1133,7 +1134,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     const total = totalActualBuyAfterGlobalVat;
     const totalBeforeGlobalVat = totalActualBuy > 0 ? totalActualBuyAfterPph23 : totalQuotedEPDA;
     const globalVatRows = globalVatApplied
-      ? `<tr class="global-vat"><td colspan="3">VAT / PPN 11% Global</td><td class="amount">${money(globalVatAmount, viewCurrency)}</td><td></td></tr><tr class="net-total"><td colspan="3">TOTAL TERMASUK VAT GLOBAL</td><td class="amount">${money(total, viewCurrency)}</td><td></td></tr>`
+      ? `<tr class="global-vat"><td colspan="3">VAT 11%</td><td class="amount">${money(globalVatAmount, viewCurrency)}</td><td></td></tr><tr class="net-total"><td colspan="3">GRAND TOTAL + VAT 11%</td><td class="amount">${money(total, viewCurrency)}</td><td></td></tr>`
       : '';
     const vessel = vessels.find((item) => item.id === activeJob.vesselId);
     return `<!doctype html><html><head><meta charset="utf-8"><title>${fdaNo}</title><style>@page{size:A4;margin:10mm}body{font-family:Arial,sans-serif;color:#172033;font-size:10px}.brand{text-align:center;margin-bottom:8px}.brand-wrap{display:inline-flex;align-items:center;gap:12px;text-align:left}.logo{width:78px;height:58px;object-fit:contain}.brand-name{font-size:20px;font-weight:700;color:#3562a8}.tagline{font-size:11px;color:#3562a8;margin-top:3px}.divider{border-bottom:2px solid #315db2;margin:6px 0 10px}.title-block{margin:0 0 8px}.title-block h2{margin:0;background:#214f84;color:#fff;text-align:center;padding:5px;font-size:12px}.meta{display:grid;grid-template-columns:1fr 1fr;gap:2px 28px;margin-bottom:9px}.meta-col{display:flex;flex-direction:column;gap:2px}.meta-row{display:grid;grid-template-columns:105px 8px minmax(0,1fr);line-height:1.25}.right .meta-row{grid-template-columns:82px 8px minmax(0,1fr)}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #9ca3af;padding:4px 5px}th{background:#dbe8f2;text-align:center;font-size:9px}th:nth-child(1),td:nth-child(1){width:5%;text-align:center}th:nth-child(2),td:nth-child(2){width:42%;text-align:left}th:nth-child(3),td:nth-child(3){width:8%;text-align:center}th:nth-child(4),td:nth-child(4){width:17%;text-align:right;white-space:nowrap}th:nth-child(5),td:nth-child(5){width:28%;text-align:left}.section td{background:#808080;color:#fff;font-weight:700;text-align:left;text-transform:uppercase}.subtotal{background:#dbe8f2;font-weight:700}.grand,.net-total{background:#dbe8f2;color:#f00;font-weight:800}.amount{text-align:right;white-space:nowrap}.bank{display:inline-block;width:42%;margin-top:16px;border:1px solid #777;padding:8px;font-size:8px;line-height:1.3;vertical-align:top}.signature{display:inline-block;width:42%;margin:52px 0 0 12%;text-align:center;vertical-align:top;font-size:9px;padding-top:8px}.footer{margin-top:16px;text-align:center;font-size:9px;line-height:1.35;font-weight:600}.footer span{color:#e11d48;text-decoration:underline}</style></head><body><div class="brand"><div class="brand-wrap"><img class="logo" src="/lenteraglobalmaritim/lgm-logo.png"><div><div class="brand-name">PT Lentera Global Maritim</div><div class="tagline">Seamless Agent, Global Reach</div></div></div></div><h2>FINAL DISBURSEMENT ACCOUNT</h2><div class="meta"><div class="meta-col"><div class="meta-row"><b>No FDA</b><span>:</span><span>${escape(fdaNo)}</span></div><div class="meta-row"><b>Date Inquiry</b><span>:</span><span>${escape(activeJob.inquiry?.date || '-')}</span></div><div class="meta-row"><b>Principal</b><span>:</span><span>${escape(activeJob.customerName)}</span></div><div class="meta-row"><b>GRT</b><span>:</span><span>${vessel?.grt?.toLocaleString('id-ID') || '-'}</span></div><div class="meta-row"><b>Port</b><span>:</span><span>${escape(activeJob.portName)}</span></div><div class="meta-row"><b>ETA</b><span>:</span><span>${escape(activeJob.eta || '-')}</span></div></div><div class="meta-col right"><div class="meta-row"><b>Vessel</b><span>:</span><span>${escape(activeJob.vesselName)}</span></div><div class="meta-row"><b>Estimated Day</b><span>:</span><span>${activeJob.inquiry?.estimatedDays || '-'}</span></div><div class="meta-row"><b>Flag</b><span>:</span><span>${escape(vessel?.flag || '-')}</span></div><div class="meta-row"><b>Cargo Details</b><span>:</span><span>${escape(activeJob.inquiry?.cargoDetails || '-')}</span></div><div class="meta-row"><b>IMO</b><span>:</span><span>${escape(vessel?.imoNumber || '-')}</span></div></div></div><table><thead><tr><th>NO.</th><th>DESCRIPTION</th><th>CURRENCY</th><th>AMOUNT</th><th>REMARKS</th></tr></thead><tbody>${rows}<tr class="grand"><td colspan="3">${fdaSubTotalLabel}</td><td class="amount">${money(totalBeforeGlobalVat, viewCurrency)}</td><td></td></tr>${globalVatRows}</tbody></table><div class="bank">Please kindly remit to our Bank Account<br>Bank Account Detail of PT. Lentera Global Maritim asf:<br><br><b>BANK NEGARA INDONESIA (Persero) Tbk</b><br>Address: BNI Bidakara<br>Jl. Gatot Subroto Kav 71-73, RT.12/RW.5, Tebet Timur,<br>Kec. Tebet, Kota Jakarta Selatan, DKI Jakarta 12820<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number : 2824-1212-69</b><br><b>Swift Code Bank : BNIIDNAXXX</b></div><div class="signature">Sincerely,<br>PT. Lentera Global Maritim<br><br><br>Finance</div><div class="footer">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span>email : maritim@lentera-global.com / web : www.lentera-global.com</span></div></body></html>`;
@@ -1165,7 +1166,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   const normalizeFDAExportLayoutBase = (html: string) => pushFinanceSignatureDown(formatFDAExportDates(html.replaceAll('>CURRENCY<', '>TARIFF<').replace('</style>', 'h2{background:#28598e!important;color:#fff!important;text-align:center!important}.section td{background:#566270!important;color:#fff!important}.subtotal,.grand{background:#dbe8f2!important}.grand{color:#f00!important}.grand,.grand td,.grand td:first-child{font-weight:400!important}.bank,.signature{box-sizing:border-box}.signature-main{display:block}.signature-role{display:block;margin-top:120px;padding-top:12px}.meta-col.right{justify-self:stretch;width:100%;padding:0;transform:none}.meta-col.right .meta-row{grid-template-columns:85px 10px minmax(0,1fr)}table th:nth-child(2),table td:nth-child(2){width:20%!important}table th:nth-child(3),table td:nth-child(3){width:35%!important;text-align:center!important;white-space:nowrap}table th:nth-child(4),table td:nth-child(4){width:12%!important;white-space:nowrap}</style>')));
 
-  const normalizeFDAExportLayout = (html: string) => normalizeFDAExportLayoutBase(html).replace('</style>', 'table th{text-align:center!important}table tr.item-row td:nth-child(1){text-align:center!important}table tr.item-row td:nth-child(2),table tr.item-row td:nth-child(5){text-align:left!important}table tr.item-row td:nth-child(3){text-align:center!important}table tr.item-row td:nth-child(4){text-align:right!important}table tr.section td{text-align:left!important}table tr.subtotal td:first-child{font-weight:700;text-align:right!important}table tr.grand td:first-child{text-align:right!important}table tr.subtotal td.amount,table tr.grand td.amount,table tr.advance td.amount,table tr.balance td.amount{font-variant-numeric:tabular-nums;text-align:right!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}table tr.advance td:first-child,table tr.balance td:first-child{text-align:center!important}</style>');
+  const normalizeFDAExportLayout = (html: string) => normalizeFDAExportLayoutBase(html).replace('</style>', 'table th{text-align:center!important}table tr.item-row td:nth-child(1){text-align:center!important}table tr.item-row td:nth-child(2),table tr.item-row td:nth-child(5){text-align:left!important}table tr.item-row td:nth-child(3){text-align:center!important}table tr.item-row td:nth-child(4){text-align:right!important}table tr.section td{text-align:left!important}table tr.subtotal td:first-child{font-weight:700;text-align:right!important}table tr.grand td:first-child{text-align:right!important}table tr.global-vat td:first-child{text-align:right!important}table tr.subtotal td.amount,table tr.grand td.amount,table tr.advance td.amount,table tr.balance td.amount{font-variant-numeric:tabular-nums;text-align:right!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}table tr.advance td:first-child,table tr.balance td:first-child{text-align:center!important}</style>');
   const addA4PageFrame = (html: string) => html
     .replace('<body>', '<body><div class="a4-page-frame" aria-hidden="true"></div>')
     .replace('</head>', `<style>
@@ -1257,7 +1258,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   </style></head>`);
 
   const addFDAReceiptSummary = (html: string) => {
-    const summaryRows = `<tr class="advance"><td colspan="3">Advance Received / Pre-funding Received</td><td class="amount">-${formatAccountingNumber(advanceReceived, viewCurrency)}</td><td></td></tr><tr class="balance"><td colspan="3">Balance Due</td><td class="amount">${formatAccountingNumber(balanceDue, viewCurrency)}</td><td></td></tr>`;
+    const summaryRows = `<tr class="advance"><td colspan="3">Advance Payment</td><td class="amount">-${formatAccountingNumber(advanceReceived, viewCurrency)}</td><td></td></tr><tr class="balance"><td colspan="3">Balance Due</td><td class="amount">${formatAccountingNumber(balanceDue, viewCurrency)}</td><td></td></tr>`;
     return html.replace('</tbody></table>', `${summaryRows}</tbody></table>`);
   };
 
@@ -1332,7 +1333,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     });
     const pph23Row = pph23Amount > 0 ? [['', '', 'PPH 23 (2%)', -pph23Amount, '']] : [];
     const globalVatRows = globalVatApplied
-      ? [['', '', 'VAT / PPN 11% Global', globalVatAmount, ''], ['', '', 'TOTAL TERMASUK VAT GLOBAL', totalActualBuyAfterGlobalVat, '']]
+      ? [['', '', 'VAT 11%', globalVatAmount, ''], ['', '', 'GRAND TOTAL + VAT 11%', totalActualBuyAfterGlobalVat, '']]
       : [];
     const text = [['NO','DESCRIPTION','TARIFF','AMOUNT','REMARKS'],...rows,...pph23Row,['','','GRAND TOTAL',totalActualBuyAfterPph23,''],...globalVatRows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join('\t')).join('\n');
     const blob=new Blob([text],{type:'application/vnd.ms-excel;charset=utf-8'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`${fdaNo.replaceAll('/','-')}.xls`; a.click(); URL.revokeObjectURL(url);
@@ -1841,8 +1842,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
               <span className="text-xs uppercase font-normal text-slate-400">Grand Total</span>
               <span className="mt-1 block break-all text-sm font-normal font-mono leading-tight text-emerald-300 sm:text-base lg:text-lg">
                 {viewCurrency === 'IDR'
-                  ? formatAccountingNumber(totalActualBuy, 'IDR')
-                  : formatUSD(totalActualBuy)}
+                  ? formatAccountingNumber(fdaGrandTotal, 'IDR')
+                  : formatUSD(fdaGrandTotal)}
               </span>
             </div>
           </div>
@@ -1958,7 +1959,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
               </label>
               <label className={`erp-tax-option erp-tax-option-vat ${globalVatApplied ? 'is-active' : ''} ${isFDAReadOnly ? 'is-disabled' : ''}`}>
                 <input type="checkbox" checked={globalVatApplied} disabled={isFDAReadOnly} onChange={(event) => setFDAGlobalVatApplied(event.target.checked)} />
-                <span>VAT / PPN 11% Global<small>Ditambahkan pada Grand Total</small></span>
+                <span>VAT 11%<small>Ditambahkan pada Grand Total</small></span>
               </label>
             </div>
             <div className="fda-results-card pda-results-card overflow-x-auto rounded-lg">
@@ -2055,7 +2056,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                             <td className="border-l border-slate-800" />
                           </tr>
                         )}
-                        <tr className="bg-slate-950/70 font-bold">
+                        <tr className="fda-category-subtotal bg-slate-950/70 font-bold">
                           <td colSpan={3} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-slate-200">SUB TOTAL {categoryIndex + 1}</td>
                           <td className="fda-subtotal-amount border-l border-slate-800 p-2.5 text-right text-xs font-mono font-bold text-white">
                             {formatAccountingNumber(categoryAmountTotal + categoryVat, categoryCurrency)}
@@ -2088,26 +2089,26 @@ export const FDAView: React.FC<FDAViewProps> = ({
                   {globalVatApplied && fdaResultRows.length > 0 && (
                     <>
                       <tr className="bg-slate-950/70 font-bold">
-                        <td colSpan={3} className="border-l border-slate-800 p-3 text-right font-bold uppercase text-amber-300">VAT / PPN 11% Global</td>
+                        <td colSpan={3} className="border-l border-slate-800 p-3 text-right font-bold uppercase text-amber-300">VAT 11%</td>
                         <td className="border-l border-slate-800 p-3 text-right text-xs font-mono font-bold text-amber-300">{formatAccountingNumber(globalVatAmount, viewCurrency)}</td>
                         <td className="border-l border-slate-800" />
                       </tr>
                       <tr className="bg-slate-950/80">
-                        <td colSpan={3} className="border-l border-slate-800 p-3 text-right font-bold uppercase text-slate-200">TOTAL TERMASUK VAT GLOBAL</td>
+                        <td colSpan={3} className="border-l border-slate-800 p-3 text-right font-bold uppercase text-slate-200">GRAND TOTAL + VAT 11%</td>
                         <td className="border-l border-slate-800 p-3 text-right text-xs font-mono font-bold text-white">{formatAccountingNumber(totalActualBuyAfterGlobalVat, viewCurrency)}</td>
                         <td className="border-l border-slate-800" />
                       </tr>
                     </>
                   )}
                   <tr className="bg-slate-950/70">
-                    <td colSpan={3} className="border-l border-slate-800 p-3 text-right font-normal uppercase text-slate-200">Advance Received / Pre-funding Received</td>
+                    <td colSpan={3} className="border-l border-slate-800 p-3 text-right font-normal uppercase text-slate-200">Advance Payment</td>
                     <td className="border-l border-slate-800 p-3 text-right text-xs font-mono font-normal text-rose-300">
                       -{formatAccountingNumber(advanceReceived, viewCurrency)}
                     </td>
                     <td className="border-l border-slate-800" />
                   </tr>
                   <tr className="bg-slate-950/80">
-                    <td colSpan={3} className="border-l border-slate-800 p-3 text-right font-bold uppercase text-slate-200">Balance Due</td>
+                    <td colSpan={3} className="border-l border-slate-800 p-3 text-right font-bold uppercase text-slate-200">BALANCE DUE</td>
                     <td className="border-l border-slate-800 p-3 text-right text-xs font-mono font-bold text-emerald-300">
                       {formatAccountingNumber(balanceDue, viewCurrency)}
                     </td>
@@ -2219,7 +2220,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
             <div>
               <label className="mb-1 block text-slate-600">Advance Received</label>
               <div className="rounded-lg border border-slate-300 bg-white p-2.5 font-semibold text-slate-700">
-                Advance Received / Pre-funding Received
+                Advance Payment
               </div>
             </div>
             <div>

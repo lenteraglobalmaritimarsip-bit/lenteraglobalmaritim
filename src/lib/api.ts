@@ -84,6 +84,7 @@ export interface PdaDraft {
   jobId: string;
   pdaType: PdaDocumentType;
   pdaNo: string;
+  createdAt: string;
   salesPdaNo?: string | null;
   salesPdaCurrency?: 'IDR' | 'USD' | null;
   salesPdaItems?: PdaDraftItem[];
@@ -107,6 +108,8 @@ export interface PdaDraft {
     unit: string;
     remarks: string;
     vatApplied: boolean;
+    pph23Applied?: boolean;
+    globalVatApplied?: boolean;
     continuedPdaItems?: ContinuedPdaItemReference[];
   };
   revision: number;
@@ -115,7 +118,7 @@ export interface PdaDraft {
 
 export async function openPdaDraft(
   jobId: string,
-  defaults: Omit<PdaDraft, 'jobId' | 'pdaType' | 'pdaNo' | 'approvalStatus' | 'submittedBy' | 'submittedAt' | 'reviewedBy' | 'reviewedAt' | 'reviewNotes' | 'revision' | 'items' | 'itemDraft'>,
+  defaults: Omit<PdaDraft, 'jobId' | 'pdaType' | 'pdaNo' | 'createdAt' | 'approvalStatus' | 'submittedBy' | 'submittedAt' | 'reviewedBy' | 'reviewedAt' | 'reviewNotes' | 'revision' | 'items' | 'itemDraft'>,
   pdaType: PdaDocumentType = 'SALES',
 ): Promise<PdaDraft> {
   if (!apiEnabled) throw new Error('Penyimpanan PDA memerlukan koneksi API aktif.');
@@ -128,7 +131,7 @@ export async function openPdaDraft(
 
 export async function savePdaDraft(
   jobId: string,
-  draft: Omit<PdaDraft, 'jobId' | 'approvalStatus' | 'submittedBy' | 'submittedAt' | 'reviewedBy' | 'reviewedAt' | 'reviewNotes'>,
+  draft: Omit<PdaDraft, 'jobId' | 'createdAt' | 'approvalStatus' | 'submittedBy' | 'submittedAt' | 'reviewedBy' | 'reviewedAt' | 'reviewNotes'>,
 ): Promise<number> {
   if (!apiEnabled) throw new Error('Penyimpanan PDA memerlukan koneksi API aktif.');
   const result = await request<{ revision: number }>('pda.php?action=save', {
@@ -163,6 +166,19 @@ export async function listApprovedPdaJobIds(): Promise<string[]> {
   if (!apiEnabled) throw new Error('Status PDA memerlukan koneksi API aktif.');
   const result = await request<{ jobIds: string[] }>('pda.php?action=approved');
   return result.jobIds;
+}
+
+export interface ApprovedSalesPdaTotal {
+  jobId: string;
+  currency: 'IDR' | 'USD';
+  exchangeRate: number;
+  total: number;
+}
+
+export async function listApprovedSalesPdaTotals(): Promise<ApprovedSalesPdaTotal[]> {
+  if (!apiEnabled) return [];
+  const result = await request<{ totals: ApprovedSalesPdaTotal[] }>('pda.php?action=approved-totals');
+  return result.totals;
 }
 
 export async function getApprovedPdaDraft(jobId: string): Promise<PdaDraft> {

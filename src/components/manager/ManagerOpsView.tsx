@@ -23,7 +23,7 @@ import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateR
 import { QuotesEPDAView } from '../sales/QuotesEPDAView';
 import { createPdaPreviewHtml } from '../sales/CrewPDAView';
 import { FDAView } from '../fda/FDAView';
-import { listPendingPdaDrafts, PdaDraft, reviewPdaDraft } from '../../lib/api';
+import { listApprovedSalesPdaTotals, listPendingPdaDrafts, PdaDraft, reviewPdaDraft } from '../../lib/api';
 
 interface ManagerOpsViewProps {
   initialTab?: 'DASHBOARD' | 'QUOTES_VIEW' | 'APPROVAL';
@@ -72,6 +72,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
   const [approvalNotes, setApprovalNotes] = useState<{ [key: string]: string }>({});
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [pendingPdaDrafts, setPendingPdaDrafts] = useState<PdaDraft[]>([]);
+  const [approvedSalesPdaTotals, setApprovedSalesPdaTotals] = useState<{ jobId: string; currency: 'IDR' | 'USD'; exchangeRate: number; total: number }[]>([]);
   const [pdaApprovalError, setPdaApprovalError] = useState('');
   const [pdaApprovalLoading, setPdaApprovalLoading] = useState(false);
   const [reviewingPdaJobId, setReviewingPdaJobId] = useState<string | null>(null);
@@ -137,7 +138,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
     }).format(val);
   const totalRevenuePipelineIDR = jobCalls.reduce((sum, job) => {
     if (job.managerApproval?.status !== 'APPROVED' || job.quotation?.epda?.status !== 'APPROVED') return sum;
-    const amount = job.quotation?.epda?.totalBuyRate ?? job.quotation?.epda?.totalSellRate ?? 0;
+    const amount = job.quotation?.epda?.totalSellRate || job.quotation?.epda?.totalBuyRate || 0;
     const currency = job.quotation?.epda?.currency || job.currency || 'IDR';
     const rate = job.quotation.epda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
     const normalizedAmount = currency === 'USD'
@@ -145,6 +146,23 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
       : amount;
     return sum + (currency === 'USD' ? normalizedAmount * rate : normalizedAmount);
   }, 0);
+  const visibleJobIds = new Set(jobCalls.map((job) => job.jobId));
+  const totalApprovedPdaIDR = approvedSalesPdaTotals.reduce((sum, pda) => {
+    if (!visibleJobIds.has(pda.jobId)) return sum;
+    const normalizedAmount = pda.currency === 'USD'
+      ? Math.round((pda.total + Number.EPSILON) * 100) / 100
+      : pda.total;
+    return sum + (pda.currency === 'USD' ? normalizedAmount * pda.exchangeRate : normalizedAmount);
+  }, 0);
+  const totalRevenuePipelineWithPdaIDR = totalRevenuePipelineIDR + totalApprovedPdaIDR;
+
+  useEffect(() => {
+    let cancelled = false;
+    void listApprovedSalesPdaTotals()
+      .then((totals) => { if (!cancelled) setApprovedSalesPdaTotals(totals); })
+      .catch((error: unknown) => console.error('Approved Sales PDA totals failed to load:', error));
+    return () => { cancelled = true; };
+  }, []);
 
   const formatEPDACategory = (category: string) => formatCostCategoryLabel(category);
 
@@ -384,8 +402,8 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                   <span className="font-mono font-bold text-amber-300">{approvedOrClosedJobs.length}</span>
                 </div>
                 <div className="flex items-center justify-between rounded-xl bg-slate-950 border border-slate-800 p-3">
-                  <span className="text-slate-400">Total revenue pipeline</span>
-                  <span className="font-mono font-bold text-emerald-300">{formatEPDAAmount(totalRevenuePipelineIDR, 'IDR')}</span>
+                  <span className="text-slate-400">Total EPDA + PDA approved</span>
+                  <span className="font-mono font-bold text-emerald-300">{formatEPDAAmount(totalRevenuePipelineWithPdaIDR, 'IDR')}</span>
                 </div>
               </div>
             </div>
@@ -780,7 +798,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                       {expandedPdaApprovalJobId === draft.jobId && (
                         <iframe
                           title={`Pratinjau PDA ${draft.pdaNo}`}
-                          srcDoc={createPdaPreviewHtml(job, draft.items, draft.currency, draft.pdaNo, draft.pdaType)}
+                          srcDoc={createPdaPreviewHtml(job, draft.items, draft.currency, draft.pdaNo, draft.pdaType, draft.itemDraft.pph23Applied, draft.itemDraft.globalVatApplied, { createdAt: draft.createdAt, eta: draft.eta, etd: draft.etd, etaRemarks: draft.etaRemarks, etdRemarks: draft.etdRemarks })}
                           className="h-[72vh] min-h-[520px] w-full rounded border border-slate-700 bg-white"
                         />
                       )}
