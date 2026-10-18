@@ -92,9 +92,9 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
           {item({label:'Create FDA',tab:'FDA_QUOTES_EPDA',icon:FileSpreadsheet})}
           <div className="maritim-nav-group-title"><Receipt/><span>Request Payment</span></div>
           <div className="maritim-subnav maritim-subnav-static">
-            {item({label:'Create Voucher',tab:'FDA_CREATE_VOUCHER',icon:FileText})
+            {item({label:'Created Payment',tab:'FDA_CREATE_VOUCHER',icon:FileText})
 }
-            {item({label:'Edit Voucher',tab:'FDA_EDIT_VOUCHER',icon:FileText})}
+            {item({label:'Edit Payment',tab:'FDA_EDIT_VOUCHER',icon:FileText})}
             {item({label:'History',tab:'FDA_PAYMENT_HISTORY',icon:ClipboardCheck})}
           </div>
           {item({label:'Monitoring Vessel Calls',tab:'ACTIVE_VESSEL_CALLS',icon:Ship})}
@@ -106,8 +106,8 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
           {item({label:'Accounts Payable',tab:'FINANCE_ACCOUNTS_PAYABLE',icon:ArrowUpFromLine})}
           <div className="maritim-nav-group-title"><Receipt/><span>Request Payment</span></div>
           <div className="maritim-subnav maritim-subnav-static">
-            {item({label:'Create Voucher',tab:'FINANCE_CREATE_VOUCHER',icon:FileText})}
-            {item({label:'Edit Voucher',tab:'FINANCE_EDIT_VOUCHER',icon:FileText})}
+            {item({label:'Created Payment',tab:'FINANCE_CREATE_VOUCHER',icon:FileText})}
+            {item({label:'Edit Payment',tab:'FINANCE_EDIT_VOUCHER',icon:FileText})}
             {item({label:'History',tab:'FINANCE_PAYMENT_HISTORY',icon:ClipboardCheck})}
           </div>
           {item({label:'History Laporan Keuangan',tab:'FINANCE_HISTORY_REPORT',icon:FileSpreadsheet})}

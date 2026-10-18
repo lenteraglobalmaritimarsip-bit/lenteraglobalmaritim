@@ -68,7 +68,7 @@ export const EditVoucherView: React.FC<EditVoucherViewProps> = ({ jobCalls, vend
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div>
             <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Request Payment</div>
-            <h1 className="mt-1 text-xl font-black text-slate-900 lg:text-2xl">Edit Voucher</h1>
+            <h1 className="mt-1 text-xl font-black text-slate-900 lg:text-2xl">Edit Form Request Payment</h1>
             <p className="text-xs text-slate-500">Voucher yang sudah disimpan. Hanya voucher yang menunggu persetujuan atau ditolak Manager yang dapat diedit; setelah diedit, voucher yang ditolak dikirim ulang ke Manager.</p>
           </div>
           <div className="relative">

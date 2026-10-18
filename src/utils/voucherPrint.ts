@@ -9,6 +9,7 @@ const escapeHtml = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;'
 export interface PrintableVoucher {
   requestNumber: string;
   requestDate: string;
+  requestedPaymentDate: string;
   jobInfo: PaymentVoucher['jobInfo'];
   requestBy: string;
   checkerName?: string;
@@ -27,6 +28,7 @@ export interface PrintableVoucher {
 export const printPaymentVoucher = (voucher: PrintableVoucher): string | null => {
   const { requestNumber, requestBy, jobInfo } = voucher;
   const formattedDate = new Date(`${String(voucher.requestDate).slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const formattedRequestedPaymentDate = new Date(`${String(voucher.requestedPaymentDate).slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const paidTimestamp = voucher.paidAt ? new Date(voucher.paidAt) : null;
   const formattedPaidDate = paidTimestamp && !Number.isNaN(paidTimestamp.getTime())
     ? paidTimestamp.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -45,9 +47,27 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
   const checker = voucher.paidBy || financeUsers.find((user) => user.name === voucher.checkerName)?.name || financeUsers[0]?.name || '';
   const logoUrl = `${window.location.origin}/lenteraglobalmaritim/lgm-logo.png`;
   const bodyRows = voucher.items.map((row, index) => `<tr><td class="c">${index + 1}</td><td>${escapeHtml(row.jobNumber)}</td><td>${escapeHtml(row.customerName)}</td><td>${escapeHtml(row.itemService)}</td><td class="r">${money(row.amount)}</td><td class="r">${money(row.vatAmount)}</td><td class="r">${money(row.total)}</td><td class="r">${money(row.pph23Amount)}</td><td class="r b">${money(row.paidAmount)}</td></tr>`).join('');
+  const metaField = (label: string, value: string) => label
+    ? `<td class="k">${label}</td><td class="separator">:</td><td>${value}</td>`
+    : '<td></td><td></td><td></td>';
+  const metaRow = (leftLabel: string, leftValue: string, rightLabel: string, rightValue: string) =>
+    `<tr>${metaField(leftLabel, leftValue)}${metaField(rightLabel, rightValue)}</tr>`;
   const metaRows = voucher.includeFinancePrintDetails
-    ? `<tr><td class="k">Request No.</td><td>: ${escapeHtml(requestNumber)}</td><td class="k">Date Paid</td><td>: ${escapeHtml(formattedPaidDate)}</td></tr><tr><td class="k">Request Date</td><td>: ${escapeHtml(formattedDate)}</td><td class="k">Vendor Name</td><td>: ${escapeHtml(voucher.vendorName)}</td></tr><tr><td class="k">Info JOB / JOB Number</td><td>: ${infoJob} / ${escapeHtml(jobNumbers || '-')}</td><td class="k">Paid To</td><td>: ${escapeHtml(voucher.paidTo)}</td></tr><tr><td class="k">Request By</td><td>: ${escapeHtml(requestBy)}</td><td class="k">Bank</td><td>: ${escapeHtml(voucher.bankName)}</td></tr><tr><td></td><td></td><td class="k">A/c Number</td><td>: ${escapeHtml(voucher.accountNumber)}</td></tr>`
-    : `<tr><td class="k">Request No.</td><td>: ${escapeHtml(requestNumber)}</td><td class="k">Vendor Name</td><td>: ${escapeHtml(voucher.vendorName)}</td></tr><tr><td class="k">Request Date</td><td>: ${escapeHtml(formattedDate)}</td><td class="k">Paid To</td><td>: ${escapeHtml(voucher.paidTo)}</td></tr><tr><td class="k">Info JOB / JOB Number</td><td>: ${infoJob} / ${escapeHtml(jobNumbers || '-')}</td><td class="k">Bank</td><td>: ${escapeHtml(voucher.bankName)}</td></tr><tr><td class="k">Request By</td><td>: ${escapeHtml(requestBy)}</td><td class="k">A/c Number</td><td>: ${escapeHtml(voucher.accountNumber)}</td></tr>`;
+    ? [
+      metaRow('Request No.', escapeHtml(requestNumber), 'Date Paid', escapeHtml(formattedPaidDate)),
+      metaRow('Request Date', escapeHtml(formattedDate), 'Vendor Name', escapeHtml(voucher.vendorName)),
+      metaRow('Info JOB / JOB Number', `${infoJob} / ${escapeHtml(jobNumbers || '-')}`, 'Paid To', escapeHtml(voucher.paidTo)),
+      metaRow('Request By', escapeHtml(requestBy), 'Bank', escapeHtml(voucher.bankName)),
+      metaRow('', '', 'A/c Number', escapeHtml(voucher.accountNumber)),
+      metaRow('', '', 'Requested Payment Date', escapeHtml(formattedRequestedPaymentDate)),
+    ].join('')
+    : [
+      metaRow('Request No.', escapeHtml(requestNumber), 'Vendor Name', escapeHtml(voucher.vendorName)),
+      metaRow('Request Date', escapeHtml(formattedDate), 'Paid To', escapeHtml(voucher.paidTo)),
+      metaRow('Info JOB / JOB Number', `${infoJob} / ${escapeHtml(jobNumbers || '-')}`, 'Bank', escapeHtml(voucher.bankName)),
+      metaRow('Request By', escapeHtml(requestBy), 'A/c Number', escapeHtml(voucher.accountNumber)),
+      metaRow('', '', 'Requested Payment Date', escapeHtml(formattedRequestedPaymentDate)),
+    ].join('');
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>Payment Voucher ${escapeHtml(requestNumber)}</title><style>
     @page{size:A4 portrait;margin:12mm 12mm 40mm}
     body{font-family:Arial,sans-serif;font-size:10px;color:#172033;margin:0}
@@ -60,8 +80,11 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
     .meta{width:100%;table-layout:fixed;border-collapse:collapse;margin-bottom:12px}
     .meta td{padding:2px 4px;vertical-align:top}
     .meta td.k{font-weight:bold}
-    .meta td:nth-child(1){width:20%}.meta td:nth-child(2){width:30%}
-    .meta td:nth-child(3){width:17%;padding-left:12px}.meta td:nth-child(4){width:33%}
+    .meta tr:last-child td{white-space:nowrap}
+    .meta td.separator{text-align:center;padding-left:0;padding-right:0}
+    .meta td:nth-child(1){width:20%}.meta td:nth-child(2){width:2%}.meta td:nth-child(3){width:28%}
+    .meta td:nth-child(4){width:19%}.meta td:nth-child(5){width:2%}.meta td:nth-child(6){width:29%}
+    .meta tr td:nth-child(n+4){position:relative;left:24px}
     table.items{width:100%;border-collapse:collapse}
     table.items th,table.items td{border:1px solid #777;padding:4px 4px;font-size:9px}
     table.items th{background:#e8ecf2;text-transform:uppercase;font-size:8px;text-align:center}

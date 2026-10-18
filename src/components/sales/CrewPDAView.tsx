@@ -2,14 +2,13 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, CheckCircle2, FileSpreadsheet, Pencil, Plus, Printer, Send, Trash2, X } from 'lucide-react';
 import { JobCall, Vessel, formatPurposeOfCall } from '../../types';
 import { formatInquiryDate } from '../../utils/date';
-import { ContinuedPdaItemReference, getApprovedPdaDraft, openPdaDraft, PdaDocumentType, PdaDraft, savePdaDraft, submitPdaDraft } from '../../lib/api';
+import { ContinuedPdaItemReference, openPdaDraft, PdaDocumentType, PdaDraft, savePdaDraft, submitPdaDraft } from '../../lib/api';
 
 interface CrewPDAViewProps {
   job?: JobCall;
   vessels: Vessel[];
   onBack: () => void;
   pdaType?: PdaDocumentType;
-  viewApprovedSalesPda?: boolean;
 }
 
 export interface PdaEntryItem {
@@ -222,7 +221,7 @@ export const createPdaPreviewHtml = (
   </body></html>`;
 };
 
-export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, pdaType = 'SALES', viewApprovedSalesPda = false }) => {
+export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, pdaType = 'SALES' }) => {
   const documentPdaType: PdaDocumentType = pdaType === 'FDA' ? 'FDA' : 'SALES';
   const documentLabel = documentPdaType === 'FDA' ? 'FPDA' : 'PDA Crew';
   const [items, setItems] = useState<PdaEntryItem[]>([]);
@@ -318,9 +317,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
       etaRemarks: job.inquiry.etaRemarks || '',
       etdRemarks: job.inquiry.etdRemarks || '',
     };
-    const draftRequest = viewApprovedSalesPda && documentPdaType === 'SALES'
-      ? getApprovedPdaDraft(job.jobId)
-      : openPdaDraft(job.jobId, defaults, documentPdaType);
+    const draftRequest = openPdaDraft(job.jobId, defaults, documentPdaType);
     void draftRequest
       .then((draft) => {
         if (cancelled) return;
@@ -351,7 +348,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
         }
       });
     return () => { cancelled = true; };
-  }, [job?.jobId, draftLoadAttempt, documentPdaType, viewApprovedSalesPda]);
+  }, [job?.jobId, draftLoadAttempt, documentPdaType]);
 
   useEffect(() => {
     if (!job || !draftLoaded || isPdaLocked) return;
@@ -662,7 +659,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
         <div className="mb-3 flex flex-col justify-between gap-2 lg:flex-row lg:items-center">
           <div><h2 className="text-base font-bold uppercase tracking-wider text-white">Hasil Entry {documentLabel}</h2><span className="text-xs text-slate-400">Draft dan perubahan entry disimpan otomatis</span></div>
           <div className="flex flex-wrap gap-2">
-            {documentPdaType === 'FDA' && !viewApprovedSalesPda && (
+            {documentPdaType === 'FDA' && (
               <button
                 type="button"
                 disabled={!canEditPda || draftStatus === 'saving' || salesPdaItems.length === 0}
@@ -690,6 +687,9 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
             </label>
           </div>
         )}
+        <div className="mb-1 pr-[3%] text-right text-[9px] normal-case tracking-normal text-cyan-300">
+          Ekuivalen kurs: {exchangeRate > 0 ? `1 USD = Rp ${new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(exchangeRate)}` : 'belum diisi'}
+        </div>
         <div className="pda-results-card mb-4 overflow-x-auto rounded-lg border border-slate-700">
           <table className="w-full min-w-[1080px] text-left text-xs">
             <thead className="bg-slate-950 text-[10px] uppercase tracking-wider text-slate-400"><tr>

@@ -144,6 +144,7 @@ export interface PaymentVoucher {
   voucherNumber?: string;
   requestNumber: string;
   requestDate: string;
+  requestedPaymentDate: string;
   jobInfo: 'OPERASIONAL' | 'JOB_VESSEL';
   requestBy: string;
   requestByUserId?: string;

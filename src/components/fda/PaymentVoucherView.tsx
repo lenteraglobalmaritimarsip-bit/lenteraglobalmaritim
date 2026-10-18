@@ -62,6 +62,7 @@ const readonlyClass = 'w-full rounded-lg border border-slate-200 bg-slate-100 px
 
 interface VoucherDraft {
   requestDate: string;
+  requestedPaymentDate: string;
   jobInfo: JobInfo;
   vendorId: string;
   rows: VoucherRow[];
@@ -69,6 +70,7 @@ interface VoucherDraft {
 
 export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls, vendorPartners, requestBy, requestByUserId, onDataSaved, voucher: editingVoucher, onCancelEdit, operationalOnly = false }) => {
   const [requestDate, setRequestDate] = useState(() => editingVoucher ? String(editingVoucher.requestDate).slice(0, 10) : todayIso());
+  const [requestedPaymentDate, setRequestedPaymentDate] = useState(() => editingVoucher?.requestedPaymentDate || String(editingVoucher?.requestDate || todayIso()).slice(0, 10));
   const [jobInfo, setJobInfo] = useState<JobInfo>(operationalOnly ? 'OPERASIONAL' : editingVoucher?.jobInfo || 'OPERASIONAL');
   const [vendorId, setVendorId] = useState(editingVoucher?.vendorPartnerId || '');
   const [draftRestored, setDraftRestored] = useState(false);
@@ -150,6 +152,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
       .then((draft) => {
         if (cancelled || !draft || !Array.isArray(draft.rows) || draft.rows.length === 0) return;
         setRequestDate(draft.requestDate || todayIso());
+        setRequestedPaymentDate(draft.requestedPaymentDate || draft.requestDate || todayIso());
         setJobInfo(operationalOnly ? 'OPERASIONAL' : draft.jobInfo || 'OPERASIONAL');
         setVendorId(draft.vendorId || '');
         setRows(draft.rows.map((row) => ({
@@ -170,14 +173,15 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
     const isBlank = !vendorId && rows.every((row) => !row.jobNumber && !row.customerName && !row.itemService && !row.amount);
     const saveDraft = isBlank
       ? dataApi.deleteUserData('voucher_draft')
-      : dataApi.saveUserData('voucher_draft', { requestDate, jobInfo, vendorId, rows } satisfies VoucherDraft);
+      : dataApi.saveUserData('voucher_draft', { requestDate, requestedPaymentDate, jobInfo, vendorId, rows } satisfies VoucherDraft);
     void saveDraft.catch((error) => console.error('Gagal menyimpan draft voucher:', error));
-  }, [editingVoucher, draftLoaded, requestDate, jobInfo, vendorId, rows]);
+  }, [editingVoucher, draftLoaded, requestDate, requestedPaymentDate, jobInfo, vendorId, rows]);
 
   const resetForm = () => {
     if (!editingVoucher) void dataApi.deleteUserData('voucher_draft').catch((error) => console.error('Gagal menghapus draft voucher:', error));
     setDraftRestored(false);
     setRequestDate(todayIso());
+    setRequestedPaymentDate(todayIso());
     setJobInfo('OPERASIONAL');
     setVendorId('');
     setRows([newRow()]);
@@ -192,6 +196,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
     const printError = printPaymentVoucher({
       requestNumber,
       requestDate,
+      requestedPaymentDate,
       jobInfo,
       requestBy,
       checkerName: requestBy,
@@ -238,6 +243,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
       if (editingVoucher) {
         await db.updatePaymentVoucher(editingVoucher.id, {
           requestDate,
+          requestedPaymentDate,
           jobInfo,
           vendorPartnerId: vendor.id,
           vendorName: vendor.vendorName,
@@ -252,6 +258,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
       }
       const saved = await db.addPaymentVoucher({
         requestDate,
+        requestedPaymentDate,
         jobInfo,
         requestBy,
         requestByUserId,
@@ -275,8 +282,8 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
   return (
     <form onSubmit={handleSave} className="space-y-5">
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{editingVoucher ? 'Edit Voucher' : 'Request Payment'}</div>
-        <h1 className="mt-1 text-xl font-black text-slate-900 lg:text-2xl">PAYMENT VOUCHER</h1>
+        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{editingVoucher ? 'Edit Form Request Payment' : 'Request Payment'}</div>
+        <h1 className="mt-1 text-xl font-black text-slate-900 lg:text-2xl">FORM REQUEST PAYMENT VOUCHER</h1>
 
         <div className="mt-5 grid grid-cols-1 gap-4 text-xs md:grid-cols-2">
           <label className="block">
@@ -286,6 +293,10 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
           <label className="block">
             <span className="font-semibold text-slate-500">Request Date</span>
             <input type="date" required value={requestDate} onChange={(e) => setRequestDate(e.target.value || todayIso())} className={`${inputClass} mt-1`} />
+          </label>
+          <label className="block">
+            <span className="font-semibold text-slate-500">Requested Payment Date</span>
+            <input type="date" required value={requestedPaymentDate} onChange={(e) => setRequestedPaymentDate(e.target.value)} className={`${inputClass} mt-1`} />
           </label>
           <label className="block">
             <span className="font-semibold text-slate-500">Info JOB</span>

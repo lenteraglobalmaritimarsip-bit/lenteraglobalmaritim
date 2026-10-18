@@ -185,6 +185,7 @@ CREATE TABLE payment_vouchers (
   voucher_number VARCHAR(50) UNIQUE,
   request_number VARCHAR(50) NOT NULL UNIQUE,
   request_date DATE NOT NULL,
+  requested_payment_date DATE NOT NULL,
   job_info ENUM('OPERASIONAL', 'JOB_VESSEL') NOT NULL,
   request_by VARCHAR(200) NOT NULL,
   request_by_user_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NULL,

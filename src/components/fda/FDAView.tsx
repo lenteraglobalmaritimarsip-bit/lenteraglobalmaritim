@@ -28,6 +28,7 @@ import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateR
 import { formatCostCategoryLabel, getCostCategoryRank, normalizeCostCategory } from '../../utils/costCategories';
 import { findMatchingExpensesItem, findMatchingFixTariff } from '../../utils/masterDataIdentity';
 import { createMasterItemSearchOptions, MasterItemSearch, MasterItemSearchOption } from '../shared/MasterItemSearch';
+import { ApprovedSalesPdaTotal, listApprovedFdaPdaTotals } from '../../lib/api';
 
 interface FDAViewProps {
   initialTab?: 'DASHBOARD' | 'JOB_ID' | 'ACTUAL_COST' | 'QUOTES_VIEW' | 'APPROVAL';
@@ -61,12 +62,21 @@ export const FDAView: React.FC<FDAViewProps> = ({
     return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   };
   const [subTab, setSubTab] = useState<'DASHBOARD' | 'JOB_ID' | 'ACTUAL_COST' | 'QUOTES_VIEW' | 'APPROVAL'>(initialTab);
+  const [approvedFpdaTotals, setApprovedFpdaTotals] = useState<ApprovedSalesPdaTotal[]>([]);
   const isFDAApproved = Boolean(activeJob.fda?.fdaApproved || activeJob.fda?.approvalStatus === 'APPROVED');
   const isFDASubmitted = activeJob.fda?.approvalStatus === 'SUBMITTED';
   const isFDAReadOnly = isFDAApproved || isFDASubmitted;
   useEffect(() => {
     setSubTab(initialTab);
   }, [initialTab]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listApprovedFdaPdaTotals()
+      .then((totals) => { if (!cancelled) setApprovedFpdaTotals(totals); })
+      .catch((error) => console.error('Approved FPDA totals failed to load:', error));
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     const stopEnterSubmit = (event: KeyboardEvent) => {
@@ -717,7 +727,15 @@ export const FDAView: React.FC<FDAViewProps> = ({
       fda: { ...currentJob.fda, exchangeRateUSDToIDR: numericValue },
     });
   };
-  const totalCost = jobCalls.reduce((sum, job) => sum + normalizeGrandTotalToIDR(job), 0);
+  const visibleJobIds = new Set(jobCalls.map((job) => job.jobId));
+  const approvedFpdaTotalIDR = approvedFpdaTotals.reduce((sum, fpda) => {
+    if (!visibleJobIds.has(fpda.jobId)) return sum;
+    const normalizedTotal = fpda.currency === 'USD'
+      ? Math.round((fpda.total + Number.EPSILON) * 100) / 100
+      : fpda.total;
+    return sum + (fpda.currency === 'USD' ? normalizedTotal * fpda.exchangeRate : normalizedTotal);
+  }, 0);
+  const totalCost = jobCalls.reduce((sum, job) => sum + normalizeGrandTotalToIDR(job), 0) + approvedFpdaTotalIDR;
   const approvedJobs = jobCalls.filter((job) => job.managerApproval?.status === 'APPROVED');
   const actualQuantityValue = Number(actualQuantity) || 1;
   const actualTariff = Number(newActual.amountBuy) || 0;
@@ -1961,6 +1979,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
                 <input type="checkbox" checked={globalVatApplied} disabled={isFDAReadOnly} onChange={(event) => setFDAGlobalVatApplied(event.target.checked)} />
                 <span>VAT 11%<small>Ditambahkan pada Grand Total</small></span>
               </label>
+            </div>
+            <div className="mb-1 px-2 text-right text-[9px] normal-case tracking-normal text-cyan-300">
+              Ekuivalen kurs: 1 USD = Rp {new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(effectiveExchangeRate)}
             </div>
             <div className="fda-results-card pda-results-card overflow-x-auto rounded-lg">
               <table className="w-full min-w-[900px] table-fixed text-left text-xs border-separate border-spacing-0">

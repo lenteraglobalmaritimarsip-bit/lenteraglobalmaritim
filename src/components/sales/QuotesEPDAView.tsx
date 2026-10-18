@@ -1237,6 +1237,9 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
             <span>VAT / PPN 11% Global<small>Ditambahkan pada Grand Total</small></span>
           </label>
         </div>
+        <div className="mb-1 px-2 text-right text-[9px] normal-case tracking-normal text-cyan-300">
+          Ekuivalen kurs: {Number(exchangeRate) > 0 ? `1 USD = Rp ${new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(Number(exchangeRate))}` : 'belum diisi'}
+        </div>
         <div className="epda-results-card pda-results-card overflow-x-auto rounded-lg">
           <table className="w-full min-w-[900px] table-fixed text-left text-xs border-separate border-spacing-0">
             <colgroup>

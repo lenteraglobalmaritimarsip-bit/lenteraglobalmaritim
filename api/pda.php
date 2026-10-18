@@ -406,6 +406,67 @@ try {
         jsonResponse(['status' => $decision]);
     }
 
+    if ($action === 'approved-fda-totals') {
+        requireMethod('GET');
+        $branchCode = pdaUserBranch($user, 'FDA');
+        $query = $connection->prepare(
+            "SELECT pd.job_id, pd.currency, pd.exchange_rate, pd.item_draft, "
+            . 'pi.category, pi.quantity, pi.price, pi.vat_applied '
+            . 'FROM pda_documents pd INNER JOIN pda_items pi '
+            . 'ON pi.job_id = pd.job_id AND pi.pda_type = pd.pda_type '
+            . "WHERE pd.pda_type = 'FDA' AND pd.approval_status = 'APPROVED' "
+            . 'AND pd.branch_code = :branch_code ORDER BY pd.job_id, pi.category'
+        );
+        $query->execute(['branch_code' => $branchCode]);
+        $documents = [];
+        foreach ($query->fetchAll() as $row) {
+            $jobId = (string) $row['job_id'];
+            if (!isset($documents[$jobId])) {
+                $itemDraft = json_decode((string) $row['item_draft'], true) ?: [];
+                $documents[$jobId] = [
+                    'jobId' => $jobId,
+                    'currency' => $row['currency'],
+                    'exchangeRate' => (float) $row['exchange_rate'],
+                    'pph23Applied' => !empty($itemDraft['pph23Applied']),
+                    'globalVatApplied' => !empty($itemDraft['globalVatApplied']),
+                    'categories' => [],
+                ];
+            }
+            $category = (string) $row['category'];
+            $amount = (float) $row['quantity'] * (float) $row['price'];
+            $documents[$jobId]['categories'][$category] ??= ['amount' => 0.0, 'taxableAmount' => 0.0, 'hasVat' => false];
+            $documents[$jobId]['categories'][$category]['amount'] += $amount;
+            if ((bool) $row['vat_applied']) {
+                $documents[$jobId]['categories'][$category]['taxableAmount'] += $amount;
+                $documents[$jobId]['categories'][$category]['hasVat'] = true;
+            }
+        }
+
+        $totals = [];
+        foreach ($documents as $document) {
+            $subtotal = 0.0;
+            $itemVat = 0.0;
+            $pph23 = 0.0;
+            foreach ($document['categories'] as $category) {
+                $subtotal += $category['amount'];
+                $itemVat += floor(($category['taxableAmount'] * 0.11 + 1e-10) * 100 + 0.5) / 100;
+                if ($document['pph23Applied'] && $category['hasVat']) {
+                    $pph23 += floor(($category['amount'] * 0.02 + 1e-10) * 100 + 0.5) / 100;
+                }
+            }
+            $globalVat = $document['globalVatApplied']
+                ? floor((($subtotal + $itemVat) * 0.11 + 1e-10) * 100 + 0.5) / 100
+                : 0.0;
+            $totals[] = [
+                'jobId' => $document['jobId'],
+                'currency' => $document['currency'],
+                'exchangeRate' => $document['exchangeRate'],
+                'total' => $subtotal + $itemVat - $pph23 + $globalVat,
+            ];
+        }
+        jsonResponse(['totals' => $totals]);
+    }
+
     if ($action === 'approved-totals') {
         requireMethod('GET');
         $role = $user['role'] ?? '';

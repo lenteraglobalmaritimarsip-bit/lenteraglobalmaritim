@@ -181,6 +181,12 @@ export async function listApprovedSalesPdaTotals(): Promise<ApprovedSalesPdaTota
   return result.totals;
 }
 
+export async function listApprovedFdaPdaTotals(): Promise<ApprovedSalesPdaTotal[]> {
+  if (!apiEnabled) return [];
+  const result = await request<{ totals: ApprovedSalesPdaTotal[] }>('pda.php?action=approved-fda-totals');
+  return result.totals;
+}
+
 export async function getApprovedPdaDraft(jobId: string): Promise<PdaDraft> {
   if (!apiEnabled) throw new Error('PDA approved memerlukan koneksi API aktif.');
   const result = await request<{ draft: PdaDraft }>(`pda.php?action=view-approved&jobId=${encodeURIComponent(jobId)}`);

@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Eye, FileSpreadsheet, Search, UsersRound } from 'lucide-react';
+import { FileSpreadsheet, Search, UsersRound } from 'lucide-react';
 import { JobCall, Vessel } from '../../types';
 import { formatDateDisplay, isInquiryDateInRange } from '../../utils/date';
 import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateRangePicker';
-import { listApprovedPdaJobIds } from '../../lib/api';
 
 interface QuotesListViewProps {
   jobCalls: JobCall[];
@@ -11,7 +10,6 @@ interface QuotesListViewProps {
   onSelectJob: (jobId: string) => void;
   onOpenEPDA: () => void;
   onOpenPDA?: () => void;
-  onViewApprovedPDA?: () => void;
   title?: string;
   description?: string;
   moduleLabel?: string;
@@ -20,24 +18,14 @@ interface QuotesListViewProps {
   showStatusColumn?: boolean;
   statusColumnType?: 'quote' | 'fda';
   showPdaButton?: boolean;
-  showApprovedPdaEyeButton?: boolean;
   pdaActionLabel?: string;
   pdaReferenceSource?: 'EPDA' | 'FDA';
 }
 
-export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessels, onSelectJob, onOpenEPDA, onOpenPDA, onViewApprovedPDA, title = 'Quotes EPDA', description = 'Daftar quotation EPDA berdasarkan register vessel call.', moduleLabel = 'Sales and Operator - Quotes Module', actionLabel = 'Buat EPDA', enablePagination = false, showStatusColumn = false, statusColumnType = 'quote', showPdaButton = false, showApprovedPdaEyeButton = false, pdaActionLabel = 'Buat PDA', pdaReferenceSource = 'EPDA' }) => {
+export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessels, onSelectJob, onOpenEPDA, onOpenPDA, title = 'Quotes EPDA', description = 'Daftar quotation EPDA berdasarkan register vessel call.', moduleLabel = 'Sales and Operator - Quotes Module', actionLabel = 'Buat EPDA', enablePagination = false, showStatusColumn = false, statusColumnType = 'quote', showPdaButton = false, pdaActionLabel = 'Buat PDA', pdaReferenceSource = 'EPDA' }) => {
   const [search, setSearch] = useState('');
-  const [approvedPdaJobIds, setApprovedPdaJobIds] = useState<Set<string>>(() => new Set());
   const [inquiryDateRange, setInquiryDateRange] = useState<InquiryDateRange>({ from: '', to: '' });
   const [quotePage, setQuotePage] = useState(1);
-  useEffect(() => {
-    if (!showApprovedPdaEyeButton) return;
-    let cancelled = false;
-    void listApprovedPdaJobIds()
-      .then((jobIds) => { if (!cancelled) setApprovedPdaJobIds(new Set(jobIds)); })
-      .catch(() => { if (!cancelled) setApprovedPdaJobIds(new Set()); });
-    return () => { cancelled = true; };
-  }, [showApprovedPdaEyeButton]);
   const filteredQuotes = jobCalls.filter((job) => {
     const query = search.toLowerCase();
     const matchesSearch = [job.vesselName, job.inquiry.inquiryNo, job.portName, job.customerName]
@@ -187,17 +175,6 @@ export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessel
                       >
                         <UsersRound className="h-3.5 w-3.5" />
                         {pdaActionLabel}
-                      </button>
-                    )}
-                    {showApprovedPdaEyeButton && approvedPdaJobIds.has(job.jobId) && (
-                      <button
-                        type="button"
-                        title="Lihat PDA Sales yang telah disetujui"
-                        aria-label={`Lihat PDA approved ${job.jobId}`}
-                        onClick={() => { onSelectJob(job.jobId); onViewApprovedPDA?.(); }}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-cyan-500/30 bg-cyan-500/15 text-cyan-300 transition hover:bg-cyan-500/25"
-                      >
-                        <Eye className="h-4 w-4" />
                       </button>
                     )}
                   </div>

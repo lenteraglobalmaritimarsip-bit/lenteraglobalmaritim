@@ -25,7 +25,7 @@ const statusGroup = (voucher: PaymentVoucher): Exclude<StatusFilter, 'ALL'> => {
 };
 
 const badges = {
-  PROCESS: { label: 'Send to Finance', className: 'bg-amber-50 text-amber-700' },
+  PROCESS: { label: 'Terkirim ke Manager', className: 'bg-amber-50 text-amber-700' },
   APPROVED: { label: 'Disetujui', className: 'bg-emerald-50 text-emerald-700' },
   REJECTED: { label: 'Ditolak', className: 'bg-rose-50 text-rose-700' },
 };
