@@ -1,4 +1,5 @@
 import { AuthAccount } from '../auth';
+import { AccountsReceivableEntry, BankAccount, ReceivableInvoiceOption, ReceivableInvoiceType } from '../types';
 
 const apiEnabled = import.meta.env.VITE_API_AUTH_ENABLED === 'true';
 let csrfToken = '';
@@ -187,9 +188,22 @@ export async function listApprovedFdaPdaTotals(): Promise<ApprovedSalesPdaTotal[
   return result.totals;
 }
 
+export async function listFpdaNumbers(): Promise<{ jobId: string; fpdaNo: string }[]> {
+  if (!apiEnabled) return [];
+  const result = await request<{ numbers: { jobId: string; fpdaNo: string }[] }>('pda.php?action=fpda-numbers');
+  return result.numbers;
+}
+
 export async function getApprovedPdaDraft(jobId: string): Promise<PdaDraft> {
   if (!apiEnabled) throw new Error('PDA approved memerlukan koneksi API aktif.');
   const result = await request<{ draft: PdaDraft }>(`pda.php?action=view-approved&jobId=${encodeURIComponent(jobId)}`);
+  return result.draft;
+}
+
+export async function getManagerPdaDraft(jobId: string, pdaType: PdaDocumentType): Promise<PdaDraft | null> {
+  if (!apiEnabled) throw new Error('PDA preview memerlukan koneksi API aktif.');
+  const query = new URLSearchParams({ action: 'manager-view', jobId, pdaType });
+  const result = await request<{ draft: PdaDraft | null }>(`pda.php?${query.toString()}`);
   return result.draft;
 }
 
@@ -203,5 +217,36 @@ export async function reviewPdaDraft(
   await request<{ status: 'APPROVED' | 'REVISION_REQUIRED' }>('pda.php?action=review', {
     method: 'POST',
     body: JSON.stringify({ jobId, decision, notes, pdaType }),
+  });
+}
+
+export async function loadAccountsReceivableOptions(): Promise<{ invoiceOptions: ReceivableInvoiceOption[]; bankAccounts: BankAccount[] }> {
+  if (!apiEnabled) throw new Error('Accounts Receivable memerlukan koneksi API aktif.');
+  return request<{ invoiceOptions: ReceivableInvoiceOption[]; bankAccounts: BankAccount[] }>('receivables.php?action=options');
+}
+
+export async function loadAccountsReceivableHistory(): Promise<AccountsReceivableEntry[]> {
+  if (!apiEnabled) throw new Error('Accounts Receivable memerlukan koneksi API aktif.');
+  const result = await request<{ entries: AccountsReceivableEntry[] }>('receivables.php?action=history');
+  return result.entries;
+}
+
+export async function createAccountsReceivableEntry(entry: {
+  jobId: string;
+  invoiceType: ReceivableInvoiceType;
+  invoiceNo: string;
+  incomeDate: string;
+  bankAccountId: string;
+  pph23AmountIDR: number;
+  remark: string;
+  idrAmount: number;
+  usdAmount: number;
+  attachmentName: string;
+  attachmentDataUrl: string;
+}): Promise<void> {
+  if (!apiEnabled) throw new Error('Accounts Receivable memerlukan koneksi API aktif.');
+  await request<{ ok: boolean }>('receivables.php', {
+    method: 'POST',
+    body: JSON.stringify(entry),
   });
 }

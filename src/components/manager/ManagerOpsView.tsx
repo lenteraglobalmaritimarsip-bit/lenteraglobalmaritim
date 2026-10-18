@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import ExcelJS from 'exceljs';
 import {
   ShieldCheck,
@@ -14,6 +14,7 @@ import {
   Building,
   DollarSign,
   Search,
+  Printer,
 } from 'lucide-react';
 import { JobCall, ActiveTab, ExpensesItem, FixTariff, Vessel } from '../../types';
 import { db } from '../../db/storage';
@@ -23,7 +24,7 @@ import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateR
 import { QuotesEPDAView } from '../sales/QuotesEPDAView';
 import { createPdaPreviewHtml } from '../sales/CrewPDAView';
 import { FDAView } from '../fda/FDAView';
-import { listApprovedSalesPdaTotals, listPendingPdaDrafts, PdaDraft, reviewPdaDraft } from '../../lib/api';
+import { ApprovedSalesPdaTotal, getManagerPdaDraft, listApprovedFdaPdaTotals, listApprovedSalesPdaTotals, listPendingPdaDrafts, PdaDocumentType, PdaDraft, reviewPdaDraft } from '../../lib/api';
 
 interface ManagerOpsViewProps {
   initialTab?: 'DASHBOARD' | 'QUOTES_VIEW' | 'APPROVAL';
@@ -73,6 +74,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [pendingPdaDrafts, setPendingPdaDrafts] = useState<PdaDraft[]>([]);
   const [approvedSalesPdaTotals, setApprovedSalesPdaTotals] = useState<{ jobId: string; currency: 'IDR' | 'USD'; exchangeRate: number; total: number }[]>([]);
+  const [approvedFpdaTotals, setApprovedFpdaTotals] = useState<ApprovedSalesPdaTotal[]>([]);
   const [pdaApprovalError, setPdaApprovalError] = useState('');
   const [pdaApprovalLoading, setPdaApprovalLoading] = useState(false);
   const [reviewingPdaJobId, setReviewingPdaJobId] = useState<string | null>(null);
@@ -80,7 +82,68 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
   const [expandedPdaApprovalJobId, setExpandedPdaApprovalJobId] = useState<string | null>(null);
   const [expandedFDAApprovalJobId, setExpandedFDAApprovalJobId] = useState<string | null>(null);
   const [expandedQuoteDetail, setExpandedQuoteDetail] = useState<string | null>(null);
+  const [quoteReviewDocument, setQuoteReviewDocument] = useState<'EPDA' | 'PDA'>('EPDA');
+  const [fdaReviewDocument, setFdaReviewDocument] = useState<'FDA' | 'FPDA'>('FDA');
+  const [managerPdaPreview, setManagerPdaPreview] = useState<{ key: string; loading: boolean; draft: PdaDraft | null; error: string } | null>(null);
+  const managerPdaPreviewFrameRef = useRef<HTMLIFrameElement | null>(null);
   const managerActorName = `${approverName.trim()} (Manager Ops)`;
+
+  const loadManagerPdaPreview = async (jobId: string, pdaType: PdaDocumentType) => {
+    const key = `${jobId}:${pdaType}`;
+    setManagerPdaPreview({ key, loading: true, draft: null, error: '' });
+    try {
+      const draft = await getManagerPdaDraft(jobId, pdaType);
+      setManagerPdaPreview((current) => current?.key === key
+        ? { key, loading: false, draft, error: '' }
+        : current);
+    } catch (error) {
+      setManagerPdaPreview((current) => current?.key === key
+        ? { key, loading: false, draft: null, error: error instanceof Error ? error.message : 'Preview PDA gagal dimuat.' }
+        : current);
+    }
+  };
+
+  const renderManagerPdaPreview = (job: JobCall, pdaType: PdaDocumentType) => {
+    const key = `${job.jobId}:${pdaType}`;
+    const preview = managerPdaPreview?.key === key ? managerPdaPreview : null;
+    if (!preview || preview.loading) {
+      return <div role="status" className="rounded-lg border border-slate-800 bg-slate-900 p-4 text-xs text-slate-400">Memuat preview {pdaType === 'FDA' ? 'FPDA' : 'PDA'}...</div>;
+    }
+    if (preview.error) {
+      return <div role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-4 text-xs text-rose-200">{preview.error}</div>;
+    }
+    if (!preview.draft) {
+      return <div role="status" className="rounded-lg border border-slate-800 bg-slate-900 p-4 text-xs text-slate-400">Dokumen {pdaType === 'FDA' ? 'FPDA' : 'PDA'} belum tersedia untuk Job ini.</div>;
+    }
+
+    const draft = preview.draft;
+    const title = pdaType === 'FDA' ? `Preview FPDA ${draft.pdaNo}` : `Preview PDA ${draft.pdaNo}`;
+    const srcDoc = createPdaPreviewHtml(
+      job,
+      draft.items,
+      draft.currency,
+      draft.pdaNo,
+      draft.pdaType,
+      draft.itemDraft.pph23Applied,
+      draft.itemDraft.globalVatApplied,
+      { createdAt: draft.createdAt, eta: draft.eta, etd: draft.etd, etaRemarks: draft.etaRemarks, etdRemarks: draft.etdRemarks },
+    );
+    return (
+      <div className="space-y-3">
+        <div className="flex justify-end">
+          <button type="button" onClick={() => managerPdaPreviewFrameRef.current?.contentWindow?.print()} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white hover:bg-blue-600">
+            <Printer className="h-4 w-4" /> Cetak / Simpan PDF
+          </button>
+        </div>
+        <iframe
+          ref={managerPdaPreviewFrameRef}
+          title={title}
+          srcDoc={srcDoc}
+          className="h-[72vh] min-h-[520px] w-full rounded border border-slate-700 bg-white"
+        />
+      </div>
+    );
+  };
 
   const pendingApprovals = jobCalls.filter(
     (j) =>
@@ -92,6 +155,10 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
   const approvedOrClosedJobs = jobCalls.filter((j) => j.managerApproval.status === 'APPROVED' || j.currentStage === 'CLOSED');
   const approvedFDAJobs = jobCalls.filter((job) => Boolean(job.fda?.fdaApproved || job.fda?.approvalStatus === 'APPROVED'));
   const isClosedJob = (job: JobCall) => job.closing?.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED';
+  const approvedFpdaTotalIDR = approvedFpdaTotals.reduce((sum, fpda) => {
+    if (!approvedFDAJobs.some((job) => job.jobId === fpda.jobId)) return sum;
+    return sum + (fpda.currency === 'USD' ? fpda.total * fpda.exchangeRate : fpda.total);
+  }, 0);
   const totalPrincipalBilledIDR = approvedFDAJobs.reduce((sum, job) => {
     const billed = job.fda?.finalBilledToPrincipal
       || job.principalInvoice?.totalAmountUSD
@@ -100,7 +167,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
     const currency = job.fda?.currency || job.currency || 'IDR';
     const rate = job.fda?.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
     return sum + Math.round(currency === 'USD' ? billed * rate : billed);
-  }, 0);
+  }, 0) + approvedFpdaTotalIDR;
   const totalOutstandingIDR = approvedFDAJobs.reduce((sum, job) => {
     if (isClosedJob(job)) return sum;
     const billed = job.fda?.finalBilledToPrincipal || job.principalInvoice?.totalAmountUSD || 0;
@@ -161,6 +228,9 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
     void listApprovedSalesPdaTotals()
       .then((totals) => { if (!cancelled) setApprovedSalesPdaTotals(totals); })
       .catch((error: unknown) => console.error('Approved Sales PDA totals failed to load:', error));
+    void listApprovedFdaPdaTotals()
+      .then((totals) => { if (!cancelled) setApprovedFpdaTotals(totals); })
+      .catch((error: unknown) => console.error('Approved FPDA totals failed to load:', error));
     return () => { cancelled = true; };
   }, []);
 
@@ -633,42 +703,54 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                           <td className="p-3 text-slate-300">{creator.user}</td>
                           <td className="p-3">
                             <div className="flex justify-center gap-2">
-                              <button type="button" onClick={() => setExpandedQuoteDetail(epdaOpen ? null : epdaKey)} className={`rounded-lg p-2 ${epdaOpen ? 'bg-cyan-500/20 text-cyan-300' : 'bg-slate-800 text-slate-300 hover:text-cyan-300'}`} title="Lihat entry EPDA" aria-label="Lihat entry EPDA"><Eye className="h-4 w-4" /></button>
-                              <button type="button" onClick={() => setExpandedQuoteDetail(fdaOpen ? null : fdaKey)} className={`rounded-lg p-2 ${fdaOpen ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-300 hover:text-emerald-300'}`} title="Lihat entry FDA" aria-label="Lihat entry FDA"><Eye className="h-4 w-4" /></button>
+                              <button type="button" onClick={() => { setQuoteReviewDocument('EPDA'); setExpandedQuoteDetail(epdaOpen ? null : epdaKey); }} className={`rounded-lg p-2 ${epdaOpen ? 'bg-cyan-500/20 text-cyan-300' : 'bg-slate-800 text-slate-300 hover:text-cyan-300'}`} title="Lihat entry EPDA / PDA" aria-label="Lihat entry EPDA / PDA"><Eye className="h-4 w-4" /></button>
+                              <button type="button" onClick={() => { setFdaReviewDocument('FDA'); setExpandedQuoteDetail(fdaOpen ? null : fdaKey); }} className={`rounded-lg p-2 ${fdaOpen ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-300 hover:text-emerald-300'}`} title="Lihat entry FDA / FPDA" aria-label="Lihat entry FDA / FPDA"><Eye className="h-4 w-4" /></button>
                               <button type="button" onClick={() => setExpandedQuoteDetail(closingOpen ? null : closingKey)} className={`rounded-lg p-2 ${closingOpen ? 'bg-purple-500/20 text-purple-300' : 'bg-slate-800 text-slate-300 hover:text-purple-300'}`} title="Lihat ringkasan closing" aria-label="Lihat ringkasan closing"><CheckCircle2 className="h-4 w-4" /></button>
                             </div>
                           </td>
                         </tr>
                         {epdaOpen && (
                           <tr><td colSpan={9} className="bg-slate-950 p-4">
-                            <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950 p-3">
-                              <QuotesEPDAView
-                                job={job}
-                                vessels={vessels}
-                                onSelectJob={onSelectJob}
-                                allJobs={jobCalls}
-                                users={users}
-                                fixTariffs={fixTariffs}
-                                expensesItems={expensesItems}
-                                printPreviewOnly
-                              />
+                            <div className="space-y-3 overflow-hidden rounded-xl border border-slate-800 bg-slate-950 p-3">
+                              <div role="tablist" aria-label="Dokumen Sales" className="inline-flex gap-1 rounded-xl border border-emerald-100 bg-white p-1 shadow-sm">
+                                <button type="button" role="tab" aria-selected={quoteReviewDocument === 'EPDA'} onClick={() => setQuoteReviewDocument('EPDA')} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors ${quoteReviewDocument === 'EPDA' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm' : 'border-transparent text-slate-500 hover:bg-slate-50 hover:text-emerald-700'}`}>EPDA</button>
+                                <button type="button" role="tab" aria-selected={quoteReviewDocument === 'PDA'} onClick={() => { setQuoteReviewDocument('PDA'); void loadManagerPdaPreview(job.jobId, 'SALES'); }} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors ${quoteReviewDocument === 'PDA' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm' : 'border-transparent text-slate-500 hover:bg-slate-50 hover:text-emerald-700'}`}>PDA</button>
+                              </div>
+                              {quoteReviewDocument === 'EPDA' ? (
+                                <QuotesEPDAView
+                                  job={job}
+                                  vessels={vessels}
+                                  onSelectJob={onSelectJob}
+                                  allJobs={jobCalls}
+                                  users={users}
+                                  fixTariffs={fixTariffs}
+                                  expensesItems={expensesItems}
+                                  printPreviewOnly
+                                />
+                              ) : renderManagerPdaPreview(job, 'SALES')}
                             </div>
                           </td></tr>
                         )}
                         {fdaOpen && (
                           <tr><td colSpan={9} className="bg-slate-950 p-4">
-                            <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950 p-3">
-                              <FDAView
-                                initialTab="APPROVAL"
-                                printPreviewOnly
-                                jobCalls={jobCalls}
-                                vessels={vessels}
-                                activeJob={job}
-                                fixTariffs={fixTariffs}
-                                expensesItems={expensesItems}
-                                onSelectJob={onSelectJob}
-                                onNavigate={onNavigate}
-                              />
+                            <div className="space-y-3 overflow-hidden rounded-xl border border-slate-800 bg-slate-950 p-3">
+                              <div role="tablist" aria-label="Dokumen FDA" className="inline-flex gap-1 rounded-xl border border-emerald-100 bg-white p-1 shadow-sm">
+                                <button type="button" role="tab" aria-selected={fdaReviewDocument === 'FDA'} onClick={() => setFdaReviewDocument('FDA')} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors ${fdaReviewDocument === 'FDA' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm' : 'border-transparent text-slate-500 hover:bg-slate-50 hover:text-emerald-700'}`}>FDA</button>
+                                <button type="button" role="tab" aria-selected={fdaReviewDocument === 'FPDA'} onClick={() => { setFdaReviewDocument('FPDA'); void loadManagerPdaPreview(job.jobId, 'FDA'); }} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors ${fdaReviewDocument === 'FPDA' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm' : 'border-transparent text-slate-500 hover:bg-slate-50 hover:text-emerald-700'}`}>FPDA</button>
+                              </div>
+                              {fdaReviewDocument === 'FDA' ? (
+                                <FDAView
+                                  initialTab="APPROVAL"
+                                  printPreviewOnly
+                                  jobCalls={jobCalls}
+                                  vessels={vessels}
+                                  activeJob={job}
+                                  fixTariffs={fixTariffs}
+                                  expensesItems={expensesItems}
+                                  onSelectJob={onSelectJob}
+                                  onNavigate={onNavigate}
+                                />
+                              ) : renderManagerPdaPreview(job, 'FDA')}
                             </div>
                           </td></tr>
                         )}

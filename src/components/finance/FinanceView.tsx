@@ -23,6 +23,7 @@ import { formatDateDisplay, isInquiryDateInRange } from '../../utils/date';
 import { db } from '../../db/storage';
 import { formatCostCategoryLabel, getCostCategoryRank, normalizeCostCategory } from '../../utils/costCategories';
 import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateRangePicker';
+import { ApprovedSalesPdaTotal, listApprovedFdaPdaTotals } from '../../lib/api';
 
 interface FinanceViewProps {
   initialTab?: 'DASHBOARD' | 'JOB_INVOICE_OPEN' | 'INVOICES' | 'AP' | 'AR' | 'REPORTS';
@@ -48,6 +49,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   onNavigate,
 }) => {
   const [subTab, setSubTab] = useState<'DASHBOARD' | 'JOB_INVOICE_OPEN' | 'INVOICES' | 'AP' | 'AR' | 'REPORTS'>(initialTab);
+  const [approvedFpdaTotals, setApprovedFpdaTotals] = useState<ApprovedSalesPdaTotal[]>([]);
   const [invoiceSearch, setInvoiceSearch] = useState('');
   const [invoiceDateRange, setInvoiceDateRange] = useState<InquiryDateRange>({ from: '', to: '' });
   const [invoicePage, setInvoicePage] = useState(1);
@@ -71,6 +73,13 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   useEffect(() => {
     setSubTab(initialTab);
   }, [initialTab]);
+  useEffect(() => {
+    let cancelled = false;
+    void listApprovedFdaPdaTotals()
+      .then((totals) => { if (!cancelled) setApprovedFpdaTotals(totals); })
+      .catch((error) => console.error('Approved FPDA totals failed to load:', error));
+    return () => { cancelled = true; };
+  }, []);
   const [msg, setMsg] = useState<string | null>(null);
   const [invoicePreviewHtml, setInvoicePreviewHtml] = useState<string | null>(null);
   const invoicePreviewRef = useRef<HTMLIFrameElement | null>(null);
@@ -146,12 +155,25 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
   const getJobPrincipalBilledRaw = (job: JobCall) => {
     const currency = (job.fda?.currency || job.currency || 'IDR') as Currency;
-    const billed = job.fda?.finalBilledToPrincipal
+    const baseBilled = job.fda?.finalBilledToPrincipal
       || job.principalInvoice?.totalAmountUSD
       || job.quotation?.epda?.totalSellRate
-      || 0;
+      || (job.ar || []).reduce((sum, item) => sum + convertCurrencyPrecisely(
+        Number(item.requestedAmount || 0),
+        (item.currency || currency) as Currency,
+        currency,
+        getJobExchangeRate(job),
+      ), 0);
+    const fpdaBilled = approvedFpdaTotals
+      .filter((fpda) => fpda.jobId === job.jobId)
+      .reduce((sum, fpda) => sum + convertCurrencyPrecisely(
+        fpda.total,
+        fpda.currency,
+        currency,
+        fpda.exchangeRate || getJobExchangeRate(job),
+      ), 0);
     return {
-      amount: roundInvoiceAmount(billed, currency),
+      amount: roundInvoiceAmount(baseBilled + fpdaBilled, currency),
       currency,
     };
   };
@@ -241,9 +263,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   const jobAPTotal = apItems.reduce((s, i) => s + (i.amount || 0), 0);
   const jobAPPaid = apItems.filter((i) => i.status === 'PAID').reduce((s, i) => s + (i.amount || 0), 0);
 
-  const jobARTotalRaw = activeJob?.fda?.finalBilledToPrincipal
-    || activeJob?.principalInvoice?.totalAmountUSD
-    || arItems.reduce((s, i) => s + convertCurrency(i.requestedAmount || 0, i.currency, jobCurrency, getJobExchangeRate(activeJob)), 0);
+  const jobARTotalRaw = getJobPrincipalBilledRaw(activeJob).amount;
   const jobARTotal = roundInvoiceAmount(jobARTotalRaw, jobCurrency);
   const receiptHistory = activeJob?.principalReceipts || [];
   const jobAdvancePayment = receiptHistory
@@ -463,7 +483,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     setTimeout(() => setMsg(null), 4000);
   };
 
-  const rawInvoiceAmount = activeJob.fda?.finalBilledToPrincipal || activeJob.principalInvoice?.totalAmountUSD || activeJob.quotation?.epda?.totalSellRate || 0;
+  const rawInvoiceAmount = getJobPrincipalBilledRaw(activeJob).amount;
   const invoiceAmount = roundInvoiceAmount(rawInvoiceAmount, jobCurrency);
   const fdaBillingTotal = invoiceAmount;
   const financeGateMessage = !isFDAApproved(activeJob)
@@ -471,7 +491,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     : '';
 
   const openInvoiceJobs = jobCalls.filter((job) => {
-    const invoiceTotal = job.fda?.finalBilledToPrincipal || job.principalInvoice?.totalAmountUSD || job.quotation?.epda?.totalSellRate || 0;
+    const invoiceTotal = getJobPrincipalBilledRaw(job).amount;
     const isClosed = job.closing?.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED';
     return isFDAApproved(job) && (invoiceTotal > 0 || isClosed);
   });
@@ -828,8 +848,8 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                     </tr>
                   ) : (
                     paginatedInvoiceJobs.map((job, index) => {
-                      const invoiceTotal = job.fda?.finalBilledToPrincipal || job.principalInvoice?.totalAmountUSD || job.quotation?.epda?.totalSellRate || 0;
                       const invoiceCurrency = getJobCurrency(job);
+                      const invoiceTotal = getJobPrincipalBilledRaw(job).amount;
                       return (
                         <tr key={job.jobId} className="hover:bg-slate-800/40">
                           <td className="p-3 font-mono text-slate-300">{(currentInvoicePage - 1) * invoicePageSize + index + 1}</td>
@@ -1606,7 +1626,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                       </tr>
                     ) : (
                       filteredClosingJobs.map((job, index) => {
-                        const invoiceTotal = job.fda?.finalBilledToPrincipal || job.principalInvoice?.totalAmountUSD || job.quotation?.epda?.totalSellRate || 0;
+                        const invoiceTotal = getJobPrincipalBilledRaw(job).amount;
                         const invoiceCurrency = getJobCurrency(job);
                         return (
                           <tr key={job.jobId} className="hover:bg-slate-800/40">

@@ -296,6 +296,40 @@ export interface PrincipalReceipt {
   attachmentDataUrl?: string;
 }
 
+export type ReceivableInvoiceType = 'FDA' | 'FPDA';
+
+export interface ReceivableInvoiceOption {
+  jobId: string;
+  invoiceType: ReceivableInvoiceType;
+  invoiceNo: string;
+  principalName: string;
+  vesselName: string;
+  currency: Currency;
+  exchangeRate: number;
+}
+
+export interface AccountsReceivableEntry {
+  id: string;
+  jobId: string;
+  invoiceType: ReceivableInvoiceType;
+  invoiceNo: string;
+  incomeDate: string;
+  principalName: string;
+  vesselName: string;
+  pph23AmountIDR: number;
+  remark: string;
+  bankAccountId: string;
+  bankName: string;
+  accountName: string;
+  accountNumber: string;
+  idrAmount: number;
+  usdAmount: number;
+  attachmentName: string;
+  attachmentDataUrl: string;
+  createdBy: string;
+  createdAt: string;
+}
+
 export type PurposeOfCall =
   | 'CARGO_DISCHARGE'
   | 'CARGO_LOADING'
@@ -531,10 +565,14 @@ export type ActiveTab =
   | 'JOB_INVOICE_OPEN'
   | 'AP'
   | 'FINANCE_ACCOUNTS_PAYABLE'
+  | 'FINANCE_ACCOUNTS_PAYABLE_INPUT'
+  | 'FINANCE_ACCOUNTS_PAYABLE_HISTORY'
   | 'FINANCE_CREATE_VOUCHER'
   | 'FINANCE_EDIT_VOUCHER'
   | 'FINANCE_PAYMENT_HISTORY'
   | 'FINANCE_HISTORY_REPORT'
+  | 'FINANCE_RECEIVABLE_INPUT'
+  | 'FINANCE_RECEIVABLE_HISTORY'
   | 'AR'
   | 'PRINCIPAL_INVOICE'
   | 'CLOSING';

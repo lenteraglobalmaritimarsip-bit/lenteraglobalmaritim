@@ -20,6 +20,7 @@ import { VoucherApprovalView } from './components/manager/VoucherApprovalView';
 import { VoucherHistoryView } from './components/fda/VoucherHistoryView';
 import { EditVoucherView } from './components/fda/EditVoucherView';
 import { FinanceView } from './components/finance/FinanceView';
+import { AccountsReceivableView } from './components/finance/AccountsReceivableView';
 import { AccountsPayableView } from './components/finance/AccountsPayableView';
 import { FinancialHistoryView } from './components/finance/FinancialHistoryView';
 import { AuthAccount } from './auth';
@@ -583,8 +584,19 @@ export default function App() {
             )}
 
             {/* 5. FINANCE VIEWS */}
-            {currentRole === 'FINANCE' && activeTab === 'FINANCE_ACCOUNTS_PAYABLE' && (
+            {currentRole === 'FINANCE' && (activeTab === 'FINANCE_ACCOUNTS_PAYABLE' || activeTab === 'FINANCE_ACCOUNTS_PAYABLE_INPUT') && (
               <AccountsPayableView
+                mode="INPUT"
+                paymentVouchers={data.paymentVouchers || []}
+                payer={currentUser?.name || ''}
+                bankAccounts={data.bankAccounts || []}
+                jobCalls={data.jobCalls || []}
+              />
+            )}
+
+            {currentRole === 'FINANCE' && activeTab === 'FINANCE_ACCOUNTS_PAYABLE_HISTORY' && (
+              <AccountsPayableView
+                mode="HISTORY"
                 paymentVouchers={data.paymentVouchers || []}
                 payer={currentUser?.name || ''}
                 bankAccounts={data.bankAccounts || []}
@@ -617,7 +629,15 @@ export default function App() {
             )}
 
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_HISTORY_REPORT' && (
-              <FinancialHistoryView paymentVouchers={data.paymentVouchers || []} />
+              <FinancialHistoryView paymentVouchers={data.paymentVouchers || []} jobCalls={data.jobCalls || []} />
+            )}
+
+            {currentRole === 'FINANCE' && activeTab === 'FINANCE_RECEIVABLE_INPUT' && (
+              <AccountsReceivableView mode="INPUT" />
+            )}
+
+            {currentRole === 'FINANCE' && activeTab === 'FINANCE_RECEIVABLE_HISTORY' && (
+              <AccountsReceivableView mode="HISTORY" />
             )}
 
             {currentRole === 'FINANCE' && (activeTab === 'FINANCE_DASHBOARD' ||

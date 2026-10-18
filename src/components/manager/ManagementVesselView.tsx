@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Download, Search, Ship, TrendingUp, Wallet } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { JobCall, PaymentVoucher, User } from '../../types';
 import { isInquiryDateInRange } from '../../utils/date';
 import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateRangePicker';
+import { ApprovedSalesPdaTotal, listApprovedFdaPdaTotals } from '../../lib/api';
 
 interface ManagementVesselViewProps {
   jobCalls: JobCall[];
@@ -30,17 +31,17 @@ const formatIDR = (amount: number) =>
 const getExchangeRate = (job: JobCall) =>
   Number(job.fda?.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800);
 
-const getBilledToPrincipalIDR = (job: JobCall) => {
+const getBilledToPrincipalIDR = (job: JobCall, fpdaTotalIDR: number) => {
   const rate = getExchangeRate(job);
   const billed = Number(job.fda?.finalBilledToPrincipal || 0);
   if (billed > 0) {
-    return (job.fda?.currency || job.currency) === 'USD' ? billed * rate : billed;
+    return ((job.fda?.currency || job.currency) === 'USD' ? billed * rate : billed) + fpdaTotalIDR;
   }
 
   const invoice = job.principalInvoice;
-  if (Number(invoice?.totalAmountIDR || 0) > 0) return Number(invoice.totalAmountIDR);
-  if (Number(invoice?.totalAmountUSD || 0) > 0) return Number(invoice.totalAmountUSD) * rate;
-  return 0;
+  if (Number(invoice?.totalAmountIDR || 0) > 0) return Number(invoice.totalAmountIDR) + fpdaTotalIDR;
+  if (Number(invoice?.totalAmountUSD || 0) > 0) return Number(invoice.totalAmountUSD) * rate + fpdaTotalIDR;
+  return fpdaTotalIDR;
 };
 
 const getBranch = (job: JobCall, users: User[]) => {
@@ -81,10 +82,23 @@ export const ManagementVesselView: React.FC<ManagementVesselViewProps> = ({ jobC
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [downloadError, setDownloadError] = useState('');
+  const [approvedFpdaTotals, setApprovedFpdaTotals] = useState<ApprovedSalesPdaTotal[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listApprovedFdaPdaTotals()
+      .then((totals) => { if (!cancelled) setApprovedFpdaTotals(totals); })
+      .catch((error) => console.error('Approved FPDA totals failed to load:', error));
+    return () => { cancelled = true; };
+  }, []);
 
   const rows = useMemo<ManagementRow[]>(() => {
     const keyword = search.trim().toLocaleLowerCase();
     const approvedVendorCosts = new Map<string, number>();
+    const approvedFpdaTotalsByJob = new Map<string, number>(approvedFpdaTotals.map((fpda): [string, number] => [
+      fpda.jobId,
+      fpda.currency === 'USD' ? fpda.total * fpda.exchangeRate : fpda.total,
+    ]));
     paymentVouchers.forEach((voucher) => {
       if (
         voucher.jobInfo !== 'JOB_VESSEL'
@@ -111,7 +125,9 @@ export const ManagementVesselView: React.FC<ManagementVesselViewProps> = ({ jobC
       })
       .sort((first, second) => second.jobId.localeCompare(first.jobId, undefined, { numeric: true }))
       .map((job) => {
-        const billedIDR = getBilledToPrincipalIDR(job);
+        const fdaApproved = Boolean(job.fda?.fdaApproved || job.fda?.approvalStatus === 'APPROVED');
+        const fpdaTotalIDR = fdaApproved ? approvedFpdaTotalsByJob.get(job.jobId) || 0 : 0;
+        const billedIDR = getBilledToPrincipalIDR(job, fpdaTotalIDR);
         const vendorCostIDR = approvedVendorCosts.get(job.jobId) || 0;
         return {
           job,
@@ -122,7 +138,7 @@ export const ManagementVesselView: React.FC<ManagementVesselViewProps> = ({ jobC
           netProfitIDR: billedIDR - vendorCostIDR,
         };
       });
-  }, [dateRange, jobCalls, paymentVouchers, search, users]);
+  }, [approvedFpdaTotals, dateRange, jobCalls, paymentVouchers, search, users]);
   const pageSize = 10;
   const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
   const currentPage = Math.min(page, pageCount);

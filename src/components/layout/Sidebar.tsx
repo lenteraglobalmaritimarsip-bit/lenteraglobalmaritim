@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   Users, Building2, Ship, MapPin, Coins, Receipt, LayoutDashboard,
   FileQuestion, FileSpreadsheet, FolderKanban, CheckSquare, ArrowDownToLine,
-  ArrowUpFromLine, FileText, ChevronRight, ChevronDown,
+  ArrowUpFromLine, FileText, ChevronRight, ChevronDown, CircleDollarSign, CreditCard,
   ClipboardCheck, Calculator, Handshake
 } from 'lucide-react';
 import { UserRole, ActiveTab } from '../../types';
@@ -20,6 +20,9 @@ type NavItem = { label:string; tab:ActiveTab; icon:any };
 
 export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectTab,selectedJobId,mobileOpen=false}) => {
   const [quotesOpen,setQuotesOpen]=useState(true);
+  const [accountsReceivableOpen,setAccountsReceivableOpen]=useState(false);
+  const [accountsPayableOpen,setAccountsPayableOpen]=useState(false);
+  const [financePaymentOpen,setFinancePaymentOpen]=useState(false);
 
   const item=(x:NavItem) => {
     const Icon = x.icon;
@@ -103,14 +106,29 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
         {currentRole==='FINANCE' && <>
           {item({label:'Financial Overview',tab:'FINANCE_DASHBOARD',icon:LayoutDashboard})}
           {item({label:'JOB Invoice',tab:'JOB_INVOICE_OPEN',icon:FileText})}
-          {item({label:'Accounts Payable',tab:'FINANCE_ACCOUNTS_PAYABLE',icon:ArrowUpFromLine})}
-          <div className="maritim-nav-group-title"><Receipt/><span>Request Payment</span></div>
-          <div className="maritim-subnav maritim-subnav-static">
+          <button type="button" className="maritim-nav-group-title maritim-nav-group-toggle" aria-expanded={accountsReceivableOpen} onClick={()=>setAccountsReceivableOpen((open)=>!open)}>
+            <CircleDollarSign/><span>Accounts Receivable</span>{accountsReceivableOpen?<ChevronDown/>:<ChevronRight/>}
+          </button>
+          {accountsReceivableOpen && <div className="maritim-subnav maritim-subnav-static">
+            {item({label:'Input Receivable',tab:'FINANCE_RECEIVABLE_INPUT',icon:FileText})}
+            {item({label:'History Receivable',tab:'FINANCE_RECEIVABLE_HISTORY',icon:ClipboardCheck})}
+          </div>}
+          <button type="button" className="maritim-nav-group-title maritim-nav-group-toggle" aria-expanded={accountsPayableOpen} onClick={()=>setAccountsPayableOpen((open)=>!open)}>
+            <ArrowUpFromLine/><span>Accounts Payable</span>{accountsPayableOpen?<ChevronDown/>:<ChevronRight/>}
+          </button>
+          {accountsPayableOpen && <div className="maritim-subnav maritim-subnav-static">
+            {item({label:'Input Payable',tab:'FINANCE_ACCOUNTS_PAYABLE_INPUT',icon:FileText})}
+            {item({label:'View Payable',tab:'FINANCE_ACCOUNTS_PAYABLE_HISTORY',icon:ClipboardCheck})}
+            {item({label:'History Payable',tab:'FINANCE_HISTORY_REPORT',icon:FileSpreadsheet})}
+          </div>}
+          <button type="button" className="maritim-nav-group-title maritim-nav-group-toggle" aria-expanded={financePaymentOpen} onClick={()=>setFinancePaymentOpen((open)=>!open)}>
+            <CreditCard/><span>Request Payment</span>{financePaymentOpen?<ChevronDown/>:<ChevronRight/>}
+          </button>
+          {financePaymentOpen && <div className="maritim-subnav maritim-subnav-static">
             {item({label:'Created Payment',tab:'FINANCE_CREATE_VOUCHER',icon:FileText})}
             {item({label:'Edit Payment',tab:'FINANCE_EDIT_VOUCHER',icon:FileText})}
             {item({label:'History',tab:'FINANCE_PAYMENT_HISTORY',icon:ClipboardCheck})}
-          </div>
-          {item({label:'History Laporan Keuangan',tab:'FINANCE_HISTORY_REPORT',icon:FileSpreadsheet})}
+          </div>}
           {item({label:'JOB Closing',tab:'CLOSING',icon:CheckSquare})}
           {item({label:'Monitoring Vessel Calls',tab:'ACTIVE_VESSEL_CALLS',icon:Ship})}
         </>}

@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import ExcelJS from 'exceljs';
-import { PaymentVoucher } from '../../types';
+import { listFpdaNumbers } from '../../lib/api';
+import { JobCall, PaymentVoucher } from '../../types';
 
 interface FinancialHistoryViewProps {
   paymentVouchers: PaymentVoucher[];
+  jobCalls: JobCall[];
 }
 
 const money = (value: number) =>
@@ -51,7 +53,8 @@ const sumItems = (voucher: PaymentVoucher) => {
   };
 };
 
-export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paymentVouchers }) => {
+export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paymentVouchers, jobCalls }) => {
+  const [fpdaNumbers, setFpdaNumbers] = useState<Record<string, string>>({});
   const [startDateInput, setStartDateInput] = useState('');
   const [endDateInput, setEndDateInput] = useState('');
   const [page, setPage] = useState(1);
@@ -65,6 +68,16 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
   const invalidDateInput = Boolean((startDateInput && !startPaidDate) || (endDateInput && !endPaidDate));
   const invalidDateRange = Boolean(startPaidDate && endPaidDate && startPaidDate > endPaidDate);
   const invalidFilter = invalidDateInput || invalidDateRange;
+
+  useEffect(() => {
+    let cancelled = false;
+    void listFpdaNumbers()
+      .then((numbers) => {
+        if (!cancelled) setFpdaNumbers(Object.fromEntries(numbers.map(({ jobId, fpdaNo }) => [jobId, fpdaNo])));
+      })
+      .catch((error: unknown) => console.error('Gagal memuat nomor FPDA:', error));
+    return () => { cancelled = true; };
+  }, []);
   const updateScrollButtons = () => {
     const element = tableScrollRef.current;
     if (!element) return;
@@ -133,12 +146,12 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
     summary.addRow(['', '', '', '', '', '', '', '', '', '', 'TOTAL', grand.amount, grand.vat, grand.total, grand.pph23, grand.paid]);
 
     const detail = workbook.addWorksheet('Detail Item');
-    detail.addRow(['Voucher Number', 'Request Number', 'Date Request', 'Date Paid', 'Vendor Name', 'JOB Number', 'Customer', 'Item Service', 'Amount', 'PPN (VAT)', 'Total', 'PPH 23', 'Paid Amount']);
+    detail.addRow(['Voucher Number', 'Request Number', 'Date Request', 'Date Paid', 'Vendor Name', 'JOB Number', 'FDA Number', 'FPDA Number', 'Customer', 'Item Service', 'Amount', 'PPN (VAT)', 'Total', 'PPH 23', 'Paid Amount']);
     rows.forEach(({ voucher }) => {
       (voucher.items || []).forEach((item) => {
         detail.addRow([
           voucher.voucherNumber || '-', voucher.requestNumber, String(voucher.requestDate).slice(0, 10), voucher.paidAt ? String(voucher.paidAt).slice(0, 10) : '-', voucher.vendorName,
-          item.jobNumber, item.customerName, item.itemService,
+          item.jobNumber, jobCalls.find((job) => job.jobId === item.jobNumber)?.fda?.fdaNo || '-', fpdaNumbers[item.jobNumber] || '-', item.customerName, item.itemService,
           item.amount, item.vatAmount, item.total, item.pph23Amount, item.paidAmount,
         ]);
       });
@@ -151,7 +164,7 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
     summary.lastRow!.font = { bold: true };
     summary.getColumn(12).numFmt = summary.getColumn(13).numFmt = summary.getColumn(14).numFmt =
       summary.getColumn(15).numFmt = summary.getColumn(16).numFmt = '#,##0.00';
-    [9, 10, 11, 12, 13, 14].forEach((col) => { detail.getColumn(col).numFmt = '#,##0.00'; });
+    [11, 12, 13, 14, 15].forEach((col) => { detail.getColumn(col).numFmt = '#,##0.00'; });
 
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });

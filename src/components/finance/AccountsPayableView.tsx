@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChevronDown, ChevronRight, Eye, Printer, Search, Upload } from 'lucide-react';
+import { CalendarDays, ChevronDown, ChevronRight, Eye, FileText, Printer, Search } from 'lucide-react';
 import { BankAccount, JobCall, PaymentVoucher } from '../../types';
 import { db } from '../../db/storage';
 import { dataApi } from '../../lib/dataApi';
 import { printPaymentVoucher } from '../../utils/voucherPrint';
 
 interface AccountsPayableViewProps {
+  mode?: 'INPUT' | 'HISTORY';
   paymentVouchers: PaymentVoucher[];
   payer: string;
   bankAccounts?: BankAccount[];
@@ -50,8 +51,9 @@ const formatDisplayDate = (value: string) => {
 };
 
 const MAX_PAYMENT_PROOF_SIZE = 1024 * 1024;
+const escapeHtml = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymentVouchers, payer, bankAccounts = [], jobCalls }) => {
+export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode = 'INPUT', paymentVouchers, payer, bankAccounts = [], jobCalls }) => {
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -67,9 +69,11 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
   const [otherExpenses, setOtherExpenses] = useState('');
   const [paymentDescription, setPaymentDescription] = useState('');
   const [selectedBankId, setSelectedBankId] = useState('');
-  const [uploadingProofVoucherId, setUploadingProofVoucherId] = useState<string | null>(null);
+  const [paymentFormProof, setPaymentFormProof] = useState<{ name: string; dataUrl: string } | null>(null);
   const [isUploadingPaymentProof, setIsUploadingPaymentProof] = useState(false);
-  const paymentProofInputRef = useRef<HTMLInputElement | null>(null);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const invalidDateRange = Boolean(startDate && endDate && startDate > endDate);
 
   const paymentFormVoucher = useMemo(
     () => paymentVouchers.find((voucher) => voucher.id === paymentFormVoucherId) || null,
@@ -172,17 +176,20 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
     }
   };
 
-  const handlePaymentProofUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    const voucherId = uploadingProofVoucherId;
-    event.target.value = '';
-    if (!file || !voucherId) return;
+  const handlePaymentFormProofChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    if (!file) return;
     if (!['image/jpeg', 'image/png'].includes(file.type)) {
+      setPaymentFormProof(null);
       setError('Bukti pembayaran harus berupa file JPG atau PNG.');
+      input.value = '';
       return;
     }
     if (file.size > MAX_PAYMENT_PROOF_SIZE) {
+      setPaymentFormProof(null);
       setError('Ukuran bukti pembayaran maksimal 1 MB.');
+      input.value = '';
       return;
     }
 
@@ -197,12 +204,13 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
         reader.onerror = () => reject(new Error('Gagal membaca file bukti pembayaran.'));
         reader.readAsDataURL(file);
       });
-      await db.updatePaymentVoucher(voucherId, { paymentProofDataUrl: dataUrl });
+      setPaymentFormProof({ name: file.name, dataUrl });
     } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : 'Gagal menyimpan bukti pembayaran.');
+      setPaymentFormProof(null);
+      setError(uploadError instanceof Error ? uploadError.message : 'Gagal membaca file bukti pembayaran.');
+      input.value = '';
     } finally {
       setIsUploadingPaymentProof(false);
-      setUploadingProofVoucherId(null);
     }
   };
 
@@ -266,7 +274,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
     paymentDatePickerRef.current?.click();
   };
 
-  const handleOpenInvoiceView = (voucherOverride?: PaymentVoucher) => {
+  const handleOpenInvoiceView = (voucherOverride?: PaymentVoucher, autoPrint = true) => {
     const printVoucher = voucherOverride || paymentFormVoucher;
     if (!printVoucher) return;
     const matchingDraft = initialPaymentDraft;
@@ -400,10 +408,13 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
             .signatures th { background: #f1f5f9; color: #334155; font-size: 9px; height: 26px; padding: 6px; text-transform: uppercase; }
             .signatures .name td { font-size: 9px; font-weight: 600; height: 100px; padding: 72px 6px 6px; vertical-align: bottom; }
             .watermark { bottom: 5mm; color: #94a3b8; font-size: 8px; left: 0; position: fixed; right: 0; text-align: center; }
+            body.paid::before { content: "PAID"; color: rgba(5, 150, 105, .16); font-size: 116px; font-weight: 900; letter-spacing: 12px; left: 50%; pointer-events: none; position: fixed; top: 45%; transform: translate(-50%, -50%) rotate(-28deg); z-index: 0; }
+            body.paid > *:not(.watermark) { position: relative; z-index: 1; }
+            body.paid > .watermark { z-index: 2; }
             @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
           </style>
         </head>
-        <body>
+        <body class="${isPaid ? 'paid' : ''}">
           <header class="header">
             <div class="brand"><img class="logo" src="/lenteraglobalmaritim/lgm-logo.png" alt="Logo PT Lentera Global Maritim" /><div><div class="company">PT Lentera Global Maritim</div><div class="tagline">Seamless Agent, Global Reach</div></div></div>
             <div class="doc-type">FINANCE<br />ACCOUNTS PAYABLE</div>
@@ -443,13 +454,18 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
     `;
     printWindow.document.write(body);
     printWindow.document.close();
-    printWindow.onload = () => { printWindow.focus(); printWindow.print(); };
+    if (autoPrint) printWindow.onload = () => { printWindow.focus(); printWindow.print(); };
   };
 
   const vouchers = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    return paymentVouchers
-      .filter((voucher) => voucher.status === 'APPROVED' || voucher.status === 'PAID')
+    return (mode === 'HISTORY' && invalidDateRange ? [] : paymentVouchers)
+      .filter((voucher) => mode === 'INPUT' ? voucher.status === 'APPROVED' : voucher.status === 'PAID')
+      .filter((voucher) => {
+        if (mode !== 'HISTORY' || (!startDate && !endDate)) return true;
+        const paidDate = String(voucher.paidAt || '').slice(0, 10);
+        return Boolean(paidDate) && (!startDate || paidDate >= startDate) && (!endDate || paidDate <= endDate);
+      })
       .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
       .filter((voucher) => !query || [
         voucher.requestNumber,
@@ -460,7 +476,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
         voucher.accountNumber,
         ...voucher.items.flatMap((item) => [item.jobNumber, item.customerName, item.itemService]),
       ].join(' ').toLowerCase().includes(query));
-  }, [paymentVouchers, searchQuery]);
+  }, [paymentVouchers, searchQuery, mode, startDate, endDate, invalidDateRange]);
   const pageSize = 10;
   const pageCount = Math.max(1, Math.ceil(vouchers.length / pageSize));
   const currentPage = Math.min(page, pageCount);
@@ -478,13 +494,6 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
 
   return (
     <div className="space-y-5">
-      <input
-        ref={paymentProofInputRef}
-        type="file"
-        accept="image/jpeg,image/png"
-        className="hidden"
-        onChange={(event) => { void handlePaymentProofUpload(event); }}
-      />
       {paymentFormVoucher && (
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-5 flex items-start justify-between gap-4 border-b border-slate-200 pb-4">
@@ -510,6 +519,10 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                 <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Overdue date</div>
                 <div className="mt-2 text-sm font-semibold text-slate-800">{formatDate(paymentFormVoucher.requestDate)}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Requested Payment Date</div>
+                <div className="mt-2 text-sm font-semibold text-slate-800">{formatDate(paymentFormVoucher.requestedPaymentDate)}</div>
               </div>
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                 <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Checking by</div>
@@ -641,6 +654,17 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                     className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-violet-400"
                   />
                 </label>
+
+                <label className="block text-[11px] font-semibold uppercase tracking-widest text-slate-500">
+                  Bukti Pembayaran (JPG/PNG, maks. 1 MB)
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png"
+                    onChange={(event) => { void handlePaymentFormProofChange(event); }}
+                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 file:mr-3 file:rounded-md file:border file:border-slate-300 file:bg-slate-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold"
+                  />
+                  {paymentFormProof && <span className="mt-1 block truncate text-[10px] normal-case text-emerald-700">{paymentFormProof.name}</span>}
+                </label>
               </div>
 
               <div className="border-t border-slate-200 bg-white p-4">
@@ -721,6 +745,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                 type="button"
                 onClick={async () => {
                   if (!paymentFormVoucher) return;
+                  if (isUploadingPaymentProof) return;
                   if (!window.confirm(`Tandai voucher ${paymentFormVoucher.requestNumber} sebagai sudah dibayar?`)) return;
                   setError('');
                   try {
@@ -730,6 +755,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                       otherExpenses: itemTotals.otherExpenses,
                       description: paymentDescription,
                       totalAmount: itemTotals.totalPayment,
+                      ...(paymentFormProof ? { paymentProofDataUrl: paymentFormProof.dataUrl } : {}),
                     });
                     await dataApi.deleteUserData('finance_payment_draft');
                     setInitialPaymentDraft(null);
@@ -738,9 +764,10 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                     setError(payError instanceof Error ? payError.message : 'Gagal memproses pembayaran.');
                   }
                 }}
-                className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-700"
+                disabled={isUploadingPaymentProof}
+                className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Konfirmasi Proses
+                {isUploadingPaymentProof ? 'Memuat bukti...' : 'Konfirmasi Proses'}
               </button>
             </div>
           </div>
@@ -751,8 +778,8 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div>
             <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Finance</div>
-            <h1 className="mt-1 text-xl font-black text-slate-900 lg:text-2xl">Accounts Payable</h1>
-            <p className="text-xs text-slate-500">Pengajuan pembayaran vendor yang sudah disetujui Manager.</p>
+            <h1 className="mt-1 text-xl font-black text-slate-900 lg:text-2xl">{mode === 'INPUT' ? 'Input Payable' : 'View Payable'}</h1>
+            <p className="text-xs text-slate-500">{mode === 'INPUT' ? 'Pengajuan pembayaran vendor yang sudah disetujui Manager dan menunggu pembayaran.' : 'Daftar voucher vendor yang sudah dibayar.'}</p>
           </div>
           <div className="grid grid-cols-2 gap-3 text-right">
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2">
@@ -769,8 +796,8 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
 
       {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">{error}</div>}
 
-      <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-        <div className="relative max-w-md">
+      <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="relative w-full max-w-md">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
           <input
             type="text"
@@ -784,6 +811,17 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
             className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-9 pr-3 text-xs text-slate-700 placeholder-slate-400 focus:border-slate-400 focus:outline-none"
           />
         </div>
+        {mode === 'HISTORY' && (
+          <div className="ml-auto flex flex-wrap items-end gap-3">
+            <label className="grid gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">START
+              <input type="date" value={startDate} max={endDate || undefined} onChange={(event) => { setStartDate(event.target.value); setPage(1); setExpandedId(null); }} className="h-10 rounded-lg border border-slate-200 px-3 text-xs font-semibold normal-case text-slate-700" />
+            </label>
+            <label className="grid gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">END
+              <input type="date" value={endDate} min={startDate || undefined} onChange={(event) => { setEndDate(event.target.value); setPage(1); setExpandedId(null); }} className="h-10 rounded-lg border border-slate-200 px-3 text-xs font-semibold normal-case text-slate-700" />
+            </label>
+          </div>
+        )}
+        {mode === 'HISTORY' && invalidDateRange && <p role="alert" className="w-full text-xs font-semibold text-rose-600">START harus sebelum atau sama dengan END.</p>}
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -793,8 +831,11 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
               <tr>
                 <th className="w-10 p-3.5" />
                 <th className="p-3.5">No</th>
+                {mode === 'HISTORY' && <th className="p-3.5">Date Paid</th>}
+                {mode === 'HISTORY' && <th className="p-3.5">Voucher Number</th>}
                 <th className="p-3.5">Request Number</th>
                 <th className="p-3.5">Request Date</th>
+                <th className="p-3.5">Requested Payment Date</th>
                 <th className="p-3.5">Info JOB</th>
                 <th className="p-3.5">FDA Number</th>
                 <th className="p-3.5">Vendor Name</th>
@@ -815,8 +856,11 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                     <tr className="cursor-pointer hover:bg-slate-50" onClick={() => setExpandedId(expanded ? null : voucher.id)}>
                       <td className="p-3.5 text-slate-500">{expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</td>
                       <td className="p-3.5 font-mono text-slate-500">{(currentPage - 1) * pageSize + index + 1}</td>
+                      {mode === 'HISTORY' && <td className="p-3.5 text-slate-700">{voucher.paidAt ? formatDate(voucher.paidAt) : '-'}</td>}
+                      {mode === 'HISTORY' && <td className="p-3.5 font-mono text-slate-700">{voucher.voucherNumber || '-'}</td>}
                       <td className="p-3.5 font-mono font-bold text-slate-900">{voucher.requestNumber}</td>
                       <td className="p-3.5 text-slate-700">{formatDate(voucher.requestDate)}</td>
+                      <td className="p-3.5 text-slate-700">{formatDate(voucher.requestedPaymentDate)}</td>
                       <td className="p-3.5">
                         <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
                           {voucher.jobInfo === 'JOB_VESSEL' ? 'JOB Vessel' : 'Operasional'}
@@ -837,10 +881,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                       <td className="p-3.5 text-right font-mono font-black text-slate-900">{money(voucher.totalPaidAmount)}</td>
                       <td className="p-3.5">
                         {voucher.status === 'PAID' ? (
-                          <div>
-                            <span className="rounded bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">Dibayar</span>
-                            <div className="mt-1 text-[10px] text-slate-500">{voucher.paidAt ? formatDate(voucher.paidAt) : ''}</div>
-                          </div>
+                          <span className="rounded bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">Dibayar</span>
                         ) : (
                           <span className="rounded bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">Menunggu Pembayaran</span>
                         )}
@@ -848,7 +889,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                       <td className="p-3.5 text-center" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-center gap-2">
                           {voucher.status === 'APPROVED' && (
-                            <button type="button" onClick={() => setPaymentFormVoucherId(voucher.id)} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-emerald-700">
+                            <button type="button" onClick={() => { setPaymentFormProof(null); setPaymentFormVoucherId(voucher.id); }} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-emerald-700">
                               Bayar
                             </button>
                           )}
@@ -856,16 +897,12 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                             <>
                               <button
                                 type="button"
-                                title={voucher.paymentProofDataUrl ? 'Ganti bukti pembayaran' : 'Upload bukti pembayaran'}
-                                aria-label={`${voucher.paymentProofDataUrl ? 'Ganti' : 'Upload'} bukti pembayaran ${voucher.requestNumber}`}
-                                disabled={isUploadingPaymentProof}
-                                onClick={() => {
-                                  setUploadingProofVoucherId(voucher.id);
-                                  paymentProofInputRef.current?.click();
-                                }}
-                                className="rounded-lg p-1.5 text-slate-500 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50"
+                                title="Lihat Payment Voucher"
+                                aria-label={`Lihat Payment Voucher ${voucher.requestNumber}`}
+                                onClick={() => handleOpenInvoiceView(voucher, true)}
+                                className="rounded-lg p-1.5 text-slate-500 hover:bg-blue-50 hover:text-blue-700"
                               >
-                                <Upload size={16} />
+                                <FileText size={16} />
                               </button>
                               {voucher.paymentProofDataUrl && (
                                 <button
@@ -880,7 +917,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                               )}
                             </>
                           )}
-                          <button type="button" title="Cetak Payment Voucher" aria-label={`Cetak Payment Voucher ${voucher.requestNumber}`} onClick={() => handlePrintVoucher(voucher)} className="rounded-lg p-1.5 text-slate-500 hover:bg-blue-50 hover:text-blue-700">
+                          <button type="button" title="Lihat Request Payment" aria-label={`Lihat Request Payment ${voucher.requestNumber}`} onClick={() => handlePrintVoucher(voucher)} className="rounded-lg p-1.5 text-slate-500 hover:bg-blue-50 hover:text-blue-700">
                             <Printer size={14} />
                           </button>
                         </div>
@@ -889,7 +926,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                     {expanded && (
                       <tr className="bg-slate-50/60">
                         <td />
-                        <td colSpan={12} className="p-3.5">
+                        <td colSpan={mode === 'HISTORY' ? 14 : 12} className="p-3.5">
                           <table className="w-full text-left text-[11px]">
                             <thead className="text-[10px] uppercase text-slate-500">
                               <tr>
@@ -933,7 +970,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ paymen
                 );
               })}
               {vouchers.length === 0 && (
-                <tr><td colSpan={13} className="p-6 text-center text-slate-400">Belum ada data pengajuan pembayaran.</td></tr>
+                <tr><td colSpan={mode === 'HISTORY' ? 15 : 13} className="p-6 text-center text-slate-400">Belum ada data pengajuan pembayaran.</td></tr>
               )}
             </tbody>
           </table>

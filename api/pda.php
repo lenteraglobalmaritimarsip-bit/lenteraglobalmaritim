@@ -341,6 +341,16 @@ try {
     $action = (string) ($_GET['action'] ?? '');
     $connection = db();
 
+    if ($action === 'fpda-numbers') {
+        requireMethod('GET');
+        if (($user['role'] ?? '') !== 'FINANCE') jsonResponse(['error' => 'Only Finance can view FPDA numbers'], 403);
+        $rows = $connection->query("SELECT job_id, pda_no FROM pda_documents WHERE pda_type = 'FDA' AND pda_no <> '' ORDER BY job_id")->fetchAll();
+        jsonResponse(['numbers' => array_map(static fn (array $row): array => [
+            'jobId' => $row['job_id'],
+            'fpdaNo' => $row['pda_no'],
+        ], $rows)]);
+    }
+
     if ($action === 'pending') {
         requireMethod('GET');
         pdaRequireManager($user);
@@ -408,16 +418,19 @@ try {
 
     if ($action === 'approved-fda-totals') {
         requireMethod('GET');
-        $branchCode = pdaUserBranch($user, 'FDA');
+        $role = $user['role'] ?? '';
+        if (!in_array($role, ['FDA', 'MANAGER_OPS', 'FINANCE'], true)) jsonResponse(['error' => 'Role tidak dapat melihat total FPDA'], 403);
+        $branchCode = $role === 'FDA' ? pdaUserBranch($user, 'FDA') : '';
+        $branchFilter = $branchCode !== '' ? ' AND pd.branch_code = :branch_code' : '';
         $query = $connection->prepare(
             "SELECT pd.job_id, pd.currency, pd.exchange_rate, pd.item_draft, "
             . 'pi.category, pi.quantity, pi.price, pi.vat_applied '
             . 'FROM pda_documents pd INNER JOIN pda_items pi '
             . 'ON pi.job_id = pd.job_id AND pi.pda_type = pd.pda_type '
             . "WHERE pd.pda_type = 'FDA' AND pd.approval_status = 'APPROVED' "
-            . 'AND pd.branch_code = :branch_code ORDER BY pd.job_id, pi.category'
+            . $branchFilter . ' ORDER BY pd.job_id, pi.category'
         );
-        $query->execute(['branch_code' => $branchCode]);
+        $query->execute($branchCode !== '' ? ['branch_code' => $branchCode] : []);
         $documents = [];
         foreach ($query->fetchAll() as $row) {
             $jobId = (string) $row['job_id'];
@@ -518,6 +531,20 @@ try {
         $document = $query->fetch();
         if (!$document) jsonResponse(['error' => 'PDA Sales approved tidak ditemukan'], 404);
         jsonResponse(['draft' => readPdaDraft($connection, $document)]);
+    }
+
+    if ($action === 'manager-view') {
+        requireMethod('GET');
+        if (($user['role'] ?? '') !== 'MANAGER_OPS') jsonResponse(['error' => 'Only Manager OPS can view PDA documents'], 403);
+        $jobId = trim((string) ($_GET['jobId'] ?? ''));
+        $pdaType = pdaDocumentType($_GET['pdaType'] ?? 'SALES');
+        if ($jobId === '' || strlen($jobId) > 50) jsonResponse(['error' => 'Job ID tidak valid'], 400);
+        $query = $connection->prepare(
+            'SELECT * FROM pda_documents WHERE job_id = :job_id AND pda_type = :pda_type LIMIT 1'
+        );
+        $query->execute(['job_id' => $jobId, 'pda_type' => $pdaType]);
+        $document = $query->fetch();
+        jsonResponse(['draft' => $document ? readPdaDraft($connection, $document) : null]);
     }
 
     if ($action === 'open') {

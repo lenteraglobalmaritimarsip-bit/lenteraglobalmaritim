@@ -523,6 +523,11 @@ button{ cursor:pointer; }
 /* V9 dashboard refinements */
 .maritim-nav-group-title{display:flex;align-items:center;gap:11px;color:#9fb0ca;font-size:11px;font-weight:900;padding:12px 16px 8px;letter-spacing:.03em;text-transform:none}
 .maritim-nav-group-title svg{width:18px;height:18px;stroke-width:1.8}
+.maritim-nav-group-toggle{width:100%;border:0;background:transparent;text-align:left;cursor:pointer;padding:10px 12px;margin-bottom:3px;color:#aab7cb;font-size:12px;font-weight:650;letter-spacing:0}
+.maritim-nav-group-toggle:hover{background:rgba(255,255,255,.055);color:#fff}
+.maritim-nav-group-toggle svg{width:16px;height:16px}
+.maritim-nav-group-toggle span{flex:1}
+.maritim-nav-group-toggle svg:last-child{margin-left:auto}
 .maritim-subnav-static{display:flex;flex-direction:column}
 .maritim-job-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .maritim-job-card-today{font-size:8px;font-weight:900;color:#77c8ff;background:rgba(71,168,255,.1);border:1px solid rgba(71,168,255,.18);padding:3px 6px;border-radius:999px}

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Search } from 'lucide-react';
+import { ChevronDown, ChevronRight, Download, Printer, Search } from 'lucide-react';
+import ExcelJS from 'exceljs';
 import { PaymentVoucher } from '../../types';
 
 interface VoucherHistoryViewProps {
@@ -30,11 +31,16 @@ const badges = {
   REJECTED: { label: 'Ditolak', className: 'bg-rose-50 text-rose-700' },
 };
 
+const escapeHtml = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
 export const VoucherHistoryView: React.FC<VoucherHistoryViewProps> = ({ paymentVouchers }) => {
   const [filter, setFilter] = useState<StatusFilter>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const invalidDateRange = Boolean(startDate && endDate && startDate > endDate);
 
   const counts = useMemo(() => ({
     PROCESS: paymentVouchers.filter((v) => statusGroup(v) === 'PROCESS').length,
@@ -44,12 +50,16 @@ export const VoucherHistoryView: React.FC<VoucherHistoryViewProps> = ({ paymentV
 
   const vouchers = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    return [...paymentVouchers]
+    return (invalidDateRange ? [] : [...paymentVouchers])
       .filter((voucher) => filter === 'ALL' || statusGroup(voucher) === filter)
+      .filter((voucher) => {
+        const requestDate = String(voucher.requestDate || '').slice(0, 10);
+        return (!startDate || requestDate >= startDate) && (!endDate || requestDate <= endDate);
+      })
       .filter((voucher) => !query || [voucher.requestNumber, voucher.vendorName, voucher.paidTo, voucher.requestBy]
         .join(' ').toLowerCase().includes(query))
       .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-  }, [paymentVouchers, filter, searchQuery]);
+  }, [paymentVouchers, filter, searchQuery, startDate, endDate, invalidDateRange]);
   const pageSize = 10;
   const pageCount = Math.max(1, Math.ceil(vouchers.length / pageSize));
   const currentPage = Math.min(page, pageCount);
@@ -62,6 +72,53 @@ export const VoucherHistoryView: React.FC<VoucherHistoryViewProps> = ({ paymentV
     { key: 'APPROVED', label: `Disetujui (${counts.APPROVED})` },
     { key: 'REJECTED', label: `Ditolak (${counts.REJECTED})` },
   ];
+
+  const handleDownload = async () => {
+    const workbook = new ExcelJS.Workbook();
+    const summary = workbook.addWorksheet('History Request');
+    summary.addRow(['No', 'Request Number', 'Request Date', 'Info JOB', 'JOB Number', 'Vendor', 'Paid To', 'Request By', 'Paid Amount', 'Status']);
+    vouchers.forEach((voucher, index) => summary.addRow([
+      index + 1,
+      voucher.requestNumber,
+      String(voucher.requestDate || '').slice(0, 10),
+      voucher.jobInfo === 'JOB_VESSEL' ? 'JOB Vessel' : 'Operasional',
+      [...new Set((voucher.items || []).map((item) => item.jobNumber.trim()).filter(Boolean))].join(', ') || '-',
+      voucher.vendorName,
+      voucher.paidTo,
+      voucher.requestBy,
+      voucher.totalPaidAmount,
+      badges[statusGroup(voucher)].label,
+    ]));
+    const details = workbook.addWorksheet('Detail Item');
+    details.addRow(['Request Number', 'JOB Number', 'Customer / Vessel', 'Item Service', 'Amount', 'VAT', 'Total', 'PPH 23', 'Paid Amount']);
+    vouchers.forEach((voucher) => (voucher.items || []).forEach((item) => details.addRow([
+      voucher.requestNumber, item.jobNumber, item.customerName, item.itemService,
+      item.amount, item.vatAmount, item.total, item.pph23Amount, item.paidAmount,
+    ])));
+    [summary, details].forEach((worksheet) => {
+      worksheet.getRow(1).font = { bold: true };
+      worksheet.columns.forEach((column) => { column.width = 18; });
+    });
+    [9].forEach((column) => { summary.getColumn(column).numFmt = '#,##0.00'; });
+    [5, 6, 7, 8, 9].forEach((column) => { details.getColumn(column).numFmt = '#,##0.00'; });
+    const buffer = await workbook.xlsx.writeBuffer();
+    const url = URL.createObjectURL(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `history-request-payment-${startDate || 'awal'}-${endDate || 'akhir'}.xlsx`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handlePrint = () => {
+    const summaryRows = vouchers.map((voucher) => `<tr><td>${escapeHtml(voucher.requestNumber)}</td><td>${escapeHtml(formatDate(voucher.requestDate))}</td><td>${voucher.jobInfo === 'JOB_VESSEL' ? 'JOB Vessel' : 'Operasional'}</td><td>${escapeHtml([...new Set((voucher.items || []).map((item) => item.jobNumber.trim()).filter(Boolean))].join(', ') || '-')}</td><td>${escapeHtml(voucher.vendorName)}</td><td>${escapeHtml(voucher.paidTo)}</td><td>${escapeHtml(voucher.requestBy)}</td><td>${escapeHtml(money(voucher.totalPaidAmount))}</td><td>${escapeHtml(badges[statusGroup(voucher)].label)}</td></tr>`).join('');
+    const detailRows = vouchers.flatMap((voucher) => (voucher.items || []).map((item) => `<tr><td>${escapeHtml(voucher.requestNumber)}</td><td>${escapeHtml(item.jobNumber)}</td><td>${escapeHtml(item.customerName)}</td><td>${escapeHtml(item.itemService)}</td><td>${escapeHtml(money(item.amount))}</td><td>${escapeHtml(money(item.vatAmount))}</td><td>${escapeHtml(money(item.total))}</td><td>${escapeHtml(money(item.pph23Amount))}</td><td>${escapeHtml(money(item.paidAmount))}</td></tr>`)).join('');
+    const range = `${startDate || 'Awal'} - ${endDate || 'Akhir'}`;
+    const printWindow = window.open('', '_blank', 'width=1400,height=900');
+    if (!printWindow) return;
+    printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>History Request Payment</title><style>@page{size:A4 landscape;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#1f2937;margin:0}h1{font-size:18px;margin:0 0 4px}h2{font-size:12px;margin:18px 0 6px}p{font-size:10px;color:#64748b;margin:0 0 12px}table{width:100%;border-collapse:collapse;font-size:8px}th{background:#eef3f9;text-align:left;padding:5px;border:1px solid #d5deea}td{padding:5px;border:1px solid #dfe6ef;vertical-align:top;overflow-wrap:anywhere}tr:nth-child(even){background:#fafcff}@media print{thead{display:table-header-group}tr{break-inside:avoid}}</style></head><body><h1>History Request Payment</h1><p>Periode Request Date: ${escapeHtml(range)} · ${vouchers.length} voucher</p><table><thead><tr><th>Request Number</th><th>Request Date</th><th>Info JOB</th><th>JOB Number</th><th>Vendor</th><th>Paid To</th><th>Request By</th><th>Paid Amount</th><th>Status</th></tr></thead><tbody>${summaryRows || '<tr><td colspan="9">Tidak ada data pada periode ini.</td></tr>'}</tbody></table><h2>Detail Item</h2><table><thead><tr><th>Request Number</th><th>JOB Number</th><th>Customer / Vessel</th><th>Item Service</th><th>Amount</th><th>VAT</th><th>Total</th><th>PPH 23</th><th>Paid Amount</th></tr></thead><tbody>${detailRows || '<tr><td colspan="9">Tidak ada rincian item.</td></tr>'}</tbody></table><script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}</script></body></html>`);
+    printWindow.document.close();
+  };
 
   return (
     <div className="space-y-5">
@@ -99,6 +156,21 @@ export const VoucherHistoryView: React.FC<VoucherHistoryViewProps> = ({ paymentV
               className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-xs lg:w-64"
             />
           </div>
+        </div>
+        <div className="mt-4 flex flex-wrap items-end justify-between gap-3 border-t border-slate-100 pt-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="grid gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">START
+              <input type="date" value={startDate} max={endDate || undefined} onChange={(event) => { setStartDate(event.target.value); setPage(1); setExpandedId(null); }} className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold normal-case text-slate-700" />
+            </label>
+            <label className="grid gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">END
+              <input type="date" value={endDate} min={startDate || undefined} onChange={(event) => { setEndDate(event.target.value); setPage(1); setExpandedId(null); }} className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold normal-case text-slate-700" />
+            </label>
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => void handleDownload()} disabled={!vouchers.length || invalidDateRange} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"><Download size={14} /> Download Excel</button>
+            <button type="button" onClick={handlePrint} disabled={invalidDateRange} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"><Printer size={14} /> Cetak / PDF</button>
+          </div>
+          {invalidDateRange && <p role="alert" className="w-full text-xs font-semibold text-rose-600">START harus sebelum atau sama dengan END.</p>}
         </div>
       </div>
 

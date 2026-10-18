@@ -111,12 +111,8 @@ export const createPdaPreviewHtml = (
 ) => {
   const documentLabel = pdaType === 'FDA' ? 'FPDA' : 'PDA Crew';
   const fpda = pdaType === 'FDA';
-  const etaDisplay = fpda
-    ? formatPdaScheduleOrRemark(printDetails.eta, printDetails.etaRemarks)
-    : job.eta || '-';
-  const etdDisplay = fpda
-    ? formatPdaScheduleOrRemark(printDetails.etd, printDetails.etdRemarks)
-    : job.etd || '-';
+  const etaDisplay = formatPdaScheduleOrRemark(printDetails.eta, printDetails.etaRemarks);
+  const etdDisplay = formatPdaScheduleOrRemark(printDetails.etd, printDetails.etdRemarks);
   const groupedItems = groupPdaItems(items);
   const taxesEnabled = pdaType === 'FDA';
   const totals = calculatePdaTotals(items, taxesEnabled && pph23Applied, taxesEnabled && globalVatApplied);
@@ -151,7 +147,9 @@ export const createPdaPreviewHtml = (
   const bankFooter = currency === 'USD'
     ? '<div class="bank"><div>Please kindly remit to our Bank Account</div><div>Bank Account Detail of PT. Lentera Global Maritim asf:</div><br><b>BANK MANDIRI (Persero) Tbk</b><br>Address:<br>BANK MANDIRI TEBET SUPOMO<br>Jl. Prof. Dr.Supomo SH No 43, Tebet, RT.04/RW.03<br>Tebet barat , Kec. Tebet, Kota Jakarta Selatan,<br>Daerah Khusus Ibukota Jakarta 12810<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number (USD) : 120-00-5575599-0</b><br><b>Swift Code Bank : BMRIIDJAXXX</b></div>'
     : '<div class="bank"><div>Please kindly remit to our Bank Account</div><div>Bank Account Detail of PT. Lentera Global Maritim asf:</div><br><b>BANK NEGARA INDONESIA (Persero) Tbk</b><br>Address:<br>BNI BIDAKARA<br>Jl. Gatot Subroto Kab 71-73, RT.12/RW.5, Tebet Timur,<br>Kec. Tebet, Kota Jakarta Selatan, Daerah Khusus Ibukota Jakarta 12820<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number : 2824-1212-09</b><br><b>Swift Code Bank : BNINIDJAXXX</b></div>';
-  const financeSignature = '<div class="signature"><div class="signature-main">Sincerely,<br>PT. Lentera Global Maritim</div><div class="signature-role">Finance</div></div>';
+  const financeSignature = fpda
+    ? '<div class="signature"><div class="signature-main">Sincerely,<br>PT. Lentera Global Maritim</div><div class="signature-role">Finance</div></div>'
+    : '';
   const officeFooter = '<div class="office-footer">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span>email : maritim@lentera-global.com / web : www.lentera-global.com</span></div>';
 
   const printFileName = `${documentLabel} - ${pdaNo}`.replace(/[\\/:*?"<>|]/g, '-');
@@ -179,32 +177,30 @@ export const createPdaPreviewHtml = (
     .total{font-weight:700}.total td:first-child,.subtotal td:first-child{text-align:right}.subtotal{background:#dbe8f2;font-weight:700}
     .bank{display:inline-block;width:42%;margin-top:16px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}
     .signature{display:inline-block;width:42%;margin:16px 0 0 12%;text-align:center;vertical-align:top;font-size:9px;line-height:1.35}.signature-main{display:block}.signature-role{display:block;margin-top:120px;padding-top:8px}
-    .office-footer{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center;font-size:9px;line-height:1.45;font-weight:600;color:#111}
+    .office-footer{position:static;width:100%;max-width:700px;margin:16px auto 0;text-align:center;font-size:9px;line-height:1.45;font-weight:600;color:#111}
     .office-footer span{color:#dc2626;text-decoration:underline}
     @page{size:A4 portrait;margin:15mm 10mm}
     @media screen{
       html,body{min-height:100%;height:auto;overflow:visible;background:#e2e8f0}
       body{position:relative;box-sizing:border-box;width:210mm;height:297mm;min-height:297mm;max-width:none;margin:0 auto;padding:15mm;background:#fff}
       .a4-page-frame{position:absolute;top:10mm;left:10mm;width:190mm;height:277mm;box-sizing:border-box;border:0.3mm solid #1f2937;pointer-events:none;z-index:9}
+      .office-footer{position:absolute;left:50%;bottom:12mm;transform:translateX(-50%);margin:0}
     }
     @media print{
       html,body{width:auto;height:auto;min-height:0;margin:0;padding:0;overflow:visible;background:#fff}
       body{position:static;max-width:none;padding:0 3mm;box-sizing:border-box}
       .a4-page-frame{position:fixed;inset:0;width:auto;height:auto;box-sizing:border-box;border:0.5mm solid #1f2937;pointer-events:none;z-index:9999}
+      .office-footer{position:fixed;left:50%;bottom:6mm;transform:translateX(-50%);margin:0}
     }
   </style></head><body><div class="a4-page-frame" aria-hidden="true"></div>
     <div class="brand-row"><div class="brand-wrap"><img class="logo" src="/lenteraglobalmaritim/lgm-logo.png" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div>
     <h2>${pdaType === 'FDA' ? 'FINAL PORT DISBURSEMENT ACCOUNT - CREW CHANGE' : 'PORT DISBURSEMENT ACCOUNT - CREW CHANGE'}</h2>
     <section class="meta">
       <div class="meta-col">
-        <div class="meta-row"><span class="label">${documentLabel} No</span><span class="colon">:</span><span>${escapeHtml(pdaNo)}</span></div>
-        ${fpda
-          ? `<div class="meta-row"><span class="label">Date made</span><span class="colon">:</span><span>${escapeHtml(formatPdaDateMade(printDetails.createdAt))}</span></div>`
-          : `<div class="meta-row"><span class="label">Inquiry No</span><span class="colon">:</span><span>${escapeHtml(job.inquiry.inquiryNo)}</span></div>`}
+        <div class="meta-row"><span class="label">${fpda ? 'FPDA No' : 'PDA No'}</span><span class="colon">:</span><span>${escapeHtml(pdaNo)}</span></div>
+        <div class="meta-row"><span class="label">Date made</span><span class="colon">:</span><span>${escapeHtml(formatPdaDateMade(printDetails.createdAt))}</span></div>
         <div class="meta-row"><span class="label">Principal</span><span class="colon">:</span><span>${escapeHtml(job.customerName)}</span></div>
-        ${fpda
-          ? `<div class="meta-row"><span class="label">Request</span><span class="colon">:</span><span>${escapeHtml(job.inquiry.specialRequirements || '-')}</span></div>`
-          : `<div class="meta-row"><span class="label">Job / Vessel Call</span><span class="colon">:</span><span>${escapeHtml(job.jobId)}</span></div>`}
+        <div class="meta-row"><span class="label">Request</span><span class="colon">:</span><span>${escapeHtml(job.inquiry.specialRequirements || '-')}</span></div>
       </div>
       <div class="meta-col">
         <div class="meta-row"><span class="label">Vessel</span><span class="colon">:</span><span>${escapeHtml(job.vesselName)}</span></div>
