@@ -394,24 +394,47 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       .map((candidate) => candidate.quotation.epda);
     if (!previousQuotes.length) return;
 
+    const resolveHistoryCategory = (item: DisbursementItem) => {
+      const savedCategory = normalizeCostCategory(item.category);
+      if (savedCategory) return savedCategory;
+
+      const itemName = item.name.trim().toLowerCase();
+      const matchingTariff = fixTariffs.find((tariff) =>
+        tariff.serviceName.trim().toLowerCase() === itemName
+        && (tariff.costCategory || '').trim().toUpperCase() === 'PORT_SERVICE'
+        && portMatches(tariff.portId, tariff.portName)
+      );
+      if (matchingTariff) return 'PORT_SERVICE';
+
+      const matchingExpense = expensesItems.find((expense) =>
+        expense.name.trim().toLowerCase() === itemName
+        && portMatches(expense.portId, expense.portName)
+      );
+      if (matchingExpense) return normalizeCostCategory(matchingExpense.category);
+      if (itemName.startsWith('port service')) return 'PORT_SERVICE';
+      return '';
+    };
+
     const optionByService = new Map(autoServiceOptions.map((option) => [
       `${option.name.trim().toLowerCase()}|${normalizeCostCategory(option.category)}`,
       option,
     ]));
     const previousItemsByService = new Map<string, DisbursementItem>();
     previousQuotes.forEach((quote) => quote.items.forEach((item) => {
-      const serviceKey = `${item.name.trim().toLowerCase()}|${normalizeCostCategory(item.category)}`;
+      const serviceKey = `${item.name.trim().toLowerCase()}|${resolveHistoryCategory(item)}`;
       if (!previousItemsByService.has(serviceKey)) previousItemsByService.set(serviceKey, item);
     }));
     const refreshedItems = Array.from(previousItemsByService.values()).flatMap((previousItem, index) => {
+      const previousCategory = resolveHistoryCategory(previousItem);
       const option = optionByService.get(
-        `${previousItem.name.trim().toLowerCase()}|${normalizeCostCategory(previousItem.category)}`,
+        `${previousItem.name.trim().toLowerCase()}|${previousCategory}`,
       );
       if (!option) {
         return [{
           ...previousItem,
           id: `ITM-EPDA-${job.jobId}-${index + 1}-${Date.now()}`,
           expenseItemId: '',
+          category: previousCategory || previousItem.category || 'PORT_EXPENSES',
           unitBuyRate: 0,
           unitSellRate: 0,
           totalBuyRate: 0,
@@ -603,11 +626,25 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     onDataSaved?.();
   };
 
+  const normalizeQuotationItemCategory = (value: string) => {
+    const validCategories = new Set([
+      'PORT_EXPENSES', 'PORT_SERVICE', 'CLEARANCE', 'GENERAL_EXPENSES', 'CREW_EXPENSES',
+      'OWNER_MATTER', 'AGENCY_FEE', 'TAX_CONTINGENCY', 'PORT_DUES', 'PILOTAGE_TOWAGE',
+      'BERTHING', 'CREW_CHANGE', 'IMMIGRATION_CUSTOMS', 'LOGISTICS_SUPPLIES', 'SUNDRY',
+    ]);
+    const rawCategory = value.trim().toUpperCase().replace(/[\s-]+/g, '_');
+    if (validCategories.has(rawCategory)) return rawCategory;
+
+    const normalizedCategory = normalizeCostCategory(value);
+    return validCategories.has(normalizedCategory) ? normalizedCategory : 'PORT_EXPENSES';
+  };
+
   const autosaveItems = (nextItems: DisbursementItem[]) => {
     if (isReviewOnly || isEPDALockedInDatabase()) return;
     if (nextItems.length > 0) setAutoLoadMessage('');
     const manualItems = nextItems.map((item) => ({
       ...item,
+      category: normalizeQuotationItemCategory(item.category),
       currency: viewCurrency,
       quantity: item.quantity || 1,
       totalBuyRate: Number(item.totalBuyRate || 0),
@@ -918,7 +955,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     .replaceAll('</style>', 'table{table-layout:fixed!important}table th,table td{box-sizing:border-box!important}table th:nth-child(1),table td:nth-child(1){width:5%!important;text-align:center!important}table th:nth-child(2),table td:nth-child(2){width:20%!important;text-align:center!important}table th:nth-child(3),table td:nth-child(3){width:35%!important;text-align:center!important;white-space:nowrap}table th:nth-child(4),table td:nth-child(4){width:12%!important;text-align:center!important;white-space:nowrap}table th:nth-child(5),table td:nth-child(5){width:28%!important;text-align:center!important}table th{text-align:center!important}table td:nth-child(1){text-align:center!important}table td:nth-child(2),table td:nth-child(3),table td:nth-child(4),table td:nth-child(5){text-align:center!important}table tr[style*="background:#4b5563"] td:first-child{padding-left:1em!important;text-align:left!important}table tr.subtotal td:first-child,table tr.grand td:first-child{font-weight:700;text-align:center!important}table tr.subtotal td.amount,table tr.grand td.amount,table tr.subtotal td:nth-child(2),table tr.grand td:nth-child(2){font-variant-numeric:tabular-nums;text-align:center!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}.sign{display:none!important}</style>')
     .replace(/<div class="sign">[\s\S]*?<\/div>/, '');
 
-  const formatExportTable = (html: string) => formatExportTableBase(html).replace('</style>', 'body table tr.item-row td:nth-child(1){text-align:center!important}body table tr.item-row td:nth-child(2),body table tr.item-row td:nth-child(5){text-align:left!important}body table tr.item-row td:nth-child(3){text-align:center!important}body table tr.item-row td:nth-child(4){text-align:right!important}body table tr[style*="background:"] td[colspan="5"]{text-align:left!important}body table tr.subtotal td:first-child,body table tr.grand td:first-child{font-weight:700;text-align:right!important}body table tr.subtotal td.amount,body table tr.grand td.amount,body table tr.grand td:nth-child(2){font-variant-numeric:tabular-nums;text-align:right!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}</style>');
+  const formatExportTable = (html: string) => formatExportTableBase(html).replace('</style>', 'body table tr.item-row td:nth-child(1){text-align:center!important}body table tr.item-row td:nth-child(2),body table tr.item-row td:nth-child(5){text-align:left!important}body table tr.item-row td:nth-child(3){text-align:center!important}body table tr.item-row td:nth-child(4){text-align:right!important}body table tr[style*="background:"] td[colspan="5"]{text-align:left!important}body table tr.subtotal td:first-child,body table tr.grand td:first-child{font-weight:700;text-align:right!important}body table tr.global-vat td:first-child,body table tr.net-total td:first-child{font-weight:700;text-align:center!important}body table tr.subtotal td.amount,body table tr.grand td.amount,body table tr.grand td:nth-child(2),body table tr.global-vat td.amount,body table tr.net-total td.amount{font-variant-numeric:tabular-nums;text-align:right!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}</style>');
 
   const buildDocument = () => {
     const amount = (value: number) =>
@@ -935,7 +972,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       ? `<tr class="pph23"><td colspan="3" style="text-align:right">PPH 23 (2%)</td><td class="amount" style="text-align:right">-${amount(epdaPph23Amount)}</td><td></td></tr>`
       : '');
     const globalVatRows = epdaGlobalVatApplied
-      ? `<tr class="global-vat"><td colspan="3" style="text-align:right">VAT / PPN 11% Global</td><td class="amount" style="text-align:right">${amount(epdaGlobalVatAmount)}</td><td></td></tr><tr class="net-total"><td colspan="3" style="text-align:right">TOTAL TERMASUK VAT GLOBAL</td><td class="amount" style="text-align:right">${amount(totalSellUSD)}</td><td></td></tr>`
+      ? `<tr class="global-vat"><td colspan="3" style="text-align:right">VAT/PPN 11%</td><td class="amount" style="text-align:right">${amount(epdaGlobalVatAmount)}</td><td></td></tr><tr class="net-total"><td colspan="3" style="text-align:right">TOTAL + VAT</td><td class="amount" style="text-align:right">${amount(totalSellUSD)}</td><td></td></tr>`
       : '';
     return `<!doctype html><html><head><meta charset="utf-8"><title>${epdaNo}</title><style>@page{size:A4;margin:14mm}body{font-family:Arial,sans-serif;color:#172033;font-size:11px}.brand-row{text-align:center;margin-bottom:10px}.brand-wrap{display:inline-flex;align-items:center;gap:14px;text-align:left}.logo{width:76px;height:58px;object-fit:contain}.brand{font-weight:700;font-size:21px;line-height:1.15}.tag{color:#666;font-size:13px;margin-top:5px}h2{text-align:center;background:#182a50;color:white;padding:8px;font-size:13px;margin:18px 0 12px}.meta{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px 34px;margin-bottom:12px}.meta-col{display:flex;flex-direction:column;gap:4px}.meta-col.right{justify-self:stretch}.meta-row{display:grid;grid-template-columns:125px 10px minmax(0,1fr);line-height:1.35}.meta-row .label{font-weight:700}.meta-row .colon{text-align:center}.meta-col.right .meta-row{grid-template-columns:85px 10px minmax(0,1fr)}table{width:100%;border-collapse:collapse}th,td{border:1px solid #777;padding:6px 7px}th{background:#e8ecf2;text-align:left}.grand,.net-total{font-weight:700}.sign{margin-top:34px;text-align:right}.footer{position:fixed;bottom:0;width:100%;text-align:center;font-size:8px;color:#666}</style></head><body><div class="brand-row"><div class="brand-wrap"><img class="logo" src="/lenteraglobalmaritim/lgm-logo.png" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div><h2>ESTIMATE PORT DISBURSEMENT OF ACCOUNT</h2><div class="meta"><div class="meta-col"><div class="meta-row"><span class="label">No.</span><span class="colon">:</span><span>${epdaNo}</span></div><div class="meta-row"><span class="label">Date Inquiry</span><span class="colon">:</span><span>${job.inquiry.date}</span></div><div class="meta-row"><span class="label">Principal</span><span class="colon">:</span><span>${escapeHtml(job.customerName)}</span></div><div class="meta-row"><span class="label">Job/Vessel Call ID</span><span class="colon">:</span><span>${job.jobId}</span></div></div><div class="meta-col right"><div class="meta-row"><span class="label">Port</span><span class="colon">:</span><span>${escapeHtml(job.portName)}</span></div><div class="meta-row"><span class="label">Vessel</span><span class="colon">:</span><span>${escapeHtml(job.vesselName)}</span></div><div class="meta-row"><span class="label">ETA</span><span class="colon">:</span><span>${job.eta}</span></div><div class="meta-row"><span class="label">GRT</span><span class="colon">:</span><span>${vesselMaster?.grt?.toLocaleString() || '-'}</span></div></div></div><table><thead><tr><th>NO.</th><th>DESCRIPTION</th><th>AMOUNT ${viewCurrency}</th><th>REMARKS</th></tr></thead><tbody>${rows}</tbody><tfoot><tr class="grand"><td colspan="2" style="text-align:right">${epdaSubTotalLabel}</td><td style="text-align:right">${amount(epdaGrandTotalBeforeGlobalVat)}</td><td></td></tr>${globalVatRows}</tfoot></table><div class="sign">Banjarmasin, ${new Date().toLocaleDateString('id-ID')}<br><br><br><b>PT. Lentera Global Maritim</b></div><div class="footer">PT Lentera Global Maritim • Shipping Agency • ${epdaNo}</div></body></html>`;
   };
@@ -1361,12 +1398,12 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
               {epdaGlobalVatApplied && (
                 <>
                   <tr>
-                    <td colSpan={3} className="border-l border-slate-800 p-3.5 text-right font-bold uppercase tracking-wider text-amber-300">VAT / PPN 11% Global</td>
+                    <td colSpan={3} className="border-l border-slate-800 p-3.5 text-center font-bold uppercase tracking-wider text-amber-300">VAT/PPN 11%</td>
                     <td className="border-l border-slate-800 p-3.5 text-right font-mono text-xs font-bold text-amber-300">{formatAmount(epdaGlobalVatAmount)}</td>
                     <td className="border-l border-slate-800" />
                   </tr>
                   <tr>
-                    <td colSpan={3} className="border-l border-slate-800 p-3.5 text-right font-black uppercase tracking-wider text-white">TOTAL TERMASUK VAT GLOBAL</td>
+                    <td colSpan={3} className="border-l border-slate-800 p-3.5 text-center font-black uppercase tracking-wider text-white">TOTAL + VAT</td>
                     <td className="border-l border-slate-800 p-3.5 text-right font-mono text-xs font-black text-white">{formatAmount(totalSellUSD)}</td>
                     <td className="border-l border-slate-800" />
                   </tr>

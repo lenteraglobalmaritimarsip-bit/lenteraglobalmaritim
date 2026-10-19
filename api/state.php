@@ -9,6 +9,24 @@ function branchNameKey(?string $branch): string
     return strtolower(trim(preg_replace('/\s+/', ' ', (string) ($branch ?? ''))));
 }
 
+function normalizedManagerApproval(array $approval): array
+{
+    $normalized = [
+        'status' => (string) ($approval['status'] ?? 'PENDING'),
+        'approvedBy' => trim((string) ($approval['approvedBy'] ?? '')),
+        'approvedAt' => (string) ($approval['approvedAt'] ?? ''),
+        'notes' => trim((string) ($approval['notes'] ?? '')),
+        'allowedMarginTolerancePct' => is_numeric($approval['allowedMarginTolerancePct'] ?? null)
+            ? (float) $approval['allowedMarginTolerancePct']
+            : 0.0,
+    ];
+    foreach ($approval as $key => $value) {
+        if (!array_key_exists($key, $normalized)) $normalized[$key] = $value;
+    }
+    ksort($normalized);
+    return $normalized;
+}
+
 function stateRevision(array $state): string
 {
     unset($state['currentRole'], $state['selectedJobId']);
@@ -245,6 +263,10 @@ try {
                 $isAllowedVoidField = $isSalesVoidUpdate && in_array($key, $voidFields, true);
                 $sameVoidField = in_array($key, $voidFields, true)
                     && trim((string) ($oldValue ?? '')) === trim((string) ($newValue ?? ''));
+                $sameManagerApproval = $actor['role'] === 'SALES'
+                    && $key === 'managerApproval'
+                    && normalizedManagerApproval(is_array($oldValue) ? $oldValue : [])
+                        === normalizedManagerApproval(is_array($newValue) ? $newValue : []);
                 $sameCreatedAt = $key === 'createdAt'
                     && is_string($oldValue)
                     && is_string($newValue)
@@ -254,6 +276,7 @@ try {
                     !in_array($key, $allowed, true)
                     && !$isAllowedVoidField
                     && !$sameVoidField
+                    && !$sameManagerApproval
                     && !$sameCreatedAt
                     && json_encode($oldValue) !== json_encode($newValue)
                 ) {
