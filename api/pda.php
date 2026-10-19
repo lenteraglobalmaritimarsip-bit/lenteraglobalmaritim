@@ -42,10 +42,10 @@ function pdaRequireManager(array $user): void
     if (($user['role'] ?? '') !== 'MANAGER_OPS') jsonResponse(['error' => 'Only Manager OPS can review PDA'], 403);
 }
 
-function pdaJob(PDO $connection, string $jobId, string $branchCode, string $pdaType = 'SALES'): string
+function pdaJob(PDO $connection, string $jobId, string $branchCode, string $pdaType = 'SALES'): array
 {
     $query = $connection->prepare(
-        'SELECT i.created_by_branch, ma.status AS manager_status FROM vessel_calls vc '
+        'SELECT i.created_by_branch, ma.status AS manager_status, vc.voided_at FROM vessel_calls vc '
         . 'LEFT JOIN inquiries i ON i.job_id = vc.job_id '
         . 'LEFT JOIN manager_approvals ma ON ma.job_id = vc.job_id '
         . 'WHERE vc.job_id = :job_id LIMIT 1 FOR UPDATE'
@@ -60,7 +60,10 @@ function pdaJob(PDO $connection, string $jobId, string $branchCode, string $pdaT
     if ($pdaType === 'FDA' && $job['manager_status'] !== 'APPROVED') {
         jsonResponse(['error' => 'PDA FDA hanya dapat dibuat setelah job disetujui Manager OPS'], 403);
     }
-    return $pdaType === 'FDA' ? $branchCode : ($jobBranchCode ?: $branchCode);
+    return [
+        'branchCode' => $pdaType === 'FDA' ? $branchCode : ($jobBranchCode ?: $branchCode),
+        'voided' => !empty($job['voided_at']),
+    ];
 }
 
 function pdaSourceNumber(PDO $connection, string $jobId, string $pdaType): string
@@ -561,12 +564,17 @@ try {
         $defaults = pdaDefaults(is_array($body['defaults'] ?? null) ? $body['defaults'] : []);
 
         $connection->beginTransaction();
-        $documentBranchCode = pdaJob($connection, $jobId, $branchCode, $pdaType);
+        $jobAccess = pdaJob($connection, $jobId, $branchCode, $pdaType);
+        $documentBranchCode = $jobAccess['branchCode'];
         $query = $connection->prepare('SELECT * FROM pda_documents WHERE job_id = :job_id AND pda_type = :pda_type LIMIT 1 FOR UPDATE');
         $query->execute(['job_id' => $jobId, 'pda_type' => $pdaType]);
         $document = $query->fetch();
 
         if (!$document) {
+            if ($jobAccess['voided']) {
+                $connection->rollBack();
+                jsonResponse(['error' => 'Job dibatalkan. Draft PDA tidak dapat dibuat.'], 409);
+            }
             $documentNumber = $pdaType === 'FDA'
                 ? pdaNextFpdaNumber($connection, $documentBranchCode)
                 : pdaNextSalesPdaNumber($connection, $documentBranchCode);
@@ -638,7 +646,12 @@ try {
         if ($encodedItemDraft === false) jsonResponse(['error' => 'Draft input item PDA tidak dapat diproses'], 400);
 
         $connection->beginTransaction();
-    $documentBranchCode = pdaJob($connection, $jobId, $branchCode, $pdaType);
+    $jobAccess = pdaJob($connection, $jobId, $branchCode, $pdaType);
+    if ($jobAccess['voided']) {
+        $connection->rollBack();
+        jsonResponse(['error' => 'Job dibatalkan. Draft PDA terkunci.'], 409);
+    }
+    $documentBranchCode = $jobAccess['branchCode'];
     $documentQuery = $connection->prepare('SELECT * FROM pda_documents WHERE job_id = :job_id AND pda_type = :pda_type LIMIT 1 FOR UPDATE');
     $documentQuery->execute(['job_id' => $jobId, 'pda_type' => $pdaType]);
         $document = $documentQuery->fetch();
@@ -713,7 +726,12 @@ try {
         }
 
         $connection->beginTransaction();
-        $documentBranchCode = pdaJob($connection, $jobId, $branchCode, $pdaType);
+        $jobAccess = pdaJob($connection, $jobId, $branchCode, $pdaType);
+        if ($jobAccess['voided']) {
+            $connection->rollBack();
+            jsonResponse(['error' => 'Job dibatalkan. PDA tidak dapat dikirim.'], 409);
+        }
+        $documentBranchCode = $jobAccess['branchCode'];
         $query = $connection->prepare('SELECT * FROM pda_documents WHERE job_id = :job_id AND pda_type = :pda_type LIMIT 1 FOR UPDATE');
         $query->execute(['job_id' => $jobId, 'pda_type' => $pdaType]);
         $document = $query->fetch();

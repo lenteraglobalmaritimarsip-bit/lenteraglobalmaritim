@@ -75,7 +75,9 @@ function getManagementStatus(job: JobCall): Array<{label:string; value:string; t
     ? (job.ar.every(x => x.status === 'RECEIVED') ? 'Received' : job.ar.some(x => x.status === 'OVERDUE') ? 'Overdue' : 'Open')
     : 'Open';
   const invoice = job.principalInvoice?.status || 'DRAFT';
-  const closing = job.closing?.isClosed ? 'Closed vessel calls' : 'Open';
+  const closing = job.voidedAt
+    ? 'Job VOID / Closed'
+    : job.closing?.isClosed ? 'Closed vessel calls' : 'Open';
 
   const inquiryLabel = job.inquiry?.status === 'CONVERTED' ? 'Converted to Job' : job.inquiry?.status || 'Open';
   const epdaLabel = epda === 'APPROVED' ? 'Approved' : epda === 'SUBMITTED' ? 'Submitted' : 'Open';
@@ -100,7 +102,7 @@ function getManagementStatus(job: JobCall): Array<{label:string; value:string; t
     stageStatus('FDA', fda, fda === 'Approved' ? 'done' : 'open'),
     stageStatus('Finance (AP / AR / Invoice)', financeLabel, financeLabel === 'AP Open • AR Received' || financeLabel === 'Closed vessel calls' ? 'done' : 'waiting'),
     stageStatus('Closing', closing, closing === 'Closed vessel calls' ? 'done' : 'open'),
-    stageStatus('KESIMPULAN', attention ? 'Masih ada proses terbuka' : 'Siklus terkontrol', attention ? 'waiting' : 'done')
+    stageStatus('KESIMPULAN', job.voidedAt ? 'Job VOID / Closed' : attention ? 'Masih ada proses terbuka' : 'Siklus terkontrol', job.voidedAt ? 'done' : attention ? 'waiting' : 'done')
   ];
 }
 const toneIcon = (tone: 'open'|'done'|'waiting'|'danger') => {

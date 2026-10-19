@@ -932,6 +932,8 @@ class DatabaseService {
       voidedAt: new Date().toISOString(),
       voidedBy: this.actor.name,
       voidReason: normalizedReason,
+      currentStage: 'CLOSED',
+      status: 'CLOSED',
     }, `VOID vessel call ${jobId}. Alasan: ${normalizedReason}`);
   }
 

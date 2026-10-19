@@ -60,6 +60,7 @@ function normalizedMasterItem(string $key, array $item): array
         return [
             'id' => (string) ($item['id'] ?? ''),
             'portId' => (string) ($item['portId'] ?? ''),
+            'portName' => (string) ($item['portName'] ?? ''),
             'serviceName' => (string) ($item['serviceName'] ?? ''),
             'costCategory' => $item['costCategory'] ?? null,
             'grtMin' => $nullableNumber($item, 'grtMin', 0),
@@ -209,9 +210,41 @@ try {
                 $changedJobIds[] = $jobId;
                 continue;
             }
+            $voidFields = ['voidedAt', 'voidedBy', 'voidReason'];
+            $voidFieldsChanged = false;
+            foreach ($voidFields as $field) {
+                if (trim((string) ($oldJob[$field] ?? '')) !== trim((string) ($newJob[$field] ?? ''))) {
+                    $voidFieldsChanged = true;
+                    break;
+                }
+            }
+            $isSalesVoidUpdate = false;
+            if ($voidFieldsChanged) {
+                $voidedAt = (string) ($newJob['voidedAt'] ?? '');
+                $isSalesVoidUpdate = $actor['role'] === 'SALES'
+                    && empty($oldJob['voidedAt'])
+                    && trim($voidedAt) !== ''
+                    && strtotime($voidedAt) !== false
+                    && trim((string) ($newJob['voidedBy'] ?? '')) === trim((string) $actor['name'])
+                    && trim((string) ($newJob['voidReason'] ?? '')) !== ''
+                    && branchNameKey((string) ($oldJob['inquiry']['createdByBranch'] ?? ''))
+                        === branchNameKey((string) ($actor['branch_name'] ?? $actor['branch'] ?? ''))
+                    && ($oldJob['managerApproval']['status'] ?? '') !== 'APPROVED'
+                    && ($oldJob['quotation']['epda']['status'] ?? '') !== 'SUBMITTED'
+                    && ($oldJob['quotation']['epda']['status'] ?? '') !== 'APPROVED'
+                    && !($oldJob['fda']['fdaApproved'] ?? false)
+                    && empty($oldJob['actualCosts'])
+                    && empty($oldJob['closing']['isClosed'])
+                    && ($oldJob['currentStage'] ?? '') !== 'CLOSED'
+                    && ($oldJob['status'] ?? '') !== 'CLOSED';
+                if (!$isSalesVoidUpdate) jsonResponse(['error' => 'Job cannot be voided'], 403);
+            }
             foreach (array_unique(array_merge(array_keys($oldJob), array_keys($newJob))) as $key) {
                 $oldValue = $oldJob[$key] ?? null;
                 $newValue = $newJob[$key] ?? null;
+                $isAllowedVoidField = $isSalesVoidUpdate && in_array($key, $voidFields, true);
+                $sameVoidField = in_array($key, $voidFields, true)
+                    && trim((string) ($oldValue ?? '')) === trim((string) ($newValue ?? ''));
                 $sameCreatedAt = $key === 'createdAt'
                     && is_string($oldValue)
                     && is_string($newValue)
@@ -219,6 +252,8 @@ try {
                     && strtotime($oldValue) === strtotime($newValue);
                 if (
                     !in_array($key, $allowed, true)
+                    && !$isAllowedVoidField
+                    && !$sameVoidField
                     && !$sameCreatedAt
                     && json_encode($oldValue) !== json_encode($newValue)
                 ) {

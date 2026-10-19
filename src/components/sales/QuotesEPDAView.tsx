@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { FileSpreadsheet, Plus, Trash2, Save, Ship, Building, CheckCircle2, Download, Printer, Eye, Send, Pencil, Check, X } from 'lucide-react';
 import { JobCall, DisbursementItem, Currency, User, Vessel, FixTariff, ExpensesItem, formatPurposeOfCall } from '../../types';
 import { db } from '../../db/storage';
-import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, filterTariffsByGRT, selectPreferredTariffOptions } from '../../utils/tariff';
+import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, selectPreferredTariffOptions } from '../../utils/tariff';
 import { formatCostCategoryLabel, getCostCategoryRank, normalizeCostCategory } from '../../utils/costCategories';
 import { formatInquiryDate } from '../../utils/date';
 import { DateTimeInput } from '../shared/DateTimeInput';
@@ -49,11 +49,12 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   };
   const isManagerApproved = job.managerApproval?.status === 'APPROVED';
   const isEPDASubmitted = epdaQuote.status === 'SUBMITTED';
-  const isReviewOnly = isManagerApproved || isEPDASubmitted || epdaQuote.status === 'APPROVED';
+  const isReviewOnly = Boolean(job.voidedAt) || isManagerApproved || isEPDASubmitted || epdaQuote.status === 'APPROVED';
   const isEPDALockedInDatabase = () => {
     const currentJob = db.getJob(job.jobId);
     const currentEPDAStatus = currentJob?.quotation?.epda?.status;
     return !currentJob
+      || Boolean(currentJob.voidedAt)
       || currentJob.managerApproval?.status === 'APPROVED'
       || currentEPDAStatus === 'SUBMITTED'
       || currentEPDAStatus === 'APPROVED';
@@ -313,11 +314,10 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     const currentCurrencyFixTariffs = portFixTariffs.filter((tariff) =>
       rateForCurrency(currency, tariff.rateIDR, tariff.rateUSD, 0) > 0
     );
-    const applicableFixTariffs = filterTariffsByGRT(
-      currentCurrencyFixTariffs
-        .map((tariff) => ({ ...tariff, name: tariff.serviceName, category: tariff.costCategory || 'PORT_EXPENSES' })),
-      vesselMaster?.grt,
-    );
+    const applicableFixTariffs = currentCurrencyFixTariffs
+      .map((tariff) => ({ ...tariff, name: tariff.serviceName, category: tariff.costCategory || 'PORT_EXPENSES' }))
+      .filter((tariff) => normalizeCostCategory(tariff.category) !== 'PORT_SERVICE'
+        || matchesTariffGRT(vesselMaster?.grt, tariff.grtMin, tariff.grtMax));
 
     const options = selectPreferredTariffOptions([
     ...applicableFixTariffs
@@ -386,6 +386,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     const previousQuotes = allJobs
       .filter((candidate) => candidate.jobId !== job.jobId)
       .filter((candidate) => vessels.find((vessel) => vessel.id === candidate.vesselId)?.imoNumber.trim().toLowerCase() === currentImo)
+      .filter((candidate) => portMatches(candidate.portId, candidate.portName))
       .filter((candidate) => candidate.quotation?.epda?.items?.length)
       .sort((first, second) =>
         (second.quotation.epda.date || second.createdAt).localeCompare(first.quotation.epda.date || first.createdAt)
@@ -397,14 +398,28 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       `${option.name.trim().toLowerCase()}|${normalizeCostCategory(option.category)}`,
       option,
     ]));
-    const previousQuote = previousQuotes.find((quote) => quote.items.some((item) =>
-      optionByService.has(`${item.name.trim().toLowerCase()}|${normalizeCostCategory(item.category)}`)
-    )) || previousQuotes[0];
-    const refreshedItems = previousQuote.items.flatMap((previousItem, index) => {
+    const previousItemsByService = new Map<string, DisbursementItem>();
+    previousQuotes.forEach((quote) => quote.items.forEach((item) => {
+      const serviceKey = `${item.name.trim().toLowerCase()}|${normalizeCostCategory(item.category)}`;
+      if (!previousItemsByService.has(serviceKey)) previousItemsByService.set(serviceKey, item);
+    }));
+    const refreshedItems = Array.from(previousItemsByService.values()).flatMap((previousItem, index) => {
       const option = optionByService.get(
         `${previousItem.name.trim().toLowerCase()}|${normalizeCostCategory(previousItem.category)}`,
       );
-      if (!option) return [];
+      if (!option) {
+        return [{
+          ...previousItem,
+          id: `ITM-EPDA-${job.jobId}-${index + 1}-${Date.now()}`,
+          expenseItemId: '',
+          unitBuyRate: 0,
+          unitSellRate: 0,
+          totalBuyRate: 0,
+          totalSellRate: 0,
+          currency: viewCurrency,
+          tariffRate: 0,
+        }];
+      }
 
       const quantity = Number(previousItem.quantity) || 1;
       const unitRate = calculateTariffForJob({
@@ -1114,7 +1129,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
               : 'border-amber-300 bg-amber-50 text-amber-800'
           }`}>
             <CheckCircle2 className="h-4 w-4" />
-            {isManagerApproved ? 'VIEW ONLY · APPROVED' : 'MENUNGGU APPROVAL MANAGER OPS'}
+            {job.voidedAt ? 'JOB Call Dibatalkan' : isManagerApproved ? 'VIEW ONLY · APPROVED' : 'MENUNGGU APPROVAL MANAGER OPS'}
           </span>
         )}
         </div>

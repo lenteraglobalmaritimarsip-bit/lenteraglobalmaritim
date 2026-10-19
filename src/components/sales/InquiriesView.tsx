@@ -149,7 +149,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
   const [showNewForm, setShowNewForm] = useState(false);
   const [editingJobId, setEditingJobId] = useState('');
   const [editReason, setEditReason] = useState('');
-  const [showVoidedJobs, setShowVoidedJobs] = useState(false);
+  const [showVoidedJobs, setShowVoidedJobs] = useState(true);
   const [search, setSearch] = useState('');
   const [inquiryDateRange, setInquiryDateRange] = useState<InquiryDateRange>({ from: '', to: '' });
   const [inquiryPage, setInquiryPage] = useState(1);
@@ -238,7 +238,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
     else datePicker?.click();
   };
   const filteredInquiries = jobCalls.filter((job) => {
-    if (!!job.voidedAt !== showVoidedJobs) return false;
+    if (!showVoidedJobs && job.voidedAt) return false;
     const query = search.toLowerCase();
     const matchesSearch = [job.vesselName, job.inquiry.inquiryNo, job.portName, job.customerName]
       .some((value) => value.toLowerCase().includes(query));
@@ -538,11 +538,6 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                     <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold ${jobStatus.color}`}>
                       {jobStatus.label}
                     </span>
-                    {job.voidedAt && (
-                      <div className="mt-1 max-w-36 text-left text-[10px] text-rose-200" title={job.voidReason || ''}>
-                        {job.voidedBy || 'User'} - {job.voidReason || 'Alasan tidak tersedia'}
-                      </div>
-                    )}
                   </td>}
                   <td className="p-2 text-center">
                     <div className="flex items-center justify-center gap-2">

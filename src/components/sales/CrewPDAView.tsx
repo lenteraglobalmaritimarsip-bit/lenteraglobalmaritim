@@ -259,7 +259,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
   const activeJobId = useRef(job?.jobId);
   activeJobId.current = job?.jobId;
   const draftLoaded = !!job && loadedDraftJobId === job.jobId;
-  const isPdaLocked = approvalStatus === 'SUBMITTED' || approvalStatus === 'APPROVED';
+  const isPdaLocked = Boolean(job?.voidedAt) || approvalStatus === 'SUBMITTED' || approvalStatus === 'APPROVED';
   const canEditPda = draftLoaded && !isPdaLocked && !isSubmittingPda;
   const submitDisabledReason = (() => {
     if (!draftLoaded) {
@@ -569,9 +569,10 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
           <button type="button" onClick={() => setDraftLoadAttempt((attempt) => attempt + 1)} className="rounded-lg border border-rose-300/40 px-3 py-1.5 text-xs font-bold hover:bg-rose-500/20">Muat Ulang PDA</button>
         </div>
       )}
-      {approvalStatus === 'SUBMITTED' && <div role="status" className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /><div><b>PDA sudah dikirim ke Manager OPS.</b><div className="mt-1">Menunggu review Manager OPS. PDA terkunci sampai Manager menyetujui atau mengembalikannya untuk revisi.</div></div></div>}
-      {approvalStatus === 'APPROVED' && <div role="status" className="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /><div><b>PDA telah disetujui Manager OPS.</b><div className="mt-1">PDA hanya dapat dilihat dan tidak dapat diedit atau dikirim ulang.</div></div></div>}
-      {approvalStatus === 'REVISION_REQUIRED' && <div role="status" className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800"><X className="mt-0.5 h-4 w-4 shrink-0" /><div><b>PDA dikembalikan untuk revisi.</b>{reviewNotes && <div className="mt-1">Catatan Manager: {reviewNotes}</div>}</div></div>}
+      {job?.voidedAt && <div role="status" className="flex items-start gap-2 rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs text-rose-900"><X className="mt-0.5 h-4 w-4 shrink-0" /><div><b>JOB Call Dibatalkan.</b><div className="mt-1">Form PDA terkunci dan tidak dapat diedit atau dikirim.</div></div></div>}
+      {!job?.voidedAt && approvalStatus === 'SUBMITTED' && <div role="status" className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /><div><b>PDA sudah dikirim ke Manager OPS.</b><div className="mt-1">Menunggu review Manager OPS. PDA terkunci sampai Manager menyetujui atau mengembalikannya untuk revisi.</div></div></div>}
+      {!job?.voidedAt && approvalStatus === 'APPROVED' && <div role="status" className="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /><div><b>PDA telah disetujui Manager OPS.</b><div className="mt-1">PDA hanya dapat dilihat dan tidak dapat diedit atau dikirim ulang.</div></div></div>}
+      {!job?.voidedAt && approvalStatus === 'REVISION_REQUIRED' && <div role="status" className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800"><X className="mt-0.5 h-4 w-4 shrink-0" /><div><b>PDA dikembalikan untuk revisi.</b>{reviewNotes && <div className="mt-1">Catatan Manager: {reviewNotes}</div>}</div></div>}
       <div className="epda-page-header flex flex-col justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900 p-4 shadow-xl sm:flex-row sm:items-center">
         <div>
           <div className="flex items-center gap-2 text-xs font-mono font-bold uppercase tracking-wider text-emerald-400">
@@ -589,7 +590,9 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
             Kurs USD
             <input type="number" min={0} step={1} disabled={!canEditPda} value={exchangeRate} onChange={(event) => setExchangeRate(Number(event.target.value) || 0)} className="account-rate-input h-8 w-24 rounded-lg border border-slate-700 bg-slate-900 px-2 text-right text-sm text-white disabled:opacity-50" />
           </label>
-          {approvalStatus === 'SUBMITTED' ? (
+          {job?.voidedAt ? (
+            <span className="inline-flex items-center gap-1.5 rounded-xl border border-rose-300 bg-rose-50 px-3.5 py-2 text-xs font-bold text-rose-800"><X className="h-4 w-4" />JOB Call Dibatalkan</span>
+          ) : approvalStatus === 'SUBMITTED' ? (
             <span className="inline-flex items-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2 text-xs font-bold text-amber-800"><CheckCircle2 className="h-4 w-4" />MENUNGGU APPROVAL MANAGER OPS</span>
           ) : approvalStatus === 'APPROVED' ? (
             <span className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-100 px-3.5 py-2 text-xs font-bold text-blue-700"><CheckCircle2 className="h-4 w-4" />DISETUJUI MANAGER OPS</span>

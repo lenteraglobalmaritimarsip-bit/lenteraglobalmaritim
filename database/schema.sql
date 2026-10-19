@@ -119,6 +119,7 @@ CREATE TABLE zones (
 CREATE TABLE fix_tariffs (
   id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
   port_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  port_name VARCHAR(150) NOT NULL,
   service_name VARCHAR(200) NOT NULL,
   cost_category VARCHAR(80),
   grt_min INT,

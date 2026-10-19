@@ -75,7 +75,7 @@ npm run dev
 ## Catatan data
 Data aplikasi disimpan di **MariaDB melalui PHP API** (`api/`). Browser tidak menyimpan data aplikasi (hanya cookie sesi HttpOnly).
 Setup database, akun admin pertama, dan migrasi: lihat [api/README.md](api/README.md). Skema lengkap ada di `database/schema.sql`;
-database lama cukup menjalankan file yang diperlukan di `database/migrations/` sesuai skema versi database (terbaru: file migrasi `20261017_*`).
+database lama cukup menjalankan file yang diperlukan di `database/migrations/` sesuai skema versi database. Untuk database yang sudah berjalan, jalankan `database/migrations/20261019_add_fix_tariff_port_name.sql` agar nama port pada Fix Tariff tersimpan dan dapat dipakai saat memuat tarif riwayat EPDA.
 
 ## Struktur modul
 - Dashboard
