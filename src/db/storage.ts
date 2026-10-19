@@ -107,31 +107,6 @@ const migrateJobData = (jobCalls: JobCall[]): { jobCalls: JobCall[]; migrated: b
   return { jobCalls: normalizedJobCalls, migrated };
 };
 
-const syncActualFDAInvoice = (job: JobCall): JobCall => {
-  const actualTotal = (job.actualCosts || []).reduce((sum, item) => sum + (item.amount || 0), 0);
-  if (!actualTotal || !job.fda?.fdaApproved) return job;
-
-  const currency = job.fda.currency || job.actualCosts?.[0]?.currency || job.currency;
-  const exchangeRate = job.fda?.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
-  const totalBilledUSD = currency === 'USD' ? actualTotal : actualTotal / exchangeRate;
-  const totalBilledIDR = currency === 'IDR' ? actualTotal : actualTotal * exchangeRate;
-
-  return {
-    ...job,
-    fda: { ...job.fda, currency, finalBilledToPrincipal: actualTotal },
-    principalInvoice: {
-      ...job.principalInvoice,
-      totalAmountUSD: totalBilledUSD,
-      totalAmountIDR: totalBilledIDR,
-      balanceDueUSD: Math.max(0, totalBilledUSD - (job.principalInvoice?.totalAmountUSD || 0) + (job.principalInvoice?.balanceDueUSD || 0)),
-      balanceDueIDR: Math.max(0, totalBilledIDR - (job.principalInvoice?.totalAmountIDR || 0) + (job.principalInvoice?.balanceDueIDR || 0)),
-    },
-    ar: job.ar?.length
-      ? job.ar.map((item, index) => index === 0 ? { ...item, requestedAmount: actualTotal, currency } : item)
-      : job.ar,
-  };
-};
-
 const normalizeBranchName = (branch?: string): string => (branch || '').trim().toLowerCase();
 const sameBranch = (left?: string, right?: string): boolean => normalizeBranchName(left) === normalizeBranchName(right);
 const normalizeBranchCode = (branch: string): string => branch.trim().toUpperCase().replace(/[^A-Z0-9]/g, '') || 'JKT';
@@ -874,7 +849,8 @@ class DatabaseService {
       job.quotation?.epda?.status === 'SUBMITTED' ||
       job.quotation?.epda?.status === 'APPROVED' ||
       job.fda?.fdaApproved ||
-      (job.actualCosts?.length || 0) > 0 ||
+      job.fda?.approvalStatus === 'SUBMITTED' ||
+      job.fda?.approvalStatus === 'APPROVED' ||
       job.closing?.isClosed ||
       job.currentStage === 'CLOSED' ||
       job.status === 'CLOSED' ||
@@ -921,7 +897,8 @@ class DatabaseService {
       job.quotation?.epda?.status === 'SUBMITTED' ||
       job.quotation?.epda?.status === 'APPROVED' ||
       job.fda?.fdaApproved ||
-      (job.actualCosts?.length || 0) > 0 ||
+      job.fda?.approvalStatus === 'SUBMITTED' ||
+      job.fda?.approvalStatus === 'APPROVED' ||
       job.closing?.isClosed ||
       job.currentStage === 'CLOSED' ||
       job.status === 'CLOSED' ||
@@ -1012,10 +989,7 @@ class DatabaseService {
           quoteNo: epdaNo,
           date: documentDate,
           currency: 'USD',
-          totalBuyRate: 0,
-          totalSellRate: 0,
-          marginAmount: 0,
-          marginPercentage: 0,
+          totalAmount: 0,
           status: 'DRAFT',
           items: [],
         },
@@ -1036,7 +1010,6 @@ class DatabaseService {
 
       managerApproval: {
         status: 'PENDING',
-        allowedMarginTolerancePct: 5.0,
       },
 
       operationalData: {
@@ -1049,17 +1022,10 @@ class DatabaseService {
         ],
       },
 
-      actualCosts: [],
-
       fda: {
         fdaNo,
         date: documentDate,
-        totalEstimatedBuy: 0,
-        totalEstimatedSell: 0,
-        totalActualCost: 0,
         finalBilledToPrincipal: 0,
-        varianceAmount: 0,
-        variancePercentage: 0,
         fdaApproved: false,
       },
 
@@ -1080,11 +1046,7 @@ class DatabaseService {
         pdfGenerated: false,
       },
 
-      closing: {
-        isClosed: false,
-        finalGrossMarginUSD: 0,
-        finalGrossMarginIDR: 0,
-      },
+      closing: { isClosed: false },
     };
 
     this.state.jobCalls = [newJob, ...previousJobCalls];
@@ -1149,7 +1111,9 @@ class DatabaseService {
     if (!approvedVoucherExists) {
       return { ok: false, message: `Payment Voucher untuk Job ${jobId} harus dibuat dan disetujui Manager OPS sebelum FDA dikirim.` };
     }
-    if (!job.actualCosts.length) return { ok: false, message: 'Belum ada Actual Cost. FDA belum dapat difinalisasi.' };
+    if (!(job.fda.finalBilledToPrincipal > 0) && !(job.quotation.epda.totalAmount > 0)) {
+      return { ok: false, message: 'EPDA belum memiliki Amount untuk diproses menjadi FDA.' };
+    }
     if (job.fda.approvalStatus === 'SUBMITTED') return { ok: false, message: 'FDA sedang menunggu approval Manager OPS.' };
     if (job.fda.fdaApproved || job.fda.approvalStatus === 'APPROVED') return { ok: false, message: 'FDA untuk Job ini sudah disetujui Manager.' };
     return { ok: true };
@@ -1174,7 +1138,7 @@ class DatabaseService {
     const exchangeRate = job.fda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
     const rawInvoiceTotal = job.fda.finalBilledToPrincipal
       || job.principalInvoice?.totalAmountUSD
-      || job.quotation?.epda?.totalSellRate
+      || job.quotation?.epda?.totalAmount
       || 0;
     const invoicePrecision = invoiceCurrency === 'IDR' ? 1 : 100;
     const invoiceTotal = Math.round((rawInvoiceTotal + Number.EPSILON) * invoicePrecision) / invoicePrecision;
@@ -1218,8 +1182,7 @@ class DatabaseService {
         status: 'APPROVED',
         approvedBy: approverName,
         approvedAt: new Date().toISOString(),
-        notes: notes || 'Approved by Operations Manager with authorized rate margin.',
-        allowedMarginTolerancePct: job.managerApproval.allowedMarginTolerancePct,
+        notes: notes || 'Approved by Operations Manager.',
       },
     });
     return true;
@@ -1240,8 +1203,7 @@ class DatabaseService {
         status: 'REJECTED',
         approvedBy: approverName,
         approvedAt: new Date().toISOString(),
-        notes: notes || 'Rejected: Please review buy rates and improve margin.',
-        allowedMarginTolerancePct: job.managerApproval.allowedMarginTolerancePct,
+        notes: notes || 'Rejected: Please review the EPDA Amount.',
       },
     });
     return true;
@@ -1324,11 +1286,6 @@ class DatabaseService {
     const job = this.getJob(jobId);
     if (!job || job.closing.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED') return false;
 
-    const actualCostTotal = job.actualCosts.reduce((sum, item) => sum + item.amount, 0);
-    const invoiceTotal = job.principalInvoice.totalAmountUSD || job.quotation.epda.totalSellRate;
-    const grossMarginUSD = invoiceTotal - actualCostTotal;
-    const grossMarginIDR = grossMarginUSD * (job.fda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800);
-
     const previousAuditLogs = this.state.auditLogs;
     this.audit('CLOSE', 'VESSEL_CALL', `Closed vessel call ${jobId}`, jobId);
     const saved = this.updateJob(jobId, {
@@ -1338,8 +1295,6 @@ class DatabaseService {
         isClosed: true,
         closedAt: new Date().toISOString(),
         closedBy: closerName,
-        finalGrossMarginUSD: grossMarginUSD,
-        finalGrossMarginIDR: grossMarginIDR,
         postVoyageRemarks: auditNotes,
       },
     });

@@ -162,7 +162,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
   const totalPrincipalBilledIDR = approvedFDAJobs.reduce((sum, job) => {
     const billed = job.fda?.finalBilledToPrincipal
       || job.principalInvoice?.totalAmountUSD
-      || job.quotation?.epda?.totalSellRate
+      || job.quotation?.epda?.totalAmount
       || 0;
     const currency = job.fda?.currency || job.currency || 'IDR';
     const rate = job.fda?.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
@@ -203,9 +203,40 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
       currency,
       maximumFractionDigits: currency === 'IDR' ? 0 : 2,
     }).format(val);
+  const getEpdaGrandTotal = (job: JobCall) => {
+    const quote = job.quotation.epda;
+    const items = quote.items || [];
+    const categories = items.reduce<Array<{ category: string; items: typeof items }>>((groups, item) => {
+      const category = item.category || '';
+      const existing = groups.find((group) => group.category === category);
+      if (existing) existing.items.push(item);
+      else groups.push({ category, items: [item] });
+      return groups;
+    }, []);
+    const roundCurrency = (amount: number) => Math.round((amount + Number.EPSILON) * 100) / 100;
+    const vat = categories.reduce((sum, group) => {
+      const taxableAmount = group.items
+        .filter((item) => item.vatApplied)
+        .reduce((categorySum, item) => categorySum + item.amount, 0);
+      return sum + roundCurrency(taxableAmount * 0.11);
+    }, 0);
+    const pph23Applied = quote.pph23Applied ?? items.some((item) => item.pph23Applied);
+    const pph23 = pph23Applied
+      ? categories.reduce((sum, group) => {
+          if (!group.items.some((item) => item.vatApplied)) return sum;
+          const categoryTotal = group.items.reduce((categorySum, item) => categorySum + item.amount, 0);
+          return sum + roundCurrency(categoryTotal * 0.02);
+        }, 0)
+      : 0;
+    const baseAmount = Number(quote.totalAmount || 0);
+    const globalVat = quote.globalVatApplied
+      ? roundCurrency((baseAmount + vat) * 0.11)
+      : 0;
+    return roundCurrency(baseAmount + vat - pph23 + globalVat);
+  };
   const totalRevenuePipelineIDR = jobCalls.reduce((sum, job) => {
     if (job.managerApproval?.status !== 'APPROVED' || job.quotation?.epda?.status !== 'APPROVED') return sum;
-    const amount = job.quotation?.epda?.totalSellRate || job.quotation?.epda?.totalBuyRate || 0;
+    const amount = getEpdaGrandTotal(job);
     const currency = job.quotation?.epda?.currency || job.currency || 'IDR';
     const rate = job.quotation.epda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
     const normalizedAmount = currency === 'USD'
@@ -353,12 +384,12 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
       const vessel = vessels.find((item) => item.id === job.vesselId);
       const epdaTotals: Record<'USD' | 'IDR', number> = { USD: 0, IDR: 0 };
       job.quotation.epda.items.forEach((item) => {
-        epdaTotals[item.currency || job.quotation.epda.currency] += Number(item.totalSellRate || 0);
+        epdaTotals[item.currency || job.quotation.epda.currency] += Number(item.amount || 0);
       });
       const fdaTotals: Record<'USD' | 'IDR', number> = { USD: 0, IDR: 0 };
-      (job.actualCosts || []).forEach((item) => {
-        fdaTotals[item.currency || job.fda?.currency || job.currency] += Number(item.amount || 0);
-      });
+      if (job.fda?.finalBilledToPrincipal) {
+        fdaTotals[job.fda.currency || job.currency] += Number(job.fda.finalBilledToPrincipal);
+      }
 
       worksheet.addRow([
         job.jobId,
@@ -670,7 +701,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                     const epdaOpen = expandedQuoteDetail === epdaKey;
                     const fdaOpen = expandedQuoteDetail === fdaKey;
                     const closingOpen = expandedQuoteDetail === closingKey;
-                    const closingCurrency = (job.fda?.currency || job.actualCosts?.[0]?.currency || job.quotation?.epda?.currency || job.currency || 'IDR') as 'USD' | 'IDR';
+                    const closingCurrency = (job.fda?.currency || job.quotation?.epda?.currency || job.currency || 'IDR') as 'USD' | 'IDR';
                     const closingRate = job.fda?.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
                     const convertClosingAmount = (amount: number, currency?: 'USD' | 'IDR') => {
                       const sourceCurrency = currency || closingCurrency;

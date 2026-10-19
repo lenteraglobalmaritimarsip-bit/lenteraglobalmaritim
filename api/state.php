@@ -16,12 +16,9 @@ function normalizedManagerApproval(array $approval): array
         'approvedBy' => trim((string) ($approval['approvedBy'] ?? '')),
         'approvedAt' => (string) ($approval['approvedAt'] ?? ''),
         'notes' => trim((string) ($approval['notes'] ?? '')),
-        'allowedMarginTolerancePct' => is_numeric($approval['allowedMarginTolerancePct'] ?? null)
-            ? (float) $approval['allowedMarginTolerancePct']
-            : 0.0,
     ];
     foreach ($approval as $key => $value) {
-        if (!array_key_exists($key, $normalized)) $normalized[$key] = $value;
+        if ($key !== 'allowedMarginTolerancePct' && !array_key_exists($key, $normalized)) $normalized[$key] = $value;
     }
     ksort($normalized);
     return $normalized;
@@ -205,12 +202,46 @@ try {
         $allowed = match ($actor['role']) {
             'SALES' => ['inquiry', 'quotation', 'status', 'currentStage', 'updatedAt', 'vesselId', 'vesselName', 'portId', 'portName', 'customerId', 'customerName', 'currency', 'exchangeRateUSDToIDR', 'eta', 'etd', 'purposeOfCall'],
             'MANAGER_OPS' => ['managerApproval', 'quotation', 'fda', 'status', 'currentStage', 'updatedAt'],
-            'FDA' => ['actualCosts', 'fda', 'ap', 'ar', 'principalReceipts', 'principalInvoice', 'status', 'currentStage', 'updatedAt'],
+            'FDA' => ['fda', 'fdaItems', 'ap', 'ar', 'principalReceipts', 'principalInvoice', 'status', 'currentStage', 'updatedAt'],
             'FINANCE' => ['ap', 'ar', 'principalReceipts', 'principalInvoice', 'closing', 'status', 'currentStage', 'updatedAt'],
             default => [],
         };
         $oldJobs = [];
         foreach ($before['jobCalls'] as $job) $oldJobs[$job['jobId']] = $job;
+        if ($actor['role'] === 'SALES') {
+            foreach ($state['jobCalls'] as &$newJob) {
+                $jobId = (string) ($newJob['jobId'] ?? '');
+                if (!isset($oldJobs[$jobId])) continue;
+                if (array_key_exists('operationalData', $oldJobs[$jobId])) {
+                    $newJob['operationalData'] = $oldJobs[$jobId]['operationalData'];
+                } else {
+                    unset($newJob['operationalData']);
+                }
+                if (array_key_exists('fda', $oldJobs[$jobId])) {
+                    $newJob['fda'] = $oldJobs[$jobId]['fda'];
+                } else {
+                    unset($newJob['fda']);
+                }
+                if (array_key_exists('principalReceipts', $oldJobs[$jobId])) {
+                    $newJob['principalReceipts'] = $oldJobs[$jobId]['principalReceipts'];
+                } else {
+                    unset($newJob['principalReceipts']);
+                }
+            }
+            unset($newJob);
+        }
+        if ($actor['role'] !== 'FDA') {
+            foreach ($state['jobCalls'] as &$newJob) {
+                $jobId = (string) ($newJob['jobId'] ?? '');
+                if (!isset($oldJobs[$jobId])) continue;
+                if (array_key_exists('fdaItems', $oldJobs[$jobId])) {
+                    $newJob['fdaItems'] = $oldJobs[$jobId]['fdaItems'];
+                } else {
+                    unset($newJob['fdaItems']);
+                }
+            }
+            unset($newJob);
+        }
         $newJobs = [];
         foreach ($state['jobCalls'] as $job) $newJobs[$job['jobId']] = $job;
         $changedJobIds = [];
@@ -220,7 +251,7 @@ try {
                 $canSalesDelete = $actor['role'] === 'SALES'
                     && ($oldJob['managerApproval']['status'] ?? '') !== 'APPROVED'
                     && !($oldJob['fda']['fdaApproved'] ?? false)
-                    && empty($oldJob['actualCosts'])
+                    && in_array(($oldJob['fda']['approvalStatus'] ?? 'DRAFT'), ['DRAFT', 'REJECTED'], true)
                     && empty($oldJob['closing']['isClosed'])
                     && branchNameKey((string) ($oldJob['inquiry']['createdByBranch'] ?? ''))
                         === branchNameKey((string) ($actor['branch_name'] ?? $actor['branch'] ?? ''));
@@ -251,7 +282,7 @@ try {
                     && ($oldJob['quotation']['epda']['status'] ?? '') !== 'SUBMITTED'
                     && ($oldJob['quotation']['epda']['status'] ?? '') !== 'APPROVED'
                     && !($oldJob['fda']['fdaApproved'] ?? false)
-                    && empty($oldJob['actualCosts'])
+                    && in_array(($oldJob['fda']['approvalStatus'] ?? 'DRAFT'), ['DRAFT', 'REJECTED'], true)
                     && empty($oldJob['closing']['isClosed'])
                     && ($oldJob['currentStage'] ?? '') !== 'CLOSED'
                     && ($oldJob['status'] ?? '') !== 'CLOSED';

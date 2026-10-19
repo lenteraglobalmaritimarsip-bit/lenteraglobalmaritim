@@ -53,6 +53,7 @@ export const normalizeCostCategory = (value?: string) => {
     'IMMIGRATION_CUSTOMS': 'CLEARANCE',
     'LOGISTICS_SUPPLIES': 'GENERAL_EXPENSES',
     'SUNDRY': 'GENERAL_EXPENSES',
+    'TAX_CONTINGENCY': 'GENERAL_EXPENSES',
     'CREW_CHANGE': 'CREW_EXPENSES',
   };
 

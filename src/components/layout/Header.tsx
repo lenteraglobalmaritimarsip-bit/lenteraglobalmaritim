@@ -105,7 +105,7 @@ export const Header: React.FC<HeaderProps> = ({
     ADMIN: { label:'ADMIN', desc:'Master Data & System', icon:ShieldCheck },
     SALES: { label:'SALES', desc:'Inquiry, Quotes & Jobs', icon:Briefcase },
     MANAGER_OPS: { label:'MANAGER OPS', desc:'Approval & Operations', icon:Layers },
-    FDA: { label:'FDA', desc:'Actual Cost & Disbursement', icon:FileCheck2 },
+    FDA: { label:'FDA', desc:'Final Amount & Disbursement', icon:FileCheck2 },
     FINANCE: { label:'FINANCE', desc:'Invoice, AP/AR & Closing', icon:DollarSign },
   };
   const RoleIcon = roleMeta[currentRole].icon;
@@ -202,24 +202,18 @@ export const Header: React.FC<HeaderProps> = ({
             title:'FDA dikembalikan untuk revisi',
             message:`${job.jobId} · ${job.vesselName} perlu diperbaiki. Catatan Manager: ${job.fda?.notes || 'Silakan periksa kembali data FDA.'}`,
             jobId:job.jobId,
-            tab:'ACTUAL_COST',
+            tab:'FDA_AMOUNT',
             kind:'WARNING',
           });
-        } else if (fdaStatus !== 'SUBMITTED') {
-          const pendingActual = (job.actualCosts || []).filter(x => x.status !== 'APPROVED_BY_FDA').length;
-          const hasActualCost = (job.actualCosts || []).length > 0;
-          if (!hasActualCost || pendingActual) {
+        } else if (fdaStatus !== 'SUBMITTED' && !(job.fda?.finalBilledToPrincipal > 0)) {
             push({
-              id:`fda-${job.jobId}-${pendingActual}`,
-              title: !hasActualCost ? 'Actual Cost perlu diinput' : 'FDA perlu verifikasi biaya',
-              message: !hasActualCost
-                ? `${job.jobId} · ${job.vesselName} sudah Approved. Lengkapi Actual Cost terlebih dahulu.`
-                : `${job.jobId} memiliki ${pendingActual} actual cost yang belum diverifikasi.`,
+              id:`fda-${job.jobId}`,
+              title:'FDA Amount perlu dikonfirmasi',
+              message:`${job.jobId} · ${job.vesselName} sudah Approved. Tinjau Amount EPDA dan kirim FDA.`,
               jobId:job.jobId,
-              tab:'ACTUAL_COST',
+              tab:'FDA_AMOUNT',
               kind:'WARNING'
             });
-          }
         }
       }
 

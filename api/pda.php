@@ -544,9 +544,10 @@ try {
         $jobId = trim((string) ($_GET['jobId'] ?? ''));
         $pdaType = pdaDocumentType($_GET['pdaType'] ?? 'SALES');
         if ($jobId === '' || strlen($jobId) > 50) jsonResponse(['error' => 'Job ID tidak valid'], 400);
-        $query = $connection->prepare(
-            'SELECT * FROM pda_documents WHERE job_id = :job_id AND pda_type = :pda_type LIMIT 1'
-        );
+        $sql = "SELECT * FROM pda_documents WHERE job_id = :job_id AND pda_type = :pda_type"
+            . " AND approval_status IN ('SUBMITTED', 'APPROVED')"
+            . ' AND EXISTS (SELECT 1 FROM pda_items pi WHERE pi.job_id = pda_documents.job_id AND pi.pda_type = pda_documents.pda_type)';
+        $query = $connection->prepare($sql . ' LIMIT 1');
         $query->execute(['job_id' => $jobId, 'pda_type' => $pdaType]);
         $document = $query->fetch();
         jsonResponse(['draft' => $document ? readPdaDraft($connection, $document) : null]);

@@ -130,6 +130,7 @@ export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessel
         <tbody className="divide-y divide-slate-800">
           {visibleQuotes.map((job, index) => {
             const vessel = vessels.find((item) => item.id === job.vesselId);
+            const isJobVoided = Boolean(job.voidedAt);
             const pdaReferenceNo = pdaReferenceSource === 'FDA' ? job.fda?.fdaNo : job.quotation?.epda?.quoteNo;
             const hasPdaReferenceNo = Boolean(pdaReferenceNo?.trim());
             return (
@@ -159,8 +160,10 @@ export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessel
                   <div className="flex flex-wrap items-center justify-center gap-1.5">
                     <button
                       type="button"
-                      onClick={() => { onSelectJob(job.jobId); onOpenEPDA(); }}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-blue-500"
+                      disabled={isJobVoided}
+                      title={isJobVoided ? 'Job dibatalkan' : actionLabel}
+                      onClick={() => { if (isJobVoided) return; onSelectJob(job.jobId); onOpenEPDA(); }}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-blue-600"
                     >
                       <FileSpreadsheet className="h-3.5 w-3.5" />
                       {actionLabel}
@@ -168,9 +171,9 @@ export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessel
                     {showPdaButton && (
                       <button
                         type="button"
-                        disabled={!hasPdaReferenceNo}
-                        title={hasPdaReferenceNo ? pdaReferenceNo : `Nomor ${pdaReferenceSource} belum tersedia`}
-                        onClick={() => { if (!hasPdaReferenceNo) return; onSelectJob(job.jobId); onOpenPDA?.(); }}
+                        disabled={isJobVoided || !hasPdaReferenceNo}
+                        title={isJobVoided ? 'Job dibatalkan' : hasPdaReferenceNo ? pdaReferenceNo : `Nomor ${pdaReferenceSource} belum tersedia`}
+                        onClick={() => { if (isJobVoided || !hasPdaReferenceNo) return; onSelectJob(job.jobId); onOpenPDA?.(); }}
                         className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <UsersRound className="h-3.5 w-3.5" />

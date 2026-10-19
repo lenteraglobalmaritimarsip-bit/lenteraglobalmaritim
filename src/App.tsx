@@ -452,7 +452,7 @@ export default function App() {
                 customers={data.customers}
                 currentUser={currentUser}
                 onSelectJob={setSelectedJobId}
-                onNavigateToQuotes={() => setActiveTab('ACTUAL_COST')}
+                onNavigateToQuotes={() => setActiveTab('FDA_AMOUNT')}
                 onOpenFPDA={() => setActiveTab('FDA_PDA_DETAIL')}
                 onDataSaved={notifySaved}
                 showFdaStatusColumn
@@ -464,7 +464,7 @@ export default function App() {
                 jobCalls={roleVisibleJobCalls}
                 vessels={data.vessels}
                 onSelectJob={setSelectedJobId}
-                onOpenEPDA={() => setActiveTab('ACTUAL_COST')}
+                onOpenEPDA={() => setActiveTab('FDA_AMOUNT')}
                 onOpenPDA={() => setActiveTab('FDA_PDA_DETAIL')}
                 title="Created FDA"
                 description="Pembuatan Final Disbursement Account."
@@ -550,7 +550,7 @@ export default function App() {
             {currentRole === 'FDA' && roleVisibleJobCalls.length > 0 &&
               (activeTab === 'DASHBOARD' ||
                 activeTab === 'FDA_JOB_ID' ||
-                activeTab === 'ACTUAL_COST' ||
+                activeTab === 'FDA_AMOUNT' ||
                 activeTab === 'CREW_CHANGE' ||
                 activeTab === 'QUOTES_VIEW' ||
                 activeTab === 'APPROVAL') && (
@@ -560,8 +560,10 @@ export default function App() {
                       ? 'DASHBOARD'
                       : activeTab === 'FDA_JOB_ID'
                       ? 'JOB_ID'
-                      : activeTab === 'ACTUAL_COST' || activeTab === 'CREW_CHANGE'
-                      ? 'ACTUAL_COST'
+                      : activeTab === 'FDA_AMOUNT'
+                      ? 'FDA_AMOUNT'
+                      : activeTab === 'CREW_CHANGE'
+                      ? 'CREW_CHANGE'
                       : activeTab === 'QUOTES_VIEW'
                       ? 'QUOTES_VIEW'
                       : 'APPROVAL'

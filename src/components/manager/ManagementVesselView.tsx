@@ -59,7 +59,7 @@ const getJobPosition = (job: JobCall) => {
   if (job.fda?.approvalStatus === 'SUBMITTED' && !job.fda.fdaApproved) return 'Menunggu Approval FDA Manager';
   if (job.fda?.fdaApproved || job.fda?.approvalStatus === 'APPROVED') return 'Finance - Invoice / AP / AR';
   if (job.fda?.approvalStatus === 'REJECTED') return 'Revisi FDA oleh FDA';
-  if (job.managerApproval?.status === 'APPROVED') return 'FDA - Actual Cost';
+  if (job.managerApproval?.status === 'APPROVED') return 'FDA - Amount';
   if (job.managerApproval?.status === 'REJECTED') return 'Revisi Quotation oleh Sales';
   if (job.quotation?.epda?.status === 'SUBMITTED') return 'Menunggu Approval Quotation';
 
@@ -68,7 +68,6 @@ const getJobPosition = (job: JobCall) => {
     QUOTATION: 'Quotation EPDA',
     MANAGER_APPROVAL: 'Manager Approval',
     OPERATIONAL: 'Operasional',
-    ACTUAL_COST: 'Actual Cost',
     FDA: 'Finalisasi FDA',
     AP_AR: 'Finance - AP / AR',
     PRINCIPAL_INVOICE: 'Invoice Principal',

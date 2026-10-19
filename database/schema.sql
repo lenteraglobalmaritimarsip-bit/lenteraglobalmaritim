@@ -1,9 +1,8 @@
 -- MaritimPort / Lentera Global Maritim
 -- MariaDB 10.4+ / MySQL 8.0.16+ schema for Admin, Sales, Manager Ops, FDA, and Finance workflows.
 -- Runtime: PHP API (api/*.php) + MariaDB. Application data is NOT stored in browser storage.
--- IDs are supplied by the application (for example USR-001, EXP-001, and ACT-...).
--- Fresh install: import this file once. Existing database: apply database/migrations/*.sql in date order
--- (apply all migration files in date order to bring an older database in line with this file).
+-- IDs are supplied by the application (for example USR-001 and EXP-001).
+-- Fresh install: import this file once. Existing databases must be upgraded separately.
 
 SET NAMES utf8mb4;
 
@@ -45,19 +44,6 @@ CREATE TABLE fpda_number_sequences (
   branch_code VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   last_sequence INT UNSIGNED NOT NULL,
   PRIMARY KEY (year, branch_code)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE pda_number_issues (
-  request_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
-  user_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-  year SMALLINT UNSIGNED NOT NULL,
-  branch_code VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-  sequence_no INT UNSIGNED NOT NULL,
-  pda_no VARCHAR(180) CHARACTER SET ascii COLLATE ascii_bin NOT NULL UNIQUE,
-  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-  CONSTRAINT fk_pda_number_issues_user FOREIGN KEY (user_id) REFERENCES users(id),
-  CONSTRAINT fk_pda_number_issues_sequence FOREIGN KEY (year, branch_code) REFERENCES pda_number_sequences(year, branch_code),
-  UNIQUE KEY uq_pda_number_issues_sequence (year, branch_code, sequence_no)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE customers (
@@ -243,7 +229,7 @@ CREATE TABLE vessel_calls (
   eta DATETIME(3),
   etd DATETIME(3),
   purpose_of_call ENUM('CARGO_DISCHARGE', 'CARGO_LOADING', 'CARGO_OPERATIONS', 'SHIP_SERVICES_SUPPLIES', 'CREW_PASSENGER_OPERATIONS', 'TECHNICAL_EMERGENCY', 'PORT_SERVICE', 'HUSBANDRY_SERVICES', 'VESSEL_SUPPLIES', 'MAINTENANCE_WASTE_MANAGEMENT', 'ADMINISTRATIVE_SERVICES', 'BUNKERING', 'CREW_CHANGE_ONLY', 'REPAIR_MAINTENANCE') NOT NULL,
-  current_stage ENUM('INQUIRY', 'QUOTATION', 'MANAGER_APPROVAL', 'OPERATIONAL', 'ACTUAL_COST', 'FDA', 'AP_AR', 'PRINCIPAL_INVOICE', 'CLOSED') NOT NULL DEFAULT 'INQUIRY',
+  current_stage ENUM('INQUIRY', 'QUOTATION', 'MANAGER_APPROVAL', 'OPERATIONAL', 'FDA', 'AP_AR', 'PRINCIPAL_INVOICE', 'CLOSED') NOT NULL DEFAULT 'INQUIRY',
   status ENUM('INQUIRY', 'QUOTED', 'APPROVED', 'IN_PROGRESS', 'COMPLETED', 'CLOSED') NOT NULL DEFAULT 'INQUIRY',
   voided_at DATETIME(3),
   voided_by_name VARCHAR(150),
@@ -344,10 +330,7 @@ CREATE TABLE quotations (
   exchange_rate_usd_to_idr DECIMAL(30,12) NOT NULL DEFAULT 15800 CHECK (exchange_rate_usd_to_idr > 0),
   pph23_applied BOOLEAN NOT NULL DEFAULT FALSE,
   global_vat_applied BOOLEAN NOT NULL DEFAULT FALSE,
-  total_buy_rate DECIMAL(30,12) NOT NULL DEFAULT 0,
-  total_sell_rate DECIMAL(30,12) NOT NULL DEFAULT 0,
-  margin_amount DECIMAL(30,12) NOT NULL DEFAULT 0,
-  margin_percentage DECIMAL(18,6) NOT NULL DEFAULT 0,
+  total_amount DECIMAL(30,12) NOT NULL DEFAULT 0,
   status ENUM('DRAFT', 'SUBMITTED', 'APPROVED') NOT NULL DEFAULT 'DRAFT',
   UNIQUE KEY uq_quotations_job_type (job_id, quote_type),
   CONSTRAINT fk_quotations_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id) ON DELETE CASCADE
@@ -359,13 +342,10 @@ CREATE TABLE quotation_items (
   expense_item_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin,
   entry_order INT NOT NULL,
   name VARCHAR(200) NOT NULL,
-  category ENUM('PORT_EXPENSES', 'PORT_SERVICE', 'CLEARANCE', 'GENERAL_EXPENSES', 'CREW_EXPENSES', 'OWNER_MATTER', 'AGENCY_FEE', 'TAX_CONTINGENCY', 'PORT_DUES', 'PILOTAGE_TOWAGE', 'BERTHING', 'CREW_CHANGE', 'IMMIGRATION_CUSTOMS', 'LOGISTICS_SUPPLIES', 'SUNDRY') NOT NULL,
+  category ENUM('PORT SERVICE', 'PORT EXPENSES', 'CLEARANCE IN/OUT', 'GENERAL EXPENSES', 'CREW EXPENSES', 'OWNER MATTER', 'AGENCY FEE') NOT NULL,
   basis TEXT,
   quantity DECIMAL(18,6) NOT NULL DEFAULT 1,
-  unit_buy_rate DECIMAL(30,12) NOT NULL DEFAULT 0,
-  unit_sell_rate DECIMAL(30,12) NOT NULL DEFAULT 0,
-  total_buy_rate DECIMAL(30,12) NOT NULL DEFAULT 0,
-  total_sell_rate DECIMAL(30,12) NOT NULL DEFAULT 0,
+  amount DECIMAL(30,12) NOT NULL DEFAULT 0,
   currency ENUM('IDR', 'USD') NOT NULL,
   tariff_type ENUM('FIXED', 'VARIABLE', 'QTY_CARGO'),
   calculation_basis ENUM('PER_GRT', 'PER_DAY', 'LUMP_SUM', 'PER_HOUR', 'PER_MOVE'),
@@ -415,7 +395,6 @@ CREATE TABLE manager_approvals (
   approved_by_name VARCHAR(150),
   approved_at DATETIME(3),
   notes TEXT,
-  allowed_margin_tolerance_pct DECIMAL(18,6) NOT NULL DEFAULT 0,
   CONSTRAINT fk_manager_approvals_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -438,36 +417,6 @@ CREATE TABLE statements_of_fact (
   CONSTRAINT fk_statements_of_fact_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE actual_costs (
-  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
-  job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-  entry_order INT NOT NULL,
-  item_code VARCHAR(60) NOT NULL,
-  description VARCHAR(200) NOT NULL,
-  category VARCHAR(80) NOT NULL,
-  vendor_name VARCHAR(200) NOT NULL,
-  invoice_or_voucher_no VARCHAR(100) NOT NULL,
-  cost_date DATE NOT NULL,
-  quantity DECIMAL(18,6),
-  amount DECIMAL(30,12) NOT NULL DEFAULT 0,
-  currency ENUM('IDR', 'USD') NOT NULL,
-  tariff_type ENUM('FIXED', 'VARIABLE', 'QTY_CARGO'),
-  calculation_basis ENUM('PER_GRT', 'PER_DAY', 'LUMP_SUM', 'PER_HOUR', 'PER_MOVE'),
-  tariff_rate DECIMAL(30,12),
-  tariff_description TEXT,
-  estimated_amount DECIMAL(30,12) NOT NULL DEFAULT 0,
-  variance_amount DECIMAL(30,12) NOT NULL DEFAULT 0,
-  status ENUM('PENDING_VERIFICATION', 'VERIFIED', 'APPROVED_BY_FDA') NOT NULL DEFAULT 'PENDING_VERIFICATION',
-  attachment_name VARCHAR(255),
-  attachment_data_url LONGTEXT,
-  remarks TEXT,
-  vat_applied TINYINT(1) NOT NULL DEFAULT 0,
-  pph23_applied TINYINT(1) NOT NULL DEFAULT 0,
-  UNIQUE KEY uq_actual_costs_order (job_id, entry_order),
-  INDEX idx_actual_costs_job_status (job_id, status),
-  CONSTRAINT fk_actual_costs_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 CREATE TABLE fda_records (
   job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
   fda_no VARCHAR(80) NOT NULL UNIQUE,
@@ -480,12 +429,7 @@ CREATE TABLE fda_records (
   exchange_rate_usd_to_idr DECIMAL(30,12) NOT NULL DEFAULT 15800 CHECK (exchange_rate_usd_to_idr > 0),
   pph23_applied BOOLEAN NOT NULL DEFAULT FALSE,
   global_vat_applied BOOLEAN NOT NULL DEFAULT FALSE,
-  total_estimated_buy DECIMAL(30,12) NOT NULL DEFAULT 0,
-  total_estimated_sell DECIMAL(30,12) NOT NULL DEFAULT 0,
-  total_actual_cost DECIMAL(30,12) NOT NULL DEFAULT 0,
   final_billed_to_principal DECIMAL(30,12) NOT NULL DEFAULT 0,
-  variance_amount DECIMAL(30,12) NOT NULL DEFAULT 0,
-  variance_percentage DECIMAL(18,6) NOT NULL DEFAULT 0,
   fda_approved BOOLEAN NOT NULL DEFAULT FALSE,
   approval_status ENUM('DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED') NOT NULL DEFAULT 'DRAFT',
   submitted_by_name VARCHAR(150),
@@ -496,6 +440,35 @@ CREATE TABLE fda_records (
   pdf_file_name VARCHAR(255),
   pdf_data_url LONGTEXT,
   CONSTRAINT fk_fda_records_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE fda_items (
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  entry_order INT UNSIGNED NOT NULL,
+  item_code VARCHAR(100) NOT NULL,
+  description VARCHAR(250) NOT NULL,
+  category ENUM('PORT SERVICE', 'PORT EXPENSES', 'CLEARANCE IN/OUT', 'GENERAL EXPENSES', 'CREW EXPENSES', 'OWNER MATTER', 'AGENCY FEE') NOT NULL,
+  vendor_name VARCHAR(200) NOT NULL DEFAULT '',
+  invoice_or_voucher_no VARCHAR(100) NOT NULL DEFAULT '',
+  cost_date DATE NOT NULL,
+  quantity DECIMAL(18,6) NOT NULL DEFAULT 1,
+  amount DECIMAL(30,12) NOT NULL DEFAULT 0,
+  currency ENUM('IDR', 'USD') NOT NULL,
+  estimated_amount DECIMAL(30,12) NOT NULL DEFAULT 0,
+  tariff_type ENUM('FIXED', 'VARIABLE', 'QTY_CARGO'),
+  calculation_basis ENUM('PER_GRT', 'PER_DAY', 'LUMP_SUM', 'PER_HOUR', 'PER_MOVE'),
+  tariff_rate DECIMAL(30,12),
+  tariff_description TEXT,
+  variance_amount DECIMAL(30,12) NOT NULL DEFAULT 0,
+  status ENUM('PENDING_VERIFICATION', 'VERIFIED', 'APPROVED_BY_FDA') NOT NULL DEFAULT 'PENDING_VERIFICATION',
+  attachment_name VARCHAR(255),
+  attachment_data_url LONGTEXT,
+  remarks TEXT,
+  vat_applied TINYINT(1) NOT NULL DEFAULT 0,
+  pph23_applied TINYINT(1) NOT NULL DEFAULT 0,
+  UNIQUE KEY uq_fda_items_order (job_id, entry_order),
+  CONSTRAINT fk_fda_items_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE ap_items (
@@ -594,8 +567,6 @@ CREATE TABLE closing_records (
   is_closed BOOLEAN NOT NULL DEFAULT FALSE,
   closed_at DATETIME(3),
   closed_by_name VARCHAR(150),
-  final_gross_margin_usd DECIMAL(30,12) NOT NULL DEFAULT 0,
-  final_gross_margin_idr DECIMAL(30,12) NOT NULL DEFAULT 0,
   post_voyage_remarks TEXT,
   CONSTRAINT fk_closing_records_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

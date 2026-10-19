@@ -64,9 +64,6 @@ function getManagementStatus(job: JobCall): Array<{label:string; value:string; t
     : job.operationalData?.ata || job.operationalData?.atb
       ? 'Berjalan'
       : 'Belum Mulai';
-  const actual = job.actualCosts?.length
-    ? (job.actualCosts.some(x => x.status === 'APPROVED_BY_FDA') ? 'Terverifikasi' : 'Updated')
-    : 'Open';
   const fda = job.fda?.fdaApproved ? 'Approved' : 'Open';
   const ap = job.ap?.length
     ? (job.ap.every(x => x.status === 'PAID') ? 'Paid' : job.ap.some(x => x.status === 'PARTIALLY_PAID') ? 'Partial' : 'Open')
@@ -98,7 +95,6 @@ function getManagementStatus(job: JobCall): Array<{label:string; value:string; t
     stageStatus('Crew Change', crewLabel, crewLabel === 'COMPLETED' ? 'done' : crewLabel === 'Not Required / Planned' ? 'open' : 'waiting'),
     stageStatus('Manager Approval', approvalLabel, approvalLabel === 'Approved' ? 'done' : approvalLabel === 'Rejected' ? 'danger' : 'waiting'),
     stageStatus('Operational Data', operational, operational === 'Selesai' ? 'done' : operational === 'Berjalan' ? 'waiting' : 'open'),
-    stageStatus('Actual Cost', actual, actual === 'Terverifikasi' ? 'done' : 'waiting'),
     stageStatus('FDA', fda, fda === 'Approved' ? 'done' : 'open'),
     stageStatus('Finance (AP / AR / Invoice)', financeLabel, financeLabel === 'AP Open • AR Received' || financeLabel === 'Closed vessel calls' ? 'done' : 'waiting'),
     stageStatus('Closing', closing, closing === 'Closed vessel calls' ? 'done' : 'open'),
@@ -156,7 +152,7 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,onSelec
     setSelectedDetailId(id);
   };
 
-  const exportHeaders = ['NO', 'VESSEL CALL', 'INQUIRY NO', 'TANGGAL INQUIRY', 'DIBUAT OLEH', 'BRANCH', 'VESSEL', 'IMO', 'CALL SIGN', 'FLAG', 'TYPE', 'GT', 'NT', 'LOA (M)', 'BEAM (M)', 'CARGO QUANTITY', 'SATUAN CARGO QUANTITY', 'CUSTOMER / PRINCIPAL', 'PELABUHAN', 'ETA', 'KETERANGAN ETA', 'ETD', 'KETERANGAN ETD', 'TUJUAN KUNJUNGAN', 'ESTIMASI DURASI (HARI)', 'CARGO / PURPOSE DETAILS', 'SPECIAL REQUIREMENTS', 'OVERALL STATUS', 'KESIMPULAN', 'EPDA', 'CREW CHANGE', 'MANAGER APPROVAL', 'OPERATIONAL DATA', 'ACTUAL COST', 'FDA', 'FINANCE (AP / AR / INVOICE)', 'CLOSING'];
+  const exportHeaders = ['NO', 'VESSEL CALL', 'INQUIRY NO', 'TANGGAL INQUIRY', 'DIBUAT OLEH', 'BRANCH', 'VESSEL', 'IMO', 'CALL SIGN', 'FLAG', 'TYPE', 'GT', 'NT', 'LOA (M)', 'BEAM (M)', 'CARGO QUANTITY', 'SATUAN CARGO QUANTITY', 'CUSTOMER / PRINCIPAL', 'PELABUHAN', 'ETA', 'KETERANGAN ETA', 'ETD', 'KETERANGAN ETD', 'TUJUAN KUNJUNGAN', 'ESTIMASI DURASI (HARI)', 'CARGO / PURPOSE DETAILS', 'SPECIAL REQUIREMENTS', 'OVERALL STATUS', 'KESIMPULAN', 'EPDA', 'CREW CHANGE', 'MANAGER APPROVAL', 'OPERATIONAL DATA', 'FDA', 'FINANCE (AP / AR / INVOICE)', 'CLOSING'];
   const exportRows = rows.map((j, index) => {
     const vessel = vessels.find(v => v.id === j.vesselId);
     const statuses = getManagementStatus(j);
@@ -170,7 +166,7 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,onSelec
       j.portName, formatDateDisplay(j.eta, true), inquiry.etaRemarks || '-', formatDateDisplay(j.etd, true), inquiry.etdRemarks || '-', (j.purposeOfCall || '').replace(/_/g, ' ') || '-',
       inquiry.estimatedDays, inquiry.cargoDetails, inquiry.specialRequirements || '-', statusLabel[j.status] || j.status,
       statusByLabel.KESIMPULAN || '-', statusByLabel.EPDA || '-', statusByLabel['Crew Change'] || '-',
-      statusByLabel['Manager Approval'] || '-', statusByLabel['Operational Data'] || '-', statusByLabel['Actual Cost'] || '-',
+      statusByLabel['Manager Approval'] || '-', statusByLabel['Operational Data'] || '-',
       statusByLabel.FDA || '-', statusByLabel['Finance (AP / AR / Invoice)'] || '-', statusByLabel.Closing || '-',
     ];
   });
@@ -283,7 +279,7 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,onSelec
           <span className={`status-conclusion-badge ${conclusion.tone}`}>{toneIcon(conclusion.tone)} {conclusion.value}</span>
         </div>
         <div className="vessel-status-grid">
-          {statuses.slice(0,-1).filter(s=>!['Crew Change','Operational Data','Actual Cost'].includes(s.label)).map(s=><div key={s.label} className={`vessel-status-card ${s.tone}`}><div className="vessel-status-icon">{toneIcon(s.tone)}</div><div><small>{s.label}</small><strong>{s.value}</strong></div></div>)}
+          {statuses.slice(0,-1).filter(s=>!['Crew Change','Operational Data'].includes(s.label)).map(s=><div key={s.label} className={`vessel-status-card ${s.tone}`}><div className="vessel-status-icon">{toneIcon(s.tone)}</div><div><small>{s.label}</small><strong>{s.value}</strong></div></div>)}
         </div>
       </section>
     </div>;

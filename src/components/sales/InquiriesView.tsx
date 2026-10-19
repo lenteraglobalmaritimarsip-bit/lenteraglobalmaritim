@@ -509,7 +509,8 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                 && job.quotation.epda.status !== 'SUBMITTED'
                 && job.quotation.epda.status !== 'APPROVED'
                 && !job.fda?.fdaApproved
-                && !(job.actualCosts?.length)
+                && job.fda?.approvalStatus !== 'SUBMITTED'
+                && job.fda?.approvalStatus !== 'APPROVED'
                 && !job.closing?.isClosed
                 && job.currentStage !== 'CLOSED'
                 && job.status !== 'CLOSED';

@@ -95,7 +95,6 @@ export const JobsEntryView: React.FC<JobsEntryViewProps> = ({
             <option value="QUOTATION">Quotation (EPDA)</option>
             <option value="MANAGER_APPROVAL">Manager Approval</option>
             <option value="OPERATIONAL_DATA">Operational Data (SOF/Berthing)</option>
-            <option value="ACTUAL_COST">Actual Cost</option>
             <option value="FDA">FDA (Final Disbursement)</option>
             <option value="CLOSING">Closing Selesai</option>
           </select>
@@ -168,7 +167,7 @@ export const JobsEntryView: React.FC<JobsEntryViewProps> = ({
                   <div className="mt-2 text-[11px] text-slate-400 flex items-center justify-between">
                     <span>Quotes EPDA:</span>
                     <strong className="text-white font-mono">
-                      {formatUSD(job.quotation.epda.totalSellRate)}
+                      {formatUSD(job.quotation.epda.totalAmount)}
                     </strong>
                   </div>
                 </div>

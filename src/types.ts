@@ -19,7 +19,6 @@ export type JobStage =
   | 'QUOTATION'
   | 'MANAGER_APPROVAL'
   | 'OPERATIONAL'
-  | 'ACTUAL_COST'
   | 'FDA'
   | 'AP_AR'
   | 'PRINCIPAL_INVOICE'
@@ -196,14 +195,37 @@ export interface DisbursementItem {
   category: string;
   basis: string;
   quantity: number;
-  unitBuyRate: number;
-  unitSellRate: number;
-  totalBuyRate: number;
-  totalSellRate: number;
+  amount: number;
   currency: Currency;
   tariffType?: 'FIXED' | 'VARIABLE' | 'QTY_CARGO';
   calculationBasis?: 'PER_GRT' | 'PER_DAY' | 'LUMP_SUM' | 'PER_HOUR' | 'PER_MOVE';
   tariffRate?: number;
+  remarks?: string;
+  vatApplied?: boolean;
+  pph23Applied?: boolean;
+}
+
+export interface FdaItem {
+  id: string;
+  jobId: string;
+  itemCode: string;
+  description: string;
+  category: string;
+  vendorName: string;
+  invoiceOrVoucherNo: string;
+  date: string;
+  quantity?: number;
+  amount: number;
+  currency: Currency;
+  tariffType?: 'FIXED' | 'VARIABLE' | 'QTY_CARGO';
+  estimatedAmount: number;
+  calculationBasis?: 'PER_GRT' | 'PER_DAY' | 'LUMP_SUM' | 'PER_HOUR' | 'PER_MOVE';
+  tariffRate?: number;
+  tariffDescription?: string;
+  varianceAmount: number;
+  status: 'PENDING_VERIFICATION' | 'VERIFIED' | 'APPROVED_BY_FDA';
+  attachmentName?: string;
+  attachmentDataUrl?: string;
   remarks?: string;
   vatApplied?: boolean;
   pph23Applied?: boolean;
@@ -228,31 +250,6 @@ export interface StatementOfFactItem {
   timestamp: string;
   event: string;
   remarks?: string;
-}
-
-export interface ActualCostItem {
-  id: string;
-  jobId: string;
-  itemCode: string;
-  description: string;
-  category: string;
-  vendorName: string;
-  invoiceOrVoucherNo: string;
-  date: string;
-  quantity?: number;
-  amount: number;
-  currency: Currency;
-  tariffType?: 'FIXED' | 'VARIABLE' | 'QTY_CARGO';
-  estimatedAmount: number;
-  calculationBasis?: 'PER_GRT' | 'PER_DAY' | 'LUMP_SUM' | 'PER_HOUR' | 'PER_MOVE';
-  tariffRate?: number;
-  tariffDescription?: string;
-  varianceAmount: number; // actual - estimated
-  status: 'PENDING_VERIFICATION' | 'VERIFIED' | 'APPROVED_BY_FDA';
-  attachmentName?: string;
-  remarks?: string;
-  vatApplied?: boolean;
-  pph23Applied?: boolean;
 }
 
 export interface APItem {
@@ -423,10 +420,7 @@ export interface JobCall {
       pph23Applied?: boolean;
       globalVatApplied?: boolean;
       items: DisbursementItem[];
-      totalBuyRate: number;
-      totalSellRate: number;
-      marginAmount: number;
-      marginPercentage: number;
+      totalAmount: number;
       status: 'DRAFT' | 'SUBMITTED' | 'APPROVED';
     };
     crewChange: {
@@ -450,7 +444,6 @@ export interface JobCall {
     approvedBy?: string;
     approvedAt?: string;
     notes?: string;
-    allowedMarginTolerancePct: number;
   };
 
   // 4. Operational Data
@@ -462,10 +455,9 @@ export interface JobCall {
     statementOfFacts: StatementOfFactItem[];
   };
 
-  // 5. Actual Cost
-  actualCosts: ActualCostItem[];
+  fdaItems?: FdaItem[];
 
-  // 6. FDA (Final Disbursement Account)
+  // 5. FDA (Final Disbursement Account)
   fda: {
     fdaNo: string;
     date: string;
@@ -477,12 +469,7 @@ export interface JobCall {
     exchangeRateUSDToIDR?: number;
     pph23Applied?: boolean;
     globalVatApplied?: boolean;
-    totalEstimatedBuy: number;
-    totalEstimatedSell: number;
-    totalActualCost: number;
     finalBilledToPrincipal: number;
-    varianceAmount: number;
-    variancePercentage: number;
     fdaApproved: boolean;
     approvalStatus?: 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
     submittedBy?: string;
@@ -521,8 +508,6 @@ export interface JobCall {
     isClosed: boolean;
     closedAt?: string;
     closedBy?: string;
-    finalGrossMarginUSD: number;
-    finalGrossMarginIDR: number;
     postVoyageRemarks?: string;
   };
 
@@ -550,6 +535,7 @@ export type ActiveTab =
   | 'PDA_CREW_DETAIL'
   | 'FDA_INQUIRIES'
   | 'FDA_QUOTES_EPDA'
+  | 'FDA_AMOUNT'
   | 'FDA_PDA_DETAIL'
   | 'FDA_CREATE_VOUCHER'
   | 'FDA_PAYMENT_HISTORY'
@@ -561,7 +547,6 @@ export type ActiveTab =
   | 'FDA_JOB_ID'
   | 'QUOTES_VIEW'
   | 'APPROVAL'
-  | 'ACTUAL_COST'
   | 'CREW_CHANGE'
   | 'FINANCE_DASHBOARD'
   | 'JOB_INVOICE_OPEN'

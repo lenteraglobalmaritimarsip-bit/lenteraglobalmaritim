@@ -18,7 +18,7 @@ import {
   Trash2,
   CalendarDays,
 } from 'lucide-react';
-import { ActualCostItem, ExpensesItem, FixTariff, JobCall, ActiveTab, Currency, Vessel } from '../../types';
+import { ExpensesItem, FixTariff, JobCall, ActiveTab, Currency, Vessel } from '../../types';
 import { formatDateDisplay, isInquiryDateInRange } from '../../utils/date';
 import { db } from '../../db/storage';
 import { formatCostCategoryLabel, getCostCategoryRank, normalizeCostCategory } from '../../utils/costCategories';
@@ -94,13 +94,11 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val);
 
   const jobCurrency: Currency = activeJob?.fda?.currency
-    || activeJob?.actualCosts?.[0]?.currency
     || activeJob?.quotation?.epda?.currency
     || activeJob?.currency
     || 'IDR';
   const formatJobCurrency = (val: number) => jobCurrency === 'IDR' ? formatIDR(val) : formatUSD(val);
   const getJobCurrency = (job: JobCall): Currency => job.fda?.currency
-    || job.actualCosts?.[0]?.currency
     || job.quotation?.epda?.currency
     || job.currency
     || 'IDR';
@@ -161,7 +159,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     const currency = (job.fda?.currency || job.currency || 'IDR') as Currency;
     const baseBilled = job.fda?.finalBilledToPrincipal
       || job.principalInvoice?.totalAmountUSD
-      || job.quotation?.epda?.totalSellRate
+      || job.quotation?.epda?.totalAmount
       || (job.ar || []).reduce((sum, item) => sum + convertCurrencyPrecisely(
         Number(item.requestedAmount || 0),
         (item.currency || currency) as Currency,
@@ -229,33 +227,12 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     return (!!currentPortId && !!portId?.trim() && currentPortId === portId.trim())
       || (!!currentPortName && !!portName?.trim() && currentPortName.toLowerCase() === portName.trim().toLowerCase());
   };
-  const resolveInvoiceCategory = (item: ActualCostItem) => {
-    const itemName = item.description.trim().toLowerCase();
-    const epdaItem = activeJob.quotation?.epda?.items?.find((entry) => entry.name.trim().toLowerCase() === itemName);
-    const category = normalizeCostCategory(item.category);
-    const epdaCategory = normalizeCostCategory(epdaItem?.category);
-    if (category) return category;
-    if (epdaCategory) return epdaCategory;
-
-    const matchingTariff = fixTariffs.find((tariff) =>
-      tariff.serviceName.trim().toLowerCase() === itemName
-      && invoicePortMatches(tariff.portId, tariff.portName)
-      && tariff.costCategory
-    );
-    if (matchingTariff?.costCategory) return normalizeCostCategory(matchingTariff.costCategory);
-
-    const matchingExpense = expensesItems.find((expense) =>
-      expense.name.trim().toLowerCase() === itemName
-      && invoicePortMatches(expense.portId, expense.portName)
-    );
-    return matchingExpense?.category ? normalizeCostCategory(matchingExpense.category) : 'UNCATEGORIZED';
-  };
-  const invoiceItems = (activeJob?.actualCosts || []).map((item) => ({
+  const invoiceItems = (activeJob?.quotation?.epda?.items || []).map((item) => ({
     id: item.id,
-    name: item.description,
-    category: resolveInvoiceCategory(item),
-    basis: item.vendorName || 'FDA Actual Cost',
-    totalSellRate: item.amount || 0,
+    name: item.name,
+    category: normalizeCostCategory(item.category),
+    basis: item.basis,
+    amount: item.amount || 0,
     currency: item.currency || jobCurrency,
   }));
   const invoiceGroups = invoiceItems.reduce((groups, item) => {
@@ -599,7 +576,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       ? `<tr><td>Final Port Disbursement Account (FPDA)</td><td>${escapeHtml(jobCurrency)}</td><td class="amount">${escapeHtml(formatCurrencyNumber(invoiceAmount, jobCurrency))}</td></tr>`
       : invoiceGroups.map((group) => `
       <tr class="category"><td colspan="3">${escapeHtml(invoiceCategoryLabel(group.category))}</td></tr>
-      ${group.items.map((item) => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.currency)}</td><td class="amount">${escapeHtml(formatCurrencyNumber(convertCurrency(item.totalSellRate, item.currency, jobCurrency, getJobExchangeRate(activeJob)), jobCurrency))}</td></tr>`).join('')}
+      ${group.items.map((item) => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.currency)}</td><td class="amount">${escapeHtml(formatCurrencyNumber(convertCurrency(item.amount, item.currency, jobCurrency, getJobExchangeRate(activeJob)), jobCurrency))}</td></tr>`).join('')}
     `).join('');
 
     const totalInvoiceRow = `<tr class="total"><td colspan="2" class="right">TOTAL NILAI INVOICE</td><td class="amount">${escapeHtml(formatCurrencyNumber(invoiceAmount, jobCurrency))}</td></tr>`;
@@ -1273,7 +1250,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                           </td>
                           <td className="p-3 text-right font-mono text-slate-400">{it.currency}</td>
                           <td className="p-3 text-right font-mono font-bold text-cyan-300">
-                            {formatCurrencyNumber(convertCurrency(it.totalSellRate, it.currency, jobCurrency, getJobExchangeRate(activeJob)), jobCurrency)}
+                            {formatCurrencyNumber(convertCurrency(it.amount, it.currency, jobCurrency, getJobExchangeRate(activeJob)), jobCurrency)}
                           </td>
                         </tr>
                       ))}

@@ -52,10 +52,41 @@ export const SalesDashboardView:React.FC<SalesDashboardViewProps>=({jobCalls,onN
       || b.quoteNo.localeCompare(a.quoteNo))
     .slice(0, 5);
   const activeQuotes=jobCalls.filter(j=>j.status==='QUOTED'||j.status==='INQUIRY').length;
+  const getEpdaGrandTotal = (job: JobCall) => {
+    const quote = job.quotation.epda;
+    const items = quote.items || [];
+    const categories = items.reduce<Array<{ category: string; items: typeof items }>>((groups, item) => {
+      const category = item.category || '';
+      const existing = groups.find((group) => group.category === category);
+      if (existing) existing.items.push(item);
+      else groups.push({ category, items: [item] });
+      return groups;
+    }, []);
+    const roundCurrency = (amount: number) => Math.round((amount + Number.EPSILON) * 100) / 100;
+    const vat = categories.reduce((sum, group) => {
+      const taxableAmount = group.items
+        .filter((item) => item.vatApplied)
+        .reduce((categorySum, item) => categorySum + item.amount, 0);
+      return sum + roundCurrency(taxableAmount * 0.11);
+    }, 0);
+    const pph23Applied = quote.pph23Applied ?? items.some((item) => item.pph23Applied);
+    const pph23 = pph23Applied
+      ? categories.reduce((sum, group) => {
+          if (!group.items.some((item) => item.vatApplied)) return sum;
+          const categoryTotal = group.items.reduce((categorySum, item) => categorySum + item.amount, 0);
+          return sum + roundCurrency(categoryTotal * 0.02);
+        }, 0)
+      : 0;
+    const baseAmount = Number(quote.totalAmount || 0);
+    const globalVat = quote.globalVatApplied
+      ? roundCurrency((baseAmount + vat) * 0.11)
+      : 0;
+    return roundCurrency(baseAmount + vat - pph23 + globalVat);
+  };
   const totalApprovedEpdaIDR = jobCalls
     .filter((job) => job.managerApproval.status === 'APPROVED' && job.quotation.epda.status === 'APPROVED')
     .reduce((total, job) => {
-      const epdaTotal = Number(job.quotation.epda.totalSellRate || job.quotation.epda.totalBuyRate || 0);
+      const epdaTotal = getEpdaGrandTotal(job);
       const currency = job.quotation.epda.currency || job.currency || 'USD';
       const exchangeRate = Number(job.quotation.epda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800);
       const normalizedTotal = currency === 'USD'
