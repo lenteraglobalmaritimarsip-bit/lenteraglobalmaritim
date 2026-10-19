@@ -227,6 +227,11 @@ try {
                 } else {
                     unset($newJob['principalReceipts']);
                 }
+                if (array_key_exists('closing', $oldJobs[$jobId])) {
+                    $newJob['closing'] = $oldJobs[$jobId]['closing'];
+                } else {
+                    unset($newJob['closing']);
+                }
             }
             unset($newJob);
         }
