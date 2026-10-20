@@ -205,6 +205,8 @@ CREATE TABLE payment_voucher_items (
   voucher_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   line_no INT NOT NULL,
   job_number VARCHAR(100) NOT NULL,
+  document_type ENUM('FDA', 'FPDA') NULL,
+  document_number VARCHAR(180) NULL,
   customer_name VARCHAR(200) NOT NULL,
   item_service VARCHAR(250) NOT NULL,
   amount DECIMAL(30,2) NOT NULL DEFAULT 0,

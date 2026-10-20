@@ -116,6 +116,7 @@ function loadAppState(): array
     foreach (tableRows('payment_voucher_items') as $row) {
         $voucherItems[$row['voucher_id']][] = [
             'line' => (int) $row['line_no'], 'id' => $row['id'], 'jobNumber' => $row['job_number'], 'customerName' => $row['customer_name'],
+            'documentType' => $row['document_type'] ?? null, 'documentNumber' => $row['document_number'] ?? null,
             'itemService' => $row['item_service'], 'amount' => (float) $row['amount'], 'vatApplied' => (bool) $row['vat_applied'],
             'vatAmount' => (float) $row['vat_amount'], 'total' => (float) $row['total'], 'pph23Applied' => (bool) $row['pph23_applied'],
             'pph23Amount' => (float) $row['pph23_amount'], 'paidAmount' => (float) $row['paid_amount'],
@@ -358,6 +359,17 @@ function replaceAppState(array $state): void
             . '. Apply the required payment voucher migrations before saving.'
         );
     }
+    $paymentVoucherItemColumns = tableColumns($pdo, 'payment_voucher_items');
+    $requiredPaymentVoucherItemColumns = ['id', 'voucher_id', 'line_no', 'job_number', 'document_type', 'document_number', 'customer_name', 'item_service', 'amount', 'vat_applied', 'vat_amount', 'total', 'pph23_applied', 'pph23_amount', 'paid_amount'];
+    $missingPaymentVoucherItemColumns = $paymentVoucherItemColumns === null
+        ? $requiredPaymentVoucherItemColumns
+        : array_values(array_diff($requiredPaymentVoucherItemColumns, $paymentVoucherItemColumns));
+    if ($missingPaymentVoucherItemColumns) {
+        throw new DatabaseSchemaException(
+            'Database schema mismatch: payment_voucher_items is missing document reference columns. '
+            . 'Apply database/migrations/20261020_add_payment_voucher_item_document_reference.sql before saving payment requests.'
+        );
+    }
     $pdo->beginTransaction();
     $usedSofIds = [];
     try {
@@ -456,7 +468,7 @@ function replaceAppState(array $state): void
                 'created_at' => sqlDate($voucher['createdAt'] ?? null) ?? date('Y-m-d H:i:s'),
             ]);
             foreach (($voucher['items'] ?? []) as $index => $item) {
-                insertRow($pdo, 'payment_voucher_items', ['id' => $item['id'], 'voucher_id' => $voucher['id'], 'line_no' => $index + 1, 'job_number' => $item['jobNumber'] ?? '', 'customer_name' => $item['customerName'] ?? '', 'item_service' => $item['itemService'] ?? '', 'amount' => $item['amount'] ?? 0, 'vat_applied' => !empty($item['vatApplied']) ? 1 : 0, 'vat_amount' => $item['vatAmount'] ?? 0, 'total' => $item['total'] ?? 0, 'pph23_applied' => !empty($item['pph23Applied']) ? 1 : 0, 'pph23_amount' => $item['pph23Amount'] ?? 0, 'paid_amount' => $item['paidAmount'] ?? 0]);
+                insertRow($pdo, 'payment_voucher_items', ['id' => $item['id'], 'voucher_id' => $voucher['id'], 'line_no' => $index + 1, 'job_number' => $item['jobNumber'] ?? '', 'document_type' => $item['documentType'] ?? null, 'document_number' => $item['documentNumber'] ?? null, 'customer_name' => $item['customerName'] ?? '', 'item_service' => $item['itemService'] ?? '', 'amount' => $item['amount'] ?? 0, 'vat_applied' => !empty($item['vatApplied']) ? 1 : 0, 'vat_amount' => $item['vatAmount'] ?? 0, 'total' => $item['total'] ?? 0, 'pph23_applied' => !empty($item['pph23Applied']) ? 1 : 0, 'pph23_amount' => $item['pph23Amount'] ?? 0, 'paid_amount' => $item['paidAmount'] ?? 0]);
             }
         }
         foreach (($state['jobCalls'] ?? []) as $job) {

@@ -115,8 +115,8 @@ export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessel
         <thead className="bg-slate-950 text-[10px] uppercase tracking-wider text-slate-400">
           <tr>
             <th className="w-[3%] p-2">No</th>
-            <th className={`${showPdaButton || showStatusColumn ? 'w-[8%]' : 'w-[9%]'} p-2`}>Req Inquiry</th>
-            <th className="w-[10%] p-2">REG Vessel Call</th>
+            <th className={`${showPdaButton || showStatusColumn ? 'w-[8%]' : 'w-[9%]'} p-2 text-center`}>Req Inquiry</th>
+            <th className="w-[10%] p-2 text-center">REG Vessel Call</th>
             <th className={`${showPdaButton || showStatusColumn ? 'w-[7%]' : 'w-[8%]'} p-2`}>Date Quotes</th>
             <th className={`${showPdaButton || showStatusColumn ? 'w-[6%]' : 'w-[7%]'} p-2`}>IMO</th>
             <th className={`${showPdaButton ? 'w-[12%]' : showStatusColumn ? 'w-[14%]' : 'w-[15%]'} p-2`}>Customer / Principal</th>
@@ -136,8 +136,8 @@ export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessel
             return (
               <tr key={job.jobId} className="transition-colors hover:bg-slate-800/60">
                 <td className="break-words p-2 font-mono font-bold text-slate-400">{enablePagination ? (currentQuotePage - 1) * quotePageSize + index + 1 : index + 1}</td>
-                <td className="break-words p-2 font-mono font-bold text-cyan-300">{job.inquiry.inquiryNo}</td>
-                <td className="break-words p-2 font-mono font-bold text-black">{job.jobId}</td>
+                <td className="break-words p-2 text-center font-mono font-bold text-cyan-300">{job.inquiry.inquiryNo}</td>
+                <td className="break-words p-2 text-center font-mono font-bold text-black">{job.jobId}</td>
                 <td className="break-words p-2 text-slate-300">{formatDateDisplay(job.quotation?.epda?.date)}</td>
                 <td className="break-words p-2 font-mono text-slate-300">{vessel?.imoNumber || '-'}</td>
                 <td className="break-words p-2 font-semibold text-white">{job.customerName}</td>

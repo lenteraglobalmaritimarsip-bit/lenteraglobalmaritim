@@ -827,7 +827,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                 <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
                   <tr>
                     <th className="p-3">No</th>
-                    <th className="p-3">JOB ID / Vessel</th>
+                    <th className="p-3 text-center">JOB ID / Vessel</th>
                     <th className="p-3">Vessel / Principal</th>
                     <th className="p-3">FDA Status</th>
                     <th className="p-3">Invoice No</th>
@@ -851,7 +851,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                       return (
                         <tr key={job.jobId} className="hover:bg-slate-800/40">
                           <td className="p-3 font-mono text-slate-300">{(currentInvoicePage - 1) * invoicePageSize + index + 1}</td>
-                          <td className="p-3">
+                          <td className="p-3 text-center">
                             <span className="font-mono font-bold text-cyan-400 block">{job.jobId}</span>
                             <span className="text-[11px] text-slate-400">{job.vesselName}</span>
                           </td>
@@ -1032,7 +1032,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                 <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
                   <tr>
                     <th className="p-3">No</th>
-                    <th className="p-3">JOB ID</th>
+                    <th className="p-3 text-center">JOB ID</th>
                     <th className="p-3">Branch</th>
                     <th className="p-3">NO FDA</th>
                     <th className="p-3">Vessel & Principal</th>
@@ -1068,7 +1068,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                     return (
                       <tr key={j.jobId} className="hover:bg-slate-800/40">
                         <td className="p-3 text-slate-400">{(currentFinancialOverviewPage - 1) * financialOverviewPageSize + index + 1}</td>
-                        <td className="p-3 font-mono font-bold text-cyan-400">{j.jobId}</td>
+                        <td className="p-3 text-center font-mono font-bold text-cyan-400">{j.jobId}</td>
                         <td className="p-3 text-slate-300">{j.inquiry?.createdByBranch || 'Head Office'}</td>
                         <td className="p-3 font-mono text-slate-300">{j.fda?.fdaNo || '-'}</td>
                         <td className="p-3">
@@ -1629,7 +1629,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
                     <tr>
                       <th className="p-3">No</th>
-                      <th className="p-3">JOB ID / Vessel</th>
+                      <th className="p-3 text-center">JOB ID / Vessel</th>
                       <th className="p-3">Vessel / Principal</th>
                       <th className="p-3">FDA Status</th>
                       <th className="p-3">Invoice No</th>
@@ -1652,7 +1652,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                         return (
                           <tr key={job.jobId} className="hover:bg-slate-800/40">
                             <td className="p-3 font-mono text-slate-300">{index + 1}</td>
-                            <td className="p-3">
+                            <td className="p-3 text-center">
                               <span className="font-mono font-bold text-cyan-400 block">{job.jobId}</span>
                               <span className="text-[11px] text-slate-400">{job.vesselName}</span>
                             </td>

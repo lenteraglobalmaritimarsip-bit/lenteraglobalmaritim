@@ -70,6 +70,22 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
     () => paymentVouchers.find((voucher) => voucher.id === paymentFormVoucherId) || null,
     [paymentFormVoucherId, paymentVouchers],
   );
+  const defaultPaymentDescription = (voucher: PaymentVoucher) => {
+    const references = voucher.jobInfo === 'JOB_VESSEL'
+      ? [...new Set(voucher.items.map((item) => {
+          if (item.documentType && item.documentNumber) return `${item.documentType}: ${item.documentNumber}`;
+          const fdaNo = jobCalls.find((job) => job.jobId === item.jobNumber)?.fda?.fdaNo;
+          return fdaNo ? `FDA: ${fdaNo}` : '';
+        }).filter(Boolean))]
+      : [...new Set(voucher.items.map((item) => item.customerName.trim()).filter(Boolean))];
+    const suffix = references.join(', ');
+    return `Payment voucher ${voucher.requestNumber}${suffix ? ` | ${suffix}` : ''}`;
+  };
+  const isGeneratedPaymentDescription = (description: string, voucher: PaymentVoucher) => {
+    const base = `Payment voucher ${voucher.requestNumber}`;
+    const normalizedDescription = description.trim();
+    return !normalizedDescription || normalizedDescription === base || normalizedDescription.startsWith(`${base} | `);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -101,16 +117,25 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
       setPaymentDate(initialPaymentDraft.paymentDate);
       setManualSurcharge(initialPaymentDraft.manualSurcharge);
       setOtherExpenses(initialPaymentDraft.otherExpenses);
-      setPaymentDescription(initialPaymentDraft.paymentDescription);
+      setPaymentDescription(isGeneratedPaymentDescription(initialPaymentDraft.paymentDescription, paymentFormVoucher)
+        ? defaultPaymentDescription(paymentFormVoucher)
+        : initialPaymentDraft.paymentDescription);
       setSelectedBankId(initialPaymentDraft.selectedBankId);
       return;
     }
     setPaymentDate(todayIso());
     setManualSurcharge('');
     setOtherExpenses('');
-    setPaymentDescription(`Payment voucher ${paymentFormVoucher.requestNumber}`);
+    setPaymentDescription(defaultPaymentDescription(paymentFormVoucher));
     setSelectedBankId(bankAccounts[0]?.id || '');
   }, [paymentFormVoucherId, paymentFormVoucher, draftLoaded, initialPaymentDraft, bankAccounts]);
+
+  useEffect(() => {
+    if (!paymentFormVoucherId || !draftLoaded || !paymentFormVoucher) return;
+    setPaymentDescription((current) => isGeneratedPaymentDescription(current, paymentFormVoucher)
+      ? defaultPaymentDescription(paymentFormVoucher)
+      : current);
+  }, [paymentFormVoucherId, paymentFormVoucher, draftLoaded, jobCalls]);
 
   useEffect(() => {
     if (!draftLoaded || !paymentFormVoucherId || paymentFormVoucher?.status !== 'APPROVED') return;
@@ -295,12 +320,12 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
           ? Number(matchingDraft.otherExpenses || 0)
           : Number(printVoucher.paymentOtherExpenses || 0);
     const description = isPaid
-      ? printVoucher.paymentDescription || `Payment voucher ${printVoucher.requestNumber}`
+      ? printVoucher.paymentDescription || defaultPaymentDescription(printVoucher)
       : useCurrentForm
-        ? paymentDescription || printVoucher.requestNumber
+        ? paymentDescription || defaultPaymentDescription(printVoucher)
         : hasMatchingDraft
-          ? matchingDraft.paymentDescription || printVoucher.requestNumber
-          : printVoucher.paymentDescription || `Payment voucher ${printVoucher.requestNumber}`;
+          ? matchingDraft.paymentDescription || defaultPaymentDescription(printVoucher)
+          : printVoucher.paymentDescription || defaultPaymentDescription(printVoucher);
     const printBankId = useCurrentForm
       ? selectedBankId
       : matchingDraft?.voucherId === printVoucher.id
@@ -366,8 +391,8 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
             .section-title { color: #315db2; font-size: 11px; font-weight: 700; letter-spacing: .5px; margin: 18px 0 7px; text-transform: uppercase; }
             table.items { border-collapse: collapse; margin-top: 8px; table-layout: fixed; width: 100%; }
             .items th, .items td { border: 1px solid #cbd5e1; padding: 3px 2px; overflow-wrap: anywhere; }
-            .items th { background: #e8ecf2; color: #334155; font-size: 6px; text-align: center; text-transform: uppercase; }
-            .items td { font-size: 7px; }
+            .items th { background: #e8ecf2; color: #334155; font-size: 8.5px; text-align: center; text-transform: uppercase; }
+            .items td { font-size: 8.5px; }
             .pph { color: #dc2626; font-weight: 700; }
             .items th:nth-child(1), .items td:nth-child(1) { width: 3%; }
             .items th:nth-child(2), .items td:nth-child(2) { width: 9%; }
@@ -378,19 +403,19 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
             .muted { color: #64748b; font-size: 8px; }
             .lower { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 10px; margin-top: 15px; align-items: start; }
             .bank { background: #f8fafc; border: 1px solid #cbd5e1; min-width: 0; padding: 5px 6px; }
-            .bank-title { align-items: center; color: #315db2; display: flex; font-size: 8px; font-weight: 700; gap: 5px; margin-bottom: 5px; text-transform: uppercase; }
+            .bank-title { align-items: center; color: #315db2; display: flex; font-size: 8.5px; font-weight: 700; gap: 5px; margin-bottom: 5px; text-transform: uppercase; }
             .bank-icon { color: #315db2; flex: 0 0 15px; height: 15px; width: 15px; }
-            .bank-line { display: grid; font-size: 7px; gap: 2px; grid-template-columns: 68px 4px minmax(0, 1fr); line-height: 1.3; margin: 2px 0; overflow-wrap: anywhere; }
-            .bank-line b { color: #64748b; font-size: 6.5px; }
+            .bank-line { display: grid; font-size: 8.5px; gap: 2px; grid-template-columns: 68px 4px minmax(0, 1fr); line-height: 1.3; margin: 2px 0; overflow-wrap: anywhere; }
+            .bank-line b { color: #64748b; font-size: 8.5px; }
             .bank-line i { font-style: normal; text-align: center; }
             .bank-line span { min-width: 0; }
             .totals { border-collapse: collapse; margin-left: auto; min-width: 72%; table-layout: auto; width: auto; }
-            .totals td { border-bottom: 1px solid #e2e8f0; font-size: 7.5px; line-height: 1.25; padding: 3px 4px; }
+            .totals td { border-bottom: 1px solid #e2e8f0; font-size: 8.5px; line-height: 1.25; padding: 3px 4px; }
             .totals td:first-child { padding-right: 8px; white-space: nowrap; }
             .totals td:last-child { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
             .totals .grand td { background: #fff; border: 0; color: #000; font-size: 8.5px; font-weight: 700; padding: 5px 4px; }
             .signatures { border-collapse: collapse; margin-top: 24px; page-break-inside: avoid; table-layout: fixed; width: 100%; }
-            .signatures th, .signatures td { border: 1px solid #94a3b8; text-align: center; width: 33.33%; }
+            .signatures th, .signatures td { border: 1px solid #94a3b8; text-align: center; width: 50%; }
             .signatures th { background: #f1f5f9; color: #334155; font-size: 9px; height: 26px; padding: 6px; text-transform: uppercase; }
             .signatures .name td { font-size: 9px; font-weight: 600; height: 100px; padding: 72px 6px 6px; vertical-align: bottom; }
             .watermark { bottom: 5mm; color: #94a3b8; font-size: 8px; left: 0; position: fixed; right: 0; text-align: center; }
@@ -431,8 +456,8 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
               <tr class="grand"><td>Total Payment</td><td>${money(totals.totalPayment)}</td></tr>
             </tbody></table>
           </div>
-          <table class="signatures"><thead><tr><th>Maker</th><th>Checker</th><th>Signer</th></tr></thead><tbody>
-            <tr class="name"><td>${escapeHtml(printVoucher.requestBy || '-')}</td><td>${escapeHtml(payer || '-')}</td><td>${escapeHtml(printVoucher.reviewedBy || '-')}</td></tr>
+          <table class="signatures"><thead><tr><th>Checker</th><th>Signer</th></tr></thead><tbody>
+            <tr class="name"><td>${escapeHtml(payer || '-')}</td><td>${escapeHtml(printVoucher.reviewedBy || '-')}</td></tr>
           </tbody></table>
           <div class="watermark">Dokumen asli dicetak dari sistem resmi PT Lentera Global Maritim. ${escapeHtml(printedAt)}</div>
         </body>
@@ -576,7 +601,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                     <tr>
                       <th className="p-3">No</th>
                       <th className="p-3">Job Number</th>
-                      {paymentFormVoucher.jobInfo === 'JOB_VESSEL' && <th className="p-3">FDA Number</th>}
+                      {paymentFormVoucher.jobInfo === 'JOB_VESSEL' && <th className="p-3">FDA / FPDA Number</th>}
                       <th className="p-3">Customer</th>
                       <th className="p-3">Item</th>
                       <th className="p-3 text-right">Amount</th>
@@ -593,7 +618,9 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                         <td className="p-3 text-slate-800">{item.jobNumber}</td>
                         {paymentFormVoucher.jobInfo === 'JOB_VESSEL' && (
                           <td className="p-3 font-mono text-slate-800">
-                            {jobCalls.find((job) => job.jobId === item.jobNumber)?.fda?.fdaNo || '-'}
+                            {item.documentType && item.documentNumber
+                              ? `${item.documentType}: ${item.documentNumber}`
+                              : jobCalls.find((job) => job.jobId === item.jobNumber)?.fda?.fdaNo || '-'}
                           </td>
                         )}
                         <td className="p-3 text-slate-800">{item.customerName}</td>
@@ -812,16 +839,16 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+          <table className={`w-full text-left text-xs ${mode === 'INPUT' ? 'min-w-[1680px]' : 'min-w-[1500px]'}`}>
             <thead className="border-b border-slate-200 bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="w-10 p-3.5" />
                 <th className="p-3.5">No</th>
                 {mode === 'HISTORY' && <th className="p-3.5">Date Paid</th>}
                 {mode === 'HISTORY' && <th className="p-3.5">Voucher Number</th>}
-                <th className="p-3.5">Request Number</th>
-                <th className="p-3.5">Request Date</th>
-                <th className="p-3.5">Requested Payment Date</th>
+                <th className="whitespace-nowrap p-3.5">Request Number</th>
+                <th className="whitespace-nowrap p-3.5">Request Date</th>
+                <th className="whitespace-nowrap p-3.5">Requested Payment Date</th>
                 <th className="p-3.5">Info JOB</th>
                 <th className="p-3.5">FDA Number</th>
                 <th className="p-3.5">Vendor Name</th>
@@ -844,9 +871,9 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                       <td className="p-3.5 font-mono text-slate-500">{(currentPage - 1) * pageSize + index + 1}</td>
                       {mode === 'HISTORY' && <td className="p-3.5 text-slate-700">{voucher.paidAt ? formatDate(voucher.paidAt) : '-'}</td>}
                       {mode === 'HISTORY' && <td className="p-3.5 font-mono text-slate-700">{voucher.voucherNumber || '-'}</td>}
-                      <td className="p-3.5 font-mono font-bold text-slate-900">{voucher.requestNumber}</td>
-                      <td className="p-3.5 text-slate-700">{formatDate(voucher.requestDate)}</td>
-                      <td className="p-3.5 text-slate-700">{formatDate(voucher.requestedPaymentDate)}</td>
+                      <td className="whitespace-nowrap p-3.5 font-mono font-bold text-slate-900">{voucher.requestNumber}</td>
+                      <td className="whitespace-nowrap p-3.5 text-slate-700">{formatDate(voucher.requestDate)}</td>
+                      <td className="whitespace-nowrap p-3.5 text-slate-700">{formatDate(voucher.requestedPaymentDate)}</td>
                       <td className="p-3.5">
                         <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
                           {voucher.jobInfo === 'JOB_VESSEL' ? 'JOB Vessel' : 'Operasional'}
@@ -910,7 +937,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                     {expanded && (
                       <tr className="bg-slate-50/60">
                         <td />
-                        <td colSpan={mode === 'HISTORY' ? 14 : 12} className="p-3.5">
+                        <td colSpan={mode === 'HISTORY' ? 15 : 13} className="p-3.5">
                           <table className="w-full text-left text-[11px]">
                             <thead className="text-[10px] uppercase text-slate-500">
                               <tr>
@@ -954,7 +981,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                 );
               })}
               {vouchers.length === 0 && (
-                <tr><td colSpan={mode === 'HISTORY' ? 15 : 13} className="p-6 text-center text-slate-400">Belum ada data pengajuan pembayaran.</td></tr>
+                <tr><td colSpan={mode === 'HISTORY' ? 16 : 14} className="p-6 text-center text-slate-400">Belum ada data pengajuan pembayaran.</td></tr>
               )}
             </tbody>
           </table>

@@ -346,8 +346,18 @@ try {
 
     if ($action === 'fpda-numbers') {
         requireMethod('GET');
-        if (($user['role'] ?? '') !== 'FINANCE') jsonResponse(['error' => 'Only Finance can view FPDA numbers'], 403);
-        $rows = $connection->query("SELECT job_id, pda_no FROM pda_documents WHERE pda_type = 'FDA' AND pda_no <> '' ORDER BY job_id")->fetchAll();
+        $role = $user['role'] ?? '';
+        if (!in_array($role, ['FDA', 'FINANCE'], true)) jsonResponse(['error' => 'Role tidak dapat melihat nomor FPDA'], 403);
+        $branchCode = $role === 'FDA' ? pdaUserBranch($user, 'FDA') : '';
+        $branchFilter = $branchCode !== '' ? ' AND pd.branch_code = :branch_code' : '';
+        $query = $connection->prepare(
+            "SELECT pd.job_id, pd.pda_no FROM pda_documents pd "
+            . "WHERE pd.pda_type = 'FDA' AND pd.pda_no <> '' "
+            . 'AND EXISTS (SELECT 1 FROM pda_items pi WHERE pi.job_id = pd.job_id AND pi.pda_type = pd.pda_type) '
+            . $branchFilter . ' ORDER BY pd.job_id'
+        );
+        $query->execute($branchCode !== '' ? ['branch_code' => $branchCode] : []);
+        $rows = $query->fetchAll();
         jsonResponse(['numbers' => array_map(static fn (array $row): array => [
             'jobId' => $row['job_id'],
             'fpdaNo' => $row['pda_no'],

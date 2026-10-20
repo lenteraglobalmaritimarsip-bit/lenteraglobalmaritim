@@ -458,9 +458,9 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
           <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider">
             <tr>
               <th className="w-[3%] p-2">No</th>
-              <th className="w-[7%] p-2">Req Inquiry</th>
+              <th className="w-[7%] p-2 text-center">Req Inquiry</th>
               <th className="w-[8%] p-2">Date Inquiry</th>
-              <th className="w-[9%] p-2">REG Vessel Call</th>
+              <th className="w-[9%] p-2 text-center">REG Vessel Call</th>
               <th className="w-[5%] p-2">IMO</th>
               <th className="w-[12%] p-2">Customer / Principal</th>
               <th className="w-[8%] p-2">Vessel</th>
@@ -495,9 +495,9 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
               return (
                 <tr key={job.jobId} className="hover:bg-slate-800/60 transition-colors">
                   <td className="break-words p-2 font-mono font-bold text-slate-400">{(currentInquiryPage - 1) * inquiryPageSize + index + 1}</td>
-                  <td className="break-words p-2 font-mono font-bold text-cyan-300">{job.inquiry.inquiryNo}</td>
+                  <td className="break-words p-2 text-center font-mono font-bold text-cyan-300">{job.inquiry.inquiryNo}</td>
                   <td className="break-words p-2 text-slate-300">{formatInquiryDate(job.inquiry.date)}</td>
-                  <td className="break-words p-2 font-mono font-bold text-black">{job.jobId}</td>
+                  <td className="break-words p-2 text-center font-mono font-bold text-black">{job.jobId}</td>
                   <td className="break-words p-2 font-mono text-slate-300">{imoNumber}</td>
                   <td className="break-words p-2 font-semibold text-white">{job.customerName}</td>
                   <td className="break-words p-2 font-bold text-emerald-300">{job.vesselName}</td>

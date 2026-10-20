@@ -166,7 +166,7 @@ export const createPdaPreviewHtml = (
     .label{font-weight:700}.colon{text-align:center}
     table{width:100%;border-collapse:collapse;table-layout:fixed}
     th,td{border:1px solid #9ca3af;padding:5px 6px;vertical-align:top}
-    th{background:#dbe8f2;text-align:center;font-weight:700}
+    th{background:#dbe8f2;text-align:center;font-weight:700}thead th:nth-child(2){text-align:center}
     th:nth-child(1){width:5%}th:nth-child(2){width:30%}th:nth-child(3){width:7%}
     th:nth-child(4){width:8%}th:nth-child(5){width:13%}th:nth-child(6){width:15%}th:nth-child(7){width:22%}
     .number{text-align:center}.amount{text-align:right;white-space:nowrap}

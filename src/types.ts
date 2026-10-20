@@ -125,6 +125,8 @@ export interface BankAccount {
 export interface PaymentVoucherItem {
   id: string;
   jobNumber: string;
+  documentType?: 'FDA' | 'FPDA';
+  documentNumber?: string;
   customerName: string;
   itemService: string;
   amount: number;

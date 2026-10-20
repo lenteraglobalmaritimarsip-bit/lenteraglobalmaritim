@@ -164,11 +164,12 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   const totalAmount = Math.round((items.reduce((sum, item) => sum + item.amount, 0) + Number.EPSILON) * 100) / 100;
   const epdaPph23Applied = epdaQuote.pph23Applied ?? items.some((item) => item.pph23Applied);
   const epdaGlobalVatApplied = epdaQuote.globalVatApplied ?? false;
-  const categoryVatAmount = (categoryItems: DisbursementItem[]) => categoryItems.reduce((sum, item) => {
-    if (epdaGlobalVatApplied) return sum;
-    if (!item.vatApplied) return sum;
-    return sum + Math.round((item.amount * 0.11 + Number.EPSILON) * 100) / 100;
-  }, 0);
+  const categoryVatAmount = (categoryItems: DisbursementItem[]) => {
+    if (epdaGlobalVatApplied) return 0;
+    const taxableAmount = categoryItems.reduce((sum, item) =>
+      sum + (item.vatApplied ? item.amount : 0), 0);
+    return Math.round((taxableAmount * 0.11 + Number.EPSILON) * 100) / 100;
+  };
   const creatorName = job.inquiry.createdBy.split(' (')[0].trim().toLowerCase();
   const creator = users.find((user) => user.name.trim().toLowerCase() === creatorName);
   const vesselMaster = vessels.find((vessel) => vessel.id === job.vesselId);
@@ -929,6 +930,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     const printStyles = `<style>
       .grand, .grand td, .grand td:first-child { font-weight: 400 !important; }
       h2, .category-row, .category-row td { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+      table thead th:nth-child(2) { text-align: center !important; }
       @page { size: A4 portrait; margin: 15mm 10mm; }
       @media screen {
         html, body { min-height: 100%; height: auto; overflow: visible; background: #e2e8f0; }

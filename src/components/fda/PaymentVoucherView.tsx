@@ -3,6 +3,7 @@ import { Plus, Trash2, Save, Printer } from 'lucide-react';
 import { JobCall, PaymentVoucher, PaymentVoucherItem, VendorPartner } from '../../types';
 import { db } from '../../db/storage';
 import { dataApi } from '../../lib/dataApi';
+import { listFpdaNumbers } from '../../lib/api';
 import { parseTariffNumber } from '../../utils/tariff';
 import { printPaymentVoucher } from '../../utils/voucherPrint';
 import { DateInput } from '../shared/DateInput';
@@ -23,6 +24,8 @@ type JobInfo = PaymentVoucher['jobInfo'];
 interface VoucherRow {
   id: string;
   jobNumber: string;
+  documentType?: 'FDA' | 'FPDA';
+  documentNumber?: string;
   customerName: string;
   itemService: string;
   amount: number;
@@ -41,6 +44,8 @@ const todayIso = () => {
 const newRow = (): VoucherRow => ({
   id: `ROW-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
   jobNumber: '',
+  documentType: undefined,
+  documentNumber: '',
   customerName: '',
   itemService: '',
   amount: 0,
@@ -80,6 +85,8 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
     ? editingVoucher.items.map((item) => ({
         id: item.id,
         jobNumber: item.jobNumber,
+        documentType: item.documentType,
+        documentNumber: item.documentNumber || '',
         customerName: editingVoucher.jobInfo === 'JOB_VESSEL'
           ? jobCalls.find((job) => job.jobId === item.jobNumber)?.vesselName || item.customerName
           : item.customerName,
@@ -92,11 +99,26 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [savedTick, setSavedTick] = useState(0);
+  const [fpdaNumbers, setFpdaNumbers] = useState<Record<string, string>>({});
+  const [fpdaNumbersError, setFpdaNumbersError] = useState('');
 
   const activeJobs = useMemo(
     () => jobCalls.filter((job) => job.status !== 'CLOSED' && job.currentStage !== 'CLOSED' && !job.closing?.isClosed),
     [jobCalls],
   );
+  const getDocumentOptions = (jobNumber: string) => {
+    if (jobInfo !== 'JOB_VESSEL') return [];
+    const job = activeJobs.find((item) => item.jobId === jobNumber);
+    const hasItems = !!job?.fdaItems?.length || !!job?.quotation?.epda?.items?.length;
+    if (!job || !hasItems) return [];
+    const numbers: { type: 'FDA' | 'FPDA'; number: string }[] = [];
+    if (job.fda?.fdaNo?.trim()) numbers.push({ type: 'FDA', number: job.fda.fdaNo.trim() });
+    const fpdaNo = fpdaNumbers[job.jobId];
+    if (fpdaNo) numbers.push({ type: 'FPDA', number: fpdaNo });
+    return numbers;
+  };
+  const getDocumentOptionValue = (type?: 'FDA' | 'FPDA', number?: string) =>
+    type && number ? `${type}|${number}` : '';
 
   // savedTick forces a fresh number after each save.
   const requestNumber = useMemo(
@@ -120,6 +142,8 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
     setRows((current) => current.map((row) => ({
       ...row,
       jobNumber: value === 'OPERASIONAL' ? operationalJobNumber : '',
+      documentType: undefined,
+      documentNumber: '',
       customerName: '',
       itemService: '',
     })));
@@ -129,6 +153,8 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
     const job = activeJobs.find((item) => item.jobId === jobNumber);
     updateRow(rowId, {
       jobNumber,
+      documentType: undefined,
+      documentNumber: '',
       customerName: job
         ? jobInfo === 'JOB_VESSEL' ? job.vesselName : job.customerName
         : '',
@@ -142,6 +168,22 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
   };
 
   const grandTotal = rows.reduce((sum, row) => sum + calculate(row).paidAmount, 0);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listFpdaNumbers()
+      .then((numbers) => {
+        if (cancelled) return;
+        setFpdaNumbers(Object.fromEntries(numbers.map(({ jobId, fpdaNo }) => [jobId, fpdaNo])));
+        setFpdaNumbersError('');
+      })
+      .catch((loadError: unknown) => {
+        if (cancelled) return;
+        console.error('Gagal memuat nomor FPDA:', loadError);
+        setFpdaNumbersError('Nomor FPDA tidak dapat dimuat. Periksa koneksi, lalu muat ulang form.');
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (editingVoucher) {
@@ -171,7 +213,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
 
   useEffect(() => {
     if (editingVoucher || !draftLoaded) return;
-    const isBlank = !vendorId && rows.every((row) => !row.jobNumber && !row.customerName && !row.itemService && !row.amount);
+    const isBlank = rows.length === 0 || (!vendorId && rows.every((row) => !row.jobNumber && !row.customerName && !row.itemService && !row.amount));
     const saveDraft = isBlank
       ? dataApi.deleteUserData('voucher_draft')
       : dataApi.saveUserData('voucher_draft', { requestDate, requestedPaymentDate, jobInfo, vendorId, rows } satisfies VoucherDraft);
@@ -207,7 +249,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
       paidTo: vendor.paidName,
       bankName: vendor.bankName,
       accountNumber: vendor.accountNumber,
-      items: rows.map((row) => ({ jobNumber: jobInfo === 'OPERASIONAL' ? operationalJobNumber : row.jobNumber, customerName: row.customerName, itemService: row.itemService, amount: row.amount, ...calculate(row) })),
+      items: rows.map((row) => ({ jobNumber: jobInfo === 'OPERASIONAL' ? operationalJobNumber : row.jobNumber, documentType: row.documentType, documentNumber: row.documentNumber, customerName: row.customerName, itemService: row.itemService, amount: row.amount, ...calculate(row) })),
     });
     if (printError) setError(printError);
   };
@@ -220,6 +262,10 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
       setError('Pilih vendor dari master data Vendor Partners.');
       return;
     }
+    if (rows.length === 0) {
+      setError('Tambahkan minimal satu item sebelum menyimpan payment voucher.');
+      return;
+    }
     const invalidRow = rows.findIndex((row) => (jobInfo === 'JOB_VESSEL' && !row.jobNumber.trim()) || !row.customerName.trim() || !row.itemService.trim() || row.amount <= 0);
     if (invalidRow >= 0) {
       const partyLabel = jobInfo === 'JOB_VESSEL' ? 'Vessel name' : 'Customer';
@@ -230,6 +276,8 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
     const items: PaymentVoucherItem[] = rows.map((row) => ({
       id: row.id,
       jobNumber: jobInfo === 'OPERASIONAL' ? operationalJobNumber : row.jobNumber.trim(),
+      documentType: jobInfo === 'JOB_VESSEL' ? row.documentType : undefined,
+      documentNumber: jobInfo === 'JOB_VESSEL' ? row.documentNumber : undefined,
       customerName: row.customerName.trim(),
       itemService: row.itemService.trim(),
       amount: row.amount,
@@ -346,6 +394,9 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
         {vendorPartners.length === 0 && (
           <p role="status" className="mt-3 text-[11px] text-amber-700">Belum ada data Vendor Partners. Minta Admin menambahkannya di Master Data.</p>
         )}
+        {fpdaNumbersError && (
+          <p role="alert" className="mt-3 text-[11px] text-rose-700">{fpdaNumbersError}</p>
+        )}
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -362,11 +413,12 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1200px] text-left text-xs">
+          <table className="w-full min-w-[1560px] text-left text-xs">
             <thead className="border-b border-slate-200 bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="p-3">No</th>
                 <th className="p-3">JOB Number</th>
+                <th className="p-3">No FDA / FPDA</th>
                 <th className="p-3">{jobInfo === 'JOB_VESSEL' ? 'Vessel name' : 'Customer'}</th>
                 <th className="p-3">Item Service</th>
                 <th className="p-3 text-right">Amount</th>
@@ -392,6 +444,38 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
                       ) : (
                         <input readOnly value={operationalJobNumber} className={readonlyClass} />
                       )}
+                    </td>
+                    <td className="w-64 p-3">
+                      {(() => {
+                        const options = getDocumentOptions(row.jobNumber);
+                        const currentValue = getDocumentOptionValue(row.documentType, row.documentNumber);
+                        const hasCurrentOption = options.some((option) => getDocumentOptionValue(option.type, option.number) === currentValue);
+                        return (
+                          <select
+                            value={currentValue}
+                            disabled={options.length === 0 && !currentValue}
+                            onChange={(event) => {
+                              const [documentType, ...numberParts] = event.target.value.split('|');
+                              updateRow(row.id, {
+                                documentType: documentType === 'FDA' || documentType === 'FPDA' ? documentType : undefined,
+                                documentNumber: numberParts.join('|'),
+                              });
+                            }}
+                            className={inputClass}
+                            aria-label={`Pilih nomor FDA / FPDA ${row.jobNumber || index + 1}`}
+                          >
+                            <option value="">Pilih No FDA / FPDA</option>
+                            {!hasCurrentOption && currentValue && (
+                              <option value={currentValue}>{row.documentType}: {row.documentNumber}</option>
+                            )}
+                            {options.map((option) => (
+                              <option key={`${option.type}:${option.number}`} value={getDocumentOptionValue(option.type, option.number)}>
+                                {option.type}: {option.number}
+                              </option>
+                            ))}
+                          </select>
+                        );
+                      })()}
                     </td>
                     <td className="w-52 p-3">
                       {jobInfo === 'JOB_VESSEL' ? (
@@ -423,10 +507,10 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
                     <td className="p-3 text-right">
                       <button
                         type="button"
-                        disabled={rows.length === 1}
                         onClick={() => setRows((current) => current.filter((item) => item.id !== row.id))}
-                        className="rounded border border-slate-200 bg-white p-1.5 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
+                        className="rounded border border-slate-200 bg-white p-1.5 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
                         title="Hapus item"
+                        aria-label={`Hapus item ${index + 1}`}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>

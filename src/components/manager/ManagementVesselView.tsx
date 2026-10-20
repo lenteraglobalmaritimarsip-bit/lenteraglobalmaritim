@@ -278,7 +278,7 @@ export const ManagementVesselView: React.FC<ManagementVesselViewProps> = ({ jobC
             <thead className="border-b border-slate-200 bg-slate-50">
               <tr>
                 <th className={th}>No</th>
-                <th className={th}>Job Vessel</th>
+                <th className={`${th} text-center`}>Job Vessel</th>
                 <th className={th}>Branch</th>
                 <th className={th}>Status</th>
                 <th className={`${th} text-right`}>Tagihan Principal (FDA)</th>
@@ -293,7 +293,7 @@ export const ManagementVesselView: React.FC<ManagementVesselViewProps> = ({ jobC
               {paginatedRows.map((row, index) => (
                 <tr key={row.job.jobId} className="hover:bg-slate-50/70">
                   <td className={td}>{(currentPage - 1) * pageSize + index + 1}</td>
-                  <td className={td}>
+                  <td className={`${td} text-center`}>
                     <div className="font-semibold text-slate-900">{row.job.jobId}</div>
                     <div className="mt-0.5 text-[11px] text-slate-500">{row.job.vesselName}</div>
                   </td>

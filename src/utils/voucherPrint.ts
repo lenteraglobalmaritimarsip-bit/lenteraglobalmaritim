@@ -22,7 +22,7 @@ export interface PrintableVoucher {
   paidTo: string;
   bankName: string;
   accountNumber: string;
-  items: Pick<PaymentVoucher['items'][number], 'jobNumber' | 'customerName' | 'itemService' | 'amount' | 'vatAmount' | 'total' | 'pph23Amount' | 'paidAmount'>[];
+  items: Pick<PaymentVoucher['items'][number], 'jobNumber' | 'documentType' | 'documentNumber' | 'customerName' | 'itemService' | 'amount' | 'vatAmount' | 'total' | 'pph23Amount' | 'paidAmount'>[];
 }
 
 // Returns an error message, or null when the print window opened.
@@ -47,7 +47,7 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
   const financeUsers = db.getState().users.filter((user) => user.role === 'FINANCE' && user.status !== 'INACTIVE');
   const checker = voucher.paidBy || financeUsers.find((user) => user.name === voucher.checkerName)?.name || financeUsers[0]?.name || '';
   const logoUrl = `${window.location.origin}/lenteraglobalmaritim/lgm-logo.png`;
-  const bodyRows = voucher.items.map((row, index) => `<tr><td class="c">${index + 1}</td><td>${escapeHtml(row.jobNumber)}</td><td>${escapeHtml(row.customerName)}</td><td>${escapeHtml(row.itemService)}</td><td class="r">${money(row.amount)}</td><td class="r">${money(row.vatAmount)}</td><td class="r">${money(row.total)}</td><td class="r">${money(row.pph23Amount)}</td><td class="r b">${money(row.paidAmount)}</td></tr>`).join('');
+  const bodyRows = voucher.items.map((row, index) => `<tr><td class="c">${index + 1}</td><td>${escapeHtml(row.jobNumber)}</td>${jobInfo === 'JOB_VESSEL' ? `<td>${escapeHtml(row.documentType && row.documentNumber ? `${row.documentType}: ${row.documentNumber}` : '-')}</td>` : ''}<td>${escapeHtml(row.customerName)}</td><td>${escapeHtml(row.itemService)}</td><td class="r">${money(row.amount)}</td><td class="r">${money(row.vatAmount)}</td><td class="r">${money(row.total)}</td><td class="r">${money(row.pph23Amount)}</td><td class="r b">${money(row.paidAmount)}</td></tr>`).join('');
   const metaField = (label: string, value: string) => label
     ? `<td class="k">${label}</td><td class="separator">:</td><td>${value}</td>`
     : '<td></td><td></td><td></td>';
@@ -103,7 +103,7 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
     <div class="brand-row"><div class="brand-wrap"><img class="logo" src="${logoUrl}" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div>
     <h2>REQUEST PAYMENT VOUCHER</h2>
     <table class="meta">${metaRows}</table>
-    <table class="items"><thead><tr><th>No</th><th>JOB Number</th><th>${partyLabel}</th><th>Item Service</th><th>Amount</th><th>Vat</th><th>Total</th><th>PPH 23 (2%)</th><th>Paid Amount</th></tr></thead>
+    <table class="items"><thead><tr><th>No</th><th>JOB Number</th>${jobInfo === 'JOB_VESSEL' ? '<th>FDA / FPDA Number</th>' : ''}<th>${partyLabel}</th><th>Item Service</th><th>Amount</th><th>Vat</th><th>Total</th><th>PPH 23 (2%)</th><th>Paid Amount</th></tr></thead>
     <tbody>${bodyRows}</tbody></table>
     <table class="summary">
       <tr><td class="k">Total</td><td class="r">${money(totalBeforePph)}</td></tr>

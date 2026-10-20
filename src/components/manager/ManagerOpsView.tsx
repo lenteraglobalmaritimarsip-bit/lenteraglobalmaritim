@@ -536,7 +536,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
                   <tr>
-                    <th className="p-3">Job ID</th>
+                    <th className="p-3 text-center">Job ID</th>
                     <th className="p-3">Vessel</th>
                     <th className="p-3">Branch</th>
                     <th className="p-3">Pelabuhan / Dermaga</th>
@@ -549,7 +549,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                 <tbody className="divide-y divide-slate-800">
                   {paginatedDashboardJobs.map((j) => (
                     <tr key={j.jobId} className="hover:bg-slate-800/40">
-                      <td className="p-3 font-mono font-bold text-cyan-400">{j.jobId}</td>
+                      <td className="p-3 text-center font-mono font-bold text-cyan-400">{j.jobId}</td>
                       <td className="p-3">
                         <span className="font-bold text-white block">{j.vesselName}</span>
                         <span className="text-[11px] text-slate-400">{j.customerName}</span>
@@ -680,7 +680,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
               <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider">
                 <tr>
                   <th className="p-3 text-center">No</th>
-                  <th className="p-3">Job Vessel</th>
+                  <th className="p-3 text-center">Job Vessel</th>
                   <th className="p-3">Vessel</th>
                   <th className="p-3">Customer</th>
                   <th className="p-3">Port</th>
@@ -723,7 +723,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                       <React.Fragment key={job.jobId}>
                         <tr className="hover:bg-slate-800/40 align-middle">
                           <td className="p-3 text-center font-mono text-slate-400">{(currentReviewPage - 1) * reviewPageSize + index + 1}</td>
-                          <td className="p-3 font-mono font-bold text-cyan-400">{job.jobId}</td>
+                          <td className="p-3 text-center font-mono font-bold text-cyan-400">{job.jobId}</td>
                           <td className="p-3 font-bold text-white">{job.vesselName}</td>
                           <td className="p-3 text-slate-300">{job.customerName}</td>
                           <td className="p-3 text-slate-300">{job.portName}</td>

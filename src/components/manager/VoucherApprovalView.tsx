@@ -161,7 +161,7 @@ export const VoucherApprovalView: React.FC<VoucherApprovalViewProps> = ({ paymen
                         <table className="w-full text-left text-[11px]">
                           <thead className="text-[10px] uppercase text-slate-500">
                             <tr>
-                              <th className="p-2">No</th><th className="p-2">JOB Number</th><th className="p-2">{voucher.jobInfo === 'JOB_VESSEL' ? 'Vessel name' : 'Customer'}</th><th className="p-2">Item Service</th>
+                              <th className="p-2">No</th><th className="p-2">JOB Number</th>{voucher.jobInfo === 'JOB_VESSEL' && <th className="p-2">FDA / FPDA Number</th>}<th className="p-2">{voucher.jobInfo === 'JOB_VESSEL' ? 'Vessel name' : 'Customer'}</th><th className="p-2">Item Service</th>
                               <th className="p-2 text-right">Amount</th><th className="p-2 text-right">Vat</th><th className="p-2 text-right">Total</th>
                               <th className="p-2 text-right">PPH 23</th><th className="p-2 text-right">Paid Amount</th>
                             </tr>
@@ -171,6 +171,7 @@ export const VoucherApprovalView: React.FC<VoucherApprovalViewProps> = ({ paymen
                               <tr key={item.id}>
                                 <td className="p-2 font-mono text-slate-500">{index + 1}</td>
                                 <td className="p-2">{item.jobNumber}</td>
+                                {voucher.jobInfo === 'JOB_VESSEL' && <td className="p-2 font-mono">{item.documentType && item.documentNumber ? `${item.documentType}: ${item.documentNumber}` : '-'}</td>}
                                 <td className="p-2">{item.customerName}</td>
                                 <td className="p-2">{item.itemService}</td>
                                 <td className="p-2 text-right font-mono">{money(item.amount)}</td>

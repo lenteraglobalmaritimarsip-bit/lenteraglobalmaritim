@@ -580,7 +580,6 @@ export const FDAView: React.FC<FDAViewProps> = ({
   }).sort((first, second) => second.jobId.localeCompare(first.jobId, undefined, { numeric: true }));
 
   const epdaItems = activeJob.quotation?.epda?.items || [];
-  const totalEPDAAmount = Math.round((epdaItems.reduce((sum, item) => sum + (Number(item.amount) || 0), 0) + Number.EPSILON) * 100) / 100;
   const normalizeActualCategory = (category?: string) => normalizeCostCategory(category ?? '');
   const getActualCategory = (item: FdaItem) => {
     const itemName = item.description.trim().toLowerCase();
@@ -629,13 +628,16 @@ export const FDAView: React.FC<FDAViewProps> = ({
       tariffType: item.tariffType || epdaItem?.tariffType || masterOption?.tariffType,
     });
   };
-  const fdaResultRows = epdaItems.map((item) => ({
-    id: item.id,
-    category: normalizeCostCategory(item.category),
-    description: item.name,
-    amount: Number(item.amount) || 0,
-    currency: item.currency || viewCurrency,
-    tariff: describeTariffFormula({
+  const findFDAItemForEPDAItem = (item: DisbursementItem) => actualList.find((actual) =>
+    actual.itemCode === `EPDA:${item.id}`
+  ) || actualList.find((actual) =>
+    actual.description.trim().toLowerCase() === item.name.trim().toLowerCase()
+    && actual.estimatedAmount === item.amount
+  );
+  const getEPDAItemTariff = (item: DisbursementItem) => {
+    const serviceDescription = describeTariffService(item.name);
+    if (!serviceDescription && item.tariffType !== 'QTY_CARGO') return '';
+    return describeTariffFormula({
       description: item.name,
       category: item.category,
       basis: item.calculationBasis || item.basis,
@@ -644,11 +646,24 @@ export const FDAView: React.FC<FDAViewProps> = ({
       absoluteValue: vesselMaster?.grt,
       rate: item.tariffRate ?? (item.quantity ? item.amount / item.quantity : item.amount),
       tariffType: item.tariffType,
-    }),
-    remarks: item.remarks || '-',
-    vatApplied: item.vatApplied ?? false,
-    pph23Applied: item.pph23Applied ?? false,
-  }));
+    });
+  };
+  const fdaResultRows = epdaItems.map((item) => {
+    const actualItem = findFDAItemForEPDAItem(item);
+    return {
+      id: actualItem?.id || item.id,
+      sourceItemId: item.id,
+      category: normalizeCostCategory(item.category),
+      description: actualItem?.description || item.name,
+      amount: Number(actualItem?.amount ?? item.amount) || 0,
+      currency: item.currency || viewCurrency,
+      tariff: actualItem?.tariffDescription ?? getEPDAItemTariff(item),
+      remarks: actualItem ? actualItem.remarks || '' : item.remarks || '',
+      vatApplied: item.vatApplied ?? false,
+      pph23Applied: item.pph23Applied ?? false,
+    };
+  });
+  const totalEPDAAmount = Math.round((fdaResultRows.reduce((sum, item) => sum + item.amount, 0) + Number.EPSILON) * 100) / 100;
   const sortFDACategories = (categories: string[]) => [...categories].sort((a, b) => {
     const rankDifference = getCostCategoryRank(a) - getCostCategoryRank(b);
     return rankDifference || a.localeCompare(b);
@@ -660,11 +675,12 @@ export const FDAView: React.FC<FDAViewProps> = ({
     : 'TOTAL';
   const globalVatApplied = activeJob.fda?.globalVatApplied ?? false;
   const formatCategoryCost = (category: string) => formatCostCategoryLabel(category);
-  const categoryVatAmount = (categoryItems: typeof fdaResultRows) => categoryItems.reduce((total, item) => {
-    if (globalVatApplied) return total;
-    if (!item.vatApplied) return total;
-    return total + Math.round((item.amount * 0.11 + Number.EPSILON) * 100) / 100;
-  }, 0);
+  const categoryVatAmount = (categoryItems: typeof fdaResultRows) => {
+    if (globalVatApplied) return 0;
+    const taxableAmount = categoryItems.reduce((sum, item) =>
+      sum + (item.vatApplied ? item.amount : 0), 0);
+    return Math.round((taxableAmount * 0.11 + Number.EPSILON) * 100) / 100;
+  };
   const totalEPDAWithVat = fdaResultCategories.reduce((total, category) => {
     const categoryItems = orderedFDAResultRows.filter((item) => item.category === category);
     return total + Math.round((categoryItems.reduce((sum, item) => sum + item.amount, 0) + categoryVatAmount(categoryItems) + Number.EPSILON) * 100) / 100;
@@ -683,12 +699,12 @@ export const FDAView: React.FC<FDAViewProps> = ({
     return total + categoryPph23Amount(categoryItems);
   }, 0);
   const totalEPDAAfterPph23 = Math.round((roundedTotalEPDAWithVat - pph23Amount + Number.EPSILON) * 100) / 100;
-  const globalVatBaseAmount = totalEPDAAmount || totalQuotedEPDA;
+  const globalVatBaseAmount = fdaResultRows.length > 0 ? totalEPDAAmount : totalQuotedEPDA;
   const globalVatAmount = globalVatApplied
     ? Math.round((globalVatBaseAmount * 0.11 + Number.EPSILON) * 100) / 100
     : 0;
-  const totalEPDAAfterGlobalVat = Math.round(((totalEPDAAmount ? totalEPDAAfterPph23 : totalQuotedEPDA - pph23Amount) + globalVatAmount + Number.EPSILON) * 100) / 100;
-  const totalEPDASubtotal = Math.round(((totalEPDAAmount ? roundedTotalEPDAWithVat : totalQuotedEPDA) + Number.EPSILON) * 100) / 100;
+  const totalEPDAAfterGlobalVat = Math.round(((fdaResultRows.length > 0 ? totalEPDAAfterPph23 : totalQuotedEPDA - pph23Amount) + globalVatAmount + Number.EPSILON) * 100) / 100;
+  const totalEPDASubtotal = Math.round(((fdaResultRows.length > 0 ? roundedTotalEPDAWithVat : totalQuotedEPDA) + Number.EPSILON) * 100) / 100;
   const fdaGrandTotal = globalVatApplied ? totalEPDAAfterGlobalVat : totalEPDAAfterPph23;
   const convertReceiptCurrency = (amount: number, from: Currency, to: Currency) => {
     if (from === to) return amount;
@@ -966,7 +982,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const startEditResultAmount = (item: typeof fdaResultRows[number]) => {
     if (isFDAReadOnly || activeJob.managerApproval?.status !== 'APPROVED') return;
     setEditingResultAmountId(item.id);
-    const actualItem = actualList.find((actual) => actual.id === item.id);
+    const sourceItem = epdaItems.find((source) => source.id === item.sourceItemId);
+    const actualItem = sourceItem ? findFDAItemForEPDAItem(sourceItem) : undefined;
     setResultAmountDraft({
       description: item.description,
       tariff: actualItem?.tariffDescription ?? item.tariff,
@@ -975,24 +992,77 @@ export const FDAView: React.FC<FDAViewProps> = ({
     });
   };
 
-  const saveResultAmount = (actualId: string) => {
+  const getTariffQuantity = (tariff: string) => {
+    const match = /[x×]\s*([\d,]+(?:\.\d+)?)\s*(?:[A-Za-z][A-Za-z/ -]*)?\s*$/i.exec(tariff);
+    return match ? parseTariffNumber(match[1], Number.NaN) : Number.NaN;
+  };
+
+  const updateResultTariffDraft = (item: typeof fdaResultRows[number], tariff: string) => {
+    const sourceItem = epdaItems.find((source) => source.id === item.sourceItemId);
+    const originalQuantity = sourceItem ? getTariffQuantity(getEPDAItemTariff(sourceItem)) : Number.NaN;
+    const updatedQuantity = getTariffQuantity(tariff);
+    if (!Number.isFinite(originalQuantity) || originalQuantity <= 0
+      || !Number.isFinite(updatedQuantity) || updatedQuantity < 0) {
+      setResultAmountDraft((draft) => ({ ...draft, tariff }));
+      return;
+    }
+    const sourceAmount = sourceItem ? Number(sourceItem.amount) : Number.NaN;
+    if (!Number.isFinite(sourceAmount)) {
+      setResultAmountDraft((draft) => ({ ...draft, tariff }));
+      return;
+    }
+    const amount = Math.round((sourceAmount / originalQuantity * updatedQuantity + Number.EPSILON) * 100) / 100;
+    setResultAmountDraft((draft) => ({ ...draft, tariff, amount: amount.toFixed(2) }));
+  };
+
+  const saveResultAmount = (item: typeof fdaResultRows[number]) => {
     if (isFDAReadOnly || activeJob.managerApproval?.status !== 'APPROVED') return;
     const amount = parseTariffNumber(resultAmountDraft.amount, Number.NaN);
-    if (!resultAmountDraft.description.trim() || !resultAmountDraft.tariff.trim() || !Number.isFinite(amount) || amount < 0) return;
-    const updated = actualList.map((item) => item.id === actualId
-      ? {
-          ...item,
-          description: resultAmountDraft.description.trim(),
-          tariffDescription: resultAmountDraft.tariff.trim(),
-          amount,
-          varianceAmount: amount - (item.estimatedAmount || 0),
-          remarks: resultAmountDraft.remarks,
-        }
-      : item);
+    if (!resultAmountDraft.description.trim() || !Number.isFinite(amount) || amount < 0) {
+      setMsg('Description wajib diisi dan Amount harus berupa angka nol atau lebih.');
+      setTimeout(() => setMsg(null), 3500);
+      return;
+    }
+    const sourceItem = epdaItems.find((source) => source.id === item.sourceItemId);
+    if (!sourceItem) {
+      setMsg('Item EPDA sumber tidak ditemukan. Perubahan FDA tidak disimpan.');
+      setTimeout(() => setMsg(null), 3500);
+      return;
+    }
+    const existing = findFDAItemForEPDAItem(sourceItem);
+    const estimatedAmount = existing?.estimatedAmount ?? sourceItem.amount;
+    const updatedItem: FdaItem = {
+      id: existing?.id || `ACT-EPDA-${Date.now()}-${sourceItem.id}`,
+      jobId: activeJob.jobId,
+      itemCode: `EPDA:${sourceItem.id}`,
+      description: resultAmountDraft.description.trim(),
+      category: existing?.category || sourceItem.category,
+      vendorName: existing?.vendorName || '',
+      invoiceOrVoucherNo: existing?.invoiceOrVoucherNo || '',
+      date: existing?.date || new Date().toISOString().slice(0, 10),
+      quantity: existing?.quantity ?? sourceItem.quantity,
+      amount,
+      currency: existing?.currency || sourceItem.currency,
+      tariffType: existing?.tariffType || sourceItem.tariffType,
+      estimatedAmount,
+      calculationBasis: existing?.calculationBasis || sourceItem.calculationBasis,
+      tariffRate: existing?.tariffRate ?? sourceItem.tariffRate,
+      tariffDescription: resultAmountDraft.tariff.trim(),
+      varianceAmount: amount - estimatedAmount,
+      status: existing?.status || 'APPROVED_BY_FDA',
+      attachmentName: existing?.attachmentName,
+      attachmentDataUrl: existing?.attachmentDataUrl,
+      remarks: resultAmountDraft.remarks,
+      vatApplied: sourceItem.vatApplied ?? false,
+      pph23Applied: sourceItem.pph23Applied ?? false,
+    };
+    const updated = existing
+      ? actualList.map((actual) => actual.id === existing.id ? updatedItem : actual)
+      : [...actualList, updatedItem];
     setActualList(updated);
     db.updateJob(activeJob.jobId, { fdaItems: updated, currentStage: 'FDA' });
     setEditingResultAmountId(null);
-    setResultAmountDraft('');
+    setResultAmountDraft({ description: '', tariff: '', amount: '', remarks: '' });
   };
 
   const cancelEditResultAmount = () => {
@@ -1006,109 +1076,6 @@ export const FDAView: React.FC<FDAViewProps> = ({
       event.stopPropagation();
       return;
     }
-  };
-
-  const createActualFromEPDA = () => {
-    if (isFDAReadOnly) return;
-    if (activeJob.managerApproval?.status !== 'APPROVED') {
-      setMsg('Belum dapat membuat Actual Cost. Manager Approval harus APPROVED.');
-      setTimeout(() => setMsg(null), 3500);
-      return;
-    }
-    const epdaItems = activeJob.quotation?.epda?.items || [];
-    const getEPDAItemTariff = (item: DisbursementItem) => {
-      const serviceDescription = describeTariffService(item.name);
-      const currency = item.currency || viewCurrency;
-      const masterOption = buildAutoServiceOptions(currency).find((option) =>
-        option.name.trim().toLowerCase() === item.name.trim().toLowerCase()
-        && option.category === item.category
-      );
-      if (!serviceDescription && item.tariffType !== 'QTY_CARGO' && masterOption?.tariffType !== 'QTY_CARGO') return '';
-      return describeTariffFormula({
-        description: item.name,
-        category: item.category,
-        basis: item.calculationBasis || masterOption?.calculationBasis || item.basis,
-        quantity: Number(item.quantity) > 0 ? Number(item.quantity) : 1,
-        cargoQuantity: Number(activeJob.inquiry?.cargoQuantity || 0),
-        absoluteValue: vesselMaster?.grt,
-        rate: item.tariffRate ?? masterOption?.rate ?? (item.quantity ? item.amount / item.quantity : item.amount),
-        tariffType: item.tariffType || masterOption?.tariffType,
-      });
-    };
-    const existingCodes = new Set(actualList.map(x => `${x.description}|${x.estimatedAmount}`));
-    const seeded = epdaItems.filter(it => !existingCodes.has(`${it.name}|${it.totalBuyRate}`)).map((it, idx) => ({
-      id: `ACT-EPDA-${Date.now()}-${idx}`,
-      jobId: activeJob.jobId,
-      itemCode: it.expenseItemId || `EPDA-${idx + 1}`,
-      description: it.name,
-      category: it.category,
-      quantity: Number(it.quantity) > 0 ? Number(it.quantity) : 1,
-      vendorName: '',
-      invoiceOrVoucherNo: '',
-      date: new Date().toISOString().slice(0, 10),
-      amount: it.totalBuyRate,
-      currency: it.currency,
-      tariffType: it.tariffType,
-      calculationBasis: it.calculationBasis,
-      tariffRate: it.tariffRate ?? it.unitBuyRate,
-      tariffDescription: getEPDAItemTariff(it),
-      estimatedAmount: it.totalBuyRate,
-      varianceAmount: 0,
-      remarks: it.remarks || '',
-      status: 'APPROVED_BY_FDA' as const,
-      vatApplied: it.vatApplied ?? false,
-    }));
-
-    let updatedRemarksCount = 0;
-    let updatedTariffCount = 0;
-    const updatedActualCosts = actualList.map((actual) => {
-      const matchingEPDAItem = epdaItems.find((item) =>
-        `${item.name}|${item.totalBuyRate}` === `${actual.description}|${actual.estimatedAmount}`,
-      );
-      if (!matchingEPDAItem) return actual;
-
-      const updated = { ...actual };
-      let tariffUpdated = false;
-      if (!actual.remarks?.trim() && matchingEPDAItem.remarks?.trim()) {
-        updated.remarks = matchingEPDAItem.remarks;
-        updatedRemarksCount += 1;
-      }
-      if (!actual.tariffDescription?.trim()) {
-        const tariffDescription = getEPDAItemTariff(matchingEPDAItem);
-        if (tariffDescription) {
-          updated.tariffDescription = tariffDescription;
-          tariffUpdated = true;
-        }
-      }
-      if (actual.tariffRate == null) {
-        updated.tariffRate = matchingEPDAItem.tariffRate ?? matchingEPDAItem.unitBuyRate;
-        tariffUpdated = true;
-      }
-      if (!actual.calculationBasis && matchingEPDAItem.calculationBasis) {
-        updated.calculationBasis = matchingEPDAItem.calculationBasis;
-        tariffUpdated = true;
-      }
-      if (!actual.tariffType && matchingEPDAItem.tariffType) {
-        updated.tariffType = matchingEPDAItem.tariffType;
-        tariffUpdated = true;
-      }
-      if (tariffUpdated) updatedTariffCount += 1;
-      return updated;
-    });
-
-    if (!seeded.length && !updatedRemarksCount && !updatedTariffCount) {
-      setMsg('Semua item EPDA sudah tersedia di Actual Cost.');
-    } else {
-      const next = [...updatedActualCosts, ...seeded];
-      setActualList(next);
-      db.updateJob(activeJob.jobId, { fdaItems: next, currentStage: 'FDA' });
-      setMsg([
-        seeded.length ? `${seeded.length} item biaya dari EPDA berhasil dibuat sebagai draft Actual Cost.` : '',
-        updatedRemarksCount ? `Remarks EPDA berhasil diterapkan ke ${updatedRemarksCount} item Actual Cost.` : '',
-        updatedTariffCount ? `Tariff EPDA berhasil diterapkan ke ${updatedTariffCount} item Actual Cost.` : '',
-      ].filter(Boolean).join(' '));
-    }
-    setTimeout(() => setMsg(null), 3500);
   };
 
   const fdaDate = new Date(activeJob.fda?.date || activeJob.createdAt);
@@ -1191,7 +1158,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   const normalizeFDAExportLayoutBase = (html: string) => pushFinanceSignatureDown(formatFDAExportDates(html.replaceAll('>CURRENCY<', '>TARIFF<').replace('</style>', 'h2{background:#28598e!important;color:#fff!important;text-align:center!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}.section td{background:#28598e!important;color:#fff!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}.subtotal,.grand{background:#dbe8f2!important}.grand{color:#f00!important}.grand,.grand td,.grand td:first-child{font-weight:400!important}.bank,.signature{box-sizing:border-box}.signature-main{display:block}.signature-role{display:block;margin-top:120px;padding-top:12px}.meta-col.right{justify-self:stretch;width:100%;padding:0;transform:none}.meta-col.right .meta-row{grid-template-columns:85px 10px minmax(0,1fr)}table th:nth-child(2),table td:nth-child(2){width:20%!important}table th:nth-child(3),table td:nth-child(3){width:35%!important;text-align:center!important;white-space:nowrap}table th:nth-child(4),table td:nth-child(4){width:12%!important;white-space:nowrap}</style>')));
 
-  const normalizeFDAExportLayout = (html: string) => normalizeFDAExportLayoutBase(html).replace('</style>', 'table th{text-align:center!important}table tr.item-row td:nth-child(1){text-align:center!important}table tr.item-row td:nth-child(2),table tr.item-row td:nth-child(5){text-align:left!important}table tr.item-row td:nth-child(3){text-align:center!important}table tr.item-row td:nth-child(4){text-align:right!important}table tr.section td{text-align:left!important}table tr.subtotal td:first-child{font-weight:700;text-align:right!important}table tr.grand td:first-child{text-align:right!important}table tr.global-vat td:first-child{text-align:right!important}table tr.subtotal td.amount,table tr.grand td.amount,table tr.advance td.amount,table tr.balance td.amount{font-variant-numeric:tabular-nums;text-align:right!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}table tr.advance td:first-child,table tr.balance td:first-child{text-align:center!important}</style>');
+  const normalizeFDAExportLayout = (html: string) => normalizeFDAExportLayoutBase(html).replace('</style>', 'table th{text-align:center!important}table thead th:nth-child(2){text-align:center!important}table tr.item-row td:nth-child(1){text-align:center!important}table tr.item-row td:nth-child(2),table tr.item-row td:nth-child(5){text-align:left!important}table tr.item-row td:nth-child(3){text-align:center!important}table tr.item-row td:nth-child(4){text-align:right!important}table tr.section td{text-align:left!important}table tr.subtotal td:first-child{font-weight:700;text-align:right!important}table tr.grand td:first-child{text-align:right!important}table tr.global-vat td:first-child{text-align:right!important}table tr.subtotal td.amount,table tr.grand td.amount,table tr.advance td.amount,table tr.balance td.amount{font-variant-numeric:tabular-nums;text-align:right!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}table tr.advance td:first-child,table tr.balance td:first-child{text-align:center!important}</style>');
   const addA4PageFrame = (html: string) => html
     .replace('<body>', '<body><div class="a4-page-frame" aria-hidden="true"></div>')
     .replace('</head>', `<style>
@@ -1546,7 +1513,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                 <thead className="bg-slate-950 text-slate-400 uppercase text-[10px]">
                   <tr>
                     <th className="p-3">No</th>
-                    <th className="p-3">Job ID</th>
+                    <th className="p-3 text-center">Job ID</th>
                     <th className="p-3">Vessel</th>
                     <th className="p-3">Principal</th>
                     <th className="p-3">ETA</th>
@@ -1558,7 +1525,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                   {filteredJobList.filter(j => j.managerApproval?.status === 'APPROVED').map((j, index) => (
                     <tr key={j.jobId} className="hover:bg-slate-800/40 align-middle">
                       <td className="p-3 text-slate-300">{index + 1}</td>
-                      <td className="p-3">
+                      <td className="p-3 text-center">
                         <button
                           onClick={() => { onSelectJob(j.jobId); setSubTab('FDA_AMOUNT'); }}
                           className="font-mono font-bold text-cyan-300 hover:text-cyan-200 hover:underline"
@@ -1735,14 +1702,14 @@ export const FDAView: React.FC<FDAViewProps> = ({
                 <thead className="bg-slate-950 text-[10px] uppercase tracking-wider text-slate-400">
                   <tr>
                     <th className="w-[4%] whitespace-nowrap p-3 text-center">No</th>
-                    <th className="w-[11%] whitespace-nowrap p-3 text-left">Inquiry</th>
+                    <th className="w-[11%] whitespace-nowrap p-3 text-center">Inquiry</th>
                     <th className="w-[14%] whitespace-nowrap p-3 text-center">Inquiry Date</th>
-                    <th className="w-[11%] whitespace-nowrap p-3 text-left">Job ID</th>
-                    <th className="w-[10%] p-3 text-left">Vessel</th>
+                    <th className="w-[11%] whitespace-nowrap p-3 text-center">Job ID</th>
+                    <th className="w-[10%] p-3 text-center">Vessel</th>
                     <th className="w-[7%] whitespace-nowrap p-3 text-center">IMO</th>
                     <th className="w-[6%] whitespace-nowrap p-3 text-right">GT</th>
-                    <th className="w-[17%] p-3 text-left">Customer / Principal</th>
-                    <th className="w-[8%] p-3 text-left">Port</th>
+                    <th className="w-[17%] whitespace-nowrap p-3 text-center">Customer / Principal</th>
+                    <th className="w-[8%] p-3 text-center">Port</th>
                     <th className="w-[12%] whitespace-nowrap p-3 text-center">ETA</th>
                   </tr>
                 </thead>
@@ -1750,14 +1717,14 @@ export const FDAView: React.FC<FDAViewProps> = ({
                   {approvedJobs.map((job, index) => (
                     <tr key={job.jobId} className="transition-colors hover:bg-slate-800/50">
                       <td className="whitespace-nowrap p-3 text-center font-mono font-bold tabular-nums text-slate-400">{index + 1}</td>
-                      <td className="whitespace-nowrap p-3 text-left font-mono font-bold text-cyan-300">{job.inquiry.inquiryNo}</td>
+                      <td className="whitespace-nowrap p-3 text-center font-mono font-bold text-cyan-300">{job.inquiry.inquiryNo}</td>
                       <td className="whitespace-nowrap p-3 text-center font-mono tabular-nums text-slate-300">{formatInquiryDate(job.inquiry.date)}</td>
-                      <td className="whitespace-nowrap p-3 text-left font-mono font-bold text-blue-300">{job.jobId}</td>
-                      <td className="break-words p-3 text-left font-bold text-white">{job.vesselName}</td>
+                      <td className="whitespace-nowrap p-3 text-center font-mono font-bold text-blue-300">{job.jobId}</td>
+                      <td className="break-words p-3 text-center font-bold text-white">{job.vesselName}</td>
                       <td className="whitespace-nowrap p-3 text-center font-mono tabular-nums text-slate-300">{vessels.find((vessel) => vessel.id === job.vesselId)?.imoNumber || '-'}</td>
-                      <td className="whitespace-nowrap p-3 text-right font-mono tabular-nums text-slate-300">{formatTariffNumber(vessels.find((vessel) => vessel.id === job.vesselId)?.grt)}</td>
-                      <td className="break-words p-3 text-left text-slate-300">{job.customerName}</td>
-                      <td className="break-words p-3 text-left text-slate-300">{job.portName}</td>
+                      <td className="whitespace-nowrap p-3 text-center font-mono tabular-nums text-slate-300">{formatTariffNumber(vessels.find((vessel) => vessel.id === job.vesselId)?.grt)}</td>
+                      <td className="break-words p-3 text-center text-slate-300">{job.customerName}</td>
+                      <td className="break-words p-3 text-center text-slate-300">{job.portName}</td>
                       <td className="whitespace-nowrap p-3 text-center font-mono tabular-nums text-slate-300">{formatVesselDate(job.eta, true)}</td>
                     </tr>
                   ))}
@@ -1936,18 +1903,6 @@ export const FDAView: React.FC<FDAViewProps> = ({
                 <span className="text-xs text-slate-400">Melihat hasil entry Final Cost FDA</span>
               </div>
               <div className="flex flex-wrap gap-2">
-                {activeJob.quotation?.epda?.items?.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={createActualFromEPDA}
-                    disabled={isFDAReadOnly || activeJob.managerApproval?.status !== 'APPROVED'}
-                    title="Tambahkan item EPDA ke tabel Hasil FDA"
-                    className="fda-continue-epda px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Lanjutkan dari EPDA
-                  </button>
-                )}
                 <label className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-cyan-600/20 text-cyan-200 border border-cyan-500/30 text-xs font-bold ${isFDAReadOnly ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
                   <Upload className="w-3.5 h-3.5"/>
                   <span>Upload File</span>
@@ -2026,7 +1981,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                             </td>
                             <td className="border-l border-slate-800 p-3.5 font-mono text-cyan-300">
                               {editingResultAmountId === it.id
-                                ? <input type="text" value={resultAmountDraft.tariff} onChange={(event) => setResultAmountDraft({ ...resultAmountDraft, tariff: event.target.value })} aria-label={`Tariff ${it.description}`} className="w-full min-w-48 rounded border border-slate-600 bg-slate-950 px-2 py-1 font-normal text-white" />
+                                ? <input type="text" value={resultAmountDraft.tariff} onChange={(event) => updateResultTariffDraft(it, event.target.value)} aria-label={`Tariff ${it.description}`} className="w-full min-w-48 rounded border border-slate-600 bg-slate-950 px-2 py-1 font-normal text-white" />
                                 : it.tariff}
                             </td>
                             <td className="border-l border-slate-800 p-3.5 text-right text-xs font-mono font-bold text-white">
@@ -2034,7 +1989,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                                 {editingResultAmountId === it.id ? (
                                   <>
                                     <input autoFocus inputMode="decimal" value={resultAmountDraft.amount} onChange={(event) => setResultAmountDraft({ ...resultAmountDraft, amount: event.target.value })} aria-label={`Amount ${it.description}`} className="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1 text-right text-xs font-normal text-white" />
-                                    <button type="button" onClick={() => saveResultAmount(it.id)} className="rounded p-1 text-emerald-300 hover:bg-emerald-500/20" title="Simpan amount" aria-label={`Simpan amount ${it.description}`}><Check className="h-4 w-4" /></button>
+                                    <button type="button" onClick={() => saveResultAmount(it)} className="rounded p-1 text-emerald-300 hover:bg-emerald-500/20" title="Simpan perubahan item" aria-label={`Simpan perubahan ${it.description}`}><Check className="h-4 w-4" /></button>
                                     <button type="button" onClick={cancelEditResultAmount} className="rounded p-1 text-slate-400 hover:bg-slate-700" title="Batal edit" aria-label="Batal edit amount"><X className="h-4 w-4" /></button>
                                   </>
                                 ) : (
