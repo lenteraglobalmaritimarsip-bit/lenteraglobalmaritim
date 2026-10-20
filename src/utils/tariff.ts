@@ -20,9 +20,14 @@ export function describeTariffService(description: string): string | undefined {
 
   if (source.includes('SHIFTING') && source.includes('PILOT')) return `Shifting Pilotage${mode ? ` ${mode}` : ''}`;
   if (source.includes('PILOT')) return `Pilotage${mode ? ` ${mode}` : ''}`;
+  if (source.includes('TOWAGE') && (source.includes('BERTHING') || source.includes('UNBERTHING'))) return `Towage for Berthing and Unberthing${mode ? ` ${mode}` : ''}`;
+  if (source.includes('TUG') && source.includes('ASSIST')) return `Tuggage Assist${mode ? ` ${mode}` : ''}`;
   if (source.includes('TUG') || source.includes('TOW')) return `Tuggage${mode ? ` ${mode}` : ''}`;
   if (source.includes('HARBOUR') || source.includes('HARBOR')) return 'Harbour Dues';
   if (source.includes('LIGHT DUE') || source.includes('LIGHT')) return 'Light Dues';
+  if (source.includes('STATE REVENUE') && source.includes('DANGEROUS GOODS')) return 'State Revenue For Dangerous Goods';
+  if (source.includes('SECOM') && source.includes('PERMIT')) return 'Secom Permit';
+  if (source.includes('PORT SUPERVISION')) return 'Port Supervision';
   return undefined;
 }
 
@@ -30,9 +35,14 @@ export function describeTariffQuantityUnit(description: string): string | undefi
   const source = description.toUpperCase().replace(/[_-]+/g, ' ');
   if (source.includes('SHIFTING') && source.includes('PILOT')) return 'IN/OUT';
   if (source.includes('PILOT')) return 'IN/OUT';
+  if (source.includes('TOWAGE') && (source.includes('BERTHING') || source.includes('UNBERTHING'))) return 'IN/OUT';
+  if (source.includes('TUG') && source.includes('ASSIST')) return 'HRS';
   if (source.includes('TUG') || source.includes('TOW')) return 'HRS';
   if (source.includes('HARBOUR') || source.includes('HARBOR')) return 'Periode';
   if (source.includes('LIGHT DUE') || source.includes('LIGHT')) return 'Periode';
+  if (source.includes('STATE REVENUE') && source.includes('DANGEROUS GOODS')) return 'Periode';
+  if (source.includes('SECOM') && source.includes('PERMIT')) return 'Periode';
+  if (source.includes('PORT SUPERVISION')) return 'Quantity';
   return undefined;
 }
 
