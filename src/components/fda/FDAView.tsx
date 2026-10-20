@@ -30,7 +30,7 @@ import { DateTimeInput } from '../shared/DateTimeInput';
 import { formatCostCategoryLabel, getCostCategoryRank, normalizeCostCategory } from '../../utils/costCategories';
 import { findMatchingExpensesItem, findMatchingFixTariff } from '../../utils/masterDataIdentity';
 import { createMasterItemSearchOptions, MasterItemSearch, MasterItemSearchOption } from '../shared/MasterItemSearch';
-import { ApprovedSalesPdaTotal, listApprovedFdaPdaTotals } from '../../lib/api';
+import { ApprovedSalesPdaTotal, listApprovedFdaPdaTotals, loadFdaReceivableEntries } from '../../lib/api';
 
 interface FDAViewProps {
   initialTab?: 'DASHBOARD' | 'JOB_ID' | 'FDA_AMOUNT' | 'QUOTES_VIEW' | 'APPROVAL';
@@ -65,6 +65,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
   };
   const [subTab, setSubTab] = useState<'DASHBOARD' | 'JOB_ID' | 'FDA_AMOUNT' | 'QUOTES_VIEW' | 'APPROVAL'>(initialTab);
   const [approvedFpdaTotals, setApprovedFpdaTotals] = useState<ApprovedSalesPdaTotal[]>([]);
+  const [financeReceivableEntries, setFinanceReceivableEntries] = useState<Awaited<ReturnType<typeof loadFdaReceivableEntries>>>([]);
+  const [financeReceivableError, setFinanceReceivableError] = useState('');
   const isFDAApproved = Boolean(activeJob.fda?.fdaApproved || activeJob.fda?.approvalStatus === 'APPROVED');
   const isFDASubmitted = activeJob.fda?.approvalStatus === 'SUBMITTED';
   const isFDAReadOnly = isFDAApproved || isFDASubmitted;
@@ -79,6 +81,37 @@ export const FDAView: React.FC<FDAViewProps> = ({
       .catch((error) => console.error('Approved FPDA totals failed to load:', error));
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refreshFinanceReceivables = () => {
+      void loadFdaReceivableEntries(activeJob.jobId)
+        .then((entries) => {
+          if (cancelled) return;
+          setFinanceReceivableEntries(entries);
+          setFinanceReceivableError('');
+        })
+        .catch((error: unknown) => {
+          if (!cancelled) {
+            setFinanceReceivableError(error instanceof Error ? error.message : 'Riwayat penerimaan Finance gagal dimuat.');
+            console.error('Gagal memuat penerimaan Finance untuk FDA:', error);
+          }
+        });
+    };
+    setFinanceReceivableEntries([]);
+    setFinanceReceivableError('');
+    refreshFinanceReceivables();
+    const intervalId = window.setInterval(refreshFinanceReceivables, 30000);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refreshFinanceReceivables();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [activeJob.jobId]);
 
   useEffect(() => {
     const stopEnterSubmit = (event: KeyboardEvent) => {
@@ -719,7 +752,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
       Number(receipt.amount || 0),
       receipt.currency || activeJob.currency || 'IDR',
       viewCurrency,
-    ), 0);
+    ), 0) + financeReceivableEntries.reduce((total, entry) => total
+      + convertReceiptCurrency(Number(entry.idrAmount || 0), 'IDR', viewCurrency)
+      + convertReceiptCurrency(Number(entry.usdAmount || 0), 'USD', viewCurrency), 0);
   const fdaAmountDue = activeJob.fda?.finalBilledToPrincipal
     ? convertReceiptCurrency(
       activeJob.fda.finalBilledToPrincipal,
@@ -2253,8 +2288,18 @@ export const FDAView: React.FC<FDAViewProps> = ({
           </div>
           <div className="mt-5 overflow-x-auto">
             <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-700">History Payment</h4>
-            {advancePaymentHistory.length > 0 && (
+            {financeReceivableError && <p role="alert" className="mb-2 text-xs font-semibold text-rose-600">{financeReceivableError}</p>}
+            {(advancePaymentHistory.length > 0 || financeReceivableEntries.length > 0) && (
               <div className="space-y-1 text-xs text-slate-700">
+                {financeReceivableEntries.map((entry) => (
+                  <div key={entry.id} className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+                    {formatDateDisplay(entry.incomeDate)} · {formatAccountingNumber(
+                      convertReceiptCurrency(Number(entry.idrAmount || 0), 'IDR', viewCurrency)
+                        + convertReceiptCurrency(Number(entry.usdAmount || 0), 'USD', viewCurrency),
+                      viewCurrency,
+                    )} {viewCurrency} · Finance ({entry.invoiceType}: {entry.invoiceNo}) · {entry.bankName} · {entry.remark}
+                  </div>
+                ))}
                 {advancePaymentHistory.map((receipt) => (
                   <React.Fragment key={receipt.id}>
                     <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-100 bg-white px-3 py-2">

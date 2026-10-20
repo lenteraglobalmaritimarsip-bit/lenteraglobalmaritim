@@ -331,6 +331,22 @@ export interface AccountsReceivableEntry {
   createdAt: string;
 }
 
+export interface FdaReceivableEntry {
+  id: string;
+  jobId: string;
+  invoiceType: ReceivableInvoiceType;
+  invoiceNo: string;
+  incomeDate: string;
+  principalName: string;
+  vesselName: string;
+  remark: string;
+  bankName: string;
+  idrAmount: number;
+  usdAmount: number;
+  createdBy: string;
+  createdAt: string;
+}
+
 export type PurposeOfCall =
   | 'CARGO_DISCHARGE'
   | 'CARGO_LOADING'

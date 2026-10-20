@@ -3,10 +3,10 @@ import {
   Bell, Layers, Search, ShieldCheck,
   Briefcase, FileCheck2, DollarSign, UserCircle2, Menu
 } from 'lucide-react';
-import { UserRole, JobCall, PaymentVoucher, ActiveTab } from '../../types';
+import { UserRole, JobCall, PaymentVoucher, ActiveTab, FdaReceivableEntry } from '../../types';
 import { AuthAccount, initials } from '../../auth';
 import { LogOut } from 'lucide-react';
-import { apiAuth, listPdaRevisionDrafts, listPendingPdaDrafts, PdaDraft } from '../../lib/api';
+import { apiAuth, listPdaRevisionDrafts, listPendingPdaDrafts, loadFdaReceivableEntries, PdaDraft } from '../../lib/api';
 import { dataApi } from '../../lib/dataApi';
 
 interface HeaderProps {
@@ -49,6 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>([]);
   const [pendingPdaDrafts, setPendingPdaDrafts] = useState<PdaDraft[]>([]);
   const [pdaRevisionDrafts, setPdaRevisionDrafts] = useState<PdaDraft[]>([]);
+  const [fdaReceivableNotifications, setFdaReceivableNotifications] = useState<FdaReceivableEntry[]>([]);
   useEffect(() => {
     let cancelled = false;
     setReadNotificationIds([]);
@@ -94,6 +95,32 @@ export const Header: React.FC<HeaderProps> = ({
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [currentRole]);
+
+  useEffect(() => {
+    if (currentRole !== 'FDA') {
+      setFdaReceivableNotifications([]);
+      return;
+    }
+    let cancelled = false;
+    const refreshFdaReceivables = () => {
+      void loadFdaReceivableEntries()
+        .then((entries) => { if (!cancelled) setFdaReceivableNotifications(entries); })
+        .catch((error: unknown) => {
+          console.error('Gagal memuat notifikasi penerimaan Finance untuk FDA:', error);
+        });
+    };
+    refreshFdaReceivables();
+    const intervalId = window.setInterval(refreshFdaReceivables, 30000);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refreshFdaReceivables();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
@@ -160,6 +187,24 @@ export const Header: React.FC<HeaderProps> = ({
           tab: 'PDA_CREW_DETAIL',
           kind: 'WARNING',
           requiresAction: true,
+        });
+      });
+    }
+
+    if (currentRole === 'FDA') {
+      fdaReceivableNotifications.forEach((entry) => {
+        const job = jobCalls.find((item) => item.jobId === entry.jobId);
+        const amounts = [
+          entry.idrAmount > 0 ? `${new Intl.NumberFormat('id-ID').format(entry.idrAmount)} IDR` : '',
+          entry.usdAmount > 0 ? `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(entry.usdAmount)} USD` : '',
+        ].filter(Boolean).join(' / ');
+        push({
+          id: `finance-receivable-${entry.id}`,
+          title: 'Penerimaan job dicatat Finance',
+          message: `${entry.jobId}${job ? ` · ${job.vesselName}` : entry.vesselName ? ` · ${entry.vesselName}` : ''} · ${entry.invoiceType}: ${entry.invoiceNo} · ${amounts} · ${entry.bankName}. Lihat History Payment FDA.`,
+          jobId: entry.jobId,
+          tab: 'FDA_AMOUNT',
+          kind: 'INFO',
         });
       });
     }

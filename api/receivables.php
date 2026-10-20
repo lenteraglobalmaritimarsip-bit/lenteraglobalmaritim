@@ -6,13 +6,49 @@ require __DIR__ . '/bootstrap.php';
 
 try {
     $user = requireAuthenticatedUser();
-    if (($user['role'] ?? '') !== 'FINANCE') jsonResponse(['error' => 'Only Finance can access Accounts Receivable'], 403);
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
     $pdo = db();
 
     if ($method === 'GET') {
         requireMethod('GET');
         $action = (string) ($_GET['action'] ?? 'options');
+        if (($user['role'] ?? '') === 'FDA') {
+            if ($action !== 'fda-advance-history') jsonResponse(['error' => 'FDA hanya dapat melihat riwayat penerimaan job pada branch-nya'], 403);
+            $branchName = trim((string) ($user['branch_name'] ?? ''));
+            if ($branchName === '') jsonResponse(['error' => 'Branch aktif user FDA belum valid'], 422);
+            $jobId = trim((string) ($_GET['jobId'] ?? ''));
+            $sql = 'SELECT ar.id, ar.job_id, ar.invoice_type, ar.invoice_no, ar.income_date, ar.principal_name, ar.vessel_name, '
+                . 'ar.remark, ar.bank_name, ar.idr_amount, ar.usd_amount, ar.created_by_name, ar.created_at '
+                . 'FROM accounts_receivable_entries ar '
+                . 'INNER JOIN inquiries i ON i.job_id = ar.job_id '
+                . "WHERE ar.subject_data = 'PRINCIPAL' AND ar.job_id IS NOT NULL "
+                . 'AND LOWER(TRIM(i.created_by_branch)) = LOWER(TRIM(:branch_name))';
+            $params = ['branch_name' => $branchName];
+            if ($jobId !== '') {
+                $sql .= ' AND ar.job_id = :job_id';
+                $params['job_id'] = $jobId;
+            }
+            $sql .= ' ORDER BY ar.income_date DESC, ar.created_at DESC';
+            $query = $pdo->prepare($sql);
+            $query->execute($params);
+            $entries = array_map(static fn (array $row): array => [
+                'id' => $row['id'],
+                'jobId' => $row['job_id'],
+                'invoiceType' => $row['invoice_type'],
+                'invoiceNo' => $row['invoice_no'],
+                'incomeDate' => (string) $row['income_date'],
+                'principalName' => $row['principal_name'] ?? '',
+                'vesselName' => $row['vessel_name'] ?? '',
+                'remark' => $row['remark'],
+                'bankName' => $row['bank_name'],
+                'idrAmount' => (float) $row['idr_amount'],
+                'usdAmount' => (float) $row['usd_amount'],
+                'createdBy' => $row['created_by_name'],
+                'createdAt' => $row['created_at'],
+            ], $query->fetchAll());
+            jsonResponse(['entries' => $entries]);
+        }
+        if (($user['role'] ?? '') !== 'FINANCE') jsonResponse(['error' => 'Only Finance can access Accounts Receivable'], 403);
         if ($action === 'history') {
             $rows = $pdo->query(
                 'SELECT id, subject_data, job_id, invoice_type, invoice_no, income_date, principal_name, vessel_name, '
@@ -89,6 +125,7 @@ try {
         ]);
     }
 
+    if (($user['role'] ?? '') !== 'FINANCE') jsonResponse(['error' => 'Only Finance can create Accounts Receivable entries'], 403);
     requireMethod('POST');
     requireCsrfToken();
     $body = requestJson();

@@ -1,5 +1,5 @@
 import { AuthAccount } from '../auth';
-import { AccountsReceivableEntry, BankAccount, ReceivableInvoiceOption, ReceivableInvoiceType, ReceivableSubjectData } from '../types';
+import { AccountsReceivableEntry, BankAccount, FdaReceivableEntry, ReceivableInvoiceOption, ReceivableInvoiceType, ReceivableSubjectData } from '../types';
 
 const apiEnabled = import.meta.env.VITE_API_AUTH_ENABLED === 'true';
 let csrfToken = '';
@@ -229,6 +229,14 @@ export async function loadAccountsReceivableOptions(): Promise<{ invoiceOptions:
 export async function loadAccountsReceivableHistory(): Promise<AccountsReceivableEntry[]> {
   if (!apiEnabled) throw new Error('Accounts Receivable memerlukan koneksi API aktif.');
   const result = await request<{ entries: AccountsReceivableEntry[] }>('receivables.php?action=history');
+  return result.entries;
+}
+
+export async function loadFdaReceivableEntries(jobId?: string): Promise<FdaReceivableEntry[]> {
+  if (!apiEnabled) throw new Error('Riwayat penerimaan Finance memerlukan koneksi API aktif.');
+  const params = new URLSearchParams({ action: 'fda-advance-history' });
+  if (jobId) params.set('jobId', jobId);
+  const result = await request<{ entries: FdaReceivableEntry[] }>(`receivables.php?${params.toString()}`);
   return result.entries;
 }
 
