@@ -117,7 +117,15 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       const { type, id } = editingMaster;
       if (type === 'CUSTOMERS') await db.updateCustomer(id, editMasterForm);
       if (type === 'VESSELS') await db.updateVessel(id, editMasterForm);
-      if (type === 'PORTS') await db.updatePort(id, editMasterForm);
+      if (type === 'PORTS') {
+        const code = String(editMasterForm.code || '').trim().toUpperCase();
+        const duplicatePort = ports.find((port) => port.id !== id && port.code.trim().toUpperCase() === code);
+        if (duplicatePort) {
+          setAddFormError(`Kode Port / UN/LOCODE "${code}" sudah digunakan oleh ${duplicatePort.name}.`);
+          return;
+        }
+        await db.updatePort(id, { ...editMasterForm, code });
+      }
       if (type === 'FIX_TARIFF') {
         const port = ports.find((p) => p.id === editMasterForm.portId);
         const rateIDR = parseTariffNumber(editMasterForm.rateIDR);
@@ -840,7 +848,13 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           setAddFormError('Kode dan nama pelabuhan wajib diisi sebelum menyimpan.');
           return;
         }
-        await db.addPort(newPort as Omit<Port, 'id'>);
+        const code = newPort.code.trim().toUpperCase();
+        const duplicatePort = ports.find((port) => port.code.trim().toUpperCase() === code);
+        if (duplicatePort) {
+          setAddFormError(`Kode Port / UN/LOCODE "${code}" sudah digunakan oleh ${duplicatePort.name}.`);
+          return;
+        }
+        await db.addPort({ ...newPort, code } as Omit<Port, 'id'>);
       } else if (activeTab === 'ZONES') {
         if (!newZone.zoneName?.trim()) {
           setAddFormError('Nama zona wajib diisi sebelum menyimpan.');
@@ -939,7 +953,9 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       }
     } catch (error) {
       console.error('Master data save failed:', error);
-      setAddFormError('Data gagal disimpan. Periksa penyimpanan browser lalu coba lagi.');
+      setAddFormError(activeTab === 'PORTS' && error instanceof Error
+        ? error.message
+        : 'Data gagal disimpan. Periksa penyimpanan browser lalu coba lagi.');
       return;
     }
 

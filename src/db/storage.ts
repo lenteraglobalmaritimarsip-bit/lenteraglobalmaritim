@@ -241,6 +241,14 @@ class DatabaseService {
     return this.actor.branch?.trim() || 'Head Office';
   }
 
+  private assertUniquePortCode(code: string, excludedPortId?: string): string {
+    const normalizedCode = code.trim().toUpperCase();
+    if (this.state.ports.some((port) => port.id !== excludedPortId && port.code.trim().toUpperCase() === normalizedCode)) {
+      throw new Error(`Kode Port / UN/LOCODE "${normalizedCode}" sudah terdaftar.`);
+    }
+    return normalizedCode;
+  }
+
   private saveToStorage(notify = true): boolean {
     this.stateVersion += 1;
     if (!apiAuth.enabled) {
@@ -265,7 +273,7 @@ class DatabaseService {
     return true;
   }
 
-  private async persistMasterDelete(previousState: DatabaseState): Promise<void> {
+  private async persistMasterMutation(previousState: DatabaseState): Promise<void> {
     if (!this.saveToStorage(false)) {
       const error = this.apiSyncError instanceof Error
         ? this.apiSyncError
@@ -436,7 +444,7 @@ class DatabaseService {
     const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.users = this.state.users.filter((u) => u.id !== id);
     this.audit('DELETE', 'USER', `Deleted user ${id}`, id);
-    await this.persistMasterDelete(previousState);
+    await this.persistMasterMutation(previousState);
   }
 
   // Customers
@@ -459,7 +467,7 @@ class DatabaseService {
   public async deleteCustomer(id: string): Promise<void> {
     const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.customers = this.state.customers.filter((c) => c.id !== id);
-    await this.persistMasterDelete(previousState);
+    await this.persistMasterMutation(previousState);
   }
 
   // Vessels
@@ -482,24 +490,30 @@ class DatabaseService {
   public async deleteVessel(id: string): Promise<void> {
     const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.vessels = this.state.vessels.filter((v) => v.id !== id);
-    await this.persistMasterDelete(previousState);
+    await this.persistMasterMutation(previousState);
   }
 
   // Ports
   public async addPort(port: Omit<Port, 'id'>): Promise<Port> {
+    const code = this.assertUniquePortCode(port.code);
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     const id = `PRT-${String(this.state.ports.length + 1).padStart(3, '0')}`;
-    const newPort: Port = { ...port, id };
+    const newPort: Port = { ...port, code, id };
     this.state.ports = [...this.state.ports, newPort];
     this.audit('CREATE', 'PORT', `Created port ${newPort.name}`, newPort.id);
-    await this.saveToStorage();
+    await this.persistMasterMutation(previousState);
     return newPort;
   }
 
   public async updatePort(id: string, updates: Partial<Port>): Promise<void> {
+    const currentPort = this.state.ports.find((port) => port.id === id);
+    if (!currentPort) throw new Error('Port tidak ditemukan.');
+    const code = this.assertUniquePortCode(updates.code ?? currentPort.code, id);
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.ports = this.state.ports.map((p) =>
-      p.id === id ? { ...p, ...updates } : p
+      p.id === id ? { ...p, ...updates, code } : p
     );
-    await this.saveToStorage();
+    await this.persistMasterMutation(previousState);
   }
 
   public async deletePort(id: string): Promise<void> {
@@ -510,7 +524,7 @@ class DatabaseService {
     this.state.expensesItems = this.state.expensesItems.map((item) =>
       item.portId === id ? { ...item, portId: '', portName: item.portName || previousState.ports.find((port) => port.id === id)?.name || '' } : item
     );
-    await this.persistMasterDelete(previousState);
+    await this.persistMasterMutation(previousState);
   }
 
   // Zones
@@ -533,7 +547,7 @@ class DatabaseService {
   public async deleteZone(id: string): Promise<void> {
     const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.zones = this.state.zones.filter((z) => z.id !== id);
-    await this.persistMasterDelete(previousState);
+    await this.persistMasterMutation(previousState);
   }
 
   // Fix Tariff
@@ -578,7 +592,7 @@ class DatabaseService {
   public async deleteFixTariff(id: string): Promise<void> {
     const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.fixTariffs = this.state.fixTariffs.filter((t) => t.id !== id);
-    await this.persistMasterDelete(previousState);
+    await this.persistMasterMutation(previousState);
   }
 
   // Expenses Items
@@ -606,7 +620,7 @@ class DatabaseService {
   public async deleteExpensesItem(id: string): Promise<void> {
     const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.expensesItems = this.state.expensesItems.filter((e) => e.id !== id);
-    await this.persistMasterDelete(previousState);
+    await this.persistMasterMutation(previousState);
   }
 
   // Vendor Partners
@@ -633,7 +647,7 @@ class DatabaseService {
       voucher.vendorPartnerId === id ? { ...voucher, vendorPartnerId: '' } : voucher
     );
     this.audit('DELETE', 'VENDOR_PARTNER', `Deleted vendor partner ${id}`, id);
-    await this.persistMasterDelete(previousState);
+    await this.persistMasterMutation(previousState);
   }
 
   // Bank Accounts
@@ -657,7 +671,7 @@ class DatabaseService {
     const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.bankAccounts = (this.state.bankAccounts || []).filter((account) => account.id !== id);
     this.audit('DELETE', 'BANK_ACCOUNT', `Deleted bank account ${id}`, id);
-    await this.persistMasterDelete(previousState);
+    await this.persistMasterMutation(previousState);
   }
 
   // Payment Vouchers
