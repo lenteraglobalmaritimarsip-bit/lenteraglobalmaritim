@@ -360,6 +360,24 @@ function replaceAppState(array $state): void
             if (tableColumns($pdo, $table) === null) continue;
             $pdo->exec("DELETE FROM `{$table}`");
         }
+        $deleteMissingMasterRows = static function (string $table, array $rows) use ($pdo): void {
+            $ids = array_values(array_map(static fn (array $row): string => (string) $row['id'], $rows));
+            if ($ids) {
+                $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+                $pdo->prepare("DELETE FROM `{$table}` WHERE `id` NOT IN ({$placeholders})")->execute($ids);
+            } else {
+                $pdo->exec("DELETE FROM `{$table}`");
+            }
+        };
+        foreach ([
+            'customers' => $state['customers'] ?? [],
+            'vessels' => $state['vessels'] ?? [],
+            'ports' => $state['ports'] ?? [],
+            'vendor_partners' => $state['vendorPartners'] ?? [],
+            'bank_accounts' => $state['bankAccounts'] ?? [],
+        ] as $table => $rows) {
+            $deleteMissingMasterRows($table, $rows);
+        }
         $keptUserIds = array_values(array_map(static fn (array $row): string => (string) $row['id'], $state['users'] ?? []));
         if ($keptUserIds) {
             $marks = implode(', ', array_fill(0, count($keptUserIds), '?'));
@@ -376,13 +394,18 @@ function replaceAppState(array $state): void
         foreach (($state['vessels'] ?? []) as $row) upsertRow($pdo, 'vessels', ['id' => $row['id'], 'name' => $row['name'], 'imo_number' => $row['imoNumber'], 'call_sign' => $row['callSign'], 'flag' => $row['flag'], 'vessel_type' => $row['vesselType'], 'grt' => $row['grt'], 'nrt' => $row['nrt'], 'dwt' => $row['dwt'], 'loa' => $row['loa'], 'beam' => $row['beam'], 'year_built' => $row['yearBuilt'] ?: null]);
         foreach (($state['ports'] ?? []) as $row) upsertRow($pdo, 'ports', ['id' => $row['id'], 'code' => $row['code'], 'name' => $row['name'], 'country' => $row['country'], 'channel_depth_meters' => (int) round((float) ($row['channelDepthMeters'] ?? 0)), 'tide_restriction' => $row['tideRestriction'] ?? null, 'operating_hours' => $row['operatingHours'] ?? null]);
         $portNames = indexBy($state['ports'] ?? [], 'id');
-        foreach (($state['zones'] ?? []) as $row) insertRow($pdo, 'zones', ['id' => $row['id'], 'port_id' => $row['portId'], 'zone_code' => $row['zoneCode'], 'zone_name' => $row['zoneName'], 'zone_type' => $row['type'], 'max_draft_meters' => $row['maxDraftMeters'], 'description' => $row['description'] ?? null]);
+        foreach (($state['zones'] ?? []) as $row) {
+            if (!isset($portNames[$row['portId']])) continue;
+            insertRow($pdo, 'zones', ['id' => $row['id'], 'port_id' => $row['portId'], 'zone_code' => $row['zoneCode'], 'zone_name' => $row['zoneName'], 'zone_type' => $row['type'], 'max_draft_meters' => $row['maxDraftMeters'], 'description' => $row['description'] ?? null]);
+        }
         foreach (($state['fixTariffs'] ?? []) as $row) {
+            if (!isset($portNames[$row['portId']])) continue;
             $portName = trim((string) ($row['portName'] ?? $portNames[$row['portId']]['name'] ?? ''));
             if ($portName === '') throw new RuntimeException('Fix tariff must include a valid port name.');
             insertRow($pdo, 'fix_tariffs', ['id' => $row['id'], 'port_id' => $row['portId'], 'port_name' => $portName, 'service_name' => $row['serviceName'], 'cost_category' => $row['costCategory'] ?? null, 'grt_min' => isset($row['grtMin']) ? (int) round((float) $row['grtMin']) : null, 'grt_max' => isset($row['grtMax']) ? (int) round((float) $row['grtMax']) : null, 'dwt' => isset($row['dwt']) ? (int) round((float) $row['dwt']) : null, 'calculation_basis' => $row['calculationBasis'], 'tariff_type' => $row['tariffType'] ?? null, 'rate_idr' => $row['rateIDR'] ?? null, 'rate_usd' => $row['rateUSD'] ?? null, 'remarks' => $row['remarks'] ?? null]);
         }
-        foreach (($state['expensesItems'] ?? []) as $row) insertRow($pdo, 'expenses_items', ['id' => $row['id'], 'port_id' => $row['portId'] ?: null, 'port_name' => $row['portName'] ?? null, 'code' => $row['code'], 'category' => $row['category'], 'name' => $row['name'], 'rate_idr' => $row['rateIDR'] ?? null, 'rate_usd' => $row['rateUSD'] ?? null, 'calculation_type' => $row['calculationType'] ?? null, 'remarks' => $row['remarks'] ?? null]);
+        foreach (($state['expensesItems'] ?? []) as $row) insertRow($pdo, 'expenses_items', ['id' => $row['id'], 'port_id' => isset($portNames[$row['portId'] ?? '']) ? $row['portId'] : null, 'port_name' => $row['portName'] ?? null, 'code' => $row['code'], 'category' => $row['category'], 'name' => $row['name'], 'rate_idr' => $row['rateIDR'] ?? null, 'rate_usd' => $row['rateUSD'] ?? null, 'calculation_type' => $row['calculationType'] ?? null, 'remarks' => $row['remarks'] ?? null]);
+        $vendorPartnerIds = array_fill_keys(array_map(static fn (array $partner): string => (string) $partner['id'], $state['vendorPartners'] ?? []), true);
         foreach (($state['vendorPartners'] ?? []) as $row) insertRow($pdo, 'vendor_partners', ['id' => $row['id'], 'vendor_name' => $row['vendorName'], 'pic_name' => $row['picName'] ?? null, 'address' => $row['address'] ?? null, 'phone' => $row['phone'] ?? null, 'bank_name' => $row['bankName'] ?? null, 'paid_name' => $row['paidName'] ?? null, 'account_number' => $row['accountNumber'] ?? null]);
         foreach (($state['bankAccounts'] ?? []) as $row) insertRow($pdo, 'bank_accounts', ['id' => $row['id'], 'bank_name' => $row['bankName'], 'branch' => $row['branch'] ?? null, 'account_name' => $row['accountName'], 'account_number' => $row['accountNumber']]);
         foreach (($state['paymentVouchers'] ?? []) as $voucher) {
@@ -396,7 +419,7 @@ function replaceAppState(array $state): void
                 'job_info' => $voucher['jobInfo'],
                 'request_by' => $voucher['requestBy'] ?? '',
                 'request_by_user_id' => !empty($voucher['requestByUserId']) ? $voucher['requestByUserId'] : null,
-                'vendor_partner_id' => !empty($voucher['vendorPartnerId']) ? $voucher['vendorPartnerId'] : null,
+                'vendor_partner_id' => !empty($voucher['vendorPartnerId']) && isset($vendorPartnerIds[$voucher['vendorPartnerId']]) ? $voucher['vendorPartnerId'] : null,
                 'vendor_name' => $voucher['vendorName'] ?? '',
                 'paid_to' => $voucher['paidTo'] ?? null,
                 'bank_name' => $voucher['bankName'] ?? null,

@@ -265,8 +265,25 @@ class DatabaseService {
     return true;
   }
 
-  private notifyAfterDelete(): void {
-    this.saveToStorage();
+  private async persistMasterDelete(previousState: DatabaseState): Promise<void> {
+    if (!this.saveToStorage(false)) {
+      const error = this.apiSyncError instanceof Error
+        ? this.apiSyncError
+        : new Error(String(this.apiSyncError));
+      this.state = previousState;
+      this.notify();
+      throw error;
+    }
+    await this.apiSaveQueue;
+    if (this.apiSyncError) {
+      const error = this.apiSyncError instanceof Error
+        ? this.apiSyncError
+        : new Error(String(this.apiSyncError));
+      this.state = previousState;
+      this.notify();
+      throw error;
+    }
+    this.notify();
   }
 
   private async persistPaymentVoucherMutation(
@@ -416,9 +433,10 @@ class DatabaseService {
   }
 
   public async deleteUser(id: string): Promise<void> {
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.users = this.state.users.filter((u) => u.id !== id);
     this.audit('DELETE', 'USER', `Deleted user ${id}`, id);
-    this.notifyAfterDelete();
+    await this.persistMasterDelete(previousState);
   }
 
   // Customers
@@ -439,8 +457,9 @@ class DatabaseService {
   }
 
   public async deleteCustomer(id: string): Promise<void> {
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.customers = this.state.customers.filter((c) => c.id !== id);
-    this.notifyAfterDelete();
+    await this.persistMasterDelete(previousState);
   }
 
   // Vessels
@@ -461,8 +480,9 @@ class DatabaseService {
   }
 
   public async deleteVessel(id: string): Promise<void> {
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.vessels = this.state.vessels.filter((v) => v.id !== id);
-    this.notifyAfterDelete();
+    await this.persistMasterDelete(previousState);
   }
 
   // Ports
@@ -483,8 +503,14 @@ class DatabaseService {
   }
 
   public async deletePort(id: string): Promise<void> {
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.ports = this.state.ports.filter((p) => p.id !== id);
-    this.notifyAfterDelete();
+    this.state.zones = this.state.zones.filter((zone) => zone.portId !== id);
+    this.state.fixTariffs = this.state.fixTariffs.filter((tariff) => tariff.portId !== id);
+    this.state.expensesItems = this.state.expensesItems.map((item) =>
+      item.portId === id ? { ...item, portId: '', portName: item.portName || previousState.ports.find((port) => port.id === id)?.name || '' } : item
+    );
+    await this.persistMasterDelete(previousState);
   }
 
   // Zones
@@ -505,8 +531,9 @@ class DatabaseService {
   }
 
   public async deleteZone(id: string): Promise<void> {
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.zones = this.state.zones.filter((z) => z.id !== id);
-    this.notifyAfterDelete();
+    await this.persistMasterDelete(previousState);
   }
 
   // Fix Tariff
@@ -549,8 +576,9 @@ class DatabaseService {
   }
 
   public async deleteFixTariff(id: string): Promise<void> {
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.fixTariffs = this.state.fixTariffs.filter((t) => t.id !== id);
-    this.notifyAfterDelete();
+    await this.persistMasterDelete(previousState);
   }
 
   // Expenses Items
@@ -576,8 +604,9 @@ class DatabaseService {
   }
 
   public async deleteExpensesItem(id: string): Promise<void> {
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.expensesItems = this.state.expensesItems.filter((e) => e.id !== id);
-    this.notifyAfterDelete();
+    await this.persistMasterDelete(previousState);
   }
 
   // Vendor Partners
@@ -598,9 +627,13 @@ class DatabaseService {
   }
 
   public async deleteVendorPartner(id: string): Promise<void> {
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.vendorPartners = (this.state.vendorPartners || []).filter((v) => v.id !== id);
+    this.state.paymentVouchers = (this.state.paymentVouchers || []).map((voucher) =>
+      voucher.vendorPartnerId === id ? { ...voucher, vendorPartnerId: '' } : voucher
+    );
     this.audit('DELETE', 'VENDOR_PARTNER', `Deleted vendor partner ${id}`, id);
-    this.notifyAfterDelete();
+    await this.persistMasterDelete(previousState);
   }
 
   // Bank Accounts
@@ -621,9 +654,10 @@ class DatabaseService {
   }
 
   public async deleteBankAccount(id: string): Promise<void> {
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.bankAccounts = (this.state.bankAccounts || []).filter((account) => account.id !== id);
     this.audit('DELETE', 'BANK_ACCOUNT', `Deleted bank account ${id}`, id);
-    this.notifyAfterDelete();
+    await this.persistMasterDelete(previousState);
   }
 
   // Payment Vouchers
