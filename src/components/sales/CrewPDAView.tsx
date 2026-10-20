@@ -46,19 +46,18 @@ const roundPdaAmount = (amount: number) => Math.round((amount + Number.EPSILON) 
 const calculatePdaTotals = (items: PdaEntryItem[], pph23Applied: boolean, globalVatApplied: boolean) => {
   const categoryTotals = groupPdaItems(items).map((group) => {
     const amount = group.items.reduce((sum, item) => sum + item.quantity * item.price, 0);
-    const taxableAmount = group.items
-      .filter((item) => item.vatApplied)
-      .reduce((sum, item) => sum + item.quantity * item.price, 0);
-    const vat = roundPdaAmount(taxableAmount * 0.11);
+    const vat = globalVatApplied ? 0 : group.items.reduce((sum, item) => (
+      sum + (item.vatApplied ? roundPdaAmount(item.quantity * item.price * 0.11) : 0)
+    ), 0);
     const pph23 = pph23Applied && group.items.some((item) => item.vatApplied)
       ? roundPdaAmount(amount * 0.02)
       : 0;
     return { category: group.category, amount, vat, pph23 };
   });
-  const subtotal = categoryTotals.reduce((sum, group) => sum + group.amount, 0);
-  const itemVat = categoryTotals.reduce((sum, group) => sum + group.vat, 0);
-  const pph23Amount = categoryTotals.reduce((sum, group) => sum + group.pph23, 0);
-  const globalVatAmount = globalVatApplied ? roundPdaAmount((subtotal + itemVat) * 0.11) : 0;
+  const subtotal = roundPdaAmount(categoryTotals.reduce((sum, group) => sum + group.amount, 0));
+  const itemVat = roundPdaAmount(categoryTotals.reduce((sum, group) => sum + group.vat, 0));
+  const pph23Amount = roundPdaAmount(categoryTotals.reduce((sum, group) => sum + group.pph23, 0));
+  const globalVatAmount = globalVatApplied ? roundPdaAmount(subtotal * 0.11) : 0;
 
   return {
     categoryTotals,
@@ -66,7 +65,7 @@ const calculatePdaTotals = (items: PdaEntryItem[], pph23Applied: boolean, global
     itemVat,
     pph23Amount,
     globalVatAmount,
-    grandTotal: subtotal + itemVat - pph23Amount + globalVatAmount,
+    grandTotal: roundPdaAmount(subtotal + itemVat - pph23Amount + globalVatAmount),
   };
 };
 
@@ -124,18 +123,21 @@ export const createPdaPreviewHtml = (
     }).join('');
     return `<tr class="category"><td colspan="7">${escapeHtml(group.label)}</td></tr>${itemRows}
       <tr class="total"><td colspan="5">TOTAL</td><td class="amount">${escapeHtml(formatAmountValue(categoryTotal.amount))}</td><td></td></tr>
-      ${categoryTotal.vat > 0 ? `<tr class="subtotal"><td colspan="5">VAT 11%</td><td class="amount">${escapeHtml(formatAmountValue(categoryTotal.vat))}</td><td></td></tr>` : ''}
+      ${!globalVatApplied && categoryTotal.vat > 0 ? `<tr class="subtotal"><td colspan="5">VAT 11%</td><td class="amount">${escapeHtml(formatAmountValue(categoryTotal.vat))}</td><td></td></tr>` : ''}
       <tr class="subtotal"><td colspan="5">SUB TOTAL ${groupIndex + 1}</td><td class="amount">${escapeHtml(formatAmountValue(categoryTotal.amount + categoryTotal.vat))}</td><td></td></tr>
       `;
   }).join('');
   const pph23Row = totals.pph23Amount > 0
-    ? `<tr class="subtotal"><td colspan="5">PPH 23 (2%)</td><td class="amount">-${escapeHtml(formatAmountValue(totals.pph23Amount))}</td><td></td></tr>`
+    ? `<tr class="subtotal"><td colspan="5">TOTAL TAX 23</td><td class="amount">-${escapeHtml(formatAmountValue(totals.pph23Amount))}</td><td></td></tr>`
     : '';
   const globalVatRows = taxesEnabled && globalVatApplied
-    ? `<tr class="subtotal"><td colspan="5">VAT 11%</td><td class="amount">${escapeHtml(formatAmountValue(totals.globalVatAmount))}</td><td></td></tr>`
+    ? `<tr class="subtotal"><td colspan="5">TOTAL VAT11%</td><td class="amount">${escapeHtml(formatAmountValue(totals.globalVatAmount))}</td><td></td></tr>`
     : '';
-  const grandTotalLabel = taxesEnabled && globalVatApplied
-    ? 'GRAND TOTAL + VAT 11%'
+  const totalSubRow = taxesEnabled && groupedItems.length
+    ? `<tr class="subtotal"><td colspan="5">TOTAL AMOUNT</td><td class="amount">${escapeHtml(formatAmountValue(totals.subtotal + totals.itemVat))}</td><td></td></tr>`
+    : '';
+  const grandTotalLabel = taxesEnabled
+    ? 'GRAND TOTAL'
     : groupedItems.length
       ? `GRAND TOTAL ${groupedItems.map((_, index) => index + 1).join(' + ')}`
       : 'GRAND TOTAL';
@@ -157,7 +159,7 @@ export const createPdaPreviewHtml = (
     .logo{width:96px;height:72px;object-fit:contain}
     .brand{font-weight:700;font-size:23px;line-height:1.15;color:#3562a8}
     .tag{color:#555;font-size:15px;font-weight:600;margin-top:7px}
-    h2{text-align:center;background:#214f84;color:white;padding:7px;font-size:14px;margin:8px 0 12px}
+    h2{text-align:center;background:#214f84;color:white;padding:7px;font-size:14px;margin:8px 0 12px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 22px;margin-bottom:12px}
     .meta-col{display:flex;flex-direction:column;gap:4px;min-width:0}
     .meta-row{display:grid;grid-template-columns:minmax(78px,92px) 6px minmax(0,1fr);column-gap:3px;line-height:1.35;min-width:0}
@@ -168,7 +170,7 @@ export const createPdaPreviewHtml = (
     th:nth-child(1){width:5%}th:nth-child(2){width:30%}th:nth-child(3){width:7%}
     th:nth-child(4){width:8%}th:nth-child(5){width:13%}th:nth-child(6){width:15%}th:nth-child(7){width:22%}
     .number{text-align:center}.amount{text-align:right;white-space:nowrap}
-    .category td{background:#214f84;color:#fff;font-weight:700;text-transform:uppercase}
+    .category td{background:#214f84;color:#fff;font-weight:700;text-transform:uppercase;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .total{font-weight:700}.total td:first-child,.subtotal td:first-child{text-align:right}.subtotal{background:#dbe8f2;font-weight:700}
     .bank{display:inline-block;width:42%;margin-top:16px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}
     .signature{display:inline-block;width:42%;margin:16px 0 0 12%;text-align:center;vertical-align:top;font-size:9px;line-height:1.35}.signature-main{display:block}.signature-role{display:block;margin-top:120px;padding-top:8px}
@@ -206,7 +208,7 @@ export const createPdaPreviewHtml = (
     </section>
     <table><thead><tr><th>No</th><th>Description</th><th>Qty</th><th>Unit</th><th>Price (${escapeHtml(currency)})</th><th>Amount (${escapeHtml(currency)})</th><th>Remarks</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="7" style="text-align:center">Belum ada item PDA</td></tr>'}
-      ${pph23Row}${globalVatRows}<tr class="grand-total"><td colspan="5" style="text-align:right">${grandTotalLabel}</td><td class="amount">${escapeHtml(formatAmountValue(totals.grandTotal))}</td><td></td></tr></tbody>
+      ${totalSubRow}${globalVatRows}${pph23Row}<tr class="grand-total"><td colspan="5" style="text-align:right">${grandTotalLabel}</td><td class="amount">${escapeHtml(formatAmountValue(totals.grandTotal))}</td><td></td></tr></tbody>
     </table>
     ${bankFooter}${financeSignature}${officeFooter}
   </body></html>`;
@@ -556,8 +558,8 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
   ];
   const pdaGroups = groupPdaItems(items);
   const grandTotalLabel = pdaGroups.length
-    ? documentPdaType === 'FDA' && newItem.globalVatApplied
-      ? 'GRAND TOTAL + VAT 11%'
+    ? documentPdaType === 'FDA'
+      ? 'GRAND TOTAL'
       : `Grand Total ${pdaGroups.map((_, index) => index + 1).join(' + ')}`
     : 'Grand Total';
 
@@ -677,7 +679,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
             </label>
             <label className={`erp-tax-option erp-tax-option-vat ${newItem.globalVatApplied ? 'is-active' : ''} ${!canEditPda ? 'is-disabled' : ''}`}>
               <input type="checkbox" checked={Boolean(newItem.globalVatApplied)} disabled={!canEditPda} onChange={(event) => setNewItem({ ...newItem, globalVatApplied: event.target.checked })} />
-              <span>VAT 11%<small>Ditambahkan pada Grand Total</small></span>
+              <span>VAT 11%<small>11% dari jumlah TOTAL kategori, ditambahkan ke SUB TOTAL</small></span>
             </label>
           </div>
         )}
@@ -701,7 +703,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
                     </tr>
                     {group.items.map((item, index) => (
                       <tr key={item.id} className="transition-colors hover:bg-slate-700/40">
-                        <td className="border-l border-slate-800 px-3 py-1.5 font-mono text-slate-300">{index + 1}{item.vatApplied && <span className="ml-1 font-bold text-blue-400" title="VAT 11%" aria-label="VAT 11%">*</span>}</td>
+                        <td className="border-l border-slate-800 px-3 py-1.5 text-center font-mono text-slate-300">{index + 1}{item.vatApplied && <span className="ml-1 font-bold text-blue-400" title="VAT 11%" aria-label="VAT 11%">*</span>}</td>
                         <td className="border-l border-slate-800 px-3 py-1.5">
                           {editingItemId === item.id && itemEditDraft ? (
                             <div className="space-y-1.5">
@@ -756,13 +758,18 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
                       </tr>
                     ))}
                     <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-slate-200">TOTAL</td><td className="border-l border-slate-800 p-2.5 text-right font-mono text-xs font-bold text-white">{formatAmountValue(groupTotal)}</td><td colSpan={2} className="border-l border-slate-800" /></tr>
-                    {groupVat > 0 && <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-slate-200">VAT 11%</td><td className="border-l border-slate-800 p-2.5 text-right font-mono text-xs font-bold text-white">{formatAmountValue(groupVat)}</td><td colSpan={2} className="border-l border-slate-800" /></tr>}
+                    {!newItem.globalVatApplied && groupVat > 0 && <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-slate-200">VAT 11%</td><td className="border-l border-slate-800 p-2.5 text-right font-mono text-xs font-bold text-white">{formatAmountValue(groupVat)}</td><td colSpan={2} className="border-l border-slate-800" /></tr>}
                     <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-slate-200">SUB TOTAL {groupIndex + 1}</td><td className="border-l border-slate-800 p-2.5 text-right font-mono text-xs font-bold text-white">{formatAmountValue(groupTotal + groupVat)}</td><td colSpan={2} className="border-l border-slate-800" /></tr>
                   </React.Fragment>
                 );
               })}
-              {documentPdaType === 'FDA' && pdaTotals.pph23Amount > 0 && <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-rose-300">PPH 23 (2%)</td><td className="border-l border-slate-800 p-2.5 text-right font-mono text-xs font-bold text-rose-300">-{formatAmountValue(pdaTotals.pph23Amount)}</td><td colSpan={2} className="border-l border-slate-800" /></tr>}
-              {documentPdaType === 'FDA' && newItem.globalVatApplied && items.length > 0 && <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-amber-300">VAT 11%</td><td className="border-l border-slate-800 p-2.5 text-right font-mono text-xs font-bold text-amber-300">{formatAmountValue(pdaTotals.globalVatAmount)}</td><td colSpan={2} className="border-l border-slate-800" /></tr>}
+              {documentPdaType === 'FDA' && pdaGroups.length > 0 && <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-3.5 text-right font-normal uppercase text-slate-200">TOTAL AMOUNT</td><td className="border-l border-slate-800 p-3.5 text-right font-mono text-xs font-normal text-white">{formatAmountValue(pdaTotals.subtotal + pdaTotals.itemVat)}</td><td colSpan={2} className="border-l border-slate-800" /></tr>}
+              {documentPdaType === 'FDA' && newItem.globalVatApplied && items.length > 0 && (
+                <>
+                  <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-amber-300">TOTAL VAT11%</td><td className="border-l border-slate-800 p-2.5 text-right font-mono text-xs font-bold text-amber-300">{formatAmountValue(pdaTotals.globalVatAmount)}</td><td colSpan={2} className="border-l border-slate-800" /></tr>
+                </>
+              )}
+              {documentPdaType === 'FDA' && pdaTotals.pph23Amount > 0 && <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-rose-300">TOTAL TAX 23</td><td className="border-l border-slate-800 p-2.5 text-right font-mono text-xs font-bold text-rose-300">-{formatAmountValue(pdaTotals.pph23Amount)}</td><td colSpan={2} className="border-l border-slate-800" /></tr>}
               {!items.length && <tr><td colSpan={8} className="p-8 text-center text-slate-500">Belum ada item. Klik Tambah Item untuk mulai entry.</td></tr>}
               <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-3.5 text-right font-bold uppercase tracking-wider text-slate-200">{grandTotalLabel}</td><td className="border-l border-slate-800 p-3.5 text-right font-mono text-xs font-bold text-white">{formatAmountValue(total)}</td><td colSpan={2} className="border-l border-slate-800" /></tr>
             </tbody>

@@ -885,11 +885,9 @@ class DatabaseService {
   public async updateInquiryAndPersist(
     jobId: string,
     updates: Pick<JobCall, 'vesselId' | 'vesselName' | 'portId' | 'portName' | 'customerId' | 'customerName' | 'eta' | 'etd' | 'purposeOfCall' | 'inquiry'>,
-    reason: string,
   ): Promise<{ saved: boolean; error?: string }> {
     const job = this.getJob(jobId);
-    const normalizedReason = reason.trim();
-    if (!job || !normalizedReason || this.actor.role !== 'SALES' || !sameBranch(job.inquiry?.createdByBranch, this.actor.branch)) {
+    if (!job || this.actor.role !== 'SALES' || !sameBranch(job.inquiry?.createdByBranch, this.actor.branch)) {
       return { saved: false };
     }
     if (
@@ -926,8 +924,69 @@ class DatabaseService {
     return this.updateJobAndPersist(
       jobId,
       updates,
-      `Koreksi Inquiry ${jobId}. Alasan: ${normalizedReason}. Sebelum: ${JSON.stringify(before)}. Sesudah: ${JSON.stringify(after)}`,
+      `Koreksi Inquiry ${jobId}. Sebelum: ${JSON.stringify(before)}. Sesudah: ${JSON.stringify(after)}`,
     );
+  }
+
+  public async deleteInquiryAndPersist(jobId: string): Promise<{ saved: boolean; error?: string }> {
+    const job = this.getJob(jobId);
+    if (
+      !job ||
+      this.actor.role !== 'SALES' ||
+      !sameBranch(job.inquiry?.createdByBranch, this.actor.branch) ||
+      job.voidedAt ||
+      job.managerApproval?.status === 'APPROVED' ||
+      job.quotation?.epda?.status === 'SUBMITTED' ||
+      job.quotation?.epda?.status === 'APPROVED' ||
+      job.fda?.fdaApproved ||
+      job.fda?.approvalStatus === 'SUBMITTED' ||
+      job.fda?.approvalStatus === 'APPROVED' ||
+      job.closing?.isClosed ||
+      job.currentStage === 'CLOSED' ||
+      job.status === 'CLOSED'
+    ) return { saved: false };
+
+    const previousJobCalls = this.state.jobCalls;
+    const previousReservedJobIds = this.state.reservedJobIds;
+    const previousSelectedJobId = this.state.selectedJobId;
+    const previousAuditLogs = this.state.auditLogs;
+    const deletedJobIds = new Set(
+      this.state.auditLogs
+        .filter((log) => log.entity === 'VESSEL_CALL' && log.action === 'DELETE')
+        .map((log) => log.entityId || ''),
+    );
+    deletedJobIds.add(jobId);
+    this.state.jobCalls = previousJobCalls.filter((item) => item.jobId !== jobId);
+    this.state.reservedJobIds = (previousReservedJobIds || []).filter((id) => !deletedJobIds.has(id));
+    if (this.state.selectedJobId === jobId) {
+      this.state.selectedJobId = this.state.jobCalls[0]?.jobId || '';
+    }
+    this.audit('DELETE', 'VESSEL_CALL', `Permanently deleted inquiry and vessel call ${jobId}`, jobId);
+    if (!this.saveToStorage(false)) {
+      this.state.jobCalls = previousJobCalls;
+      this.state.reservedJobIds = previousReservedJobIds;
+      this.state.selectedJobId = previousSelectedJobId;
+      this.state.auditLogs = previousAuditLogs;
+      this.notify();
+      return { saved: false, error: 'Inquiry gagal dihapus dari database.' };
+    }
+
+    await this.apiSaveQueue;
+    if (this.apiSyncError) {
+      const error = this.apiSyncError instanceof Error
+        ? this.apiSyncError.message
+        : String(this.apiSyncError);
+      this.state.jobCalls = previousJobCalls;
+      this.state.reservedJobIds = previousReservedJobIds;
+      this.state.selectedJobId = previousSelectedJobId;
+      this.state.auditLogs = previousAuditLogs;
+      this.stateVersion += 1;
+      this.notify();
+      return { saved: false, error };
+    }
+
+    this.notify();
+    return { saved: true };
   }
 
   public async voidJobAndPersist(
@@ -971,17 +1030,20 @@ class DatabaseService {
     const previousJobCalls = [...this.state.jobCalls];
     const previousSelectedJobId = this.state.selectedJobId;
     const previousAuditLogs = this.state.auditLogs;
+    const deletedJobIds = new Set(
+      this.state.auditLogs
+        .filter((log) => log.entity === 'VESSEL_CALL' && log.action === 'DELETE')
+        .map((log) => log.entityId || ''),
+    );
+    const activeJobIds = new Set(previousJobCalls.map((job) => job.jobId));
     const existingJobIds = new Set([
-      ...previousJobCalls.map((job) => job.jobId),
-      ...(this.state.reservedJobIds || []),
+      ...activeJobIds,
+      ...(this.state.reservedJobIds || []).filter((jobId) => !deletedJobIds.has(jobId)),
     ]);
     const yearPrefix = `VC-${year}-`;
     const maxSequence = [
-      ...this.state.jobCalls.map((job) => job.jobId),
-      ...(this.state.reservedJobIds || []),
-      ...this.state.auditLogs
-        .filter((log) => log.entity === 'VESSEL_CALL' && log.action === 'DELETE')
-        .map((log) => log.entityId || ''),
+      ...activeJobIds,
+      ...(this.state.reservedJobIds || []).filter((jobId) => !deletedJobIds.has(jobId)),
     ].reduce((max, jobId) => {
       if (!jobId.startsWith(yearPrefix)) return max;
       const sequence = Number(jobId.slice(yearPrefix.length));
@@ -989,13 +1051,27 @@ class DatabaseService {
     }, 0);
     let nextSeq = maxSequence + 1;
     let generatedJobId = `VC-${year}-${String(nextSeq).padStart(4, '0')}`;
+    const reusableJobId = this.state.auditLogs
+      .filter((log) =>
+        log.entity === 'VESSEL_CALL' &&
+        log.action === 'DELETE' &&
+        !!log.entityId &&
+        log.entityId.startsWith(yearPrefix) &&
+        Number.isInteger(Number(log.entityId.slice(yearPrefix.length))) &&
+        !activeJobIds.has(log.entityId),
+      )
+      .sort((first, second) => second.timestamp.localeCompare(first.timestamp))
+      .find((log) => !existingJobIds.has(log.entityId || ''))?.entityId;
+    if (reusableJobId) generatedJobId = reusableJobId;
     while (existingJobIds.has(generatedJobId)) {
       nextSeq += 1;
       generatedJobId = `VC-${year}-${String(nextSeq).padStart(4, '0')}`;
     }
     const requestedJobId = jobData.jobId?.trim();
     const newJobId = requestedJobId && !existingJobIds.has(requestedJobId) ? requestedJobId : generatedJobId;
-    const documentSequence = nextSeq;
+    const documentSequence = reusableJobId
+      ? Number(reusableJobId.slice(yearPrefix.length))
+      : nextSeq;
     const documentNumberJobId = `VC-${year}-${String(documentSequence).padStart(4, '0')}`;
     const epdaNo = nextFormNumber(previousJobCalls, 'EPDA', actorBranch, documentDate);
     const fdaNo = nextFormNumber(previousJobCalls, 'FDA', actorBranch, documentDate);

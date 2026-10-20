@@ -309,6 +309,7 @@ CREATE TABLE inquiries (
   estimated_days BIGINT NOT NULL DEFAULT 0 CHECK (estimated_days >= 0),
   special_requirements TEXT,
   status ENUM('RECEIVED', 'EVALUATED', 'CONVERTED') NOT NULL DEFAULT 'RECEIVED',
+  created_by VARCHAR(200) NOT NULL DEFAULT '',
   created_by_user_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin,
   created_by_name VARCHAR(150),
   created_by_branch VARCHAR(150),

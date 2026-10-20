@@ -64,11 +64,12 @@ export const SalesDashboardView:React.FC<SalesDashboardViewProps>=({jobCalls,onN
     }, []);
     const roundCurrency = (amount: number) => Math.round((amount + Number.EPSILON) * 100) / 100;
     const vat = categories.reduce((sum, group) => {
-      const taxableAmount = group.items
-        .filter((item) => item.vatApplied)
-        .reduce((categorySum, item) => categorySum + item.amount, 0);
-      return sum + roundCurrency(taxableAmount * 0.11);
+      if (quote.globalVatApplied) return sum;
+      return sum + group.items.reduce((categorySum, item) => (
+        categorySum + (item.vatApplied ? roundCurrency(item.amount * 0.11) : 0)
+      ), 0);
     }, 0);
+    const baseAmount = Number(quote.totalAmount || 0);
     const pph23Applied = quote.pph23Applied ?? items.some((item) => item.pph23Applied);
     const pph23 = pph23Applied
       ? categories.reduce((sum, group) => {
@@ -77,11 +78,8 @@ export const SalesDashboardView:React.FC<SalesDashboardViewProps>=({jobCalls,onN
           return sum + roundCurrency(categoryTotal * 0.02);
         }, 0)
       : 0;
-    const baseAmount = Number(quote.totalAmount || 0);
-    const globalVat = quote.globalVatApplied
-      ? roundCurrency((baseAmount + vat) * 0.11)
-      : 0;
-    return roundCurrency(baseAmount + vat - pph23 + globalVat);
+    const globalVat = quote.globalVatApplied ? roundCurrency(baseAmount * 0.11) : 0;
+    return roundCurrency(baseAmount + vat + globalVat - pph23);
   };
   const totalApprovedEpdaIDR = jobCalls
     .filter((job) => job.managerApproval.status === 'APPROVED' && job.quotation.epda.status === 'APPROVED')

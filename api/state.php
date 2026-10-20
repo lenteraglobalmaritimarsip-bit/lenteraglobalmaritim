@@ -250,18 +250,24 @@ try {
         $newJobs = [];
         foreach ($state['jobCalls'] as $job) $newJobs[$job['jobId']] = $job;
         $changedJobIds = [];
+        $deletedJobIds = [];
         foreach ($oldJobs as $jobId => $oldJob) {
             $newJob = $newJobs[$jobId] ?? null;
             if (!isset($newJobs[$jobId])) {
                 $canSalesDelete = $actor['role'] === 'SALES'
+                    && empty($oldJob['voidedAt'])
                     && ($oldJob['managerApproval']['status'] ?? '') !== 'APPROVED'
+                    && !in_array(($oldJob['quotation']['epda']['status'] ?? 'DRAFT'), ['SUBMITTED', 'APPROVED'], true)
                     && !($oldJob['fda']['fdaApproved'] ?? false)
                     && in_array(($oldJob['fda']['approvalStatus'] ?? 'DRAFT'), ['DRAFT', 'REJECTED'], true)
                     && empty($oldJob['closing']['isClosed'])
+                    && ($oldJob['currentStage'] ?? '') !== 'CLOSED'
+                    && ($oldJob['status'] ?? '') !== 'CLOSED'
                     && branchNameKey((string) ($oldJob['inquiry']['createdByBranch'] ?? ''))
                         === branchNameKey((string) ($actor['branch_name'] ?? $actor['branch'] ?? ''));
                 if (!$canSalesDelete) jsonResponse(['error' => 'Deleting this job is not allowed'], 403);
                 $changedJobIds[] = $jobId;
+                $deletedJobIds[] = $jobId;
                 continue;
             }
             $voidFields = ['voidedAt', 'voidedBy', 'voidReason'];
@@ -391,16 +397,19 @@ try {
         }
         $state['auditLogs'] = $before['auditLogs'];
         foreach (array_unique($changedJobIds) as $jobId) {
+            $isDeletedJob = in_array($jobId, $deletedJobIds, true);
             array_unshift($state['auditLogs'], [
                 'id' => 'AUD-' . bin2hex(random_bytes(12)),
                 'timestamp' => gmdate('c'),
                 'actorId' => $actor['id'] ?? null,
                 'actorName' => $actor['name'],
                 'role' => $actor['role'],
-                'action' => 'SYNC',
+                'action' => $isDeletedJob ? 'DELETE' : 'SYNC',
                 'entity' => 'VESSEL_CALL',
                 'entityId' => $jobId,
-                'description' => 'Workflow state updated through the authenticated API.',
+                'description' => $isDeletedJob
+                    ? 'Inquiry and vessel call permanently deleted through the authenticated API.'
+                    : 'Workflow state updated through the authenticated API.',
             ]);
         }
         $state['auditLogs'] = array_slice($state['auditLogs'], 0, 500);

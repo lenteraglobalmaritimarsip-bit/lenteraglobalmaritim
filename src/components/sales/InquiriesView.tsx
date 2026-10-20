@@ -11,7 +11,7 @@ import {
   X,
   Eye,
   Pencil,
-  Ban,
+  Trash2,
   ChevronDown,
 } from 'lucide-react';
 import { JobCall, Vessel, Port, Customer, PurposeOfCall, PURPOSE_OF_CALL_OPTIONS } from '../../types';
@@ -148,8 +148,6 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
 }) => {
   const [showNewForm, setShowNewForm] = useState(false);
   const [editingJobId, setEditingJobId] = useState('');
-  const [editReason, setEditReason] = useState('');
-  const [showVoidedJobs, setShowVoidedJobs] = useState(true);
   const [search, setSearch] = useState('');
   const [inquiryDateRange, setInquiryDateRange] = useState<InquiryDateRange>({ from: '', to: '' });
   const [inquiryPage, setInquiryPage] = useState(1);
@@ -238,7 +236,6 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
     else datePicker?.click();
   };
   const filteredInquiries = jobCalls.filter((job) => {
-    if (!showVoidedJobs && job.voidedAt) return false;
     const query = search.toLowerCase();
     const matchesSearch = [job.vesselName, job.inquiry.inquiryNo, job.portName, job.customerName]
       .some((value) => value.toLowerCase().includes(query));
@@ -313,18 +310,17 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
             estimatedDays: Number(form.estimatedDays),
             specialRequirements: form.specialRequirements,
           },
-        }, editReason);
+        });
         if (!result.saved) {
-          throw new Error(result.error || 'Koreksi tidak dapat disimpan. Pastikan Job belum masuk approval dan alasan koreksi sudah diisi.');
+          throw new Error(result.error || 'Koreksi tidak dapat disimpan. Pastikan Job belum masuk approval.');
         }
         setEditingJobId('');
-        setEditReason('');
         setShowNewForm(false);
         onDataSaved?.();
         return;
       }
 
-      const createdJob = await db.createJob({
+      await db.createJob({
         vesselId: form.vesselId,
         vesselName: vessel?.name || 'MV UNNAMED',
         portId: form.portId,
@@ -355,9 +351,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
       });
 
       setShowNewForm(false);
-      onSelectJob(createdJob.jobId);
       onDataSaved?.();
-      onNavigateToQuotes();
     } catch (error) {
       setCreateInquiryError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -367,7 +361,6 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
 
   const startEditingInquiry = (job: JobCall) => {
     setEditingJobId(job.jobId);
-    setEditReason('');
     setCreateInquiryError('');
     setMasterDataError('');
     setQuantityError('');
@@ -393,7 +386,6 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
   const closeInquiryForm = () => {
     setShowNewForm(false);
     setEditingJobId('');
-    setEditReason('');
     setCreateInquiryError('');
   };
 
@@ -420,7 +412,6 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
           <button
             onClick={() => {
               setEditingJobId('');
-              setEditReason('');
               setCreateInquiryError('');
               setForm((currentForm) => ({ ...currentForm, eta: '', etd: '', specialRequirements: '' }));
               setShowNewForm(true);
@@ -457,19 +448,6 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
             }}
             className="w-full sm:w-auto"
           />
-          {currentUser.role === 'SALES' && (
-            <label className="mb-2 inline-flex items-center gap-2 whitespace-nowrap text-xs text-slate-300">
-              <input
-                type="checkbox"
-                checked={showVoidedJobs}
-                onChange={(event) => {
-                  setShowVoidedJobs(event.target.checked);
-                  setInquiryPage(1);
-                }}
-              />
-              Tampilkan Job dibatalkan
-            </label>
-          )}
           <span className="mb-2 whitespace-nowrap text-xs text-slate-400">Total: {filteredInquiries.length}</span>
         </div>
       </div>
@@ -502,7 +480,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
               const imoNumber = vessel?.imoNumber || '-';
               const jobStatus = getJobStatus(job);
               const isFinalApproved = job.managerApproval.status === 'APPROVED';
-              const canEditOrVoidJob = currentUser.role === 'SALES'
+              const canEditOrDeleteJob = currentUser.role === 'SALES'
                 && (job.inquiry.createdByBranch || '').trim().toLowerCase() === (currentUser.branch || '').trim().toLowerCase()
                 && !job.voidedAt
                 && !isFinalApproved
@@ -580,7 +558,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                             <Eye className="h-4 w-4" />
                           </button>
                         )}
-                      {canEditOrVoidJob && (
+                      {canEditOrDeleteJob && (
                         <button
                           type="button"
                           title="Koreksi Inquiry sebelum approval"
@@ -591,29 +569,23 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                           <Pencil className="h-4 w-4" />
                         </button>
                       )}
-                      {canEditOrVoidJob && (
+                      {canEditOrDeleteJob && (
                         <button
                           type="button"
-                          title="Batalkan Job dan simpan jejak audit"
-                          aria-label={`Batalkan Job ${job.jobId}`}
+                          title="Hapus inquiry dan Job secara permanen"
+                          aria-label={`Hapus Inquiry ${job.jobId}`}
                           onClick={async () => {
-                            const reason = window.prompt(`Masukkan alasan pembatalan Job ${job.jobId}:`);
-                            if (reason === null) return;
-                            if (!reason.trim()) {
-                              window.alert('Alasan pembatalan wajib diisi.');
-                              return;
-                            }
-                            if (!window.confirm(`Batalkan Job ${job.jobId}? Nomor dan data Job akan tetap tersimpan sebagai riwayat audit.`)) return;
-                            const result = await db.voidJobAndPersist(job.jobId, reason);
+                            if (!window.confirm(`Hapus permanen Inquiry dan Job ${job.jobId}? Data tidak dapat dipulihkan dan nomor Job ini dapat digunakan kembali.`)) return;
+                            const result = await db.deleteInquiryAndPersist(job.jobId);
                             if (!result.saved) {
-                              window.alert(result.error || 'Job tidak dapat dibatalkan. Pastikan skema database terbaru sudah diterapkan dan Job belum masuk approval.');
+                              window.alert(result.error || 'Inquiry tidak dapat dihapus. Pastikan Job belum masuk approval atau memiliki data keuangan.');
                               return;
                             }
                             onDataSaved?.();
                           }}
                           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-300 transition hover:bg-rose-500/25"
                         >
-                          <Ban className="h-4 w-4" />
+                          <Trash2 className="h-4 w-4" />
                         </button>
                       )}
                     </div>
@@ -691,7 +663,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
             )}
             {editingJobId && (
               <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-slate-700">
-                Nomor Job tidak berubah. Koreksi hanya dapat dilakukan sebelum approval. Isi alasan koreksi agar tercatat di audit.
+                Nomor Job tidak berubah. Koreksi hanya dapat dilakukan sebelum approval.
               </div>
             )}
             <form onSubmit={handleSaveInquiry} autoComplete="off" className="space-y-2 text-xs text-slate-700 overflow-hidden w-full max-w-full bg-slate-100 rounded-xl p-4">
@@ -939,20 +911,6 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
                 />
               </div>
-
-              {editingJobId && (
-                <div>
-                  <label className="text-slate-500 block mb-1 font-semibold">Alasan Koreksi (wajib)</label>
-                  <textarea
-                    rows={2}
-                    required
-                    value={editReason}
-                    onChange={(event) => setEditReason(event.target.value)}
-                    placeholder="Jelaskan data yang salah dan alasan perbaikannya."
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
-                  />
-                </div>
-              )}
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
                 <button
