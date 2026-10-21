@@ -180,6 +180,14 @@ function loadAppState(): array
     $apByJob = rowsByJob('ap_items');
     $arByJob = rowsByJob('ar_items');
     $receiptsByJob = rowsByJob('principal_receipts');
+    $financeReceivablesByJob = [];
+    $financeReceivableRows = db()->query(
+        "SELECT id, job_id, invoice_type, income_date, remark, bank_name, idr_amount, usd_amount "
+        . "FROM accounts_receivable_entries WHERE subject_data = 'PRINCIPAL' AND job_id IS NOT NULL"
+    )->fetchAll();
+    foreach ($financeReceivableRows as $financeReceivable) {
+        $financeReceivablesByJob[(string) $financeReceivable['job_id']][] = $financeReceivable;
+    }
     $invoices = indexBy(tableRows('principal_invoices'), 'job_id');
     $closings = indexBy(tableRows('closing_records'), 'job_id');
     $crewPlans = indexBy(tableRows('crew_change_plans'), 'job_id');
@@ -207,6 +215,47 @@ function loadAppState(): array
         $crewChange = ['id' => $plan['id'] ?? '', 'date' => $plan['plan_date'] ?? (string) date('Y-m-d'), 'signOnCount' => (int) ($plan['sign_on_count'] ?? 0), 'signOffCount' => (int) ($plan['sign_off_count'] ?? 0), 'logisticsCost' => (float) ($plan['logistics_cost'] ?? 0), 'immigrationVisaCost' => (float) ($plan['immigration_visa_cost'] ?? 0), 'transportCost' => (float) ($plan['transport_cost'] ?? 0), 'totalCostUSD' => (float) ($plan['total_cost_usd'] ?? 0), 'totalCostIDR' => (float) ($plan['total_cost_idr'] ?? 0), 'status' => $plan['status'] ?? 'PLANNED', 'members' => $members];
         $statementOfFacts = array_map(static fn (array $row): array => ['id' => $row['id'], 'timestamp' => appDateTime($row['event_time']), 'event' => $row['event'], 'remarks' => $row['remarks'] ?? ''], $sofByJob[$jobId] ?? []);
         $mapFinancial = static fn (array $row): array => $row;
+        $principalReceipts = array_map(static fn (array $row): array => [
+            'id' => $row['id'], 'jobId' => $row['job_id'], 'receivedDate' => (string) $row['received_date'],
+            'amount' => (float) $row['amount'], 'currency' => $row['currency'], 'exchangeRateUSDToIDR' => (float) ($row['exchange_rate_usd_to_idr'] ?? 0), 'paymentType' => $row['payment_type'],
+            'refundAmount' => (float) ($row['refund_amount'] ?? 0),
+            'refundExchangeRateUSDToIDR' => (float) ($row['refund_exchange_rate_usd_to_idr'] ?? 0),
+            'refundDate' => $row['refund_date'] ?? null,
+            'refundBankReference' => $row['refund_bank_reference'] ?? '',
+            'refundStatus' => $row['refund_status'] ?? 'NONE',
+            'bankRemark' => $row['bank_remark'], 'attachmentName' => $row['attachment_name'],
+            'attachmentDataUrl' => $row['attachment_data_url'],
+        ], $receiptsByJob[$jobId] ?? []);
+        $principalReceiptIds = array_fill_keys(array_column($principalReceipts, 'id'), true);
+        foreach ($financeReceivablesByJob[$jobId] ?? [] as $financeReceivable) {
+            $paymentType = $financeReceivable['invoice_type'] === 'FDA' ? 'ADVANCE_PAYMENT' : 'INVOICE';
+            foreach (['IDR' => (float) $financeReceivable['idr_amount'], 'USD' => (float) $financeReceivable['usd_amount']] as $currency => $amount) {
+                $receiptId = 'FIN-AR-' . $financeReceivable['id'] . '-' . $currency;
+                $alreadyRecorded = false;
+                foreach ($principalReceipts as $existingReceipt) {
+                    if (($existingReceipt['paymentType'] ?? '') === $paymentType
+                        && ($existingReceipt['receivedDate'] ?? '') === (string) $financeReceivable['income_date']
+                        && ($existingReceipt['currency'] ?? '') === $currency
+                        && abs((float) ($existingReceipt['amount'] ?? 0) - $amount) < 0.005) {
+                        $alreadyRecorded = true;
+                        break;
+                    }
+                }
+                if ($amount <= 0 || $alreadyRecorded || isset($principalReceiptIds[$receiptId])) continue;
+                $principalReceiptIds[$receiptId] = true;
+                $principalReceipts[] = [
+                    'id' => $receiptId,
+                    'jobId' => $jobId,
+                    'receivedDate' => (string) $financeReceivable['income_date'],
+                    'amount' => $amount,
+                    'currency' => $currency,
+                    'paymentType' => $paymentType,
+                    'bankRemark' => trim((string) $financeReceivable['remark']) . ' | ' . $financeReceivable['bank_name'],
+                    'attachmentName' => null,
+                    'attachmentDataUrl' => null,
+                ];
+            }
+        }
         $jobCalls[] = [
             'jobId' => $jobId, 'vesselId' => $job['vessel_id'], 'vesselName' => $vesselById[$job['vessel_id']]['name'] ?? '',
             'portId' => $job['port_id'], 'portName' => $portById[$job['port_id']]['name'] ?? '',
@@ -226,7 +275,7 @@ function loadAppState(): array
             'fdaItems' => array_map(static fn (array $item): array => ['id' => $item['id'], 'jobId' => $item['job_id'], 'itemCode' => $item['item_code'], 'description' => $item['description'], 'category' => $item['category'], 'vendorName' => $item['vendor_name'], 'invoiceOrVoucherNo' => $item['invoice_or_voucher_no'], 'date' => (string) $item['cost_date'], 'quantity' => (float) $item['quantity'], 'amount' => (float) $item['amount'], 'currency' => $item['currency'], 'estimatedAmount' => (float) $item['estimated_amount'], 'tariffType' => $item['tariff_type'], 'calculationBasis' => $item['calculation_basis'], 'tariffRate' => $item['tariff_rate'] === null ? null : (float) $item['tariff_rate'], 'tariffDescription' => $item['tariff_description'], 'varianceAmount' => (float) $item['variance_amount'], 'status' => $item['status'], 'attachmentName' => $item['attachment_name'], 'attachmentDataUrl' => $item['attachment_data_url'], 'remarks' => $item['remarks'], 'vatApplied' => (bool) $item['vat_applied'], 'pph23Applied' => (bool) $item['pph23_applied']], $fdaItemsByJob[$jobId] ?? []),
             'ap' => array_map(static fn (array $row): array => ['id' => $row['id'], 'jobId' => $row['job_id'], 'voucherNo' => $row['voucher_no'], 'vendorName' => $row['vendor_name'], 'description' => $row['description'], 'invoiceDate' => (string) $row['invoice_date'], 'dueDate' => (string) $row['due_date'], 'amount' => (float) $row['amount'], 'currency' => $row['currency'], 'status' => $row['status'], 'paymentRef' => $row['payment_ref'], 'paidDate' => $row['paid_date']], $apByJob[$jobId] ?? []),
             'ar' => array_map(static fn (array $row): array => ['id' => $row['id'], 'jobId' => $row['job_id'], 'referenceNo' => $row['reference_no'], 'principalName' => $row['principal_name'], 'description' => $row['description'], 'requestedAmount' => (float) $row['requested_amount'], 'receivedAmount' => (float) $row['received_amount'], 'currency' => $row['currency'], 'receivedDate' => $row['received_date'], 'bankAccount' => $row['bank_account'], 'status' => $row['status']], $arByJob[$jobId] ?? []),
-            'principalReceipts' => array_map(static fn (array $row): array => ['id' => $row['id'], 'jobId' => $row['job_id'], 'receivedDate' => (string) $row['received_date'], 'amount' => (float) $row['amount'], 'currency' => $row['currency'], 'paymentType' => $row['payment_type'], 'bankRemark' => $row['bank_remark'], 'attachmentName' => $row['attachment_name'], 'attachmentDataUrl' => $row['attachment_data_url']], $receiptsByJob[$jobId] ?? []),
+            'principalReceipts' => $principalReceipts,
             'principalInvoice' => ['invoiceNo' => $invoice['invoice_no'] ?? '', 'invoiceDate' => $invoice['invoice_date'] ?? date('Y-m-d'), 'dueDate' => $invoice['due_date'] ?? date('Y-m-d'), 'totalAmountUSD' => (float) ($invoice['total_amount_usd'] ?? 0), 'totalAmountIDR' => (float) ($invoice['total_amount_idr'] ?? 0), 'advanceDeductedUSD' => (float) ($invoice['advance_deducted_usd'] ?? 0), 'advanceDeductedIDR' => (float) ($invoice['advance_deducted_idr'] ?? 0), 'balanceDueUSD' => (float) ($invoice['balance_due_usd'] ?? 0), 'balanceDueIDR' => (float) ($invoice['balance_due_idr'] ?? 0), 'status' => $invoice['status'] ?? 'DRAFT', 'pdfGenerated' => (bool) ($invoice['pdf_generated'] ?? false)],
             'closing' => ['isClosed' => (bool) ($closing['is_closed'] ?? false), 'closedAt' => appDateTime($closing['closed_at'] ?? null), 'closedBy' => $closing['closed_by_name'] ?? '', 'postVoyageRemarks' => $closing['post_voyage_remarks'] ?? ''],
         ];
@@ -495,7 +544,10 @@ function replaceAppState(array $state): void
             foreach (($job['fdaItems'] ?? []) as $index => $item) insertRow($pdo, 'fda_items', ['id' => $item['id'], 'job_id' => $job['jobId'], 'entry_order' => $index + 1, 'item_code' => $item['itemCode'] ?? '', 'description' => $item['description'], 'category' => normalizedCostCategory(['category' => $item['category'] ?? '', 'name' => $item['description'] ?? ''], $state['fixTariffs'] ?? []), 'vendor_name' => $item['vendorName'] ?? '', 'invoice_or_voucher_no' => $item['invoiceOrVoucherNo'] ?? '', 'cost_date' => sqlDate($item['date'] ?? null, true) ?? date('Y-m-d'), 'quantity' => $item['quantity'] ?? 1, 'amount' => $item['amount'] ?? 0, 'currency' => $item['currency'] ?? $fda['currency'] ?? $job['currency'], 'estimated_amount' => $item['estimatedAmount'] ?? 0, 'tariff_type' => $item['tariffType'] ?? null, 'calculation_basis' => $item['calculationBasis'] ?? null, 'tariff_rate' => $item['tariffRate'] ?? null, 'tariff_description' => $item['tariffDescription'] ?? null, 'variance_amount' => $item['varianceAmount'] ?? 0, 'status' => $item['status'] ?? 'PENDING_VERIFICATION', 'attachment_name' => $item['attachmentName'] ?? null, 'attachment_data_url' => $item['attachmentDataUrl'] ?? null, 'remarks' => $item['remarks'] ?? null, 'vat_applied' => !empty($item['vatApplied']), 'pph23_applied' => !empty($item['pph23Applied'])]);
             foreach (($job['ap'] ?? []) as $item) insertRow($pdo, 'ap_items', ['id' => $item['id'], 'job_id' => $job['jobId'], 'voucher_no' => $item['voucherNo'], 'vendor_name' => $item['vendorName'], 'description' => $item['description'], 'invoice_date' => sqlDate($item['invoiceDate'] ?? null, true) ?? date('Y-m-d'), 'due_date' => sqlDate($item['dueDate'] ?? null, true) ?? date('Y-m-d'), 'amount' => $item['amount'] ?? 0, 'currency' => $item['currency'] ?? $job['currency'], 'status' => $item['status'] ?? 'UNPAID', 'payment_ref' => $item['paymentRef'] ?? null, 'paid_date' => sqlDate($item['paidDate'] ?? null, true)]);
             foreach (($job['ar'] ?? []) as $item) insertRow($pdo, 'ar_items', ['id' => $item['id'], 'job_id' => $job['jobId'], 'reference_no' => $item['referenceNo'], 'principal_name' => $item['principalName'], 'description' => $item['description'], 'requested_amount' => $item['requestedAmount'] ?? 0, 'received_amount' => $item['receivedAmount'] ?? 0, 'currency' => $item['currency'] ?? $job['currency'], 'received_date' => sqlDate($item['receivedDate'] ?? null, true), 'bank_account' => $item['bankAccount'] ?? null, 'status' => $item['status'] ?? 'AWAITING_REMITTANCE']);
-            foreach (($job['principalReceipts'] ?? []) as $receipt) insertRow($pdo, 'principal_receipts', ['id' => $receipt['id'], 'job_id' => $job['jobId'], 'received_date' => sqlDate($receipt['receivedDate'] ?? null, true) ?? date('Y-m-d'), 'amount' => $receipt['amount'], 'currency' => $receipt['currency'] ?? $job['currency'], 'payment_type' => $receipt['paymentType'], 'bank_remark' => $receipt['bankRemark'] ?? '', 'attachment_name' => $receipt['attachmentName'] ?? null, 'attachment_data_url' => $receipt['attachmentDataUrl'] ?? null]);
+            foreach (($job['principalReceipts'] ?? []) as $receipt) {
+                if (strpos((string) ($receipt['id'] ?? ''), 'FIN-AR-') === 0) continue;
+                insertRow($pdo, 'principal_receipts', ['id' => $receipt['id'], 'job_id' => $job['jobId'], 'received_date' => sqlDate($receipt['receivedDate'] ?? null, true) ?? date('Y-m-d'), 'amount' => $receipt['amount'], 'currency' => $receipt['currency'] ?? $job['currency'], 'exchange_rate_usd_to_idr' => $receipt['exchangeRateUSDToIDR'] ?? 0, 'payment_type' => $receipt['paymentType'], 'refund_amount' => $receipt['refundAmount'] ?? 0, 'refund_exchange_rate_usd_to_idr' => $receipt['refundExchangeRateUSDToIDR'] ?? 0, 'refund_date' => sqlDate($receipt['refundDate'] ?? null, true), 'refund_bank_reference' => $receipt['refundBankReference'] ?? null, 'refund_status' => $receipt['refundStatus'] ?? 'NONE', 'bank_remark' => $receipt['bankRemark'] ?? '', 'attachment_name' => $receipt['attachmentName'] ?? null, 'attachment_data_url' => $receipt['attachmentDataUrl'] ?? null]);
+            }
             $invoice = $job['principalInvoice'] ?? [];
             insertRow($pdo, 'principal_invoices', ['job_id' => $job['jobId'], 'invoice_no' => $invoice['invoiceNo'] ?: $job['jobId'] . '-INV', 'invoice_date' => sqlDate($invoice['invoiceDate'] ?? null, true) ?? date('Y-m-d'), 'due_date' => sqlDate($invoice['dueDate'] ?? null, true) ?? date('Y-m-d'), 'total_amount_usd' => $invoice['totalAmountUSD'] ?? 0, 'total_amount_idr' => $invoice['totalAmountIDR'] ?? 0, 'advance_deducted_usd' => $invoice['advanceDeductedUSD'] ?? 0, 'advance_deducted_idr' => $invoice['advanceDeductedIDR'] ?? 0, 'balance_due_usd' => $invoice['balanceDueUSD'] ?? 0, 'balance_due_idr' => $invoice['balanceDueIDR'] ?? 0, 'status' => $invoice['status'] ?? 'DRAFT', 'pdf_generated' => $invoice['pdfGenerated'] ?? false]);
             $closing = $job['closing'] ?? [];

@@ -17,7 +17,7 @@ import {
 import { JobCall, Vessel, Port, Customer, PurposeOfCall, PURPOSE_OF_CALL_OPTIONS } from '../../types';
 import { db } from '../../db/storage';
 import { AuthAccount } from '../../auth';
-import { formatDateDisplay, formatInquiryDate, isInquiryDateInRange } from '../../utils/date';
+import { formatDateDisplay, formatInquiryDate, isInquiryDateInRange, todayISO } from '../../utils/date';
 import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateRangePicker';
 import { DateTimeInput } from '../shared/DateTimeInput';
 import { listApprovedPdaJobIds } from '../../lib/api';
@@ -215,7 +215,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
     vesselId: vessels[0]?.id || '',
     portId: ports[0]?.id || '',
     customerId: customers[0]?.id || '',
-    inquiryDate: new Date().toISOString().slice(0, 10),
+    inquiryDate: todayISO(),
     eta: '',
     etd: '',
     etaRemarks: '',

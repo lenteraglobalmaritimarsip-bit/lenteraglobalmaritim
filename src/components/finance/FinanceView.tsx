@@ -19,9 +19,10 @@ import {
   CalendarDays,
 } from 'lucide-react';
 import { ExpensesItem, FixTariff, JobCall, ActiveTab, Currency, Vessel } from '../../types';
-import { formatDateDisplay, isInquiryDateInRange } from '../../utils/date';
+import { formatDateDisplay, isInquiryDateInRange, todayISO } from '../../utils/date';
 import { db } from '../../db/storage';
 import { formatCostCategoryLabel, getCostCategoryRank, normalizeCostCategory } from '../../utils/costCategories';
+import { convertPrincipalReceiptAmount, getPrincipalReceiptSummary } from '../../utils/principalInvoice';
 import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateRangePicker';
 import { ApprovedSalesPdaTotal, listApprovedFdaPdaTotals } from '../../lib/api';
 
@@ -58,9 +59,15 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   const [closingSearch, setClosingSearch] = useState('');
   const [closingDateRange, setClosingDateRange] = useState<InquiryDateRange>({ from: '', to: '' });
   const [closingDetailJobId, setClosingDetailJobId] = useState<string | null>(null);
-  const [receiptDate, setReceiptDate] = useState(new Date().toISOString().slice(0, 10));
+  const [receiptDate, setReceiptDate] = useState(todayISO());
   const receiptDatePickerRef = useRef<HTMLInputElement | null>(null);
   const [receiptType, setReceiptType] = useState<'ADVANCE_PAYMENT' | 'INVOICE'>('INVOICE');
+  const [receiptCurrency, setReceiptCurrency] = useState<Currency>(activeJob.fda?.currency || activeJob.currency || 'IDR');
+  const [receiptExchangeRate, setReceiptExchangeRate] = useState('');
+  const [refundReceiptId, setRefundReceiptId] = useState<string | null>(null);
+  const [refundCompletionDate, setRefundCompletionDate] = useState(todayISO());
+  const [refundExchangeRate, setRefundExchangeRate] = useState('');
+  const [refundBankReference, setRefundBankReference] = useState('');
   const [receiptAmount, setReceiptAmount] = useState('');
   const [receiptAmountError, setReceiptAmountError] = useState('');
   const [receiptBankRemark, setReceiptBankRemark] = useState('');
@@ -74,6 +81,15 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   useEffect(() => {
     setSubTab(initialTab);
   }, [initialTab]);
+  useEffect(() => {
+    setReceiptCurrency(activeJob.fda?.currency || activeJob.currency || 'IDR');
+    setReceiptExchangeRate(String(
+      activeJob.fda?.exchangeRateUSDToIDR
+      || activeJob.quotation?.epda?.exchangeRateUSDToIDR
+      || activeJob.exchangeRateUSDToIDR
+      || 15800,
+    ));
+  }, [activeJob.jobId, activeJob.currency, activeJob.fda?.currency, activeJob.fda?.exchangeRateUSDToIDR, activeJob.exchangeRateUSDToIDR, activeJob.quotation?.epda?.exchangeRateUSDToIDR]);
   useEffect(() => {
     let cancelled = false;
     void listApprovedFdaPdaTotals()
@@ -140,7 +156,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     const value = currency === 'USD' ? amount * exchangeRate : amount;
     return Math.round(value);
   };
-  const invoiceIssueDate = activeJob.principalInvoice?.invoiceDate || new Date().toISOString().slice(0, 10);
+  const invoiceIssueDate = activeJob.principalInvoice?.invoiceDate || todayISO();
   const invoiceDueDate = activeJob.principalInvoice?.dueDate || new Date(new Date(invoiceIssueDate).getTime() + 30 * 86400000).toISOString().slice(0, 10);
   const activeFpdaInvoice = approvedFpdaTotals.find((fpda) => fpda.jobId === activeJob.jobId);
   const invoiceDocumentNumber = invoiceDocumentType === 'FPDA'
@@ -187,7 +203,23 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
   const getJobReceiptsInCurrency = (job: JobCall, currency: Currency) => (job.principalReceipts || []).reduce((sum, receipt) => {
     const receiptCurrency = (receipt.currency || job.currency || 'IDR') as Currency;
-    return sum + convertCurrencyPrecisely(Number(receipt.amount || 0), receiptCurrency, currency, getJobExchangeRate(job));
+    const received = convertPrincipalReceiptAmount(
+      job,
+      Number(receipt.amount || 0),
+      receiptCurrency,
+      currency,
+      receipt.exchangeRateUSDToIDR,
+    );
+    const refunded = receipt.refundStatus === 'PAID'
+      ? convertPrincipalReceiptAmount(
+          job,
+          Number(receipt.refundAmount || 0),
+          receiptCurrency,
+          currency,
+          receipt.refundExchangeRateUSDToIDR || receipt.exchangeRateUSDToIDR,
+        )
+      : 0;
+    return sum + received - refunded;
   }, 0);
 
   const getJobPrincipalReceived = (job: JobCall) => {
@@ -205,19 +237,12 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     return normalizeToIDR(outstanding, billed.currency, exchangeRate);
   };
 
-  const getJobAdvancePayment = (job: JobCall) => (job.principalReceipts || [])
-    .filter((receipt) => receipt.paymentType === 'ADVANCE_PAYMENT')
-    .reduce((sum, receipt) => {
-      const currency = (receipt.currency || job.currency || 'IDR') as Currency;
-      return sum + normalizeToIDR(receipt.amount || 0, currency, getJobExchangeRate(job));
-    }, 0);
+  const getJobAdvancePayment = (job: JobCall) => getPrincipalReceiptSummary(job, 'IDR').advanceReceived;
 
-  const getJobInvoicePayment = (job: JobCall) => (job.principalReceipts || [])
-    .filter((receipt) => receipt.paymentType === 'INVOICE')
-    .reduce((sum, receipt) => {
-      const currency = (receipt.currency || job.currency || 'IDR') as Currency;
-      return sum + normalizeToIDR(receipt.amount || 0, currency, getJobExchangeRate(job));
-    }, 0);
+  const getJobInvoicePayment = (job: JobCall) => {
+    const receipts = getPrincipalReceiptSummary(job, 'IDR');
+    return receipts.totalReceived - receipts.advanceReceived;
+  };
 
   const apItems = activeJob?.ap || [];
   const arItems = activeJob?.ar || [];
@@ -252,15 +277,32 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   const jobARTotalRaw = getJobPrincipalBilledRaw(activeJob).amount;
   const jobARTotal = roundInvoiceAmount(jobARTotalRaw, jobCurrency);
   const receiptHistory = activeJob?.principalReceipts || [];
-  const jobAdvancePayment = receiptHistory
-    .filter((receipt) => receipt.paymentType === 'ADVANCE_PAYMENT')
-    .reduce((s, receipt) => s + convertCurrency(receipt.amount || 0, receipt.currency, jobCurrency, getJobExchangeRate(activeJob)), 0);
-  const jobInvoiceReceived = receiptHistory
-    .filter((receipt) => receipt.paymentType === 'INVOICE')
-    .reduce((s, receipt) => s + convertCurrency(receipt.amount || 0, receipt.currency, jobCurrency, getJobExchangeRate(activeJob)), 0);
-  const jobTotalReceived = jobAdvancePayment + jobInvoiceReceived;
+  const jobReceiptSummary = getPrincipalReceiptSummary(activeJob, jobCurrency);
+  const jobAdvancePayment = jobReceiptSummary.advanceReceived;
+  const jobTotalReceived = jobReceiptSummary.totalReceived;
+  const jobInvoiceReceived = Math.max(0, jobTotalReceived - jobAdvancePayment);
   const jobAROutstanding = normalizeOutstanding(jobARTotal - getJobReceiptsInCurrency(activeJob, jobCurrency), jobCurrency);
   const jobARReceived = jobTotalReceived;
+  const jobPendingRefund = getPrincipalReceiptSummary(activeJob, jobCurrency).pendingRefund;
+  const receiptExchangeRateValue = Number(receiptExchangeRate) || getJobExchangeRate(activeJob);
+  const enteredReceiptAmount = Number(receiptAmount.replace(/,/g, '')) || 0;
+  const receiptAmountInInvoiceCurrency = convertPrincipalReceiptAmount(
+    activeJob,
+    enteredReceiptAmount,
+    receiptCurrency,
+    jobCurrency,
+    receiptExchangeRateValue,
+  );
+  const estimatedRefundInInvoiceCurrency = Math.max(0, receiptAmountInInvoiceCurrency - jobAROutstanding);
+  const estimatedRefundInPaymentCurrency = estimatedRefundInInvoiceCurrency > 0
+    ? convertPrincipalReceiptAmount(
+        activeJob,
+        estimatedRefundInInvoiceCurrency,
+        jobCurrency,
+        receiptCurrency,
+        receiptExchangeRateValue,
+      )
+    : 0;
 
   const toIDR = (amount: number, currency: 'USD' | 'IDR', exchangeRate: number) => {
     const value = currency === 'USD' ? amount * exchangeRate : amount;
@@ -305,13 +347,17 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     event.preventDefault();
     if (isSavingReceipt) return;
     const enteredAmount = Number(receiptAmount);
-    const normalizeReceiptAmount = (value: number) => jobCurrency === 'IDR'
-      ? Math.round(value)
-      : Math.round((value + Number.EPSILON) * 100) / 100;
-    const amount = normalizeReceiptAmount(enteredAmount);
-    const outstandingBeforeReceipt = jobAROutstanding;
-    const normalizedOutstanding = normalizeReceiptAmount(outstandingBeforeReceipt);
-    const isWholeIDR = jobCurrency !== 'IDR' || Number.isInteger(enteredAmount);
+    const amount = receiptCurrency === 'IDR'
+      ? Math.round(enteredAmount)
+      : Math.round((enteredAmount + Number.EPSILON) * 100) / 100;
+    const normalizedRefundAmount = Math.min(
+      amount,
+      receiptCurrency === 'IDR'
+        ? Math.round(estimatedRefundInPaymentCurrency)
+        : Math.round((estimatedRefundInPaymentCurrency + Number.EPSILON) * 100) / 100,
+    );
+    const isWholeIDR = receiptCurrency !== 'IDR' || Number.isInteger(enteredAmount);
+    const requiresExchangeRate = receiptCurrency !== jobCurrency;
     if (!isFDAApproved(activeJob) || !receiptDate || !Number.isFinite(enteredAmount) || enteredAmount <= 0 || !Number.isFinite(amount) || amount <= 0 || !receiptBankRemark.trim()) {
       setReceiptAmountError('Lengkapi tanggal, nominal penerimaan, dan remark bank. FDA harus Approved.');
       setMsg('Data penerimaan belum lengkap.');
@@ -322,8 +368,8 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       setReceiptAmountError('Nominal IDR harus berupa angka bulat tanpa desimal.');
       return;
     }
-    if (amount > normalizedOutstanding) {
-      setReceiptAmountError(`Nominal tidak boleh melebihi sisa tagihan ${formatJobCurrency(outstandingBeforeReceipt)}.`);
+    if (requiresExchangeRate && (!Number.isFinite(Number(receiptExchangeRate)) || Number(receiptExchangeRate) <= 0)) {
+      setReceiptAmountError('Masukkan kurs realisasi USD/IDR yang tercantum pada bukti transaksi bank.');
       return;
     }
     setReceiptAmountError('');
@@ -333,8 +379,14 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       jobId: activeJob.jobId,
       receivedDate: receiptDate,
       amount,
-      currency: jobCurrency,
+      currency: receiptCurrency,
+      exchangeRateUSDToIDR: receiptExchangeRateValue,
       paymentType: receiptType,
+      refundAmount: normalizedRefundAmount,
+      refundExchangeRateUSDToIDR: normalizedRefundAmount > 0 ? receiptExchangeRateValue : 0,
+      refundDate: '',
+      refundBankReference: '',
+      refundStatus: normalizedRefundAmount > 0 ? 'PENDING' : 'NONE',
       bankRemark: receiptBankRemark.trim(),
       attachmentName: receiptAttachment?.name,
       attachmentDataUrl: receiptAttachment?.dataUrl,
@@ -356,7 +408,9 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       setReceiptType('INVOICE');
       setReceiptBankRemark('');
       setReceiptAttachment(null);
-      setMsg('Penerimaan uang dari Principal berhasil disimpan ke database.');
+      setMsg(normalizedRefundAmount > 0
+        ? `Penerimaan tersimpan. Refund ${formatCurrency(normalizedRefundAmount, receiptCurrency)} tercatat menunggu transfer.`
+        : 'Penerimaan uang dari Principal berhasil disimpan ke database.');
       setTimeout(() => setMsg(null), 3500);
     } finally {
       setIsSavingReceipt(false);
@@ -367,6 +421,10 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     const latestJob = db.getJob(activeJob.jobId);
     if (!latestJob || !isFDAApproved(latestJob)) {
       setReceiptAmountError('Pembayaran belum dapat ditandai PAID. FDA harus Approved terlebih dahulu.');
+      return;
+    }
+    if ((latestJob.principalReceipts || []).some((receipt) => receipt.refundStatus === 'PENDING')) {
+      setReceiptAmountError('Pembayaran belum dapat ditandai PAID. Selesaikan transfer refund lebih bayar terlebih dahulu.');
       return;
     }
 
@@ -390,7 +448,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       ...item,
       receivedAmount: item.requestedAmount,
       status: 'RECEIVED' as const,
-      receivedDate: new Date().toISOString().slice(0, 10),
+      receivedDate: todayISO(),
     }));
 
     db.updateJob(latestJob.jobId, {
@@ -408,8 +466,49 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     setTimeout(() => setMsg(null), 3500);
   };
 
+  const handleCompleteRefund = async (receiptId: string) => {
+    if (isSavingReceipt) return;
+    const receipt = receiptHistory.find((item) => item.id === receiptId);
+    if (!receipt || receipt.refundStatus !== 'PENDING' || !refundCompletionDate || !refundBankReference.trim()
+      || (receipt.currency !== jobCurrency && (!Number.isFinite(Number(refundExchangeRate)) || Number(refundExchangeRate) <= 0))) {
+      setReceiptAmountError('Lengkapi tanggal transfer dan referensi bank refund.');
+      return;
+    }
+    setIsSavingReceipt(true);
+    setReceiptAmountError('');
+    try {
+      const result = await db.updateJobAndPersist(activeJob.jobId, {
+        principalReceipts: receiptHistory.map((item) => item.id === receiptId
+          ? {
+              ...item,
+              refundStatus: 'PAID',
+              refundDate: refundCompletionDate,
+              refundBankReference: refundBankReference.trim(),
+              refundExchangeRateUSDToIDR: receipt.currency === jobCurrency
+                ? receipt.exchangeRateUSDToIDR || getJobExchangeRate(activeJob)
+                : Number(refundExchangeRate),
+            }
+          : item),
+      });
+      if (!result.saved) {
+        setReceiptAmountError(result.error || 'Refund gagal disimpan ke database.');
+        return;
+      }
+      setRefundReceiptId(null);
+      setRefundBankReference('');
+      setMsg('Transfer refund berhasil dicatat.');
+      setTimeout(() => setMsg(null), 3500);
+    } finally {
+      setIsSavingReceipt(false);
+    }
+  };
+
   const handleDeleteReceipt = (receiptId: string) => {
     const receipt = receiptHistory.find((item) => item.id === receiptId);
+    if (receipt?.refundStatus === 'PENDING' || receipt?.refundStatus === 'PAID') {
+      setReceiptAmountError('Receipt dengan refund tidak dapat dihapus karena sudah menjadi bagian dari audit trail.');
+      return;
+    }
     if (!receipt || !window.confirm(`Hapus entry penerimaan ${formatCurrency(receipt.amount, receipt.currency)}?`)) return;
     db.updateJob(activeJob.jobId, {
       principalReceipts: receiptHistory.filter((item) => item.id !== receiptId),
@@ -476,6 +575,10 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     ? activeFpdaAmount
     : getJobFdaBilledRaw(activeJob).amount;
   const invoiceAmount = roundInvoiceAmount(rawInvoiceAmount, jobCurrency);
+  const invoiceAdvancePayment = invoiceDocumentType === 'FDA'
+    ? getPrincipalReceiptSummary(activeJob, jobCurrency).advanceReceived
+    : 0;
+  const invoiceBalanceAfterAdvance = normalizeOutstanding(invoiceAmount - invoiceAdvancePayment, jobCurrency);
   const fdaBillingTotal = roundInvoiceAmount(getJobPrincipalBilledRaw(activeJob).amount, jobCurrency);
   const financeGateMessage = !isFDAApproved(activeJob)
     ? 'Finance menunggu FDA Final. AP, AR, Principal Invoice dan Closing baru aktif setelah FDA Approved.'
@@ -579,7 +682,10 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       ${group.items.map((item) => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.currency)}</td><td class="amount">${escapeHtml(formatCurrencyNumber(convertCurrency(item.amount, item.currency, jobCurrency, getJobExchangeRate(activeJob)), jobCurrency))}</td></tr>`).join('')}
     `).join('');
 
-    const totalInvoiceRow = `<tr class="total"><td colspan="2" class="right">TOTAL NILAI INVOICE</td><td class="amount">${escapeHtml(formatCurrencyNumber(invoiceAmount, jobCurrency))}</td></tr>`;
+    const totalInvoiceRow = `<tr class="total"><td colspan="2" class="right">TOTAL NILAI INVOICE (BRUTO)</td><td class="amount">${escapeHtml(formatCurrencyNumber(invoiceAmount, jobCurrency))}</td></tr>`;
+    const advancePaymentRow = invoiceDocumentType === 'FDA'
+      ? `<tr><td colspan="2" class="right">Advance Payment FDA</td><td class="amount">-${escapeHtml(formatCurrencyNumber(invoiceAdvancePayment, jobCurrency))}</td></tr><tr class="total"><td colspan="2" class="right">SISA TAGIHAN SETELAH ADVANCE</td><td class="amount">${escapeHtml(formatCurrencyNumber(invoiceBalanceAfterAdvance, jobCurrency))}</td></tr>`
+      : '';
     const equivalentRow = jobCurrency === 'USD'
       ? `<tr class="total"><td colspan="2" class="right">Equivalen IDR (Kurs ${escapeHtml(new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(getJobExchangeRate(activeJob)))}):</td><td class="amount">${escapeHtml(formatIDR(invoiceAmount * getJobExchangeRate(activeJob)))}</td></tr>`
       : '';
@@ -676,6 +782,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
           <tbody>
             ${rows}
             ${totalInvoiceRow}
+            ${advancePaymentRow}
             ${equivalentRow}
           </tbody>
         </table>
@@ -832,14 +939,16 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                     <th className="p-3">FDA Status</th>
                     <th className="p-3">Invoice No</th>
                     <th className="p-3">Invoice Status</th>
-                    <th className="p-3 text-right">Total Invoice</th>
+                    <th className="p-3 text-right">Tagihan Bruto</th>
+                    <th className="p-3 text-right">Advance FDA</th>
+                    <th className="p-3 text-right">Sisa Tagihan</th>
                     <th className="p-3 text-center">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
                   {filteredInvoiceJobs.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="p-6 text-center text-slate-400">
+                      <td colSpan={10} className="p-6 text-center text-slate-400">
                         Belum ada job dari FDA yang siap masuk ke menu JOB Invoice.
                       </td>
                     </tr>
@@ -847,6 +956,11 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                     paginatedInvoiceJobs.map((job, index) => {
                       const invoiceCurrency = getJobCurrency(job);
                       const invoiceTotal = getJobPrincipalBilledRaw(job).amount;
+                      const advanceReceived = getPrincipalReceiptSummary(job, invoiceCurrency).advanceReceived;
+                      const invoiceOutstanding = normalizeOutstanding(
+                        invoiceTotal - getJobReceiptsInCurrency(job, invoiceCurrency),
+                        invoiceCurrency,
+                      );
                       const fpdaInvoice = approvedFpdaTotals.find((fpda) => fpda.jobId === job.jobId && fpda.pdaNo);
                       return (
                         <tr key={job.jobId} className="hover:bg-slate-800/40">
@@ -878,6 +992,12 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                           </td>
                           <td className="p-3 text-right font-mono font-bold text-cyan-300">
                             {formatCurrency(invoiceTotal, invoiceCurrency)}
+                          </td>
+                          <td className="p-3 text-right font-mono text-amber-300">
+                            {formatCurrency(advanceReceived, invoiceCurrency)}
+                          </td>
+                          <td className="p-3 text-right font-mono font-bold text-emerald-300">
+                            {formatCurrency(invoiceOutstanding, invoiceCurrency)}
                           </td>
                           <td className="p-3">
                             <div className="flex items-center justify-center gap-1.5 flex-row-reverse">
@@ -1051,15 +1171,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                     const rawBill = getJobPrincipalBilledRaw(j);
                     const billedAmount = rawBill.amount;
                     const receivedAmount = getJobReceiptsInCurrency(j, rowCurrency);
-                    const advancePaymentAmount = (j.principalReceipts || [])
-                      .filter((receipt) => receipt.paymentType === 'ADVANCE_PAYMENT')
-                      .reduce((sum, receipt) => {
-                        const receiptCurrency = (receipt.currency || j.currency || 'IDR') as Currency;
-                        const signed = receiptCurrency === rowCurrency
-                          ? (receipt.amount || 0)
-                          : convertCurrency(receipt.amount || 0, receiptCurrency, rowCurrency, exchangeRate);
-                        return sum + signed;
-                      }, 0);
+                    const advancePaymentAmount = getPrincipalReceiptSummary(j, rowCurrency).advanceReceived;
                     const outstandingAmount = normalizeOutstanding(billedAmount - receivedAmount, rowCurrency);
                     const apTotal = j.ap?.reduce((sum, item) => sum + (item.amount || 0), 0) || 0;
                     const apPaid = j.ap?.filter((item) => item.status === 'PAID').reduce((sum, item) => sum + (item.amount || 0), 0) || 0;
@@ -1266,6 +1378,18 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                       {formatCurrencyNumber(invoiceAmount, jobCurrency)}
                     </td>
                   </tr>
+                  {invoiceDocumentType === 'FDA' && (
+                    <>
+                      <tr>
+                        <td colSpan={2} className="p-3 text-right text-amber-300 uppercase">Advance Payment FDA:</td>
+                        <td className="p-3 text-right font-mono text-amber-300">-{formatCurrencyNumber(invoiceAdvancePayment, jobCurrency)}</td>
+                      </tr>
+                      <tr>
+                        <td colSpan={2} className="p-3 text-right text-emerald-300 uppercase">Sisa Tagihan Setelah Advance:</td>
+                        <td className="p-3 text-right font-mono text-emerald-300">{formatCurrencyNumber(invoiceBalanceAfterAdvance, jobCurrency)}</td>
+                      </tr>
+                    </>
+                  )}
                   {jobCurrency === 'USD' && (
                     <tr>
                       <td colSpan={2} className="p-3 text-right text-slate-400 uppercase">
@@ -1327,13 +1451,23 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                 </div>
                 <span className="text-slate-600" aria-hidden="true">|</span>
                 <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-slate-400">FDA Advance:</span>
+                  <span className="font-mono font-bold text-amber-300">{formatJobCurrency(jobAdvancePayment)}</span>
+                </div>
+                <span className="text-slate-600" aria-hidden="true">|</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-slate-400">Refund Pending:</span>
+                  <span className="font-mono font-bold text-rose-300">{formatJobCurrency(jobPendingRefund)}</span>
+                </div>
+                <span className="text-slate-600" aria-hidden="true">|</span>
+                <div className="flex items-center gap-1.5">
                   <span className="text-xs text-slate-400">Sisa Saldo Belum Bayar:</span>
                   <span className="font-mono font-bold text-amber-300">{formatJobCurrency(jobAROutstanding)}</span>
                 </div>
               </div>
             </div>
 
-            <form onSubmit={handleAddPrincipalReceipt} className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3 bg-slate-950 p-4 rounded-xl border border-slate-800">
+            <form onSubmit={handleAddPrincipalReceipt} className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-3 bg-slate-950 p-4 rounded-xl border border-slate-800">
               <div className="text-xs text-slate-400">
                 <label htmlFor="receipt-date-display">Tanggal Masuk *</label>
                 <div className="relative mt-1">
@@ -1350,22 +1484,35 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   <option value="INVOICE">Invoice</option>
                 </select>
               </label>
-              <label className="text-xs text-slate-400">Nominal Masuk ({jobCurrency}) *
+              <label className="text-xs text-slate-400">Mata Uang Diterima *
+                <select required value={receiptCurrency} onChange={(event) => setReceiptCurrency(event.target.value as Currency)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white">
+                  <option value="USD">USD ($)</option>
+                  <option value="IDR">IDR (Rp)</option>
+                </select>
+              </label>
+              <label className="text-xs text-slate-400">Nominal Masuk ({receiptCurrency}) *
                 <input
                   type="number"
                   required
-                  min={jobCurrency === 'IDR' ? '1' : '0.01'}
-                  step={jobCurrency === 'IDR' ? '1' : '0.01'}
+                  min={receiptCurrency === 'IDR' ? '1' : '0.01'}
+                  step={receiptCurrency === 'IDR' ? '1' : '0.01'}
                   value={receiptAmount}
                   onChange={(event) => { setReceiptAmount(event.target.value); setReceiptAmountError(''); }}
-                  placeholder={jobCurrency === 'IDR' ? '0' : '0.00'}
+                  placeholder={receiptCurrency === 'IDR' ? '0' : '0.00'}
                   inputMode="decimal"
                   className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
                 />
                 <span className="mt-1 block text-[10px] text-slate-500">
-                  Format: {receiptAmount && Number.isFinite(Number(receiptAmount)) ? formatCurrency(Number(receiptAmount), jobCurrency) : jobCurrency === 'IDR' ? 'Rp 0' : '0 USD'}
+                  Format: {receiptAmount && Number.isFinite(Number(receiptAmount)) ? formatCurrency(Number(receiptAmount), receiptCurrency) : receiptCurrency === 'IDR' ? 'Rp 0' : '0 USD'}
                 </span>
               </label>
+              {receiptCurrency !== jobCurrency ? (
+                <label className="text-xs text-slate-400">Kurs Realisasi (IDR / USD) *
+                  <input type="number" required min="1" step="0.01" value={receiptExchangeRate} onChange={(event) => setReceiptExchangeRate(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
+                </label>
+              ) : <div className="text-xs text-slate-400">Kurs Invoice
+                <div className="mt-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-300">{jobCurrency === 'USD' ? `Rp ${new Intl.NumberFormat('id-ID').format(getJobExchangeRate(activeJob))} / USD` : 'Tidak diperlukan'}</div>
+              </div>}
               <label className="text-xs text-slate-400">Remark Bank *
                 <input required value={receiptBankRemark} onChange={(event) => setReceiptBankRemark(event.target.value)} placeholder="Contoh: Transfer BCA dari Principal" className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
               </label>
@@ -1377,17 +1524,54 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                 </label>
                 <input id="receipt-attachment" type="file" accept="image/png" onChange={handleReceiptAttachment} className="sr-only" />
               </div>
-              <div className="md:col-span-2 xl:col-span-5 flex items-center justify-between gap-3">
+              <div className="md:col-span-2 xl:col-span-7 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs">
+                <span className="text-slate-300">Dibukukan ke invoice: <b className="text-emerald-300">{formatJobCurrency(Math.min(receiptAmountInInvoiceCurrency, jobAROutstanding))}</b></span>
+                {estimatedRefundInPaymentCurrency > 0 && <span className="text-rose-300">Lebih bayar, refund pending: <b>{formatCurrency(estimatedRefundInPaymentCurrency, receiptCurrency)}</b></span>}
+                {receiptCurrency !== jobCurrency && <span className="text-slate-400">Kurs realisasi: Rp {new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(receiptExchangeRateValue)} / USD</span>}
+              </div>
+              <div className="md:col-span-2 xl:col-span-7 flex items-center justify-between gap-3">
                 <div>
                   <span className="text-xs text-slate-500">{receiptAttachment ? `File: ${receiptAttachment.name}` : 'Bukti transfer PNG opsional.'}</span>
                   {receiptAmountError && <div className="mt-1 text-xs font-semibold text-rose-300">{receiptAmountError}</div>}
                 </div>
                 <div className="flex items-center gap-2">
                   <button type="submit" disabled={isSavingReceipt} className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:cursor-wait disabled:opacity-60 text-white text-xs font-bold">{isSavingReceipt ? 'Menyimpan...' : 'Simpan Penerimaan'}</button>
-                  <button type="button" disabled={isSavingReceipt} onClick={handleMarkPrincipalPaymentPaid} className="px-4 py-2 rounded-xl border-2 border-sky-500 bg-sky-200 text-sky-950 text-xs font-black shadow-sm hover:bg-sky-300 disabled:cursor-wait disabled:opacity-60" title="Tandai lunas setelah saldo menjadi nol">PAID</button>
+                  <button type="button" disabled={isSavingReceipt || receiptHistory.some((receipt) => receipt.refundStatus === 'PENDING')} onClick={handleMarkPrincipalPaymentPaid} className="px-4 py-2 rounded-xl border-2 border-sky-500 bg-sky-200 text-sky-950 text-xs font-black shadow-sm hover:bg-sky-300 disabled:cursor-wait disabled:opacity-60" title="Refund pending harus ditransfer sebelum pembayaran dapat ditandai lunas">PAID</button>
                 </div>
               </div>
             </form>
+
+            {receiptHistory.filter((receipt) => receipt.refundStatus === 'PENDING').map((receipt) => (
+              <div key={`refund-${receipt.id}`} className="mt-4 rounded-xl border border-rose-500/40 bg-rose-500/10 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-bold uppercase text-rose-300">Refund harus ditransfer</div>
+                    <div className="mt-1 text-sm text-white">{formatCurrency(receipt.refundAmount || 0, receipt.currency)} · Receipt {formatDateDisplay(receipt.receivedDate)} · {receipt.bankRemark}</div>
+                  </div>
+                  {refundReceiptId !== receipt.id && <button type="button" onClick={() => {
+                    setRefundReceiptId(receipt.id);
+                    setRefundCompletionDate(todayISO());
+                    setRefundExchangeRate(receipt.currency === jobCurrency
+                      ? String(receipt.refundExchangeRateUSDToIDR || receipt.exchangeRateUSDToIDR || getJobExchangeRate(activeJob))
+                      : '');
+                  }} className="rounded-lg bg-rose-600 px-3 py-2 text-xs font-bold text-white hover:bg-rose-500">Catat Transfer Refund</button>}
+                </div>
+                {refundReceiptId === receipt.id && (
+                  <form onSubmit={(event) => { event.preventDefault(); void handleCompleteRefund(receipt.id); }} className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_2fr_auto]">
+                    <label className="text-xs text-rose-100">Tanggal Refund *
+                      <input type="date" required value={refundCompletionDate} onChange={(event) => setRefundCompletionDate(event.target.value)} className="mt-1 w-full rounded-lg border border-rose-300/30 bg-slate-900 px-3 py-2 text-sm text-white" />
+                    </label>
+                    {receipt.currency !== jobCurrency && <label className="text-xs text-rose-100">Kurs Refund (IDR / USD) *
+                      <input type="number" required min="1" step="0.01" value={refundExchangeRate} onChange={(event) => setRefundExchangeRate(event.target.value)} className="mt-1 w-full rounded-lg border border-rose-300/30 bg-slate-900 px-3 py-2 text-sm text-white" />
+                    </label>}
+                    <label className="text-xs text-rose-100">Referensi Bank Refund *
+                      <input required value={refundBankReference} onChange={(event) => setRefundBankReference(event.target.value)} className="mt-1 w-full rounded-lg border border-rose-300/30 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="Nomor referensi transfer" />
+                    </label>
+                    <button type="submit" disabled={isSavingReceipt} className="self-end rounded-lg bg-rose-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{isSavingReceipt ? 'Menyimpan...' : 'Konfirmasi Refund'}</button>
+                  </form>
+                )}
+              </div>
+            ))}
 
             <div className="mt-5">
               <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-3">History Penerimaan Uang Masuk</h3>
@@ -1399,20 +1583,28 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                       <th className="p-3">Tanggal Masuk</th>
                       <th className="p-3">Jenis</th>
                       <th className="p-3 text-right">Nominal</th>
+                      <th className="p-3 text-right">Kurs USD/IDR</th>
                       <th className="p-3">Remark Bank</th>
+                      <th className="p-3">Refund</th>
                       <th className="p-3">Bukti</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
                     {receiptHistory.length === 0 ? (
-                      <tr><td colSpan={6} className="p-5 text-center text-slate-500">Belum ada history penerimaan uang masuk.</td></tr>
+                      <tr><td colSpan={8} className="p-5 text-center text-slate-500">Belum ada history penerimaan uang masuk.</td></tr>
                     ) : receiptHistory.map((receipt, index) => (
                       <tr key={receipt.id} className="hover:bg-slate-800/40">
                         <td className="p-3 font-mono text-slate-300">{index + 1}</td>
                         <td className="p-3 text-slate-300">{formatDateDisplay(receipt.receivedDate)}</td>
                         <td className="p-3 text-slate-300">{receipt.paymentType === 'ADVANCE_PAYMENT' ? 'Advance Payment' : 'Invoice'}</td>
                         <td className="p-3 text-right font-mono font-bold text-emerald-300">{jobCurrency === receipt.currency ? formatJobCurrency(receipt.amount) : `${receipt.currency} ${receipt.amount.toLocaleString('en-US')}`}</td>
+                        <td className="p-3 text-right font-mono text-slate-400">{receipt.exchangeRateUSDToIDR ? new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(receipt.exchangeRateUSDToIDR) : '-'}</td>
                         <td className="p-3 text-slate-300">{receipt.bankRemark}</td>
+                        <td className="p-3 text-xs">
+                          {receipt.refundStatus && receipt.refundStatus !== 'NONE'
+                            ? <span className={receipt.refundStatus === 'PAID' ? 'font-semibold text-emerald-300' : 'font-semibold text-rose-300'}>{receipt.refundStatus} · {formatCurrency(receipt.refundAmount || 0, receipt.currency)}{receipt.refundBankReference ? ` · ${receipt.refundBankReference}` : ''}</span>
+                            : <span className="text-slate-500">-</span>}
+                        </td>
                         <td className="relative p-3 text-center">
                           <div className="flex items-center justify-center text-center">
                             {receipt.attachmentDataUrl ? (
@@ -1424,15 +1616,17 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                                 Lihat PNG
                               </button>
                             ) : <span className="mx-auto text-slate-500">-</span>}
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteReceipt(receipt.id)}
-                              title="Hapus entry penerimaan"
-                              aria-label={`Hapus entry penerimaan ${receipt.id}`}
-                              className="absolute right-3 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md border border-rose-500/30 bg-rose-500/10 text-rose-300 transition hover:bg-rose-500/20"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
+                            {!receipt.id.startsWith('FIN-AR-') && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteReceipt(receipt.id)}
+                                title="Hapus entry penerimaan"
+                                aria-label={`Hapus entry penerimaan ${receipt.id}`}
+                                className="absolute right-3 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md border border-rose-500/30 bg-rose-500/10 text-rose-300 transition hover:bg-rose-500/20"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

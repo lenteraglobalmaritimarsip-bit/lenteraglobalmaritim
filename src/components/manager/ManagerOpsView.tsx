@@ -20,6 +20,7 @@ import { JobCall, ActiveTab, ExpensesItem, FixTariff, Vessel } from '../../types
 import { db } from '../../db/storage';
 import { formatDateDisplay, formatInquiryDate, formatInquiryDateRange, isInquiryDateInRange } from '../../utils/date';
 import { formatCostCategoryLabel } from '../../utils/costCategories';
+import { getPrincipalReceiptSummary } from '../../utils/principalInvoice';
 import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateRangePicker';
 import { QuotesEPDAView } from '../sales/QuotesEPDAView';
 import { createPdaPreviewHtml } from '../sales/CrewPDAView';
@@ -174,18 +175,12 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
     const billedCurrency = job.fda?.currency || job.currency || 'IDR';
     const rate = job.fda?.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
     const billedIDR = billedCurrency === 'USD' ? billed * rate : billed;
-    const receivedIDR = (job.principalReceipts || []).reduce((receiptSum, receipt) => {
-      const receiptCurrency = receipt.currency || job.currency || 'IDR';
-      return receiptSum + (receiptCurrency === 'USD' ? receipt.amount * rate : receipt.amount);
-    }, 0);
+    const receivedIDR = getPrincipalReceiptSummary(job, 'IDR').totalReceived;
     return sum + Math.max(0, billedIDR - receivedIDR);
   }, 0);
   const totalReceivedIDR = approvedFDAJobs.reduce((sum, job) => {
     const rate = job.fda?.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
-    return sum + (job.principalReceipts || []).reduce((receiptSum, receipt) => {
-      const receiptCurrency = receipt.currency || job.currency || 'IDR';
-      return receiptSum + (receiptCurrency === 'USD' ? receipt.amount * rate : receipt.amount);
-    }, 0);
+    return sum + getPrincipalReceiptSummary(job, 'IDR').totalReceived;
   }, 0);
   const summaryCards = [
     { label: 'System Users', value: String(users.length), detail: 'Akun aktif dalam portal', tone: 'cyan' },
@@ -709,14 +704,10 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                     const closingAR = job.fda?.finalBilledToPrincipal
                       || job.principalInvoice?.totalAmountUSD
                       || (job.ar || []).reduce((sum, item) => sum + convertClosingAmount(item.requestedAmount || 0, item.currency), 0);
-                    const closingReceipts = job.principalReceipts || [];
-                    const closingAdvance = closingReceipts
-                      .filter((receipt) => receipt.paymentType === 'ADVANCE_PAYMENT')
-                      .reduce((sum, receipt) => sum + convertClosingAmount(receipt.amount || 0, receipt.currency), 0);
-                    const closingInvoiceReceived = closingReceipts
-                      .filter((receipt) => receipt.paymentType === 'INVOICE')
-                      .reduce((sum, receipt) => sum + convertClosingAmount(receipt.amount || 0, receipt.currency), 0);
-                    const closingReceived = closingAdvance + closingInvoiceReceived;
+                    const closingReceipts = getPrincipalReceiptSummary(job, closingCurrency);
+                    const closingAdvance = closingReceipts.advanceReceived;
+                    const closingInvoiceReceived = closingReceipts.totalReceived - closingAdvance;
+                    const closingReceived = closingReceipts.totalReceived;
                     const closingBalance = Math.max(0, closingAR - closingReceived);
                     const jobIsClosed = isClosedJob(job);
                     return (

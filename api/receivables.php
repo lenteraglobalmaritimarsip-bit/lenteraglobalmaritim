@@ -49,12 +49,49 @@ try {
             jsonResponse(['entries' => $entries]);
         }
         if (($user['role'] ?? '') !== 'FINANCE') jsonResponse(['error' => 'Only Finance can access Accounts Receivable'], 403);
+        if ($action === 'attachment') {
+            $attachmentId = trim((string) ($_GET['id'] ?? ''));
+            if ($attachmentId === '') jsonResponse(['error' => 'Attachment ID is required'], 400);
+            $attachmentQuery = $pdo->prepare(
+                'SELECT attachment_name, attachment_data_url FROM accounts_receivable_entries WHERE id = :id LIMIT 1'
+            );
+            $attachmentQuery->execute(['id' => $attachmentId]);
+            $attachment = $attachmentQuery->fetch();
+            if (!$attachment) jsonResponse(['error' => 'Attachment not found'], 404);
+            if (!preg_match('/^data:image\/(jpeg|png);base64,([A-Za-z0-9+\/]+={0,2})$/D', (string) $attachment['attachment_data_url'], $attachmentMatch)) {
+                jsonResponse(['error' => 'Stored attachment is invalid'], 500);
+            }
+            $attachmentBytes = base64_decode($attachmentMatch[2], true);
+            $attachmentInfo = $attachmentBytes === false ? false : @getimagesizefromstring($attachmentBytes);
+            $contentType = 'image/' . $attachmentMatch[1];
+            if ($attachmentBytes === false || $attachmentInfo === false || ($attachmentInfo['mime'] ?? '') !== $contentType) {
+                jsonResponse(['error' => 'Stored attachment is invalid'], 500);
+            }
+            $filename = basename((string) $attachment['attachment_name']);
+            header('Content-Type: ' . $contentType);
+            header('Content-Length: ' . strlen($attachmentBytes));
+            header('Content-Disposition: attachment; filename="receivable-proof.' . ($attachmentMatch[1] === 'jpeg' ? 'jpg' : 'png') . '"; filename*=UTF-8\'\'' . rawurlencode($filename));
+            header('Cache-Control: private, no-store');
+            header('X-Content-Type-Options: nosniff');
+            echo $attachmentBytes;
+            exit;
+        }
         if ($action === 'history') {
+            $historyColumns = array_column($pdo->query('SHOW COLUMNS FROM accounts_receivable_entries')->fetchAll(), 'Field');
+            $exchangeRateSelect = in_array('exchange_rate_usd_to_idr', $historyColumns, true)
+                ? 'ar.exchange_rate_usd_to_idr'
+                : "CASE WHEN ar.invoice_type = 'FPDA' THEN COALESCE(NULLIF(pd.exchange_rate, 0), vc.exchange_rate_usd_to_idr, 0) "
+                    . 'ELSE COALESCE(f.exchange_rate_usd_to_idr, vc.exchange_rate_usd_to_idr, 0) END';
             $rows = $pdo->query(
-                'SELECT id, subject_data, job_id, invoice_type, invoice_no, income_date, principal_name, vessel_name, '
-                . 'pph23_amount_idr, remark, bank_account_id, bank_name, account_name, account_number, '
-                . 'idr_amount, usd_amount, attachment_name, attachment_data_url, created_by_name, created_at '
-                . 'FROM accounts_receivable_entries ORDER BY income_date DESC, created_at DESC'
+                'SELECT ar.id, ar.subject_data, ar.job_id, ar.invoice_type, ar.invoice_no, ar.income_date, ar.principal_name, ar.vessel_name, '
+                . 'ar.pph23_amount_idr, ar.remark, ar.bank_account_id, ar.bank_name, ar.account_name, ar.account_number, '
+                . 'ar.idr_amount, ar.usd_amount, ' . $exchangeRateSelect . ' AS exchange_rate_usd_to_idr, '
+                . 'ar.attachment_name, ar.created_by_name, ar.created_at '
+                . 'FROM accounts_receivable_entries ar '
+                . 'LEFT JOIN vessel_calls vc ON vc.job_id = ar.job_id '
+                . 'LEFT JOIN fda_records f ON f.job_id = ar.job_id '
+                . "LEFT JOIN pda_documents pd ON pd.job_id = ar.job_id AND pd.pda_no = ar.invoice_no AND pd.pda_type = 'FDA' "
+                . 'ORDER BY ar.income_date DESC, ar.created_at DESC'
             )->fetchAll();
             $entries = array_map(static fn (array $row): array => [
                 'id' => $row['id'],
@@ -73,8 +110,8 @@ try {
                 'accountNumber' => $row['account_number'],
                 'idrAmount' => (float) $row['idr_amount'],
                 'usdAmount' => (float) $row['usd_amount'],
+                'exchangeRateUSDToIDR' => (float) $row['exchange_rate_usd_to_idr'],
                 'attachmentName' => $row['attachment_name'],
-                'attachmentDataUrl' => $row['attachment_data_url'],
                 'createdBy' => $row['created_by_name'],
                 'createdAt' => $row['created_at'],
             ], $rows);
@@ -171,11 +208,11 @@ try {
     $usdAmount = round((float) $usdAmount, 2);
     if ($idrAmount <= 0 && $usdAmount <= 0) jsonResponse(['error' => 'Isi IDR Amount atau USD Amount'], 400);
 
-    $invoice = ['principal_name' => null, 'vessel_name' => null];
+    $invoice = ['principal_name' => null, 'vessel_name' => null, 'exchange_rate' => 0];
     if ($subjectData === 'PRINCIPAL') {
         if ($invoiceType === 'FDA') {
             $invoiceQuery = $pdo->prepare(
-                "SELECT vc.job_id, f.fda_no AS invoice_no, c.company_name AS principal_name, v.name AS vessel_name "
+                "SELECT vc.job_id, f.fda_no AS invoice_no, c.company_name AS principal_name, v.name AS vessel_name, f.exchange_rate_usd_to_idr AS exchange_rate "
                 . 'FROM vessel_calls vc INNER JOIN fda_records f ON f.job_id = vc.job_id '
                 . 'INNER JOIN customers c ON c.id = vc.customer_id INNER JOIN vessels v ON v.id = vc.vessel_id '
                 . 'LEFT JOIN closing_records cr ON cr.job_id = vc.job_id '
@@ -183,7 +220,7 @@ try {
             );
         } else {
             $invoiceQuery = $pdo->prepare(
-                "SELECT vc.job_id, pd.pda_no AS invoice_no, c.company_name AS principal_name, v.name AS vessel_name "
+                "SELECT vc.job_id, pd.pda_no AS invoice_no, c.company_name AS principal_name, v.name AS vessel_name, pd.exchange_rate AS exchange_rate "
                 . 'FROM vessel_calls vc INNER JOIN pda_documents pd ON pd.job_id = vc.job_id AND pd.pda_type = \'FDA\' '
                 . 'INNER JOIN customers c ON c.id = vc.customer_id INNER JOIN vessels v ON v.id = vc.vessel_id '
                 . 'LEFT JOIN closing_records cr ON cr.job_id = vc.job_id '
@@ -193,10 +230,15 @@ try {
         $invoiceQuery->execute(['job_id' => $jobId, 'invoice_no' => $invoiceNo]);
         $invoice = $invoiceQuery->fetch();
         if (!$invoice) jsonResponse(['error' => 'Invoice FDA/FPDA tidak ditemukan atau Job sudah ditutup'], 409);
+        $exchangeRate = (float) ($invoice['exchange_rate'] ?? 0);
+        if ($usdAmount > 0 && (!is_finite($exchangeRate) || $exchangeRate <= 0)) {
+            jsonResponse(['error' => 'Kurs USD/IDR pada invoice belum valid. Perbarui kurs job sebelum mencatat penerimaan USD.'], 409);
+        }
     } else {
         $jobId = null;
         $invoiceType = null;
         $invoiceNo = null;
+        $exchangeRate = 0;
     }
 
     $bankQuery = $pdo->prepare('SELECT bank_name, account_name, account_number FROM bank_accounts WHERE id = :id LIMIT 1');
@@ -204,14 +246,7 @@ try {
     $bank = $bankQuery->fetch();
     if (!$bank) jsonResponse(['error' => 'Akun bank tujuan tidak ditemukan'], 409);
 
-    $insert = $pdo->prepare(
-        'INSERT INTO accounts_receivable_entries '
-        . '(id, subject_data, job_id, invoice_type, invoice_no, income_date, principal_name, vessel_name, pph23_amount_idr, remark, '
-        . 'bank_account_id, bank_name, account_name, account_number, idr_amount, usd_amount, attachment_name, attachment_data_url, created_by_user_id, created_by_name) '
-        . 'VALUES (:id, :subject_data, :job_id, :invoice_type, :invoice_no, :income_date, :principal_name, :vessel_name, :pph23, :remark, '
-        . ':bank_account_id, :bank_name, :account_name, :account_number, :idr_amount, :usd_amount, :attachment_name, :attachment_data_url, :user_id, :user_name)'
-    );
-    $insert->execute([
+    $insertValues = [
         'id' => 'AR-' . bin2hex(random_bytes(16)),
         'subject_data' => $subjectData,
         'job_id' => $jobId,
@@ -232,7 +267,17 @@ try {
         'attachment_data_url' => $attachmentDataUrl,
         'user_id' => $user['id'] ?? null,
         'user_name' => $user['name'] ?? $user['username'] ?? 'Finance',
-    ]);
+    ];
+    $receivableColumns = array_column($pdo->query('SHOW COLUMNS FROM accounts_receivable_entries')->fetchAll(), 'Field');
+    if (in_array('exchange_rate_usd_to_idr', $receivableColumns, true)) {
+        $insertValues['exchange_rate_usd_to_idr'] = $exchangeRate;
+    }
+    $insertColumns = array_keys($insertValues);
+    $insert = $pdo->prepare(
+        'INSERT INTO accounts_receivable_entries (`' . implode('`, `', $insertColumns) . '`) '
+        . 'VALUES (:' . implode(', :', $insertColumns) . ')'
+    );
+    $insert->execute($insertValues);
     jsonResponse(['ok' => true]);
 } catch (PDOException $error) {
     error_log('MaritimPort receivables database error: ' . $error->getMessage());

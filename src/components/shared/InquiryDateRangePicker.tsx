@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import $ from 'jquery';
 import moment from 'moment';
 import 'daterangepicker/daterangepicker.css';
-import { formatInquiryDate } from '../../utils/date';
+import { formatInquiryDate, todayISO } from '../../utils/date';
 
 const pluginGlobals = window as Window & { jQuery?: typeof $; moment?: typeof moment };
 pluginGlobals.jQuery = $;
@@ -139,7 +139,7 @@ export const InquiryDateRangePicker: React.FC<InquiryDateRangePickerProps> = ({
 };
 
 const syncPickerValue = (picker: DateRangePickerInstance, value: InquiryDateRange) => {
-  const fallbackDate = value.from || value.to || new Date().toISOString().slice(0, 10);
+  const fallbackDate = value.from || value.to || todayISO();
   picker.setStartDate(new Date(`${value.from || fallbackDate}T00:00:00`));
   picker.setEndDate(new Date(`${value.to || value.from || fallbackDate}T00:00:00`));
 };

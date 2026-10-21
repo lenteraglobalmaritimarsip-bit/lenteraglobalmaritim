@@ -23,7 +23,7 @@ import {
 import { JobCall, FdaItem, ActiveTab, Vessel, FixTariff, ExpensesItem, Currency, DisbursementItem, PrincipalReceipt, formatPurposeOfCall } from '../../types';
 import { db } from '../../db/storage';
 import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, filterTariffsByGRT, selectPreferredTariffOptions } from '../../utils/tariff';
-import { formatDateDisplay, formatInquiryDate, getLatestInquiryMonthRange, isInquiryDateInRange } from '../../utils/date';
+import { formatDateDisplay, formatInquiryDate, getLatestInquiryMonthRange, isInquiryDateInRange, todayISO } from '../../utils/date';
 import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateRangePicker';
 import { DateInput } from '../shared/DateInput';
 import { DateTimeInput } from '../shared/DateTimeInput';
@@ -134,7 +134,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const [editingResultAmountId, setEditingResultAmountId] = useState<string | null>(null);
   const [resultAmountDraft, setResultAmountDraft] = useState({ description: '', tariff: '', amount: '', remarks: '' });
   const [msg, setMsg] = useState<string | null>(null);
-  const [advancePaymentDate, setAdvancePaymentDate] = useState(new Date().toISOString().slice(0, 10));
+  const [advancePaymentDate, setAdvancePaymentDate] = useState(todayISO());
   const [advancePaymentAmount, setAdvancePaymentAmount] = useState('');
   const [advancePaymentRemark, setAdvancePaymentRemark] = useState('');
   const [advancePaymentError, setAdvancePaymentError] = useState('');
@@ -188,7 +188,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   }));
 
   useEffect(() => {
-    setAdvancePaymentDate(new Date().toISOString().slice(0, 10));
+    setAdvancePaymentDate(todayISO());
     setAdvancePaymentAmount('');
     setAdvancePaymentRemark('');
     setAdvancePaymentError('');
@@ -250,6 +250,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       receivedDate: advancePaymentDate,
       amount: viewCurrency === 'IDR' ? Math.round(amount) : Math.round((amount + Number.EPSILON) * 100) / 100,
       currency: viewCurrency,
+      exchangeRateUSDToIDR: effectiveExchangeRate,
       paymentType: 'ADVANCE_PAYMENT',
       bankRemark: advancePaymentRemark.trim(),
     };
@@ -426,14 +427,6 @@ export const FDAView: React.FC<FDAViewProps> = ({
     exchangeRateRef.current = savedRate || 0;
     setExchangeRateInput(savedRate ? String(savedRate) : '');
   }, [activeJob.jobId]);
-
-  useEffect(() => () => {
-    const currentJob = db.getJob(activeJob.jobId);
-    if (!currentJob || isFDAReadOnly || exchangeRateRef.current <= 0) return;
-    db.updateJob(activeJob.jobId, {
-      fda: { ...currentJob.fda, exchangeRateUSDToIDR: exchangeRateRef.current },
-    });
-  }, [activeJob.jobId, subTab, isFDAReadOnly]);
 
   const effectiveExchangeRate = Number(exchangeRateInput) > 0
     ? Number(exchangeRateInput)
@@ -739,20 +732,29 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const totalEPDAAfterGlobalVat = Math.round(((fdaResultRows.length > 0 ? totalEPDAAfterPph23 : totalQuotedEPDA - pph23Amount) + globalVatAmount + Number.EPSILON) * 100) / 100;
   const totalEPDASubtotal = Math.round(((fdaResultRows.length > 0 ? roundedTotalEPDAWithVat : totalQuotedEPDA) + Number.EPSILON) * 100) / 100;
   const fdaGrandTotal = globalVatApplied ? totalEPDAAfterGlobalVat : totalEPDAAfterPph23;
-  const convertReceiptCurrency = (amount: number, from: Currency, to: Currency) => {
+  const convertReceiptCurrency = (amount: number, from: Currency, to: Currency, exchangeRate = effectiveExchangeRate) => {
     if (from === to) return amount;
-    return from === 'USD' ? amount * effectiveExchangeRate : amount / effectiveExchangeRate;
+    return from === 'USD' ? amount * exchangeRate : amount / exchangeRate;
   };
   const principalReceipts = activeJob.principalReceipts || [];
   const advancePaymentHistory = principalReceipts
-    .filter((receipt) => receipt.paymentType === 'ADVANCE_PAYMENT')
+    .filter((receipt) => receipt.paymentType === 'ADVANCE_PAYMENT' && !receipt.id.startsWith('FIN-AR-'))
     .sort((a, b) => b.receivedDate.localeCompare(a.receivedDate));
   const advanceReceived = advancePaymentHistory
-    .reduce((total, receipt) => total + convertReceiptCurrency(
-      Number(receipt.amount || 0),
-      receipt.currency || activeJob.currency || 'IDR',
-      viewCurrency,
-    ), 0) + financeReceivableEntries.reduce((total, entry) => total
+    .reduce((total, receipt) => {
+      const receiptCurrency = receipt.currency || activeJob.currency || 'IDR';
+      const receiptRate = receipt.exchangeRateUSDToIDR || effectiveExchangeRate;
+      const received = convertReceiptCurrency(Number(receipt.amount || 0), receiptCurrency, viewCurrency, receiptRate);
+      const refunded = receipt.refundStatus === 'PAID'
+        ? convertReceiptCurrency(
+            Number(receipt.refundAmount || 0),
+            receiptCurrency,
+            viewCurrency,
+            receipt.refundExchangeRateUSDToIDR || receiptRate,
+          )
+        : 0;
+      return total + received - refunded;
+    }, 0) + financeReceivableEntries.filter((entry) => entry.invoiceType === 'FDA').reduce((total, entry) => total
       + convertReceiptCurrency(Number(entry.idrAmount || 0), 'IDR', viewCurrency)
       + convertReceiptCurrency(Number(entry.usdAmount || 0), 'USD', viewCurrency), 0);
   const fdaAmountDue = activeJob.fda?.finalBilledToPrincipal
@@ -942,7 +944,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       const item: FdaItem = {
         id: `ACT-${Date.now()}`, jobId: activeJob.jobId, itemCode: `EXP-${Math.floor(100 + Math.random() * 900)}`,
         description: normalizedDescription, category: newActual.category, vendorName: newActual.vendorName || 'Vendor / Pelindo',
-        invoiceOrVoucherNo: newActual.vendorInvoiceNo || `AUTO-${Date.now()}`, date: new Date().toISOString().slice(0, 10), quantity,
+        invoiceOrVoucherNo: newActual.vendorInvoiceNo || `AUTO-${Date.now()}`, date: todayISO(), quantity,
         amount: calculatedAmount, currency: viewCurrency, estimatedAmount: quotedReferenceValue,
         varianceAmount: calculatedAmount - quotedReferenceValue, remarks: newActual.notes, tariffType: currentTariffType, calculationBasis: newActual.calculationBasis, tariffRate: actualEntryMode === 'AUTO' ? Number(newActual.rate) || 0 : actualTariff,
         vatApplied: newActual.vatApplied,
@@ -1074,7 +1076,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       category: existing?.category || sourceItem.category,
       vendorName: existing?.vendorName || '',
       invoiceOrVoucherNo: existing?.invoiceOrVoucherNo || '',
-      date: existing?.date || new Date().toISOString().slice(0, 10),
+      date: existing?.date || todayISO(),
       quantity: existing?.quantity ?? sourceItem.quantity,
       amount,
       currency: existing?.currency || sourceItem.currency,
@@ -1177,7 +1179,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   const formatFDAExportDates = (html: string) => {
     const inquiryDate = activeJob.inquiry?.date || activeJob.createdAt;
-    const fdaFormDate = activeJob.fda?.date || new Date().toISOString().slice(0, 10);
+    const fdaFormDate = activeJob.fda?.date || todayISO();
     const currentFDAFallback = new Date().toLocaleDateString('id-ID');
     const formattedFDAFallback = formatInquiryDate(fdaFormDate);
     const isoDatePattern = /\b\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?\b/g;

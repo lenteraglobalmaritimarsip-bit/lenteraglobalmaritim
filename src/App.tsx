@@ -23,6 +23,7 @@ import { FinanceView } from './components/finance/FinanceView';
 import { AccountsReceivableView } from './components/finance/AccountsReceivableView';
 import { AccountsPayableView } from './components/finance/AccountsPayableView';
 import { FinancialHistoryView } from './components/finance/FinancialHistoryView';
+import { FinanceRecapView } from './components/finance/FinanceRecapView';
 import { AuthAccount } from './auth';
 import { LoginView } from './components/auth/LoginView';
 import { apiAuth } from './lib/api';
@@ -628,6 +629,10 @@ export default function App() {
 
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_PAYMENT_HISTORY' && (
               <VoucherHistoryView paymentVouchers={currentUserPaymentVouchers} />
+            )}
+
+            {currentRole === 'FINANCE' && activeTab === 'FINANCE_RECAP' && (
+              <FinanceRecapView paymentVouchers={data.paymentVouchers || []} jobCalls={data.jobCalls || []} />
             )}
 
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_HISTORY_REPORT' && (

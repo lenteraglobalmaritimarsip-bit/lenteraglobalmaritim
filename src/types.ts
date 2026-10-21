@@ -289,6 +289,12 @@ export interface PrincipalReceipt {
   receivedDate: string;
   amount: number;
   currency: Currency;
+  exchangeRateUSDToIDR?: number;
+  refundAmount?: number;
+  refundExchangeRateUSDToIDR?: number;
+  refundDate?: string;
+  refundBankReference?: string;
+  refundStatus?: 'NONE' | 'PENDING' | 'PAID';
   paymentType: 'ADVANCE_PAYMENT' | 'INVOICE';
   bankRemark: string;
   attachmentName?: string;
@@ -325,8 +331,8 @@ export interface AccountsReceivableEntry {
   accountNumber: string;
   idrAmount: number;
   usdAmount: number;
+  exchangeRateUSDToIDR: number;
   attachmentName: string;
-  attachmentDataUrl: string;
   createdBy: string;
   createdAt: string;
 }
@@ -567,6 +573,7 @@ export type ActiveTab =
   | 'APPROVAL'
   | 'CREW_CHANGE'
   | 'FINANCE_DASHBOARD'
+  | 'FINANCE_RECAP'
   | 'JOB_INVOICE_OPEN'
   | 'AP'
   | 'FINANCE_ACCOUNTS_PAYABLE'

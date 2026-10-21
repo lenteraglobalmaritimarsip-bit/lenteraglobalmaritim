@@ -26,6 +26,9 @@ import {
 import { apiAuth } from '../lib/api';
 import { dataApi } from '../lib/dataApi';
 
+import { todayISO } from '../utils/date';
+import { convertPrincipalReceiptAmount, syncPrincipalInvoiceSettlement } from '../utils/principalInvoice';
+
 export interface DatabaseState {
   users: User[];
   customers: Customer[];
@@ -102,7 +105,9 @@ const migrateJobData = (jobCalls: JobCall[]): { jobCalls: JobCall[]; migrated: b
       migrated = true;
     }
 
-    return normalizedJob;
+    const settledJob = syncPrincipalInvoiceSettlement(normalizedJob);
+    if (settledJob !== normalizedJob) migrated = true;
+    return settledJob;
   });
   return { jobCalls: normalizedJobCalls, migrated };
 };
@@ -766,7 +771,7 @@ class DatabaseService {
     }
     const previousVouchers = this.state.paymentVouchers;
     const previousAuditLogs = this.state.auditLogs;
-    const paidOn = paymentDate || new Date().toISOString().slice(0, 10);
+    const paidOn = paymentDate || todayISO();
     const paidAt = new Date(`${paidOn}T12:00:00`).toISOString();
     const voucherNumber = existing.voucherNumber || this.getNextFinanceVoucherNumber(paidOn);
     const surcharge = Number(paymentDetails.surcharge) || 0;
@@ -838,11 +843,14 @@ class DatabaseService {
     this.state.jobCalls = this.state.jobCalls.map((j) => {
       if (jobUpdated || j.jobId !== jobId) return j;
       jobUpdated = true;
-      return {
+      const updatedJob = {
         ...j,
         ...updates,
         updatedAt: new Date().toISOString(),
       };
+      return 'principalReceipts' in updates || 'principalInvoice' in updates || 'fda' in updates
+        ? syncPrincipalInvoiceSettlement(updatedJob)
+        : updatedJob;
     });
     if (!jobUpdated) return false;
     this.audit('UPDATE', 'VESSEL_CALL', auditDescription || `Updated vessel call ${jobId}`, jobId);
@@ -1158,7 +1166,7 @@ class DatabaseService {
 
       principalInvoice: {
         invoiceNo: `INV-${generatedJobId}`,
-        invoiceDate: new Date().toISOString().slice(0, 10),
+        invoiceDate: todayISO(),
         dueDate: new Date(Date.now() + 86400000 * 14).toISOString().slice(0, 10),
         totalAmountUSD: 0,
         totalAmountIDR: 0,
@@ -1255,6 +1263,9 @@ class DatabaseService {
     const job = this.getJob(jobId);
     if (!job) return { ok: false, message: 'Job/Vessel Call tidak ditemukan.' };
     if (!job.fda.fdaApproved) return { ok: false, message: 'Closing belum dapat dilakukan. FDA belum Approved.' };
+    if ((job.principalReceipts || []).some((receipt) => receipt.refundStatus === 'PENDING')) {
+      return { ok: false, message: 'Closing belum dapat dilakukan. Refund lebih bayar masih menunggu transfer.' };
+    }
     if (job.principalInvoice?.status !== 'SETTLED') {
       return { ok: false, message: 'Closing belum dapat dilakukan. Tandai pembayaran PAID di AR setelah saldo lunas.' };
     }
@@ -1268,9 +1279,23 @@ class DatabaseService {
     const invoiceTotal = Math.round((rawInvoiceTotal + Number.EPSILON) * invoicePrecision) / invoicePrecision;
     const rawReceivedTotal = (job.principalReceipts || []).reduce((sum, receipt) => {
       const receiptCurrency = receipt.currency || job.currency || 'IDR';
-      const amount = receipt.amount || 0;
-      if (receiptCurrency === invoiceCurrency) return sum + amount;
-      return sum + (invoiceCurrency === 'IDR' ? amount * exchangeRate : amount / exchangeRate);
+      const received = convertPrincipalReceiptAmount(
+        job,
+        receipt.amount || 0,
+        receiptCurrency,
+        invoiceCurrency,
+        receipt.exchangeRateUSDToIDR,
+      );
+      const refund = receipt.refundStatus === 'PAID'
+        ? convertPrincipalReceiptAmount(
+            job,
+            receipt.refundAmount || 0,
+            receiptCurrency,
+            invoiceCurrency,
+            receipt.refundExchangeRateUSDToIDR || receipt.exchangeRateUSDToIDR,
+          )
+        : 0;
+      return sum + received - refund;
     }, 0);
     const receivedTotal = Math.round((rawReceivedTotal + Number.EPSILON) * invoicePrecision) / invoicePrecision;
     const outstanding = Math.max(0, invoiceTotal - receivedTotal);

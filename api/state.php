@@ -40,9 +40,48 @@ function validAdvancePaymentReceipt(array $receipt, string $jobId): bool
         && is_numeric($receipt['amount'] ?? null)
         && (float) $receipt['amount'] > 0
         && in_array($receipt['currency'] ?? '', ['IDR', 'USD'], true)
+        && (($receipt['currency'] ?? '') !== 'USD'
+            || (is_numeric($receipt['exchangeRateUSDToIDR'] ?? null) && is_finite((float) $receipt['exchangeRateUSDToIDR']) && (float) $receipt['exchangeRateUSDToIDR'] > 0))
         && preg_match('/^\d{4}-\d{2}-\d{2}$/', $receivedDate)
         && checkdate((int) substr($receivedDate, 5, 2), (int) substr($receivedDate, 8, 2), (int) substr($receivedDate, 0, 4))
         && trim((string) ($receipt['bankRemark'] ?? '')) !== '';
+}
+
+function validPrincipalReceiptRecord(array $receipt, string $jobId): bool
+{
+    $receivedDate = (string) ($receipt['receivedDate'] ?? '');
+    $currency = (string) ($receipt['currency'] ?? '');
+    $amount = $receipt['amount'] ?? null;
+    $refundAmount = $receipt['refundAmount'] ?? 0;
+    $refundStatus = (string) ($receipt['refundStatus'] ?? 'NONE');
+    if (($receipt['jobId'] ?? '') !== $jobId
+        || !in_array($receipt['paymentType'] ?? '', ['ADVANCE_PAYMENT', 'INVOICE'], true)
+        || !is_numeric($amount) || !is_finite((float) $amount) || (float) $amount <= 0
+        || !in_array($currency, ['IDR', 'USD'], true)
+        || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $receivedDate)
+        || !checkdate((int) substr($receivedDate, 5, 2), (int) substr($receivedDate, 8, 2), (int) substr($receivedDate, 0, 4))
+        || trim((string) ($receipt['bankRemark'] ?? '')) === ''
+        || !is_numeric($refundAmount) || !is_finite((float) $refundAmount) || (float) $refundAmount < 0
+        || (float) $refundAmount > (float) $amount
+        || !in_array($refundStatus, ['NONE', 'PENDING', 'PAID'], true)) return false;
+    if ($currency === 'USD'
+        && (!is_numeric($receipt['exchangeRateUSDToIDR'] ?? null)
+            || !is_finite((float) $receipt['exchangeRateUSDToIDR'])
+            || (float) $receipt['exchangeRateUSDToIDR'] <= 0)) return false;
+    if ($refundStatus === 'NONE') return (float) $refundAmount === 0.0;
+    if ((float) $refundAmount <= 0) return false;
+    if ($currency === 'USD'
+        && (!is_numeric($receipt['refundExchangeRateUSDToIDR'] ?? null)
+            || !is_finite((float) $receipt['refundExchangeRateUSDToIDR'])
+            || (float) $receipt['refundExchangeRateUSDToIDR'] <= 0)) return false;
+    if ($refundStatus === 'PAID') {
+        $refundDate = (string) ($receipt['refundDate'] ?? '');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $refundDate)
+            || !checkdate((int) substr($refundDate, 5, 2), (int) substr($refundDate, 8, 2), (int) substr($refundDate, 0, 4))
+            || trim((string) ($receipt['refundBankReference'] ?? '')) === ''
+            || strlen((string) ($receipt['refundBankReference'] ?? '')) > 150) return false;
+    }
+    return true;
 }
 
 function validPaymentProofDataUrl(?string $dataUrl): bool
@@ -60,6 +99,19 @@ function validPaymentProofDataUrl(?string $dataUrl): bool
 function immutableReceiptFields(array $receipt): array
 {
     unset($receipt['receivedDate'], $receipt['amount'], $receipt['bankRemark']);
+    ksort($receipt);
+    return $receipt;
+}
+
+function immutablePrincipalPaymentFields(array $receipt): array
+{
+    unset(
+        $receipt['refundAmount'],
+        $receipt['refundExchangeRateUSDToIDR'],
+        $receipt['refundDate'],
+        $receipt['refundBankReference'],
+        $receipt['refundStatus'],
+    );
     ksort($receipt);
     return $receipt;
 }
@@ -167,6 +219,27 @@ try {
     }
 
     $pdo = db();
+    $hasRefundData = false;
+    foreach ($state['jobCalls'] as $job) {
+        foreach ($job['principalReceipts'] ?? [] as $receipt) {
+            if (($receipt['refundStatus'] ?? 'NONE') !== 'NONE' || (float) ($receipt['refundAmount'] ?? 0) > 0) {
+                $hasRefundData = true;
+                break 2;
+            }
+        }
+    }
+    if ($hasRefundData) {
+        $missingRefundColumns = array_diff(
+            ['refund_amount', 'refund_exchange_rate_usd_to_idr', 'refund_date', 'refund_bank_reference', 'refund_status'],
+            tableColumns($pdo, 'principal_receipts') ?? [],
+        );
+        if ($missingRefundColumns) {
+            jsonResponse([
+                'error' => 'Refund belum bisa disimpan. Terapkan database/migrations/20261021_add_principal_receipt_refunds.sql terlebih dahulu.',
+                'code' => 'REFUND_SCHEMA_MISMATCH',
+            ], 503);
+        }
+    }
     $lock = $pdo->query("SELECT GET_LOCK('maritimport_app_state', 10)")->fetchColumn();
     if ((int) $lock !== 1) jsonResponse(['error' => 'Could not lock application state for saving'], 503);
     $before = loadAppState();
@@ -360,6 +433,52 @@ try {
                     if (isset($oldReceiptsById[$receipt['id']])) continue;
                     if (!validAdvancePaymentReceipt($receipt, (string) $jobId)) {
                         jsonResponse(['error' => 'FDA may only add valid Advance Payment receipts'], 403);
+                    }
+                }
+            }
+            if ($actor['role'] === 'FINANCE') {
+                $oldReceipts = $oldJob['principalReceipts'] ?? [];
+                $newReceipts = $newJob['principalReceipts'] ?? [];
+                $oldReceiptsById = [];
+                $newReceiptsById = [];
+                foreach ($oldReceipts as $receipt) {
+                    if (isset($receipt['id'])) $oldReceiptsById[$receipt['id']] = $receipt;
+                }
+                foreach ($newReceipts as $receipt) {
+                    if (!isset($receipt['id']) || isset($newReceiptsById[$receipt['id']])) {
+                        jsonResponse(['error' => 'Receipt IDs must be unique'], 403);
+                    }
+                    $newReceiptsById[$receipt['id']] = $receipt;
+                }
+                foreach ($oldReceipts as $receipt) {
+                    $receiptId = $receipt['id'] ?? null;
+                    if (!isset($receiptId, $newReceiptsById[$receiptId])) {
+                        if (($receipt['refundStatus'] ?? 'NONE') !== 'NONE' || str_starts_with((string) $receiptId, 'FIN-AR-')) {
+                            jsonResponse(['error' => 'Receipts with refunds or Finance AR projections cannot be removed'], 403);
+                        }
+                        continue;
+                    }
+                    $updatedReceipt = $newReceiptsById[$receiptId];
+                    if (json_encode($receipt) === json_encode($updatedReceipt)) continue;
+                    if (immutablePrincipalPaymentFields($receipt) !== immutablePrincipalPaymentFields($updatedReceipt)
+                        || !validPrincipalReceiptRecord($updatedReceipt, (string) $jobId)) {
+                        jsonResponse(['error' => 'Finance cannot change the original receipt when recording a refund'], 403);
+                    }
+                    $oldRefundStatus = $receipt['refundStatus'] ?? 'NONE';
+                    $newRefundStatus = $updatedReceipt['refundStatus'] ?? 'NONE';
+                    if ((float) ($receipt['refundAmount'] ?? 0) !== (float) ($updatedReceipt['refundAmount'] ?? 0)
+                        || ($oldRefundStatus === 'NONE' && $newRefundStatus !== 'NONE')
+                        || ($oldRefundStatus === 'NONE' && $newRefundStatus === 'NONE')
+                        || ($oldRefundStatus === 'PENDING' && $newRefundStatus !== 'PAID')
+                        || $oldRefundStatus === 'PAID') {
+                        jsonResponse(['error' => 'Only a pending refund can be confirmed as paid'], 403);
+                    }
+                }
+                foreach ($newReceipts as $receipt) {
+                    if (isset($oldReceiptsById[$receipt['id']])) continue;
+                    if (str_starts_with((string) $receipt['id'], 'FIN-AR-')) continue;
+                    if (!validPrincipalReceiptRecord($receipt, (string) $jobId)) {
+                        jsonResponse(['error' => 'Finance receipt data is invalid'], 403);
                     }
                 }
             }

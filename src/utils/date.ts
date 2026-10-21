@@ -66,3 +66,11 @@ export const getLatestInquiryMonthRange = (values: Array<string | undefined>): {
   const lastDay = new Date(year, month, 0).getDate();
   return { from: `${monthKey}-01`, to: `${monthKey}-${String(lastDay).padStart(2, '0')}` };
 };
+
+// Tanggal lokal (zona waktu perangkat) dalam format yyyy-mm-dd.
+// Jangan memakai new Date().toISOString().slice(0, 10): itu memakai UTC sehingga di WIB
+// (UTC+7) tanggal default mundur satu hari untuk input sebelum pukul 07.00.
+export const toLocalISODate = (value: Date = new Date()): string =>
+  `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+
+export const todayISO = (): string => toLocalISODate(new Date());

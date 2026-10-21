@@ -3,7 +3,7 @@ import { Download, Printer } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { AccountsReceivableEntry, BankAccount, ReceivableInvoiceOption, ReceivableInvoiceType, ReceivableSubjectData } from '../../types';
 import { createAccountsReceivableEntry, loadAccountsReceivableHistory, loadAccountsReceivableOptions } from '../../lib/api';
-import { formatDateDisplay } from '../../utils/date';
+import { formatDateDisplay, todayISO } from '../../utils/date';
 import { DateInput } from '../shared/DateInput';
 
 interface AccountsReceivableViewProps {
@@ -44,7 +44,7 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
   const [principalName, setPrincipalName] = useState('');
   const [vesselName, setVesselName] = useState('');
   const [selectedInvoiceKey, setSelectedInvoiceKey] = useState('');
-  const [incomeDate, setIncomeDate] = useState(new Date().toISOString().slice(0, 10));
+  const [incomeDate, setIncomeDate] = useState(todayISO());
   const [bankAccountId, setBankAccountId] = useState('');
   const [pph23AmountIDR, setPph23AmountIDR] = useState('0');
   const [remark, setRemark] = useState('');
@@ -152,7 +152,7 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
     setPrincipalName('');
     setVesselName('');
     setSelectedInvoiceKey('');
-    setIncomeDate(new Date().toISOString().slice(0, 10));
+    setIncomeDate(todayISO());
     setBankAccountId('');
     setPph23AmountIDR('0');
     setRemark('');
@@ -285,6 +285,7 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
               <option value="">Pilih FDA / FPDA</option>
               {filteredInvoices.map((option) => <option key={invoiceOptionKey(option)} value={invoiceOptionKey(option)}>{option.invoiceType} · {option.invoiceNo} · {option.jobId}</option>)}
             </select>
+            {selectedInvoice && <span className="mt-1 block text-[11px] font-semibold text-blue-700">Kurs invoice: USD 1 = IDR {new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(selectedInvoice.exchangeRate)}</span>}
           </label>
           <label className="text-xs font-semibold text-slate-600">PPh 23 (IDR)
             <input type="text" inputMode="numeric" value={pph23AmountIDR} onChange={(event) => setPph23AmountIDR(formatGroupedAmountInput(event.target.value))} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900" />
@@ -355,7 +356,7 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
                   <td className="p-3 font-mono text-slate-700">{entry.accountName} · {entry.accountNumber}</td>
                   <td className="p-3 text-right font-mono text-slate-900">{entry.idrAmount > 0 ? formatAmount(entry.idrAmount, 'IDR') : '-'}</td>
                   <td className="p-3 text-right font-mono text-slate-900">{entry.usdAmount > 0 ? formatAmount(entry.usdAmount, 'USD') : '-'}</td>
-                  <td className="p-3"><a href={entry.attachmentDataUrl} download={entry.attachmentName} target="_blank" rel="noreferrer" className="font-semibold text-emerald-700 hover:underline">Lihat Foto</a></td>
+                  <td className="p-3"><a href={`/api/receivables.php?action=attachment&id=${encodeURIComponent(entry.id)}`} download={entry.attachmentName} className="font-semibold text-emerald-700 hover:underline">Lihat Foto</a></td>
                 </tr>
               ))}
             </tbody>

@@ -4,7 +4,7 @@ import { JobCall, DisbursementItem, Currency, User, Vessel, FixTariff, ExpensesI
 import { db } from '../../db/storage';
 import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, selectPreferredTariffOptions } from '../../utils/tariff';
 import { formatCostCategoryLabel, getCostCategoryRank, normalizeCostCategory } from '../../utils/costCategories';
-import { formatInquiryDate } from '../../utils/date';
+import { formatInquiryDate, todayISO } from '../../utils/date';
 import { DateTimeInput } from '../shared/DateTimeInput';
 import { findMatchingExpensesItem, findMatchingFixTariff } from '../../utils/masterDataIdentity';
 import { createMasterItemSearchOptions, MasterItemSearch, MasterItemSearchOption } from '../shared/MasterItemSearch';
@@ -32,7 +32,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
 
   const epdaQuote = job.quotation?.epda || {
     quoteNo: '',
-    date: job.createdAt?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+    date: job.createdAt?.slice(0, 10) || todayISO(),
     currency: job.currency || 'USD',
     items: [] as DisbursementItem[],
     totalAmount: 0,
