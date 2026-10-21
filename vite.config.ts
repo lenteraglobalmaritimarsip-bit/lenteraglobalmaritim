@@ -5,7 +5,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import path from 'path';
 import { defineConfig, type Plugin } from 'vite';
 
-const repoBase = '/';
+const repoBase = process.env.GITHUB_ACTIONS === 'true' ? '/lenteraglobalmaritim/' : '/';
 
 function findPhpExecutable(): string {
   const configuredPath = process.env.PHP_EXECUTABLE;
