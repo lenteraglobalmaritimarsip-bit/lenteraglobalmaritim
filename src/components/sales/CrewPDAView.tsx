@@ -192,7 +192,7 @@ export const createPdaPreviewHtml = (
       .office-footer{position:fixed;left:50%;bottom:6mm;transform:translateX(-50%);margin:0}
     }
   </style></head><body><div class="a4-page-frame" aria-hidden="true"></div>
-    <div class="brand-row"><div class="brand-wrap"><img class="logo" src="/lenteraglobalmaritim/lgm-logo.png" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div>
+    <div class="brand-row"><div class="brand-wrap"><img class="logo" src="/lgm-logo.png" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div>
     <h2>${fpda ? 'FINAL DISBURSEMENT ACCOUNT' : 'ESTIMATE PORT DISBURSEMENT OF ACCOUNT'}</h2>
     <section class="meta">
       <div class="meta-col">

@@ -427,7 +427,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
         </head>
         <body class="${isPaid ? 'paid' : ''}">
           <header class="header">
-            <div class="brand"><img class="logo" src="/lenteraglobalmaritim/lgm-logo.png" alt="Logo PT Lentera Global Maritim" /><div><div class="company">PT Lentera Global Maritim</div><div class="tagline">Seamless Agent, Global Reach</div></div></div>
+            <div class="brand"><img class="logo" src="/lgm-logo.png" alt="Logo PT Lentera Global Maritim" /><div><div class="company">PT Lentera Global Maritim</div><div class="tagline">Seamless Agent, Global Reach</div></div></div>
             <div class="doc-type">FINANCE<br />ACCOUNTS PAYABLE</div>
           </header>
           <h1>PAYMENT VOUCHER</h1>
