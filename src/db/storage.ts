@@ -761,7 +761,7 @@ class DatabaseService {
     id: string,
     payer: string,
     paymentDate?: string,
-    paymentDetails: { surcharge?: number; otherExpenses?: number; description?: string; totalAmount?: number; paymentProofDataUrl?: string } = {},
+    paymentDetails: { surcharge?: number; otherExpenses?: number; description?: string; totalAmount?: number; paidFromBankAccountId?: string; paymentProofDataUrl?: string } = {},
   ): Promise<void> {
     const existing = (this.state.paymentVouchers || []).find((v) => v.id === id);
     if (!existing) throw new Error('Payment Voucher tidak ditemukan.');
@@ -788,6 +788,7 @@ class DatabaseService {
           paymentOtherExpenses: otherExpenses,
           paymentDescription: paymentDetails.description || '',
           paymentTotalAmount: totalAmount,
+          paidFromBankAccountId: paymentDetails.paidFromBankAccountId || existing.paidFromBankAccountId,
           ...(paymentDetails.paymentProofDataUrl ? { paymentProofDataUrl: paymentDetails.paymentProofDataUrl } : {}),
         }
       : v));

@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, Save, Printer } from 'lucide-react';
-import { JobCall, PaymentVoucher, PaymentVoucherItem, VendorPartner } from '../../types';
+import { Currency, JobCall, PaymentVoucher, PaymentVoucherItem, VendorPartner } from '../../types';
 import { db } from '../../db/storage';
 import { dataApi } from '../../lib/dataApi';
-import { listFpdaNumbers } from '../../lib/api';
+import { listFpdaNumbers, loadUsdIdrRateForDate } from '../../lib/api';
 import { parseTariffNumber } from '../../utils/tariff';
 import { printPaymentVoucher } from '../../utils/voucherPrint';
 import { DateInput } from '../shared/DateInput';
@@ -53,8 +53,9 @@ const newRow = (): VoucherRow => ({
   pph23Applied: false,
 });
 
-const money = (value: number) =>
-  new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
+const money = (value: number, currency: Currency = 'IDR') => currency === 'USD'
+  ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value || 0)
+  : new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
 
 const calculate = (row: VoucherRow) => {
   const vatAmount = row.vatApplied ? row.amount * VAT_RATE : 0;
@@ -68,6 +69,9 @@ const readonlyClass = 'w-full rounded-lg border border-slate-200 bg-slate-100 px
 
 interface VoucherDraft {
   requestDate: string;
+  currency: Currency;
+  exchangeRateUSDToIDR: number | null;
+  exchangeRateDate: string;
   requestedPaymentDate: string;
   jobInfo: JobInfo;
   vendorId: string;
@@ -76,6 +80,11 @@ interface VoucherDraft {
 
 export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls, vendorPartners, requestBy, requestByUserId, onDataSaved, voucher: editingVoucher, onCancelEdit, operationalOnly = false }) => {
   const [requestDate, setRequestDate] = useState(() => editingVoucher ? String(editingVoucher.requestDate).slice(0, 10) : todayIso());
+  const [currency, setCurrency] = useState<Currency>(editingVoucher?.currency || 'IDR');
+  const [exchangeRate, setExchangeRate] = useState<number | null>(editingVoucher?.exchangeRateUSDToIDR ?? null);
+  const [exchangeRateDate, setExchangeRateDate] = useState(editingVoucher?.exchangeRateDate || '');
+  const [isLoadingExchangeRate, setIsLoadingExchangeRate] = useState(false);
+  const [exchangeRateError, setExchangeRateError] = useState('');
   const [requestedPaymentDate, setRequestedPaymentDate] = useState(() => editingVoucher?.requestedPaymentDate || String(editingVoucher?.requestDate || todayIso()).slice(0, 10));
   const [jobInfo, setJobInfo] = useState<JobInfo>(operationalOnly ? 'OPERASIONAL' : editingVoucher?.jobInfo || 'OPERASIONAL');
   const [vendorId, setVendorId] = useState(editingVoucher?.vendorPartnerId || '');
@@ -170,6 +179,41 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
   const grandTotal = rows.reduce((sum, row) => sum + calculate(row).paidAmount, 0);
 
   useEffect(() => {
+    if (currency === 'IDR') {
+      setExchangeRate(null);
+      setExchangeRateDate('');
+      setExchangeRateError('');
+      setIsLoadingExchangeRate(false);
+      return;
+    }
+    if (editingVoucher?.currency === 'USD'
+      && String(editingVoucher.requestDate).slice(0, 10) === requestDate
+      && editingVoucher.exchangeRateUSDToIDR) {
+      setExchangeRate(editingVoucher.exchangeRateUSDToIDR);
+      setExchangeRateDate(editingVoucher.exchangeRateDate || requestDate);
+      setExchangeRateError('');
+      setIsLoadingExchangeRate(false);
+      return;
+    }
+    let cancelled = false;
+    setExchangeRate(null);
+    setExchangeRateDate('');
+    setExchangeRateError('');
+    setIsLoadingExchangeRate(true);
+    void loadUsdIdrRateForDate(requestDate)
+      .then((result) => {
+        if (cancelled) return;
+        setExchangeRate(result.rate);
+        setExchangeRateDate(result.date);
+      })
+      .catch((loadError: unknown) => {
+        if (!cancelled) setExchangeRateError(loadError instanceof Error ? loadError.message : 'Kurs USD/IDR historis gagal dimuat.');
+      })
+      .finally(() => { if (!cancelled) setIsLoadingExchangeRate(false); });
+    return () => { cancelled = true; };
+  }, [currency, requestDate, editingVoucher]);
+
+  useEffect(() => {
     let cancelled = false;
     void listFpdaNumbers()
       .then((numbers) => {
@@ -195,6 +239,9 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
       .then((draft) => {
         if (cancelled || !draft || !Array.isArray(draft.rows) || draft.rows.length === 0) return;
         setRequestDate(draft.requestDate || todayIso());
+        setCurrency(draft.currency || 'IDR');
+        setExchangeRate(draft.exchangeRateUSDToIDR ?? null);
+        setExchangeRateDate(draft.exchangeRateDate || '');
         setRequestedPaymentDate(draft.requestedPaymentDate || draft.requestDate || todayIso());
         setJobInfo(operationalOnly ? 'OPERASIONAL' : draft.jobInfo || 'OPERASIONAL');
         setVendorId(draft.vendorId || '');
@@ -216,14 +263,18 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
     const isBlank = rows.length === 0 || (!vendorId && rows.every((row) => !row.jobNumber && !row.customerName && !row.itemService && !row.amount));
     const saveDraft = isBlank
       ? dataApi.deleteUserData('voucher_draft')
-      : dataApi.saveUserData('voucher_draft', { requestDate, requestedPaymentDate, jobInfo, vendorId, rows } satisfies VoucherDraft);
+      : dataApi.saveUserData('voucher_draft', { requestDate, currency, exchangeRateUSDToIDR: exchangeRate, exchangeRateDate, requestedPaymentDate, jobInfo, vendorId, rows } satisfies VoucherDraft);
     void saveDraft.catch((error) => console.error('Gagal menyimpan draft voucher:', error));
-  }, [editingVoucher, draftLoaded, requestDate, requestedPaymentDate, jobInfo, vendorId, rows]);
+  }, [editingVoucher, draftLoaded, requestDate, currency, exchangeRate, exchangeRateDate, requestedPaymentDate, jobInfo, vendorId, rows]);
 
   const resetForm = () => {
     if (!editingVoucher) void dataApi.deleteUserData('voucher_draft').catch((error) => console.error('Gagal menghapus draft voucher:', error));
     setDraftRestored(false);
     setRequestDate(todayIso());
+    setCurrency('IDR');
+    setExchangeRate(null);
+    setExchangeRateDate('');
+    setExchangeRateError('');
     setRequestedPaymentDate(todayIso());
     setJobInfo('OPERASIONAL');
     setVendorId('');
@@ -239,6 +290,9 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
     const printError = printPaymentVoucher({
       requestNumber,
       requestDate,
+      currency,
+      exchangeRateUSDToIDR: exchangeRate ?? undefined,
+      exchangeRateDate,
       requestedPaymentDate,
       jobInfo,
       requestBy,
@@ -260,6 +314,10 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
     setMessage('');
     if (!vendor) {
       setError('Pilih vendor dari master data Vendor Partners.');
+      return;
+    }
+    if (currency === 'USD' && (!exchangeRate || !Number.isFinite(exchangeRate) || exchangeRate <= 0 || isLoadingExchangeRate)) {
+      setError(exchangeRateError || 'Kurs USD/IDR untuk Request Date belum tersedia.');
       return;
     }
     if (rows.length === 0) {
@@ -292,6 +350,9 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
       if (editingVoucher) {
         await db.updatePaymentVoucher(editingVoucher.id, {
           requestDate,
+          currency,
+          exchangeRateUSDToIDR: currency === 'USD' ? exchangeRate ?? undefined : undefined,
+          exchangeRateDate: currency === 'USD' ? exchangeRateDate : '',
           requestedPaymentDate,
           jobInfo,
           vendorPartnerId: vendor.id,
@@ -307,6 +368,9 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
       }
       const saved = await db.addPaymentVoucher({
         requestDate,
+        currency,
+        exchangeRateUSDToIDR: currency === 'USD' ? exchangeRate ?? undefined : undefined,
+        exchangeRateDate: currency === 'USD' ? exchangeRateDate : '',
         requestedPaymentDate,
         jobInfo,
         requestBy,
@@ -343,6 +407,21 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
             <span className="font-semibold text-slate-500">Request Date</span>
             <DateInput required value={requestDate} onChange={(value) => setRequestDate(value || todayIso())} ariaLabel="request date" inputClassName={`${inputClass} mt-1`} />
           </label>
+          <label className="block">
+            <span className="font-semibold text-slate-500">Currency</span>
+            <select value={currency} onChange={(event) => setCurrency(event.target.value as Currency)} className={`${inputClass} mt-1`}>
+              <option value="IDR">IDR (Normal)</option>
+              <option value="USD">USD</option>
+            </select>
+          </label>
+          {currency === 'USD' && (
+            <div className="block text-xs">
+              <label htmlFor="voucher-usd-idr-rate" className="font-semibold text-slate-500">Kurs USD/IDR · Request Date</label>
+              <input id="voucher-usd-idr-rate" readOnly value={exchangeRate ? new Intl.NumberFormat('id-ID', { maximumFractionDigits: 4 }).format(exchangeRate) : ''} placeholder={isLoadingExchangeRate ? 'Memuat kurs...' : 'Kurs belum tersedia'} className={`${readonlyClass} mt-1`} />
+              <span className="mt-1 block text-[10px] font-normal text-slate-500">{exchangeRateDate ? `Tanggal kurs: ${exchangeRateDate}` : ''}</span>
+              {exchangeRateError && <span role="alert" className="mt-1 block text-[10px] font-normal text-rose-600">{exchangeRateError}</span>}
+            </div>
+          )}
           <label className="block">
             <span className="font-semibold text-slate-500">Requested Payment Date</span>
             <DateInput required value={requestedPaymentDate} onChange={setRequestedPaymentDate} ariaLabel="requested payment date" inputClassName={`${inputClass} mt-1`} />
@@ -421,11 +500,11 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
                 <th className="p-3">No FDA / FPDA</th>
                 <th className="p-3">{jobInfo === 'JOB_VESSEL' ? 'Vessel name' : 'Customer'}</th>
                 <th className="p-3">Item Service</th>
-                <th className="p-3 text-right">Amount</th>
-                <th className="p-3 text-right">Vat (11%)</th>
-                <th className="p-3 text-right">Total</th>
-                <th className="p-3 text-right">PPH 23 (2%)</th>
-                <th className="p-3 text-right">Paid Amount</th>
+                <th className="p-3 text-right">Amount ({currency})</th>
+                <th className="p-3 text-right">Vat (11%) · {currency}</th>
+                <th className="p-3 text-right">Total ({currency})</th>
+                <th className="p-3 text-right">PPH 23 (2%) · {currency}</th>
+                <th className="p-3 text-right">Paid Amount ({currency})</th>
                 <th className="p-3" />
               </tr>
             </thead>
@@ -497,13 +576,13 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
                       />
                     </td>
                     <td className="p-3 text-right">
-                      <label className="flex items-center justify-end gap-1.5"><input type="checkbox" checked={row.vatApplied} onChange={(e) => updateRow(row.id, { vatApplied: e.target.checked })} /><span className="font-mono">{money(result.vatAmount)}</span></label>
+                      <label className="flex items-center justify-end gap-1.5"><input type="checkbox" checked={row.vatApplied} onChange={(e) => updateRow(row.id, { vatApplied: e.target.checked })} /><span className="font-mono">{money(result.vatAmount, currency)}</span></label>
                     </td>
-                    <td className="p-3 text-right font-mono font-bold text-slate-800">{money(result.total)}</td>
+                    <td className="p-3 text-right font-mono font-bold text-slate-800">{money(result.total, currency)}</td>
                     <td className="p-3 text-right">
-                      <label className="flex items-center justify-end gap-1.5"><input type="checkbox" checked={row.pph23Applied} onChange={(e) => updateRow(row.id, { pph23Applied: e.target.checked })} /><span className="font-mono">{money(result.pph23Amount)}</span></label>
+                      <label className="flex items-center justify-end gap-1.5"><input type="checkbox" checked={row.pph23Applied} onChange={(e) => updateRow(row.id, { pph23Applied: e.target.checked })} /><span className="font-mono">{money(result.pph23Amount, currency)}</span></label>
                     </td>
-                    <td className="p-3 text-right font-mono font-black text-slate-900">{money(result.paidAmount)}</td>
+                    <td className="p-3 text-right font-mono font-black text-slate-900">{money(result.paidAmount, currency)}</td>
                     <td className="p-3 text-right">
                       <button
                         type="button"
@@ -522,7 +601,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
             <tfoot>
               <tr className="border-t border-slate-200 bg-slate-50">
                 <td colSpan={8} className="p-3 text-right text-[11px] font-bold uppercase text-slate-500">Total Paid Amount</td>
-                <td className="p-3 text-right font-mono font-black text-slate-900">{money(grandTotal)}</td>
+                <td className="p-3 text-right font-mono font-black text-slate-900">{money(grandTotal, currency)}</td>
                 <td />
               </tr>
             </tfoot>

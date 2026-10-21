@@ -3,7 +3,7 @@ import {
   Users, Building2, Ship, MapPin, Coins, Receipt, LayoutDashboard,
   FileQuestion, FileSpreadsheet, FolderKanban, CheckSquare, ArrowDownToLine,
   ArrowUpFromLine, FileText, ChevronRight, ChevronDown, CircleDollarSign, CreditCard,
-  ClipboardCheck, Calculator, Handshake
+  ClipboardCheck, Calculator, Handshake, Wallet
 } from 'lucide-react';
 import { UserRole, ActiveTab } from '../../types';
 import { formatDateLong } from '../../utils/date';
@@ -105,6 +105,7 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
 
         {currentRole==='FINANCE' && <>
           {item({label:'Financial Overview',tab:'FINANCE_DASHBOARD',icon:LayoutDashboard})}
+          {item({label:'Saldo Kas',tab:'FINANCE_CASH_BALANCE',icon:Wallet})}
           {item({label:'Rekap Keuangan',tab:'FINANCE_RECAP',icon:Calculator})}
           <button type="button" className="maritim-nav-group-title maritim-nav-group-toggle" aria-expanded={accountsReceivableOpen} onClick={()=>setAccountsReceivableOpen((open)=>!open)}>
             <CircleDollarSign/><span>Accounts Receivable</span>{accountsReceivableOpen?<ChevronDown/>:<ChevronRight/>}

@@ -145,6 +145,10 @@ export interface PaymentVoucher {
   voucherNumber?: string;
   requestNumber: string;
   requestDate: string;
+  currency?: Currency;
+  exchangeRateUSDToIDR?: number;
+  exchangeRateDate?: string;
+  paidFromBankAccountId?: string;
   requestedPaymentDate: string;
   jobInfo: 'OPERASIONAL' | 'JOB_VESSEL';
   requestBy: string;
@@ -578,6 +582,7 @@ export type ActiveTab =
   | 'APPROVAL'
   | 'CREW_CHANGE'
   | 'FINANCE_DASHBOARD'
+  | 'FINANCE_CASH_BALANCE'
   | 'FINANCE_RECAP'
   | 'JOB_INVOICE_OPEN'
   | 'AP'

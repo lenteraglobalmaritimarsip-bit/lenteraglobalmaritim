@@ -2,14 +2,18 @@ import { PaymentVoucher } from '../types';
 import { db } from '../db/storage';
 import { formatDateDisplay } from './date';
 
-const money = (value: number) =>
-  new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
+const money = (value: number, currency: PaymentVoucher['currency'] = 'IDR') => currency === 'USD'
+  ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value || 0)
+  : new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
 
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 export interface PrintableVoucher {
   requestNumber: string;
   requestDate: string;
+  currency?: PaymentVoucher['currency'];
+  exchangeRateUSDToIDR?: number;
+  exchangeRateDate?: string;
   requestedPaymentDate: string;
   jobInfo: PaymentVoucher['jobInfo'];
   requestBy: string;
@@ -28,6 +32,7 @@ export interface PrintableVoucher {
 // Returns an error message, or null when the print window opened.
 export const printPaymentVoucher = (voucher: PrintableVoucher): string | null => {
   const { requestNumber, requestBy, jobInfo } = voucher;
+  const currency = voucher.currency || 'IDR';
   const formattedDate = formatDateDisplay(voucher.requestDate);
   const formattedRequestedPaymentDate = formatDateDisplay(voucher.requestedPaymentDate);
   const paidTimestamp = voucher.paidAt ? new Date(voucher.paidAt) : null;
@@ -47,7 +52,7 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
   const financeUsers = db.getState().users.filter((user) => user.role === 'FINANCE' && user.status !== 'INACTIVE');
   const checker = voucher.paidBy || financeUsers.find((user) => user.name === voucher.checkerName)?.name || financeUsers[0]?.name || '';
   const logoUrl = `${window.location.origin}/lenteraglobalmaritim/lgm-logo.png`;
-  const bodyRows = voucher.items.map((row, index) => `<tr><td class="c">${index + 1}</td><td>${escapeHtml(row.jobNumber)}</td>${jobInfo === 'JOB_VESSEL' ? `<td>${escapeHtml(row.documentType && row.documentNumber ? `${row.documentType}: ${row.documentNumber}` : '-')}</td>` : ''}<td>${escapeHtml(row.customerName)}</td><td>${escapeHtml(row.itemService)}</td><td class="r">${money(row.amount)}</td><td class="r">${money(row.vatAmount)}</td><td class="r">${money(row.total)}</td><td class="r">${money(row.pph23Amount)}</td><td class="r b">${money(row.paidAmount)}</td></tr>`).join('');
+  const bodyRows = voucher.items.map((row, index) => `<tr><td class="c">${index + 1}</td><td>${escapeHtml(row.jobNumber)}</td>${jobInfo === 'JOB_VESSEL' ? `<td>${escapeHtml(row.documentType && row.documentNumber ? `${row.documentType}: ${row.documentNumber}` : '-')}</td>` : ''}<td>${escapeHtml(row.customerName)}</td><td>${escapeHtml(row.itemService)}</td><td class="r">${money(row.amount, currency)}</td><td class="r">${money(row.vatAmount, currency)}</td><td class="r">${money(row.total, currency)}</td><td class="r">${money(row.pph23Amount, currency)}</td><td class="r b">${money(row.paidAmount, currency)}</td></tr>`).join('');
   const metaField = (label: string, value: string) => label
     ? `<td class="k">${label}</td><td class="separator">:</td><td>${value}</td>`
     : '<td></td><td></td><td></td>';
@@ -57,6 +62,7 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
     ? [
       metaRow('Request No.', escapeHtml(requestNumber), 'Date Paid', escapeHtml(formattedPaidDate)),
       metaRow('Request Date', escapeHtml(formattedDate), 'Vendor Name', escapeHtml(voucher.vendorName)),
+      metaRow('Currency', currency, currency === 'USD' ? 'Kurs USD/IDR' : '', currency === 'USD' ? `1 USD = ${money(voucher.exchangeRateUSDToIDR || 0)} IDR · ${escapeHtml(voucher.exchangeRateDate || '-')}` : ''),
       metaRow('Info JOB / JOB Number', `${infoJob} / ${escapeHtml(jobNumbers || '-')}`, 'Paid To', escapeHtml(voucher.paidTo)),
       metaRow('Request By', escapeHtml(requestBy), 'Bank', escapeHtml(voucher.bankName)),
       metaRow('', '', 'A/c Number', escapeHtml(voucher.accountNumber)),
@@ -65,6 +71,7 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
     : [
       metaRow('Request No.', escapeHtml(requestNumber), 'Vendor Name', escapeHtml(voucher.vendorName)),
       metaRow('Request Date', escapeHtml(formattedDate), 'Paid To', escapeHtml(voucher.paidTo)),
+      metaRow('Currency', currency, currency === 'USD' ? 'Kurs USD/IDR' : '', currency === 'USD' ? `1 USD = ${money(voucher.exchangeRateUSDToIDR || 0)} IDR · ${escapeHtml(voucher.exchangeRateDate || '-')}` : ''),
       metaRow('Info JOB / JOB Number', `${infoJob} / ${escapeHtml(jobNumbers || '-')}`, 'Bank', escapeHtml(voucher.bankName)),
       metaRow('Request By', escapeHtml(requestBy), 'A/c Number', escapeHtml(voucher.accountNumber)),
       metaRow('', '', 'Requested Payment Date', escapeHtml(formattedRequestedPaymentDate)),
@@ -103,12 +110,12 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
     <div class="brand-row"><div class="brand-wrap"><img class="logo" src="${logoUrl}" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div>
     <h2>REQUEST PAYMENT VOUCHER</h2>
     <table class="meta">${metaRows}</table>
-    <table class="items"><thead><tr><th>No</th><th>JOB Number</th>${jobInfo === 'JOB_VESSEL' ? '<th>FDA / FPDA Number</th>' : ''}<th>${partyLabel}</th><th>Item Service</th><th>Amount</th><th>Vat</th><th>Total</th><th>PPH 23 (2%)</th><th>Paid Amount</th></tr></thead>
+    <table class="items"><thead><tr><th>No</th><th>JOB Number</th>${jobInfo === 'JOB_VESSEL' ? '<th>FDA / FPDA Number</th>' : ''}<th>${partyLabel}</th><th>Item Service</th><th>Amount (${currency})</th><th>Vat (${currency})</th><th>Total (${currency})</th><th>PPH 23 (2%) (${currency})</th><th>Paid Amount (${currency})</th></tr></thead>
     <tbody>${bodyRows}</tbody></table>
     <table class="summary">
-      <tr><td class="k">Total</td><td class="r">${money(totalBeforePph)}</td></tr>
-      <tr class="pph"><td class="k">PPh 23</td><td class="r">${totalPph23 ? '-' : ''}${money(totalPph23)}</td></tr>
-      <tr class="grand"><td>Total Payment</td><td class="r">${money(totalPayment)}</td></tr>
+      <tr><td class="k">Total (${currency})</td><td class="r">${money(totalBeforePph, currency)}</td></tr>
+      <tr class="pph"><td class="k">PPh 23 (${currency})</td><td class="r">${totalPph23 ? '-' : ''}${money(totalPph23, currency)}</td></tr>
+      <tr class="grand"><td>Total Payment (${currency})</td><td class="r">${money(totalPayment, currency)}</td></tr>
     </table>
     ${voucher.includeFinancePrintDetails ? `<div class="footer">Cetakan ini asli dikeluarkan PT. Lentera Global Maritim | ${printedDate} | ${printedTime}</div>` : ''}
     <table class="sign"><tbody>

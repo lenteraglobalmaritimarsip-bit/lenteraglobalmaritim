@@ -46,6 +46,26 @@ export async function loadLatestUsdIdrRate(): Promise<{ rate: number; updatedAt:
   }
 }
 
+export async function loadUsdIdrRateForDate(date: string): Promise<{ rate: number; date: string }> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(`https://api.frankfurter.dev/v1/${encodeURIComponent(date)}?base=USD&symbols=IDR`, {
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`Kurs USD/IDR untuk ${date} gagal dimuat (${response.status}).`);
+    const payload = await response.json() as { date?: string; rates?: { IDR?: number } };
+    const rate = Number(payload.rates?.IDR);
+    if (!payload.date || !Number.isFinite(rate) || rate <= 0) {
+      throw new Error('Data kurs USD/IDR historis tidak valid.');
+    }
+    return { rate, date: payload.date };
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 function toAccount(user: Record<string, unknown>): AuthAccount {
   return {
     ...user,

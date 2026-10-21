@@ -24,6 +24,7 @@ import { AccountsReceivableView } from './components/finance/AccountsReceivableV
 import { AccountsPayableView } from './components/finance/AccountsPayableView';
 import { FinancialHistoryView } from './components/finance/FinancialHistoryView';
 import { FinanceRecapView } from './components/finance/FinanceRecapView';
+import { CashBalanceView } from './components/finance/CashBalanceView';
 import { AuthAccount } from './auth';
 import { LoginView } from './components/auth/LoginView';
 import { apiAuth } from './lib/api';
@@ -633,6 +634,10 @@ export default function App() {
 
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_RECAP' && (
               <FinanceRecapView paymentVouchers={data.paymentVouchers || []} jobCalls={data.jobCalls || []} />
+            )}
+
+            {currentRole === 'FINANCE' && activeTab === 'FINANCE_CASH_BALANCE' && (
+              <CashBalanceView bankAccounts={data.bankAccounts || []} paymentVouchers={data.paymentVouchers || []} />
             )}
 
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_HISTORY_REPORT' && (

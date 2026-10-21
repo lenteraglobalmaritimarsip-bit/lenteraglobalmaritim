@@ -133,7 +133,7 @@ try {
             "SELECT vc.job_id AS job_id, 'FDA' AS invoice_type, f.fda_no AS invoice_no, "
             . 'c.company_name AS principal_name, v.name AS vessel_name, '
             . 'COALESCE(f.currency, vc.currency) AS currency, '
-            . 'COALESCE(f.exchange_rate_usd_to_idr, vc.exchange_rate_usd_to_idr) AS exchange_rate '
+            . 'COALESCE(f.exchange_rate_usd_to_idr, vc.exchange_rate_usd_to_idr, 0) AS exchange_rate '
             . 'FROM vessel_calls vc '
             . 'INNER JOIN customers c ON c.id = vc.customer_id '
             . 'INNER JOIN vessels v ON v.id = vc.vessel_id '
@@ -218,7 +218,7 @@ try {
     $usdAmount = round((float) $usdAmount, 2);
     if ($idrAmount <= 0 && $usdAmount <= 0) jsonResponse(['error' => 'Isi IDR Amount atau USD Amount'], 400);
     $exchangeRate = $body['exchangeRateUSDToIDR'] ?? 0;
-    if ($usdAmount > 0 && (!is_numeric($exchangeRate) || !is_finite((float) $exchangeRate) || (float) $exchangeRate <= 0)) {
+    if ($subjectData === 'OPERATIONAL' && $usdAmount > 0 && (!is_numeric($exchangeRate) || !is_finite((float) $exchangeRate) || (float) $exchangeRate <= 0)) {
         jsonResponse(['error' => 'Kurs transaksi USD/IDR terbaru harus diisi'], 400);
     }
     $exchangeRate = is_numeric($exchangeRate) && (float) $exchangeRate > 0 ? round((float) $exchangeRate, 12) : 0;
@@ -227,7 +227,7 @@ try {
     if ($subjectData === 'PRINCIPAL') {
         if ($invoiceType === 'FDA') {
             $invoiceQuery = $pdo->prepare(
-                "SELECT vc.job_id, f.fda_no AS invoice_no, c.company_name AS principal_name, v.name AS vessel_name, f.exchange_rate_usd_to_idr AS exchange_rate "
+                "SELECT vc.job_id, f.fda_no AS invoice_no, c.company_name AS principal_name, v.name AS vessel_name, COALESCE(f.exchange_rate_usd_to_idr, vc.exchange_rate_usd_to_idr, 0) AS exchange_rate "
                 . 'FROM vessel_calls vc INNER JOIN fda_records f ON f.job_id = vc.job_id '
                 . 'INNER JOIN customers c ON c.id = vc.customer_id INNER JOIN vessels v ON v.id = vc.vessel_id '
                 . 'LEFT JOIN closing_records cr ON cr.job_id = vc.job_id '
@@ -245,6 +245,10 @@ try {
         $invoiceQuery->execute(['job_id' => $jobId, 'invoice_no' => $invoiceNo]);
         $invoice = $invoiceQuery->fetch();
         if (!$invoice) jsonResponse(['error' => 'Invoice FDA/FPDA tidak ditemukan atau Job sudah ditutup'], 409);
+        $exchangeRate = (float) ($invoice['exchange_rate'] ?? 0);
+        if ($usdAmount > 0 && (!is_finite($exchangeRate) || $exchangeRate <= 0)) {
+            jsonResponse(['error' => 'Kurs pada invoice FDA/FPDA belum valid untuk penerimaan USD'], 409);
+        }
     } else {
         $jobId = null;
         $invoiceType = null;

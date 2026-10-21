@@ -98,8 +98,8 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
   }, [mode]);
 
   useEffect(() => {
-    if (mode === 'INPUT') void refreshUsdIdrRate();
-  }, [mode]);
+    if (mode === 'INPUT' && subjectData === 'OPERATIONAL') void refreshUsdIdrRate();
+  }, [mode, subjectData]);
 
   const principals = useMemo(
     () => [...new Set<string>(invoiceOptions.map((option) => option.principalName))].sort((first, second) => first.localeCompare(second)),
@@ -116,7 +116,10 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
   );
   const selectedInvoice = filteredInvoices.find((option) => invoiceOptionKey(option) === selectedInvoiceKey) || null;
   const selectedBank = bankAccounts.find((account) => account.id === bankAccountId) || null;
-  const effectiveUsdIdrRate = Number(usdIdrRateInput) || latestUsdIdrRate || 0;
+  const isInvoiceRateLocked = subjectData === 'PRINCIPAL';
+  const effectiveUsdIdrRate = subjectData === 'PRINCIPAL'
+    ? Number(selectedInvoice?.exchangeRate) || 0
+    : Number(usdIdrRateInput) || latestUsdIdrRate || 0;
   const usdEquivalentIDR = (Number(usdAmount.replace(/,/g, '')) || 0) * effectiveUsdIdrRate;
   const invalidDateRange = Boolean(startDate && endDate && startDate > endDate);
   const filteredEntries = useMemo(
@@ -342,14 +345,13 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
             <input type="text" inputMode="decimal" value={usdAmount} onChange={(event) => setUsdAmount(formatGroupedAmountInput(event.target.value, 2))} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900" />
           </label>
           <div className="text-xs font-semibold text-slate-600">
-            <label htmlFor="receivable-usd-idr-rate">Kurs Referensi USD/IDR</label>
+            <label htmlFor="receivable-usd-idr-rate">{isInvoiceRateLocked ? 'Kurs FDA/FPDA USD/IDR' : 'Kurs Harian USD/IDR'}</label>
             <div className="mt-1 flex gap-2">
-              <input id="receivable-usd-idr-rate" type="number" min="1" step="0.01" value={usdIdrRateInput} onChange={(event) => setUsdIdrRateInput(event.target.value)} className="h-10 min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900" />
-              <button type="button" onClick={() => void refreshUsdIdrRate()} disabled={isLoadingRate} title="Muat kurs terbaru" aria-label="Muat kurs USD/IDR terbaru" className="h-10 rounded-md border border-slate-300 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">{isLoadingRate ? 'Memuat...' : 'Refresh'}</button>
+              <input id="receivable-usd-idr-rate" type="number" min="1" step="0.01" value={isInvoiceRateLocked ? (selectedInvoice ? String(selectedInvoice.exchangeRate) : '') : usdIdrRateInput} onChange={(event) => setUsdIdrRateInput(event.target.value)} disabled={isInvoiceRateLocked} placeholder={isInvoiceRateLocked ? 'Pilih invoice FDA/FPDA' : ''} className="h-10 min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 disabled:bg-slate-100 disabled:text-slate-500" />
+              {!isInvoiceRateLocked && <button type="button" onClick={() => void refreshUsdIdrRate()} disabled={isLoadingRate} title="Muat kurs terbaru" aria-label="Muat kurs USD/IDR terbaru" className="h-10 rounded-md border border-slate-300 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">{isLoadingRate ? 'Memuat...' : 'Refresh'}</button>}
             </div>
-            <span className="mt-1 block text-[10px] font-normal text-slate-500">{rateUpdatedAt ? `Diperbarui: ${rateUpdatedAt}` : latestUsdIdrRate ? 'Kurs referensi siap' : 'Kurs live belum tersedia'}</span>
+            <span className="mt-1 block text-[10px] font-normal text-slate-500">{isInvoiceRateLocked ? (selectedInvoice ? 'Mengacu pada kurs saat invoice diterbitkan' : 'Pilih invoice FDA/FPDA terlebih dahulu') : rateUpdatedAt ? `Diperbarui: ${rateUpdatedAt}` : latestUsdIdrRate ? 'Kurs harian siap' : 'Kurs harian belum tersedia'}</span>
             {rateError && <span role="alert" className="mt-1 block text-[10px] text-rose-600">{rateError}</span>}
-            {selectedInvoice && <span className="mt-1 block text-[10px] font-normal text-slate-500">Kurs transaksi ini disimpan terpisah dari kurs invoice.</span>}
             {Number(usdAmount.replace(/,/g, '')) > 0 && effectiveUsdIdrRate > 0 && <span className="mt-1 block text-[10px] font-bold text-emerald-700">USD {new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(usdAmount.replace(/,/g, '')))} ≈ IDR {new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(usdEquivalentIDR)}</span>}
           </div>
           <label className="text-xs font-semibold text-slate-600">Photo Bukti Kas *

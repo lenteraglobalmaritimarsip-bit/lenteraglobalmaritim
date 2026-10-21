@@ -126,7 +126,8 @@ function loadAppState(): array
         $items = $voucherItems[$row['id']] ?? [];
         usort($items, static fn (array $a, array $b): int => $a['line'] <=> $b['line']);
         return [
-            'id' => $row['id'], 'voucherNumber' => $row['voucher_number'] ?: null, 'requestNumber' => $row['request_number'], 'requestDate' => $row['request_date'], 'requestedPaymentDate' => $row['requested_payment_date'] ?? $row['request_date'], 'jobInfo' => $row['job_info'],
+            'id' => $row['id'], 'voucherNumber' => $row['voucher_number'] ?: null, 'requestNumber' => $row['request_number'], 'requestDate' => $row['request_date'], 'currency' => $row['currency'] ?? 'IDR', 'exchangeRateUSDToIDR' => (float) ($row['exchange_rate_usd_to_idr'] ?? 0), 'exchangeRateDate' => $row['exchange_rate_date'] ?? '', 'requestedPaymentDate' => $row['requested_payment_date'] ?? $row['request_date'], 'jobInfo' => $row['job_info'],
+            'paidFromBankAccountId' => $row['paid_from_bank_account_id'] ?? '',
             'requestBy' => $row['request_by'], 'requestByUserId' => $row['request_by_user_id'] ?? null, 'vendorPartnerId' => $row['vendor_partner_id'] ?? '', 'vendorName' => $row['vendor_name'],
             'paidTo' => $row['paid_to'] ?? '', 'bankName' => $row['bank_name'] ?? '', 'accountNumber' => $row['account_number'] ?? '',
             'items' => array_map(static function (array $item): array { unset($item['line']); return $item; }, $items),
@@ -393,9 +394,9 @@ function replaceAppState(array $state): void
     }
     $paymentVoucherColumns = tableColumns($pdo, 'payment_vouchers');
     $requiredPaymentVoucherColumns = [
-        'id', 'request_number', 'request_date', 'requested_payment_date', 'job_info', 'request_by', 'request_by_user_id', 'vendor_name',
+        'id', 'request_number', 'request_date', 'currency', 'exchange_rate_usd_to_idr', 'exchange_rate_date', 'requested_payment_date', 'job_info', 'request_by', 'request_by_user_id', 'vendor_name',
         'total_paid_amount', 'status', 'manager_note', 'reviewed_by', 'reviewed_at',
-        'paid_by', 'paid_at', 'voucher_number', 'payment_surcharge', 'payment_other_expenses',
+        'paid_by', 'paid_at', 'paid_from_bank_account_id', 'voucher_number', 'payment_surcharge', 'payment_other_expenses',
         'payment_description', 'payment_total_amount', 'payment_proof_data_url',
     ];
     $missingPaymentVoucherColumns = $paymentVoucherColumns === null
@@ -484,6 +485,7 @@ function replaceAppState(array $state): void
         }
         foreach (($state['expensesItems'] ?? []) as $row) insertRow($pdo, 'expenses_items', ['id' => $row['id'], 'port_id' => isset($portNames[$row['portId'] ?? '']) ? $row['portId'] : null, 'port_name' => $row['portName'] ?? null, 'code' => $row['code'], 'category' => $row['category'], 'name' => $row['name'], 'rate_idr' => $row['rateIDR'] ?? null, 'rate_usd' => $row['rateUSD'] ?? null, 'calculation_type' => $row['calculationType'] ?? null, 'remarks' => $row['remarks'] ?? null]);
         $vendorPartnerIds = array_fill_keys(array_map(static fn (array $partner): string => (string) $partner['id'], $state['vendorPartners'] ?? []), true);
+        $bankAccountIds = array_fill_keys(array_map(static fn (array $account): string => (string) $account['id'], $state['bankAccounts'] ?? []), true);
         foreach (($state['vendorPartners'] ?? []) as $row) insertRow($pdo, 'vendor_partners', ['id' => $row['id'], 'vendor_name' => $row['vendorName'], 'pic_name' => $row['picName'] ?? null, 'address' => $row['address'] ?? null, 'phone' => $row['phone'] ?? null, 'bank_name' => $row['bankName'] ?? null, 'paid_name' => $row['paidName'] ?? null, 'account_number' => $row['accountNumber'] ?? null]);
         foreach (($state['bankAccounts'] ?? []) as $row) insertRow($pdo, 'bank_accounts', ['id' => $row['id'], 'bank_name' => $row['bankName'], 'branch' => $row['branch'] ?? null, 'account_name' => $row['accountName'], 'account_number' => $row['accountNumber']]);
         foreach (($state['paymentVouchers'] ?? []) as $voucher) {
@@ -493,6 +495,9 @@ function replaceAppState(array $state): void
                 'voucher_number' => !empty($voucher['voucherNumber']) ? $voucher['voucherNumber'] : null,
                 'request_number' => $voucher['requestNumber'],
                 'request_date' => $requestDate,
+                'currency' => $voucher['currency'] ?? 'IDR',
+                'exchange_rate_usd_to_idr' => $voucher['exchangeRateUSDToIDR'] ?? null,
+                'exchange_rate_date' => sqlDate($voucher['exchangeRateDate'] ?? null),
                 'requested_payment_date' => sqlDate($voucher['requestedPaymentDate'] ?? null, true) ?? $requestDate,
                 'job_info' => $voucher['jobInfo'],
                 'request_by' => $voucher['requestBy'] ?? '',
@@ -514,6 +519,7 @@ function replaceAppState(array $state): void
                 'reviewed_at' => sqlDate($voucher['reviewedAt'] ?? null),
                 'paid_by' => $voucher['paidBy'] ?? null,
                 'paid_at' => sqlDate($voucher['paidAt'] ?? null),
+                'paid_from_bank_account_id' => !empty($voucher['paidFromBankAccountId']) && isset($bankAccountIds[$voucher['paidFromBankAccountId']]) ? $voucher['paidFromBankAccountId'] : null,
                 'created_at' => sqlDate($voucher['createdAt'] ?? null) ?? date('Y-m-d H:i:s'),
             ]);
             foreach (($voucher['items'] ?? []) as $index => $item) {

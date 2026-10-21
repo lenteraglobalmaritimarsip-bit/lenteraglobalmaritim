@@ -768,6 +768,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                       otherExpenses: itemTotals.otherExpenses,
                       description: paymentDescription,
                       totalAmount: itemTotals.totalPayment,
+                      paidFromBankAccountId: selectedBank?.id,
                       ...(paymentFormProof ? { paymentProofDataUrl: paymentFormProof.dataUrl } : {}),
                     });
                     await dataApi.deleteUserData('finance_payment_draft');

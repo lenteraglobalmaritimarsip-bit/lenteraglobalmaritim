@@ -172,6 +172,9 @@ CREATE TABLE payment_vouchers (
   voucher_number VARCHAR(50) UNIQUE,
   request_number VARCHAR(50) NOT NULL UNIQUE,
   request_date DATE NOT NULL,
+  currency ENUM('IDR', 'USD') NOT NULL DEFAULT 'IDR',
+  exchange_rate_usd_to_idr DECIMAL(30,12) NULL,
+  exchange_rate_date DATE NULL,
   requested_payment_date DATE NOT NULL,
   job_info ENUM('OPERASIONAL', 'JOB_VESSEL') NOT NULL,
   request_by VARCHAR(200) NOT NULL,
@@ -188,6 +191,7 @@ CREATE TABLE payment_vouchers (
   reviewed_at DATETIME(3) NULL,
   paid_by VARCHAR(200),
   paid_at DATETIME(3) NULL,
+  paid_from_bank_account_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NULL,
   payment_surcharge DECIMAL(30,2) NOT NULL DEFAULT 0,
   payment_other_expenses DECIMAL(30,2) NOT NULL DEFAULT 0,
   payment_description TEXT,
@@ -197,7 +201,9 @@ CREATE TABLE payment_vouchers (
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   INDEX idx_payment_vouchers_date (request_date),
   INDEX idx_payment_vouchers_requester (request_by_user_id),
-  CONSTRAINT fk_payment_vouchers_vendor FOREIGN KEY (vendor_partner_id) REFERENCES vendor_partners(id) ON DELETE SET NULL
+  INDEX idx_payment_vouchers_source_bank (paid_from_bank_account_id),
+  CONSTRAINT fk_payment_vouchers_vendor FOREIGN KEY (vendor_partner_id) REFERENCES vendor_partners(id) ON DELETE SET NULL,
+  CONSTRAINT fk_payment_vouchers_source_bank FOREIGN KEY (paid_from_bank_account_id) REFERENCES bank_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE payment_voucher_items (

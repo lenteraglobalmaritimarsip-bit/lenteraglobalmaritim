@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowDownToLine, ArrowUpFromLine, Calculator, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import ExcelJS from 'exceljs';
-import { AccountsReceivableEntry, JobCall, PaymentVoucher, PrincipalReceipt } from '../../types';
+import { AccountsReceivableEntry, Currency, JobCall, PaymentVoucher, PrincipalReceipt } from '../../types';
 import { loadAccountsReceivableHistory } from '../../lib/api';
 import { formatDateDisplay, toLocalISODate } from '../../utils/date';
 import { DateInput } from '../shared/DateInput';
@@ -46,6 +46,10 @@ interface ExpenseRow {
   surcharge: number;
   other: number;
   total: number;
+  currency: Currency;
+  exchangeRate: number;
+  exchangeRateDate: string;
+  totalInIDR: number | null;
   description: string;
   paidBy: string;
 }
@@ -55,14 +59,17 @@ interface MonthRow {
   inIDR: number;
   inUSD: number;
   usdInIDR: number;
+  outUSD: number;
+  usdOutIDR: number;
   outIDR: number;
 }
 
 const PAGE_SIZE = 15;
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
-const money = (value: number) =>
-  new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
+const money = (value: number, currency: Currency = 'IDR') => currency === 'USD'
+  ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value || 0)
+  : new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
 
 const monthLabel = (monthKey: string) => {
   const match = /^(\d{4})-(\d{2})$/.exec(monthKey);
@@ -158,10 +165,13 @@ const toPrincipalReceiptRow = (job: JobCall, receipt: PrincipalReceipt): IncomeR
 };
 
 const toExpenseRow = (voucher: PaymentVoucher): ExpenseRow => {
+  const currency = voucher.currency || 'IDR';
+  const exchangeRate = Number(voucher.exchangeRateUSDToIDR) || 0;
   const surcharge = Number(voucher.paymentSurcharge) || 0;
   const other = Number(voucher.paymentOtherExpenses) || 0;
   const paid = Number(voucher.totalPaidAmount) || 0;
   const jobNumbers = [...new Set((voucher.items || []).map((item) => item.jobNumber).filter(Boolean))].join(', ');
+  const total = Number(voucher.paymentTotalAmount) || paid + surcharge + other;
   return {
     id: voucher.id,
     date: String(voucher.paidAt).slice(0, 10),
@@ -175,14 +185,18 @@ const toExpenseRow = (voucher: PaymentVoucher): ExpenseRow => {
     paid,
     surcharge,
     other,
-    // Total kas keluar = nilai yang dicatat saat pembayaran; jika kosong dihitung dari komponennya.
-    total: Number(voucher.paymentTotalAmount) || paid + surcharge + other,
+    total,
+    currency,
+    exchangeRate,
+    exchangeRateDate: voucher.exchangeRateDate || '',
+    totalInIDR: currency === 'IDR' ? total : exchangeRate > 0 ? total * exchangeRate : null,
     description: voucher.paymentDescription || '',
     paidBy: voucher.paidBy || '',
   };
 };
 
 const toPrincipalRefundExpenseRow = (job: JobCall, receipt: PrincipalReceipt): ExpenseRow => {
+  const currency = receipt.currency || job.currency || 'IDR';
   const refundAmount = Number(receipt.refundAmount) || 0;
   const refundRate = Number(
     receipt.refundExchangeRateUSDToIDR
@@ -191,7 +205,7 @@ const toPrincipalRefundExpenseRow = (job: JobCall, receipt: PrincipalReceipt): E
     || job.exchangeRateUSDToIDR
     || 0,
   );
-  const total = receipt.currency === 'USD' ? refundAmount * refundRate : refundAmount;
+  const totalInIDR = currency === 'USD' ? refundAmount * refundRate : refundAmount;
   return {
     id: `REFUND-${receipt.id}`,
     date: String(receipt.refundDate || '').slice(0, 10),
@@ -202,11 +216,15 @@ const toPrincipalRefundExpenseRow = (job: JobCall, receipt: PrincipalReceipt): E
     jobNumbers: job.jobId,
     bank: 'Principal refund',
     accountNumber: '-',
-    paid: total,
+    paid: refundAmount,
     surcharge: 0,
     other: 0,
-    total,
-    description: `Refund lebih bayar ${receipt.currency} ${money(refundAmount)}`,
+    total: refundAmount,
+    currency,
+    exchangeRate: refundRate,
+    exchangeRateDate: receipt.refundDate || receipt.receivedDate || '',
+    totalInIDR: currency === 'USD' && refundRate <= 0 ? null : totalInIDR,
+    description: `Refund lebih bayar ${currency} ${money(refundAmount)}`,
     paidBy: 'Finance',
   };
 };
@@ -300,15 +318,17 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
     const inUSD = sumBy<IncomeRow>(incomeRows, (row) => row.usd);
     const usdInIDR = sumBy<IncomeRow>(incomeRows, (row) => row.usdInIDR);
     const pph23 = sumBy<IncomeRow>(incomeRows, (row) => row.pph23);
-    const outIDR = sumBy<ExpenseRow>(expenseRows, (row) => row.total);
-    return { inIDR, inUSD, usdInIDR, pph23, outIDR, netIDR: inIDR + usdInIDR - outIDR };
+    const outUSD = sumBy<ExpenseRow>(expenseRows.filter((row) => row.currency === 'USD'), (row) => row.total);
+    const usdOutIDR = sumBy<ExpenseRow>(expenseRows.filter((row) => row.currency === 'USD'), (row) => row.totalInIDR || 0);
+    const outIDR = sumBy<ExpenseRow>(expenseRows.filter((row) => row.currency === 'IDR'), (row) => row.total) + usdOutIDR;
+    return { inIDR, inUSD, usdInIDR, pph23, outIDR, outUSD, usdOutIDR, netIDR: inIDR + usdInIDR - outIDR };
   }, [incomeRows, expenseRows]);
 
   const monthRows = useMemo<MonthRow[]>(() => {
     const byMonth = new Map<string, MonthRow>();
     const bucket = (date: string) => {
       const key = date.slice(0, 7);
-      if (!byMonth.has(key)) byMonth.set(key, { month: key, inIDR: 0, inUSD: 0, usdInIDR: 0, outIDR: 0 });
+      if (!byMonth.has(key)) byMonth.set(key, { month: key, inIDR: 0, inUSD: 0, usdInIDR: 0, outUSD: 0, usdOutIDR: 0, outIDR: 0 });
       return byMonth.get(key)!;
     };
     incomeRows.forEach((row) => {
@@ -317,7 +337,15 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
       item.inUSD += row.usd;
       item.usdInIDR += row.usdInIDR;
     });
-    expenseRows.forEach((row) => { bucket(row.date).outIDR += row.total; });
+    expenseRows.forEach((row) => {
+      const item = bucket(row.date);
+      if (row.currency === 'USD') {
+        item.outUSD += row.total;
+        item.usdOutIDR += row.totalInIDR || 0;
+      } else {
+        item.outIDR += row.total;
+      }
+    });
     return [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month));
   }, [incomeRows, expenseRows]);
 
@@ -327,14 +355,18 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
         key: `IN-${row.id}`, date: row.date, kind: 'IN' as const,
         reference: row.subject === 'Principal' ? `${row.invoiceType} ${row.invoiceNo}`.trim() : 'Operasional',
         party: row.principal, detail: row.vesselOrJob, bank: row.bank, note: row.remark, exchangeRate: row.exchangeRate,
-        inIDR: row.idrEquivalent, inUSD: row.usd, outIDR: 0,
+        inIDR: row.idrEquivalent, inUSD: row.usd, inRate: row.exchangeRate, outIDR: 0, outUSD: 0, outRate: 0, outIDREquivalent: null,
       })),
       ...expenseRows.map((row) => ({
         key: `OUT-${row.id}`, date: row.date, kind: 'OUT' as const,
         reference: row.voucherNo !== '-' ? row.voucherNo : row.requestNo,
         party: row.vendor, detail: row.jobInfo === 'Operasional' ? 'Operasional' : row.jobNumbers,
-        bank: row.bank, note: row.description, exchangeRate: 0,
-        inIDR: 0, inUSD: 0, outIDR: row.total,
+        bank: row.bank, note: `${row.currency}${row.description ? ` · ${row.description}` : ''}`, exchangeRate: row.exchangeRate,
+        inIDR: 0, inUSD: 0, inRate: 0,
+        outIDR: row.currency === 'IDR' ? row.total : 0,
+        outUSD: row.currency === 'USD' ? row.total : 0,
+        outRate: row.currency === 'USD' ? row.exchangeRate : 0,
+        outIDREquivalent: row.totalInIDR,
       })),
     ];
     return merged.sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind));
@@ -398,41 +430,66 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
 
       // --- Pengeluaran ---
       const expenseSheet = workbook.addWorksheet('Pengeluaran');
-      expenseSheet.addRow(['No', 'Tanggal Bayar', 'No Voucher', 'No Request', 'Vendor', 'Info JOB', 'Job Number', 'Bank Tujuan', 'No Rekening', 'Paid Amount', 'Surcharge', 'Biaya Lain', 'Total Dibayar', 'Keterangan', 'Dibayar Oleh']);
+      expenseSheet.addRow(['No', 'Tanggal Bayar', 'No Voucher', 'No Request', 'Vendor', 'Info JOB', 'Job Number', 'Bank Tujuan', 'No Rekening', 'Currency', 'Paid Amount', 'Surcharge', 'Biaya Lain', 'Total Dibayar', 'Kurs USD/IDR', 'Tanggal Kurs', 'Total IDR Ekuivalen', 'Keterangan', 'Dibayar Oleh']);
       expenseRows.forEach((row, index) => expenseSheet.addRow([
         index + 1, toExcelDate(row.date), row.voucherNo, row.requestNo, row.vendor, row.jobInfo, row.jobNumbers,
-        row.bank, row.accountNumber, row.paid, row.surcharge, row.other, row.total, row.description, row.paidBy,
+        row.bank, row.accountNumber, row.currency, row.paid, row.surcharge, row.other, row.total, row.exchangeRate || '', row.exchangeRateDate || '', row.totalInIDR, row.description, row.paidBy,
       ]));
       const expenseTotal = expenseSheet.addRow([
-        '', '', '', '', '', '', '', '', 'TOTAL',
-        sumCell('J', expenseRows.length, sumBy<ExpenseRow>(expenseRows, (row) => row.paid)),
-        sumCell('K', expenseRows.length, sumBy<ExpenseRow>(expenseRows, (row) => row.surcharge)),
-        sumCell('L', expenseRows.length, sumBy<ExpenseRow>(expenseRows, (row) => row.other)),
-        sumCell('M', expenseRows.length, totals.outIDR), '', '',
+        '', '', '', '', '', '', '', '', 'TOTAL', '', '', '', '', '', '', '',
+        sumCell('Q', expenseRows.length, totals.outIDR), '', '',
       ]);
       expenseTotal.font = { bold: true };
-      styleHeader(expenseSheet, 1, 15);
+      styleHeader(expenseSheet, 1, 19);
       expenseSheet.getColumn(2).numFmt = dateFmt;
-      [10, 11, 12, 13].forEach((column) => { expenseSheet.getColumn(column).numFmt = money2; });
-      [6, 14, 18, 20, 28, 14, 22, 18, 20, 16, 14, 14, 18, 32, 20].forEach((width, index) => { expenseSheet.getColumn(index + 1).width = width; });
+      [11, 12, 13, 14, 15, 17].forEach((column) => { expenseSheet.getColumn(column).numFmt = money2; });
+      expenseSheet.getColumn(16).numFmt = dateFmt;
+      [6, 14, 18, 20, 28, 14, 22, 18, 20, 12, 16, 14, 14, 18, 16, 16, 20, 32, 20].forEach((width, index) => { expenseSheet.getColumn(index + 1).width = width; });
 
       // --- Rekap Bulanan ---
       const monthSheet = workbook.addWorksheet('Rekap Bulanan');
-      monthSheet.addRow(['Bulan', 'Pemasukan IDR', 'Pemasukan USD', 'Ekuiv. USD (IDR)', 'Pengeluaran IDR', 'Saldo IDR']);
+      monthSheet.addRow(['Bulan', 'Pemasukan IDR', 'Pemasukan USD', 'Ekuiv. USD Masuk (IDR)', 'Pengeluaran IDR', 'Pengeluaran USD', 'Ekuiv. USD Keluar (IDR)', 'Total Pengeluaran IDR', 'Saldo IDR']);
       monthRows.forEach((row, index) => monthSheet.addRow([
-        monthLabel(row.month), row.inIDR, row.inUSD, row.usdInIDR, row.outIDR,
-        { formula: `B${index + 2}+D${index + 2}-E${index + 2}`, result: row.inIDR + row.usdInIDR - row.outIDR },
+        monthLabel(row.month), row.inIDR, row.inUSD, row.usdInIDR, row.outIDR, row.outUSD, row.usdOutIDR,
+        row.outIDR + row.usdOutIDR,
+        { formula: `B${index + 2}+D${index + 2}-H${index + 2}`, result: row.inIDR + row.usdInIDR - row.outIDR - row.usdOutIDR },
       ]));
       const monthTotal = monthSheet.addRow([
         'TOTAL',
         sumCell('B', monthRows.length, totals.inIDR), sumCell('C', monthRows.length, totals.inUSD),
-        sumCell('D', monthRows.length, totals.usdInIDR), sumCell('E', monthRows.length, totals.outIDR),
-        sumCell('F', monthRows.length, totals.netIDR),
+        sumCell('D', monthRows.length, totals.usdInIDR), sumCell('E', monthRows.length, totals.outIDR - totals.usdOutIDR),
+        sumCell('F', monthRows.length, totals.outUSD), sumCell('G', monthRows.length, totals.usdOutIDR),
+        sumCell('H', monthRows.length, totals.outIDR), sumCell('I', monthRows.length, totals.netIDR),
       ]);
       monthTotal.font = { bold: true };
-      styleHeader(monthSheet, 1, 6);
-      [2, 3, 4, 5, 6].forEach((column) => { monthSheet.getColumn(column).numFmt = money2; });
-      [22, 20, 18, 20, 20, 20].forEach((width, index) => { monthSheet.getColumn(index + 1).width = width; });
+      styleHeader(monthSheet, 1, 9);
+      [2, 3, 4, 5, 6, 7, 8, 9].forEach((column) => { monthSheet.getColumn(column).numFmt = money2; });
+      [22, 20, 18, 22, 20, 20, 22, 22, 20].forEach((width, index) => { monthSheet.getColumn(index + 1).width = width; });
+
+      const transactionSheet = workbook.addWorksheet('Rincian Transaksi');
+      transactionSheet.addRow([
+        'No', 'Tanggal', 'Jenis', 'Referensi', 'Pihak', 'Vessel / Job', 'Bank',
+        'Masuk IDR Ekuiv.', 'Masuk USD', 'Kurs Masuk USD/IDR', 'Keluar IDR', 'Keluar USD',
+        'Kurs Keluar USD/IDR', 'Keluar IDR Ekuiv.',
+      ]);
+      ledger.forEach((row, index) => transactionSheet.addRow([
+        index + 1, toExcelDate(row.date), row.kind === 'IN' ? 'Masuk' : 'Keluar', row.reference,
+        row.party, row.detail, row.bank, row.inIDR, row.inUSD, row.inRate || '', row.outIDR,
+        row.outUSD, row.outRate || '', row.outIDREquivalent,
+      ]));
+      const transactionTotal = transactionSheet.addRow([
+        '', '', '', '', '', '', 'TOTAL',
+        sumCell('H', ledger.length, totals.inIDR + totals.usdInIDR),
+        sumCell('I', ledger.length, totals.inUSD), '',
+        sumCell('K', ledger.length, sumBy<ExpenseRow>(expenseRows.filter((row) => row.currency === 'IDR'), (row) => row.total)),
+        sumCell('L', ledger.length, totals.outUSD), '',
+        sumCell('N', ledger.length, totals.outIDR),
+      ]);
+      transactionTotal.font = { bold: true };
+      styleHeader(transactionSheet, 1, 14);
+      transactionSheet.getColumn(2).numFmt = dateFmt;
+      [8, 9, 10, 11, 12, 13, 14].forEach((column) => { transactionSheet.getColumn(column).numFmt = money2; });
+      [6, 14, 14, 26, 28, 20, 24, 20, 16, 20, 18, 16, 20, 20].forEach((width, index) => { transactionSheet.getColumn(index + 1).width = width; });
 
       // --- Isi sheet Ringkasan ---
       summary.addRow(['REKAP KEUANGAN']);
@@ -449,10 +506,10 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
       ]);
       summary.addRow([
         'Total Pengeluaran',
-        expenseRows.length > 0 ? { formula: `SUM(Pengeluaran!M2:M${expenseLast})`, result: totals.outIDR } : 0,
-        0,
+        expenseRows.length > 0 ? { formula: `SUM(Pengeluaran!Q2:Q${expenseLast})`, result: totals.outIDR } : 0,
+        ledger.length > 0 ? { formula: `SUM('Rincian Transaksi'!L2:L${ledger.length + 1})`, result: totals.outUSD } : 0,
       ]);
-      summary.addRow(['Saldo Bersih', { formula: 'B6-B7', result: totals.netIDR }, { formula: 'C6-C7', result: totals.inUSD }]);
+      summary.addRow(['Saldo Bersih', { formula: 'B6-B7', result: totals.netIDR }, { formula: 'C6-C7', result: totals.inUSD - totals.outUSD }]);
       summary.addRow(['PPh 23 dipotong (info, sudah termasuk dalam pemasukan)', incomeRows.length > 0 ? { formula: `SUM(Pemasukan!J2:J${incomeLast})`, result: totals.pph23 } : 0, '']);
       summary.addRow(['Jumlah transaksi pemasukan', incomeRows.length, '']);
       summary.addRow(['Jumlah transaksi pengeluaran', expenseRows.length, '']);
@@ -543,22 +600,23 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide text-slate-500"><ArrowDownToLine size={14} /> Pemasukan</div>
           <div className="mt-2 font-mono text-lg font-black text-emerald-700">IDR {money(totals.inIDR + totals.usdInIDR)}</div>
-          <div className="font-mono text-xs font-semibold text-emerald-700">USD {money(totals.inUSD)} · ekuivalen IDR {money(totals.usdInIDR)}</div>
+          <div className="whitespace-nowrap font-mono text-xs font-semibold text-emerald-700">USD {money(totals.inUSD)} · ekuivalen IDR {money(totals.usdInIDR)}</div>
           <div className="mt-1 text-[11px] text-slate-500">{incomeRows.length} transaksi · PPh 23: IDR {money(totals.pph23)}</div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide text-slate-500"><ArrowUpFromLine size={14} /> Pengeluaran</div>
           <div className="mt-2 font-mono text-lg font-black text-rose-700">IDR {money(totals.outIDR)}</div>
+          {totals.outUSD > 0 && <div className="whitespace-nowrap font-mono text-xs font-semibold text-rose-700">USD {money(totals.outUSD)} · ekuivalen IDR {money(totals.usdOutIDR)}</div>}
           <div className="mt-1 text-[11px] text-slate-500">{expenseRows.length} voucher terbayar</div>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm xl:col-span-2">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide text-slate-500"><Calculator size={14} /> Saldo bersih</div>
           <div className={`mt-2 font-mono text-lg font-black ${totals.netIDR < 0 ? 'text-rose-700' : 'text-slate-900'}`}>IDR {money(totals.netIDR)}</div>
-          <div className="font-mono text-xs font-semibold text-slate-600">USD {money(totals.inUSD)} · ekuivalen IDR {money(totals.usdInIDR)}</div>
+          <div className="whitespace-nowrap font-mono text-xs font-semibold text-slate-600">USD {money(totals.inUSD)} · ekuivalen IDR {money(totals.usdInIDR)}</div>
           <div className="mt-1 text-[11px] text-slate-500">Konversi memakai kurs invoice yang tersimpan pada tanggal penerimaan.</div>
         </div>
       </div>
@@ -574,12 +632,15 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
                 <th className={`${th} text-right`}>Pemasukan USD</th>
                 <th className={`${th} text-right`}>Ekuiv. USD (IDR)</th>
                 <th className={`${th} text-right`}>Pengeluaran IDR</th>
+                <th className={`${th} text-right`}>Pengeluaran USD</th>
+                <th className={`${th} text-right`}>Ekuiv. USD Keluar</th>
+                <th className={`${th} text-right`}>Total Keluar IDR</th>
                 <th className={`${th} text-right`}>Saldo IDR</th>
               </tr>
             </thead>
             <tbody>
-              {isLoading && <tr><td colSpan={6} className="px-3 py-6 text-center text-xs text-slate-500">Memuat data…</td></tr>}
-              {!isLoading && monthRows.length === 0 && <tr><td colSpan={6} className="px-3 py-6 text-center text-xs text-slate-500">Tidak ada transaksi pada periode ini.</td></tr>}
+              {isLoading && <tr><td colSpan={9} className="px-3 py-6 text-center text-xs text-slate-500">Memuat data…</td></tr>}
+              {!isLoading && monthRows.length === 0 && <tr><td colSpan={9} className="px-3 py-6 text-center text-xs text-slate-500">Tidak ada transaksi pada periode ini.</td></tr>}
               {monthRows.map((row) => (
                 <tr key={row.month} className="border-t border-slate-100">
                   <td className="px-3 py-2 text-xs font-semibold text-slate-800">{monthLabel(row.month)}</td>
@@ -587,7 +648,10 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
                   <td className={num}>{money(row.inUSD)}</td>
                   <td className={num}>{money(row.usdInIDR)}</td>
                   <td className={num}>{money(row.outIDR)}</td>
-                  <td className={`${num} font-bold ${row.inIDR + row.usdInIDR - row.outIDR < 0 ? 'text-rose-700' : ''}`}>{money(row.inIDR + row.usdInIDR - row.outIDR)}</td>
+                  <td className={num}>{money(row.outUSD)}</td>
+                  <td className={num}>{money(row.usdOutIDR)}</td>
+                  <td className={num}>{money(row.outIDR + row.usdOutIDR)}</td>
+                  <td className={`${num} font-bold ${row.inIDR + row.usdInIDR - row.outIDR - row.usdOutIDR < 0 ? 'text-rose-700' : ''}`}>{money(row.inIDR + row.usdInIDR - row.outIDR - row.usdOutIDR)}</td>
                 </tr>
               ))}
             </tbody>
@@ -598,6 +662,9 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
                   <td className={`${num} font-black`}>{money(totals.inIDR)}</td>
                   <td className={`${num} font-black`}>{money(totals.inUSD)}</td>
                   <td className={`${num} font-black`}>{money(totals.usdInIDR)}</td>
+                  <td className={`${num} font-black`}>{money(totals.outIDR)}</td>
+                  <td className={`${num} font-black`}>{money(totals.outUSD)}</td>
+                  <td className={`${num} font-black`}>{money(totals.usdOutIDR)}</td>
                   <td className={`${num} font-black`}>{money(totals.outIDR)}</td>
                   <td className={`${num} font-black`}>{money(totals.netIDR)}</td>
                 </tr>
@@ -613,7 +680,7 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
           <div className="text-[11px] text-slate-500">{ledger.length} baris · Excel memuat seluruh baris</div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1080px] text-left">
+          <table className="w-full min-w-[1180px] text-left">
             <thead className="bg-slate-50">
               <tr>
                 <th className={th}>Tanggal</th>
@@ -624,12 +691,15 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
                 <th className={th}>Bank</th>
                 <th className={`${th} text-right`}>Masuk IDR Ekuiv.</th>
                 <th className={`${th} text-right`}>Masuk USD</th>
-                <th className={`${th} text-right`}>Kurs USD/IDR</th>
+                <th className={`${th} text-right`}>Kurs Masuk USD/IDR</th>
                 <th className={`${th} text-right`}>Keluar IDR</th>
+                <th className={`${th} text-right`}>Keluar USD</th>
+                <th className={`${th} text-right`}>Kurs Keluar USD/IDR</th>
+                <th className={`${th} text-right`}>Keluar IDR Ekuiv.</th>
               </tr>
             </thead>
             <tbody>
-              {!isLoading && ledger.length === 0 && <tr><td colSpan={10} className="px-3 py-6 text-center text-xs text-slate-500">Tidak ada transaksi pada periode ini.</td></tr>}
+              {!isLoading && ledger.length === 0 && <tr><td colSpan={13} className="px-3 py-6 text-center text-xs text-slate-500">Tidak ada transaksi pada periode ini.</td></tr>}
               {pagedLedger.map((row) => (
                 <tr key={row.key} className="border-t border-slate-100">
                   <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-700">{formatDateDisplay(row.date)}</td>
@@ -642,8 +712,11 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
                   <td className="px-3 py-2 text-xs text-slate-700">{row.bank}</td>
                   <td className={num}>{row.kind === 'IN' ? money(row.inIDR) : '-'}</td>
                   <td className={num}>{row.kind === 'IN' ? money(row.inUSD) : '-'}</td>
-                  <td className={num}>{row.exchangeRate > 0 ? money(row.exchangeRate) : '-'}</td>
+                  <td className={num}>{row.kind === 'IN' && row.inRate > 0 ? money(row.inRate) : '-'}</td>
                   <td className={num}>{row.kind === 'OUT' ? money(row.outIDR) : '-'}</td>
+                  <td className={num}>{row.kind === 'OUT' && row.outUSD > 0 ? money(row.outUSD, 'USD') : '-'}</td>
+                  <td className={num}>{row.kind === 'OUT' && row.outRate > 0 ? money(row.outRate) : '-'}</td>
+                  <td className={num}>{row.kind === 'OUT' && row.outIDREquivalent !== null ? money(row.outIDREquivalent) : '-'}</td>
                 </tr>
               ))}
             </tbody>
@@ -659,7 +732,7 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
       </div>
 
       <p className="text-[11px] text-slate-500">
-        Dasar perhitungan: pemasukan dari Accounts Receivable menurut Date Income; pengeluaran dari Payment Voucher berstatus PAID menurut tanggal bayar, dalam IDR (termasuk surcharge dan biaya lain).
+        Dasar perhitungan: pemasukan dari Accounts Receivable menurut Date Income; pengeluaran dari Payment Voucher berstatus PAID menurut tanggal bayar. Nilai USD dikonversi ke IDR memakai kurs historis yang tersimpan pada Request Date.
       </p>
     </div>
   );
