@@ -1,5 +1,5 @@
 import { AuthAccount } from '../auth';
-import { AccountsReceivableEntry, BankAccount, FdaReceivableEntry, ReceivableInvoiceOption, ReceivableInvoiceType, ReceivableSubjectData } from '../types';
+import { AccountsReceivableEntry, BankAccount, FdaReceivableEntry, ReceivableInvoiceOption, ReceivableInvoiceType, ReceivablePaymentType, ReceivableSubjectData } from '../types';
 
 const apiEnabled = import.meta.env.VITE_API_AUTH_ENABLED === 'true';
 let csrfToken = '';
@@ -20,6 +20,30 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const payload = await response.json().catch(() => ({})) as T & ApiErrorPayload;
   if (!response.ok) throw new Error(payload.error || `API request failed (${response.status})`);
   return payload;
+}
+
+export async function loadLatestUsdIdrRate(): Promise<{ rate: number; updatedAt: string }> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch('https://open.er-api.com/v6/latest/USD', {
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`Kurs USD/IDR gagal dimuat (${response.status}).`);
+    const payload = await response.json() as {
+      result?: string;
+      rates?: { IDR?: number };
+      time_last_update_utc?: string;
+    };
+    const rate = Number(payload.rates?.IDR);
+    if (payload.result !== 'success' || !Number.isFinite(rate) || rate <= 0) {
+      throw new Error('Data kurs USD/IDR dari penyedia tidak valid.');
+    }
+    return { rate, updatedAt: payload.time_last_update_utc || '' };
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 function toAccount(user: Record<string, unknown>): AuthAccount {
@@ -151,6 +175,12 @@ export async function submitPdaDraft(jobId: string, revision: number, pdaType: P
   return result.revision;
 }
 
+export async function loadPdaServiceItemHistory(pdaType: PdaDocumentType = 'SALES'): Promise<string[]> {
+  if (!apiEnabled) throw new Error('Riwayat item PDA memerlukan koneksi API aktif.');
+  const result = await request<{ items: string[] }>(`pda.php?action=service-item-history&pdaType=${pdaType}`);
+  return result.items;
+}
+
 export async function listPendingPdaDrafts(): Promise<PdaDraft[]> {
   if (!apiEnabled) throw new Error('Approval PDA memerlukan koneksi API aktif.');
   const result = await request<{ drafts: PdaDraft[] }>('pda.php?action=pending');
@@ -242,6 +272,7 @@ export async function loadFdaReceivableEntries(jobId?: string): Promise<FdaRecei
 
 export async function createAccountsReceivableEntry(entry: {
   subjectData: ReceivableSubjectData;
+  paymentType: ReceivablePaymentType;
   jobId?: string;
   invoiceType?: ReceivableInvoiceType;
   invoiceNo?: string;
@@ -251,6 +282,7 @@ export async function createAccountsReceivableEntry(entry: {
   remark: string;
   idrAmount: number;
   usdAmount: number;
+  exchangeRateUSDToIDR: number;
   attachmentName: string;
   attachmentDataUrl: string;
 }): Promise<void> {

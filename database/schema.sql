@@ -548,6 +548,8 @@ CREATE TABLE accounts_receivable_entries (
   job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin,
   invoice_type ENUM('FDA', 'FPDA'),
   invoice_no VARCHAR(180),
+  payment_type ENUM('ADVANCE_PAYMENT', 'INVOICE') NOT NULL DEFAULT 'ADVANCE_PAYMENT',
+  invoice_allocation_status ENUM('AUTO', 'MANUAL_REQUIRED', 'APPLIED', 'NOT_APPLICABLE') NOT NULL DEFAULT 'AUTO',
   income_date DATE NOT NULL,
   subject_data ENUM('OPERATIONAL', 'PRINCIPAL') NOT NULL DEFAULT 'PRINCIPAL',
   principal_name VARCHAR(200),
@@ -567,6 +569,7 @@ CREATE TABLE accounts_receivable_entries (
   created_by_name VARCHAR(200) NOT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   INDEX idx_accounts_receivable_job_invoice (job_id, invoice_type, invoice_no),
+  INDEX idx_accounts_receivable_invoice_allocation (job_id, invoice_allocation_status),
   INDEX idx_accounts_receivable_income_date (income_date),
   CONSTRAINT fk_accounts_receivable_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id),
   CONSTRAINT fk_accounts_receivable_bank FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id) ON DELETE SET NULL

@@ -344,6 +344,29 @@ try {
     $action = (string) ($_GET['action'] ?? '');
     $connection = db();
 
+    if ($action === 'service-item-history') {
+        requireMethod('GET');
+        $pdaType = pdaDocumentType($_GET['pdaType'] ?? 'SALES');
+        $branchCode = pdaUserBranch($user, $pdaType);
+        $query = $connection->prepare(
+            "SELECT service_name FROM ("
+            . "SELECT TRIM(pi.description) AS service_name FROM pda_items pi "
+            . "INNER JOIN pda_documents pd ON pd.job_id = pi.job_id AND pd.pda_type = pi.pda_type "
+            . 'WHERE pd.pda_type = :items_pda_type AND pd.branch_code = :items_branch_code '
+            . 'UNION '
+            . "SELECT TRIM(JSON_UNQUOTE(JSON_EXTRACT(pd.item_draft, '$.name'))) AS service_name "
+            . 'FROM pda_documents pd WHERE pd.pda_type = :draft_pda_type AND pd.branch_code = :draft_branch_code'
+            . ') AS service_items WHERE service_name <> \'\' ORDER BY service_name'
+        );
+        $query->execute([
+            'items_pda_type' => $pdaType,
+            'items_branch_code' => $branchCode,
+            'draft_pda_type' => $pdaType,
+            'draft_branch_code' => $branchCode,
+        ]);
+        jsonResponse(['items' => array_column($query->fetchAll(), 'service_name')]);
+    }
+
     if ($action === 'fpda-numbers') {
         requireMethod('GET');
         $role = $user['role'] ?? '';

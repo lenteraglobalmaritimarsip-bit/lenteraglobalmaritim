@@ -1,8 +1,8 @@
 import React, { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Download, Printer } from 'lucide-react';
 import ExcelJS from 'exceljs';
-import { AccountsReceivableEntry, BankAccount, ReceivableInvoiceOption, ReceivableInvoiceType, ReceivableSubjectData } from '../../types';
-import { createAccountsReceivableEntry, loadAccountsReceivableHistory, loadAccountsReceivableOptions } from '../../lib/api';
+import { AccountsReceivableEntry, BankAccount, ReceivableInvoiceOption, ReceivableInvoiceType, ReceivablePaymentType, ReceivableSubjectData } from '../../types';
+import { createAccountsReceivableEntry, loadAccountsReceivableHistory, loadAccountsReceivableOptions, loadLatestUsdIdrRate } from '../../lib/api';
 import { formatDateDisplay, todayISO } from '../../utils/date';
 import { DateInput } from '../shared/DateInput';
 
@@ -41,6 +41,7 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [subjectData, setSubjectData] = useState<ReceivableSubjectData>('PRINCIPAL');
+  const [paymentType, setPaymentType] = useState<ReceivablePaymentType>('INVOICE');
   const [principalName, setPrincipalName] = useState('');
   const [vesselName, setVesselName] = useState('');
   const [selectedInvoiceKey, setSelectedInvoiceKey] = useState('');
@@ -50,10 +51,30 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
   const [remark, setRemark] = useState('');
   const [idrAmount, setIdrAmount] = useState('0');
   const [usdAmount, setUsdAmount] = useState('0');
+  const [latestUsdIdrRate, setLatestUsdIdrRate] = useState<number | null>(null);
+  const [usdIdrRateInput, setUsdIdrRateInput] = useState('');
+  const [rateUpdatedAt, setRateUpdatedAt] = useState('');
+  const [isLoadingRate, setIsLoadingRate] = useState(false);
+  const [rateError, setRateError] = useState('');
   const [attachment, setAttachment] = useState<{ name: string; dataUrl: string } | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+
+  const refreshUsdIdrRate = async () => {
+    setIsLoadingRate(true);
+    setRateError('');
+    try {
+      const result = await loadLatestUsdIdrRate();
+      setLatestUsdIdrRate(result.rate);
+      setUsdIdrRateInput(String(result.rate));
+      setRateUpdatedAt(result.updatedAt);
+    } catch (rateLoadError) {
+      setRateError(rateLoadError instanceof Error ? rateLoadError.message : 'Kurs terbaru gagal dimuat.');
+    } finally {
+      setIsLoadingRate(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -76,6 +97,10 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
     return () => { cancelled = true; };
   }, [mode]);
 
+  useEffect(() => {
+    if (mode === 'INPUT') void refreshUsdIdrRate();
+  }, [mode]);
+
   const principals = useMemo(
     () => [...new Set<string>(invoiceOptions.map((option) => option.principalName))].sort((first, second) => first.localeCompare(second)),
     [invoiceOptions],
@@ -91,6 +116,8 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
   );
   const selectedInvoice = filteredInvoices.find((option) => invoiceOptionKey(option) === selectedInvoiceKey) || null;
   const selectedBank = bankAccounts.find((account) => account.id === bankAccountId) || null;
+  const effectiveUsdIdrRate = Number(usdIdrRateInput) || latestUsdIdrRate || 0;
+  const usdEquivalentIDR = (Number(usdAmount.replace(/,/g, '')) || 0) * effectiveUsdIdrRate;
   const invalidDateRange = Boolean(startDate && endDate && startDate > endDate);
   const filteredEntries = useMemo(
     () => invalidDateRange ? [] : entries.filter((entry) =>
@@ -206,8 +233,9 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
       || !Number.isFinite(parsedPph23) || parsedPph23 < 0
       || !Number.isFinite(parsedIdr) || parsedIdr < 0
       || !Number.isFinite(parsedUsd) || parsedUsd < 0
+      || (parsedUsd > 0 && (!Number.isFinite(effectiveUsdIdrRate) || effectiveUsdIdrRate <= 0))
       || (parsedIdr <= 0 && parsedUsd <= 0)) {
-      setError('Lengkapi tanggal, rekening, photo bukti kas, remark, dan isi salah satu amount IDR/USD dengan nilai di atas nol. Untuk Principal, pilih Principal, Vessel, dan Invoice.');
+      setError('Lengkapi tanggal, rekening, photo bukti kas, remark, kurs valid untuk pemasukan USD, dan isi salah satu amount IDR/USD dengan nilai di atas nol. Untuk Principal, pilih Principal, Vessel, dan Invoice.');
       return;
     }
 
@@ -215,6 +243,7 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
     try {
       await createAccountsReceivableEntry({
         subjectData,
+        paymentType,
         ...(subjectData === 'PRINCIPAL' && selectedInvoice ? {
           jobId: selectedInvoice.jobId,
           invoiceType: selectedInvoice.invoiceType,
@@ -226,6 +255,7 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
         remark: remark.trim(),
         idrAmount: parsedIdr,
         usdAmount: parsedUsd,
+        exchangeRateUSDToIDR: effectiveUsdIdrRate,
         attachmentName: attachment.name,
         attachmentDataUrl: attachment.dataUrl,
       });
@@ -268,6 +298,12 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
               <option value="PRINCIPAL">Principal</option>
             </select>
           </label>
+          <label className="text-xs font-semibold text-slate-600">Tujuan Penerimaan *
+            <select required value={paymentType} onChange={(event) => setPaymentType(event.target.value as ReceivablePaymentType)} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900">
+              <option value="ADVANCE_PAYMENT">Advance Payment</option>
+              <option value="INVOICE">Pembayaran / Pelunasan Invoice</option>
+            </select>
+          </label>
           <label className="text-xs font-semibold text-slate-600">Principal {subjectData === 'PRINCIPAL' ? '*' : ''}
             <select required={subjectData === 'PRINCIPAL'} disabled={subjectData === 'OPERATIONAL'} value={principalName} onChange={(event) => { setPrincipalName(event.target.value); setVesselName(''); setSelectedInvoiceKey(''); }} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 disabled:bg-slate-100">
               <option value="">Pilih Principal</option>
@@ -285,7 +321,7 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
               <option value="">Pilih FDA / FPDA</option>
               {filteredInvoices.map((option) => <option key={invoiceOptionKey(option)} value={invoiceOptionKey(option)}>{option.invoiceType} · {option.invoiceNo} · {option.jobId}</option>)}
             </select>
-            {selectedInvoice && <span className="mt-1 block text-[11px] font-semibold text-blue-700">Kurs invoice: USD 1 = IDR {new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(selectedInvoice.exchangeRate)}</span>}
+            {selectedInvoice && <span className="mt-1 block text-[11px] font-semibold text-slate-500">Kurs invoice terkunci: USD 1 = IDR {new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(selectedInvoice.exchangeRate)}</span>}
           </label>
           <label className="text-xs font-semibold text-slate-600">PPh 23 (IDR)
             <input type="text" inputMode="numeric" value={pph23AmountIDR} onChange={(event) => setPph23AmountIDR(formatGroupedAmountInput(event.target.value))} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900" />
@@ -305,6 +341,17 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
           <label className="text-xs font-semibold text-slate-600">USD Amount
             <input type="text" inputMode="decimal" value={usdAmount} onChange={(event) => setUsdAmount(formatGroupedAmountInput(event.target.value, 2))} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900" />
           </label>
+          <div className="text-xs font-semibold text-slate-600">
+            <label htmlFor="receivable-usd-idr-rate">Kurs Referensi USD/IDR</label>
+            <div className="mt-1 flex gap-2">
+              <input id="receivable-usd-idr-rate" type="number" min="1" step="0.01" value={usdIdrRateInput} onChange={(event) => setUsdIdrRateInput(event.target.value)} className="h-10 min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900" />
+              <button type="button" onClick={() => void refreshUsdIdrRate()} disabled={isLoadingRate} title="Muat kurs terbaru" aria-label="Muat kurs USD/IDR terbaru" className="h-10 rounded-md border border-slate-300 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">{isLoadingRate ? 'Memuat...' : 'Refresh'}</button>
+            </div>
+            <span className="mt-1 block text-[10px] font-normal text-slate-500">{rateUpdatedAt ? `Diperbarui: ${rateUpdatedAt}` : latestUsdIdrRate ? 'Kurs referensi siap' : 'Kurs live belum tersedia'}</span>
+            {rateError && <span role="alert" className="mt-1 block text-[10px] text-rose-600">{rateError}</span>}
+            {selectedInvoice && <span className="mt-1 block text-[10px] font-normal text-slate-500">Kurs transaksi ini disimpan terpisah dari kurs invoice.</span>}
+            {Number(usdAmount.replace(/,/g, '')) > 0 && effectiveUsdIdrRate > 0 && <span className="mt-1 block text-[10px] font-bold text-emerald-700">USD {new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(usdAmount.replace(/,/g, '')))} ≈ IDR {new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(usdEquivalentIDR)}</span>}
+          </div>
           <label className="text-xs font-semibold text-slate-600">Photo Bukti Kas *
             <input ref={attachmentInputRef} type="file" required accept="image/jpeg,image/png" onChange={(event) => void handleAttachmentChange(event)} className="mt-1 block w-full text-sm text-slate-700 file:mr-3 file:rounded-md file:border file:border-slate-300 file:bg-white file:px-3 file:py-2 file:text-xs file:font-semibold" />
             {attachment && <span className="mt-1 block truncate text-[11px] text-slate-500">{attachment.name}</span>}

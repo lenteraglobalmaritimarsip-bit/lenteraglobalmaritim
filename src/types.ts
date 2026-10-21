@@ -303,6 +303,7 @@ export interface PrincipalReceipt {
 
 export type ReceivableInvoiceType = 'FDA' | 'FPDA';
 export type ReceivableSubjectData = 'OPERATIONAL' | 'PRINCIPAL';
+export type ReceivablePaymentType = 'ADVANCE_PAYMENT' | 'INVOICE';
 
 export interface ReceivableInvoiceOption {
   jobId: string;
@@ -319,6 +320,8 @@ export interface AccountsReceivableEntry {
   subjectData: ReceivableSubjectData;
   jobId: string | null;
   invoiceType: ReceivableInvoiceType | null;
+  paymentType: ReceivablePaymentType | null;
+  invoiceAllocationStatus: 'AUTO' | 'MANUAL_REQUIRED' | 'APPLIED' | null;
   invoiceNo: string | null;
   incomeDate: string;
   principalName: string | null;
@@ -341,6 +344,7 @@ export interface FdaReceivableEntry {
   id: string;
   jobId: string;
   invoiceType: ReceivableInvoiceType;
+  paymentType: ReceivablePaymentType;
   invoiceNo: string;
   incomeDate: string;
   principalName: string;
@@ -349,6 +353,7 @@ export interface FdaReceivableEntry {
   bankName: string;
   idrAmount: number;
   usdAmount: number;
+  exchangeRateUSDToIDR: number;
   createdBy: string;
   createdAt: string;
 }

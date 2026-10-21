@@ -17,10 +17,19 @@ try {
             $branchName = trim((string) ($user['branch_name'] ?? ''));
             if ($branchName === '') jsonResponse(['error' => 'Branch aktif user FDA belum valid'], 422);
             $jobId = trim((string) ($_GET['jobId'] ?? ''));
+            $historyColumns = array_column($pdo->query('SHOW COLUMNS FROM accounts_receivable_entries')->fetchAll(), 'Field');
+            $exchangeRateSelect = in_array('exchange_rate_usd_to_idr', $historyColumns, true)
+                ? 'ar.exchange_rate_usd_to_idr'
+                : "CASE WHEN ar.invoice_type = 'FPDA' THEN COALESCE(NULLIF(pd.exchange_rate, 0), vc.exchange_rate_usd_to_idr, 0) "
+                    . 'ELSE COALESCE(f.exchange_rate_usd_to_idr, vc.exchange_rate_usd_to_idr, 0) END';
             $sql = 'SELECT ar.id, ar.job_id, ar.invoice_type, ar.invoice_no, ar.income_date, ar.principal_name, ar.vessel_name, '
+                . $exchangeRateSelect . ' AS exchange_rate_usd_to_idr, '
                 . 'ar.remark, ar.bank_name, ar.idr_amount, ar.usd_amount, ar.created_by_name, ar.created_at '
                 . 'FROM accounts_receivable_entries ar '
                 . 'INNER JOIN inquiries i ON i.job_id = ar.job_id '
+                . 'LEFT JOIN vessel_calls vc ON vc.job_id = ar.job_id '
+                . 'LEFT JOIN fda_records f ON f.job_id = ar.job_id '
+                . "LEFT JOIN pda_documents pd ON pd.job_id = ar.job_id AND pd.pda_no = ar.invoice_no AND pd.pda_type = 'FDA' "
                 . "WHERE ar.subject_data = 'PRINCIPAL' AND ar.job_id IS NOT NULL "
                 . 'AND LOWER(TRIM(i.created_by_branch)) = LOWER(TRIM(:branch_name))';
             $params = ['branch_name' => $branchName];
@@ -43,6 +52,7 @@ try {
                 'bankName' => $row['bank_name'],
                 'idrAmount' => (float) $row['idr_amount'],
                 'usdAmount' => (float) $row['usd_amount'],
+                'exchangeRateUSDToIDR' => (float) $row['exchange_rate_usd_to_idr'],
                 'createdBy' => $row['created_by_name'],
                 'createdAt' => $row['created_at'],
             ], $query->fetchAll());
@@ -207,6 +217,11 @@ try {
     $idrAmount = round((float) $idrAmount, 2);
     $usdAmount = round((float) $usdAmount, 2);
     if ($idrAmount <= 0 && $usdAmount <= 0) jsonResponse(['error' => 'Isi IDR Amount atau USD Amount'], 400);
+    $exchangeRate = $body['exchangeRateUSDToIDR'] ?? 0;
+    if ($usdAmount > 0 && (!is_numeric($exchangeRate) || !is_finite((float) $exchangeRate) || (float) $exchangeRate <= 0)) {
+        jsonResponse(['error' => 'Kurs transaksi USD/IDR terbaru harus diisi'], 400);
+    }
+    $exchangeRate = is_numeric($exchangeRate) && (float) $exchangeRate > 0 ? round((float) $exchangeRate, 12) : 0;
 
     $invoice = ['principal_name' => null, 'vessel_name' => null, 'exchange_rate' => 0];
     if ($subjectData === 'PRINCIPAL') {
@@ -230,15 +245,10 @@ try {
         $invoiceQuery->execute(['job_id' => $jobId, 'invoice_no' => $invoiceNo]);
         $invoice = $invoiceQuery->fetch();
         if (!$invoice) jsonResponse(['error' => 'Invoice FDA/FPDA tidak ditemukan atau Job sudah ditutup'], 409);
-        $exchangeRate = (float) ($invoice['exchange_rate'] ?? 0);
-        if ($usdAmount > 0 && (!is_finite($exchangeRate) || $exchangeRate <= 0)) {
-            jsonResponse(['error' => 'Kurs USD/IDR pada invoice belum valid. Perbarui kurs job sebelum mencatat penerimaan USD.'], 409);
-        }
     } else {
         $jobId = null;
         $invoiceType = null;
         $invoiceNo = null;
-        $exchangeRate = 0;
     }
 
     $bankQuery = $pdo->prepare('SELECT bank_name, account_name, account_number FROM bank_accounts WHERE id = :id LIMIT 1');
@@ -255,7 +265,7 @@ try {
         'income_date' => $incomeDate,
         'principal_name' => $invoice['principal_name'],
         'vessel_name' => $invoice['vessel_name'],
-        'pph23' => $pph23,
+        'pph23_amount_idr' => $pph23,
         'remark' => $remark,
         'bank_account_id' => $bankAccountId,
         'bank_name' => $bank['bank_name'],
@@ -265,10 +275,13 @@ try {
         'usd_amount' => $usdAmount,
         'attachment_name' => basename($attachmentName),
         'attachment_data_url' => $attachmentDataUrl,
-        'user_id' => $user['id'] ?? null,
-        'user_name' => $user['name'] ?? $user['username'] ?? 'Finance',
+        'created_by_user_id' => $user['id'] ?? null,
+        'created_by_name' => $user['name'] ?? $user['username'] ?? 'Finance',
     ];
     $receivableColumns = array_column($pdo->query('SHOW COLUMNS FROM accounts_receivable_entries')->fetchAll(), 'Field');
+    if ($usdAmount > 0 && !in_array('exchange_rate_usd_to_idr', $receivableColumns, true)) {
+        jsonResponse(['error' => 'Jalankan migrasi kurs Accounts Receivable sebelum mencatat penerimaan USD'], 503);
+    }
     if (in_array('exchange_rate_usd_to_idr', $receivableColumns, true)) {
         $insertValues['exchange_rate_usd_to_idr'] = $exchangeRate;
     }

@@ -3,7 +3,7 @@ import { ArrowLeft, Check, CheckCircle2, FileSpreadsheet, Pencil, Plus, Printer,
 import { JobCall, Vessel, formatPurposeOfCall } from '../../types';
 import { formatDateDisplay, formatInquiryDate } from '../../utils/date';
 import { DateTimeInput } from '../shared/DateTimeInput';
-import { ContinuedPdaItemReference, openPdaDraft, PdaDocumentType, PdaDraft, savePdaDraft, submitPdaDraft } from '../../lib/api';
+import { ContinuedPdaItemReference, loadPdaServiceItemHistory, openPdaDraft, PdaDocumentType, PdaDraft, savePdaDraft, submitPdaDraft } from '../../lib/api';
 
 interface CrewPDAViewProps {
   job?: JobCall;
@@ -114,11 +114,12 @@ export const createPdaPreviewHtml = (
     const categoryTotal = totals.categoryTotals[groupIndex];
     const itemRows = group.items.map((item, index) => {
       const amount = item.quantity * item.price;
+      const isAgencyFee = item.category === 'AGENCY_FEE';
       return `<tr>
         <td class="number">${index + 1}</td><td>${escapeHtml(item.description || '-')}</td>
-        <td class="number">${escapeHtml(item.quantity)}</td><td>${escapeHtml(item.unit || '-')}</td>
+        <td class="number">${isAgencyFee ? '' : escapeHtml(item.quantity)}</td><td>${isAgencyFee ? '' : escapeHtml(item.unit || '-')}</td>
         <td class="amount">${escapeHtml(formatAmountValue(item.price))}</td>
-        <td class="amount">${escapeHtml(formatAmountValue(amount))}</td><td>${escapeHtml(item.remarks || '-')}</td>
+        <td class="amount">${escapeHtml(formatAmountValue(amount))}</td><td>${isAgencyFee ? '' : escapeHtml(item.remarks || '-')}</td>
       </tr>`;
     }).join('');
     return `<tr class="category"><td colspan="7">${escapeHtml(group.label)}</td></tr>${itemRows}
@@ -149,7 +150,8 @@ export const createPdaPreviewHtml = (
     : '';
   const officeFooter = '<div class="office-footer">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span>email : maritim@lentera-global.com / web : www.lentera-global.com</span></div>';
 
-  const printFileName = `${documentLabel} - ${pdaNo}`.replace(/[\\/:*?"<>|]/g, '-');
+  const printDocumentLabel = fpda ? 'FDA' : 'EPDA';
+  const printFileName = `${printDocumentLabel} - ${pdaNo}`.replace(/[\\/:*?"<>|]/g, '-');
   return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(printFileName)}</title>
   <style>
     @page{size:A4 portrait;margin:10mm}
@@ -191,7 +193,7 @@ export const createPdaPreviewHtml = (
     }
   </style></head><body><div class="a4-page-frame" aria-hidden="true"></div>
     <div class="brand-row"><div class="brand-wrap"><img class="logo" src="/lenteraglobalmaritim/lgm-logo.png" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div>
-    <h2>${pdaType === 'FDA' ? 'FINAL PORT DISBURSEMENT ACCOUNT - CREW CHANGE' : 'PORT DISBURSEMENT ACCOUNT - CREW CHANGE'}</h2>
+    <h2>${fpda ? 'FINAL DISBURSEMENT ACCOUNT' : 'ESTIMATE PORT DISBURSEMENT OF ACCOUNT'}</h2>
     <section class="meta">
       <div class="meta-col">
         <div class="meta-row"><span class="label">${fpda ? 'FPDA No' : 'PDA No'}</span><span class="colon">:</span><span>${escapeHtml(pdaNo)}</span></div>
@@ -240,6 +242,8 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
   const [draftLoadAttempt, setDraftLoadAttempt] = useState(0);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [itemEditDraft, setItemEditDraft] = useState<PdaItemEditDraft | null>(null);
+  const [serviceItemHistory, setServiceItemHistory] = useState<string[]>([]);
+  const [serviceItemSuggestionsOpen, setServiceItemSuggestionsOpen] = useState(false);
   const [newItem, setNewItem] = useState<PdaDraft['itemDraft']>({
     name: '',
     category: 'SIGN_ON_CREW',
@@ -288,6 +292,22 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
   );
   const total = pdaTotals.grandTotal;
   const entryAmount = (Number(newItem.price) || 0) * (Number(newItem.quantity) || 0);
+  const matchingServiceItems = serviceItemHistory
+    .filter((item) => item.toLocaleLowerCase().includes(newItem.name.trim().toLocaleLowerCase()))
+    .slice(0, 8);
+
+  useEffect(() => {
+    if (!job) {
+      setServiceItemHistory([]);
+      return;
+    }
+    let cancelled = false;
+    setServiceItemHistory([]);
+    void loadPdaServiceItemHistory(documentPdaType)
+      .then((items) => { if (!cancelled) setServiceItemHistory(items); })
+      .catch((error: unknown) => console.error('PDA service item history failed to load:', error));
+    return () => { cancelled = true; };
+  }, [job?.jobId, documentPdaType]);
 
   useEffect(() => {
     if (!job) return;
@@ -431,6 +451,9 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
         vatApplied: newItem.vatApplied,
       },
     ]);
+    setServiceItemHistory((current) => current.some((item) => item.toLocaleLowerCase() === description.toLocaleLowerCase())
+      ? current
+      : [...current, description].sort((first, second) => first.localeCompare(second)));
     setNewItem((current) => ({ ...current, name: '', price: 0, quantity: 1, unit: '', remarks: '', vatApplied: false }));
   };
   const continueFromSalesPda = () => {
@@ -795,13 +818,53 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
             <div className="grid grid-cols-1 gap-2.5 text-xs font-normal md:grid-cols-2 lg:grid-cols-6">
               <div className="lg:col-span-2">
                 <label className="mb-1 block text-slate-600">Item Service</label>
-                <input
-                  value={newItem.name}
-                  disabled={!canEditPda}
-                  onChange={(event) => setNewItem({ ...newItem, name: event.target.value })}
-                  placeholder="Nama item crew"
-                  className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none disabled:opacity-50"
-                />
+                <div
+                  className="relative"
+                  onBlur={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                      setServiceItemSuggestionsOpen(false);
+                    }
+                  }}
+                >
+                  <input
+                    value={newItem.name}
+                    disabled={!canEditPda}
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded={serviceItemSuggestionsOpen && matchingServiceItems.length > 0}
+                    aria-controls="pda-service-item-options"
+                    onFocus={() => setServiceItemSuggestionsOpen(true)}
+                    onChange={(event) => {
+                      setNewItem({ ...newItem, name: event.target.value });
+                      setServiceItemSuggestionsOpen(true);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') setServiceItemSuggestionsOpen(false);
+                    }}
+                    placeholder="Ketik kata kunci item crew"
+                    className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none disabled:opacity-50"
+                  />
+                  {serviceItemSuggestionsOpen && matchingServiceItems.length > 0 && (
+                    <div id="pda-service-item-options" role="listbox" className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-300 bg-white shadow-xl">
+                      {matchingServiceItems.map((item) => (
+                        <button
+                          key={item}
+                          type="button"
+                          role="option"
+                          aria-selected={false}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            setNewItem((current) => ({ ...current, name: item }));
+                            setServiceItemSuggestionsOpen(false);
+                          }}
+                          className="block w-full border-b border-slate-100 px-3 py-2 text-left text-slate-700 last:border-0 hover:bg-emerald-50"
+                        >
+                          {item}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
               <div>
                 <label className="mb-1 block text-slate-600">Category Cost</label>

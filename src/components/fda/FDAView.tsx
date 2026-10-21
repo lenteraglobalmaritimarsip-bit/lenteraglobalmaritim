@@ -756,7 +756,12 @@ export const FDAView: React.FC<FDAViewProps> = ({
       return total + received - refunded;
     }, 0) + financeReceivableEntries.filter((entry) => entry.invoiceType === 'FDA').reduce((total, entry) => total
       + convertReceiptCurrency(Number(entry.idrAmount || 0), 'IDR', viewCurrency)
-      + convertReceiptCurrency(Number(entry.usdAmount || 0), 'USD', viewCurrency), 0);
+      + convertReceiptCurrency(
+        Number(entry.usdAmount || 0),
+        'USD',
+        viewCurrency,
+        Number(entry.exchangeRateUSDToIDR) || effectiveExchangeRate,
+      ), 0);
   const fdaAmountDue = activeJob.fda?.finalBilledToPrincipal
     ? convertReceiptCurrency(
       activeJob.fda.finalBilledToPrincipal,
