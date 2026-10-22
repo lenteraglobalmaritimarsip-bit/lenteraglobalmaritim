@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+date_default_timezone_set('Asia/Jakarta');
+
 $config = require __DIR__ . '/config.php';
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 if ($origin !== '' && hash_equals($config['allowed_origin'], $origin)) {

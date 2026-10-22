@@ -15,6 +15,21 @@ export const formatDateDisplay = (value?: string | Date | null, includeTime = fa
   }
 
   const raw = String(value);
+  if (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw)) {
+    const timestamp = new Date(raw);
+    if (Number.isNaN(timestamp.getTime())) return raw;
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Jakarta',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      ...(includeTime ? { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' as const } : {}),
+    }).formatToParts(timestamp);
+    const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value || '';
+    const formatted = `${part('day')}-${part('month')}-${part('year')}`;
+    return includeTime ? `${formatted} ${part('hour')}:${part('minute')}` : formatted;
+  }
+
   const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}:\d{2}))?/);
   if (!match) return raw;
   const [, year, month, day, time] = match;

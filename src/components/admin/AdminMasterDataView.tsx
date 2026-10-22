@@ -675,9 +675,14 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         const category = normalizeExpenseCategory(readUploadValue(row, 'category', 'costCategory', 'categoryCost', 'cost_category', 'category_cost')) || 'PORT_EXPENSES';
 
         if (activeTab === 'FIX_TARIFF') {
+          const uploadedTariffId = String(readUploadValue(row, 'id', 'tariffId', 'tariff_id')).trim();
           const serviceName = String(readUploadValue(row, 'serviceName', 'service_name', 'itemService', 'item_service')).trim();
-          const rateIDR = uploadNumber(readUploadValue(row, 'rateIDR', 'rate_idr', 'idr'));
-          const rateUSD = uploadNumber(readUploadValue(row, 'rateUSD', 'rate_usd', 'usd'));
+          const rawRateIDR = readUploadValue(row, 'rateIDR', 'rate_idr', 'idr');
+          const rawRateUSD = readUploadValue(row, 'rateUSD', 'rate_usd', 'usd');
+          const hasRateIDR = String(rawRateIDR).trim() !== '';
+          const hasRateUSD = String(rawRateUSD).trim() !== '';
+          const rateIDR = uploadNumber(rawRateIDR);
+          const rateUSD = uploadNumber(rawRateUSD);
           const resolvedRate = rateUSD > 0 ? rateUSD : rateIDR;
           const grtRange = uploadGRTRange(row);
           const rangeError = validateGRTBounds(grtRange.grtMin, grtRange.grtMax);
@@ -718,14 +723,15 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           const stagedMatch = findMatchingFixTariff(importedTariffs, tariff);
           if (stagedMatch) {
             const stagedIndex = importedTariffs.findIndex((item) => item.id === stagedMatch.id);
-            importedTariffs[stagedIndex] = { ...stagedMatch, ...fixTariffRatePatch(stagedMatch, tariff) };
+            importedTariffs[stagedIndex] = { ...stagedMatch, ...fixTariffRatePatch(stagedMatch, tariff, hasRateIDR, hasRateUSD) };
             updated += 1;
             return;
           }
-          const existingMatch = findMatchingFixTariff(fixTariffs, tariff);
+          const existingById = uploadedTariffId ? fixTariffs.find((item) => item.id === uploadedTariffId) : undefined;
+          const existingMatch = existingById || findMatchingFixTariff(fixTariffs, tariff);
           if (existingMatch) {
             const accumulated = { ...existingMatch, ...updatedTariffRates.get(existingMatch.id) } as FixTariff;
-            updatedTariffRates.set(existingMatch.id, fixTariffRatePatch(accumulated, tariff));
+            updatedTariffRates.set(existingMatch.id, fixTariffRatePatch(accumulated, tariff, hasRateIDR, hasRateUSD));
             updated += 1;
             return;
           }

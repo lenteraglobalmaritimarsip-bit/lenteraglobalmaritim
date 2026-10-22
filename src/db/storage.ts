@@ -234,7 +234,7 @@ class DatabaseService {
     const permanentJobNumberLogs = logs.filter((log) => log.entity === 'VESSEL_CALL' && log.action === 'DELETE');
     const recentLogs = logs
       .filter((log) => log.entity !== 'VESSEL_CALL' || log.action !== 'DELETE')
-      .slice(0, Math.max(0, 500 - permanentJobNumberLogs.length));
+      .slice(0, Math.max(0, 1000 - permanentJobNumberLogs.length));
     this.state.auditLogs = [...permanentJobNumberLogs, ...recentLogs];
   }
 

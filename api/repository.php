@@ -51,8 +51,12 @@ function rowsGroupedBy(string $table, string $column): array
 function appDateTime(?string $value): ?string
 {
     if (!$value) return null;
-    $timestamp = strtotime($value);
-    return $timestamp === false ? null : gmdate('Y-m-d\TH:i:s\Z', $timestamp);
+    try {
+        $timestamp = new DateTimeImmutable($value, new DateTimeZone('UTC'));
+    } catch (Exception) {
+        return null;
+    }
+    return $timestamp->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d\TH:i:s\Z');
 }
 
 function loadAppState(): array
@@ -352,9 +356,14 @@ function upsertRow(PDO $pdo, string $table, array $row, string $keyColumn = 'id'
 function sqlDate(?string $value, bool $dateOnly = false): ?string
 {
     if (!$value) return null;
-    $timestamp = strtotime($value);
-    if ($timestamp === false) return null;
-    return $dateOnly ? date('Y-m-d', $timestamp) : date('Y-m-d H:i:s', $timestamp);
+    try {
+        $timestamp = new DateTimeImmutable($value, new DateTimeZone('Asia/Jakarta'));
+    } catch (Exception) {
+        return null;
+    }
+    return $dateOnly
+        ? $timestamp->setTimezone(new DateTimeZone('Asia/Jakarta'))->format('Y-m-d')
+        : $timestamp->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
 }
 
 function uniqueRecordId(array &$used, string $id, string $scope): string

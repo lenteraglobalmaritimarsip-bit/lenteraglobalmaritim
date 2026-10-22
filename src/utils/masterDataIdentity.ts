@@ -34,10 +34,15 @@ export const findMatchingExpensesItem = (
   && (item.calculationType || '') === (candidate.calculationType || '')
 );
 
-export const fixTariffRatePatch = (existing: FixTariff, incoming: Omit<FixTariff, 'id'>): Partial<FixTariff> => {
+export const fixTariffRatePatch = (
+  existing: FixTariff,
+  incoming: Omit<FixTariff, 'id'>,
+  updateRateIDR = true,
+  updateRateUSD = true,
+): Partial<FixTariff> => {
   return {
-    rateIDR: Number(incoming.rateIDR) > 0 ? incoming.rateIDR : existing.rateIDR,
-    rateUSD: Number(incoming.rateUSD) > 0 ? incoming.rateUSD : existing.rateUSD,
+    ...(updateRateIDR ? { rateIDR: incoming.rateIDR } : { rateIDR: existing.rateIDR }),
+    ...(updateRateUSD ? { rateUSD: incoming.rateUSD } : { rateUSD: existing.rateUSD }),
   };
 };
 
