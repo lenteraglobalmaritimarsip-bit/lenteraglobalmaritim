@@ -1,6 +1,7 @@
 import { PaymentVoucher } from '../types';
 import { db } from '../db/storage';
 import { formatDateDisplay } from './date';
+import { getPublicLogoUrl } from './logo';
 
 const money = (value: number, currency: PaymentVoucher['currency'] = 'IDR') => currency === 'USD'
   ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value || 0)
@@ -51,7 +52,7 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
   const totalPayment = totalBeforePph - totalPph23;
   const financeUsers = db.getState().users.filter((user) => user.role === 'FINANCE' && user.status !== 'INACTIVE');
   const checker = voucher.paidBy || financeUsers.find((user) => user.name === voucher.checkerName)?.name || financeUsers[0]?.name || '';
-  const logoUrl = `${window.location.origin}/lgm-logo.png`;
+  const logoUrl = getPublicLogoUrl();
   const bodyRows = voucher.items.map((row, index) => `<tr><td class="c">${index + 1}</td><td>${escapeHtml(row.jobNumber)}</td>${jobInfo === 'JOB_VESSEL' ? `<td>${escapeHtml(row.documentType && row.documentNumber ? `${row.documentType}: ${row.documentNumber}` : '-')}</td>` : ''}<td>${escapeHtml(row.customerName)}</td><td>${escapeHtml(row.itemService)}</td><td class="r">${money(row.amount, currency)}</td><td class="r">${money(row.vatAmount, currency)}</td><td class="r">${money(row.total, currency)}</td><td class="r">${money(row.pph23Amount, currency)}</td><td class="r b">${money(row.paidAmount, currency)}</td></tr>`).join('');
   const metaField = (label: string, value: string) => label
     ? `<td class="k">${label}</td><td class="separator">:</td><td>${value}</td>`

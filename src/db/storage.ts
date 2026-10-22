@@ -567,31 +567,24 @@ class DatabaseService {
 
   public async addFixTariffsBulk(tariffs: Array<Omit<FixTariff, 'id'>>): Promise<FixTariff[]> {
     if (!tariffs.length) return [];
-    const previousTariffs = this.state.fixTariffs;
-    const startIndex = previousTariffs.length;
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
+    const startIndex = this.state.fixTariffs.length;
     const newTariffs = tariffs.map((tariff, index) => ({
       ...tariff,
       id: `TAR-${String(startIndex + index + 1).padStart(4, '0')}`,
     }));
-    this.state.fixTariffs = [...previousTariffs, ...newTariffs];
-
-    try {
-      await this.saveToStorage();
-      this.audit('CREATE_BULK', 'FIX_TARIFF', `Imported ${newTariffs.length} tariffs`);
-      this.notify();
-      return newTariffs;
-    } catch (error) {
-      this.state.fixTariffs = previousTariffs;
-      this.notify();
-      throw error;
-    }
+    this.state.fixTariffs = [...this.state.fixTariffs, ...newTariffs];
+    this.audit('CREATE_BULK', 'FIX_TARIFF', `Imported ${newTariffs.length} tariffs`);
+    await this.persistMasterMutation(previousState);
+    return newTariffs;
   }
 
   public async updateFixTariff(id: string, updates: Partial<FixTariff>): Promise<void> {
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.fixTariffs = this.state.fixTariffs.map((t) =>
       t.id === id ? { ...t, ...updates } : t
     );
-    await this.saveToStorage();
+    await this.persistMasterMutation(previousState);
   }
 
   public async deleteFixTariff(id: string): Promise<void> {
@@ -602,24 +595,45 @@ class DatabaseService {
 
   // Expenses Items
   public async addExpensesItem(item: Omit<ExpensesItem, 'id'>): Promise<ExpensesItem> {
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     const id = `EXP-${String(this.state.expensesItems.length + 1).padStart(3, '0')}`;
     const portName = item.portName || this.state.ports.find((p) => p.id === item.portId)?.name || '';
     const code = item.code?.trim() || id;
     const newItem: ExpensesItem = { ...item, code, portName, id };
     this.state.expensesItems = [...this.state.expensesItems, newItem];
     this.audit('CREATE', 'EXPENSE_ITEM', `Created expense item ${newItem.name}`, newItem.id);
-    await this.saveToStorage();
+    await this.persistMasterMutation(previousState);
     return newItem;
   }
 
+  public async addExpensesItemsBulk(items: Array<Omit<ExpensesItem, 'id'>>): Promise<ExpensesItem[]> {
+    if (!items.length) return [];
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
+    const startIndex = this.state.expensesItems.length;
+    const newItems = items.map((item, index) => {
+      const id = `EXP-${String(startIndex + index + 1).padStart(3, '0')}`;
+      return {
+        ...item,
+        id,
+        code: item.code?.trim() || id,
+        portName: item.portName || this.state.ports.find((port) => port.id === item.portId)?.name || '',
+      };
+    });
+    this.state.expensesItems = [...this.state.expensesItems, ...newItems];
+    this.audit('CREATE_BULK', 'EXPENSE_ITEM', `Imported ${newItems.length} expense items`);
+    await this.persistMasterMutation(previousState);
+    return newItems;
+  }
+
   public async updateExpensesItem(id: string, updates: Partial<ExpensesItem>): Promise<void> {
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.expensesItems = this.state.expensesItems.map((e) => {
       if (e.id !== id) return e;
       const resolvedPortId = updates.portId ?? e.portId;
       const resolvedPortName = updates.portName || e.portName || this.state.ports.find((p) => p.id === resolvedPortId)?.name || e.portName || '';
       return { ...e, ...updates, portId: resolvedPortId, portName: resolvedPortName };
     });
-    await this.saveToStorage();
+    await this.persistMasterMutation(previousState);
   }
 
   public async deleteExpensesItem(id: string): Promise<void> {

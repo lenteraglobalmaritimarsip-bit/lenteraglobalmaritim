@@ -786,7 +786,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       for (const [id, updates] of updatedTariffRates) await db.updateFixTariff(id, updates);
       for (const [id, updates] of updatedExpenseRates) await db.updateExpensesItem(id, updates);
       if (activeTab === 'EXPENSES_ITEM' && importedExpenses.length) {
-        await Promise.all(importedExpenses.map((expense) => db.addExpensesItem(expense)));
+        await db.addExpensesItemsBulk(importedExpenses.map(({ id: _id, ...expense }) => expense));
       }
 
       if (activeTab === 'FIX_TARIFF' && importedTariffs.length) {
@@ -972,6 +972,20 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   const isMasterFormOpen = activeTab !== 'USERS' && (showAddModal || editingMaster !== null);
   const isFormOpen = isUserFormOpen || isMasterFormOpen;
   const userForm = editingUser ? editUserForm : newUser;
+  const normalizedPortQuery = searchQuery.trim().toLowerCase().replace(/\s+/g, ' ');
+  const filteredPorts = ports.flatMap((port, index) => {
+    const name = port.name.trim().toLowerCase().replace(/\s+/g, ' ');
+    const code = port.code.trim().toLowerCase();
+    let relevance = 0;
+    if (normalizedPortQuery) {
+      if (name === normalizedPortQuery || code === normalizedPortQuery) relevance = 0;
+      else if (name.split(/[^a-z0-9]+/).includes(normalizedPortQuery) || code === normalizedPortQuery) relevance = 1;
+      else if (name.startsWith(normalizedPortQuery) || code.startsWith(normalizedPortQuery)) relevance = 2;
+      else if (name.includes(normalizedPortQuery) || code.includes(normalizedPortQuery)) relevance = 3;
+      else return [];
+    }
+    return [{ port, index, relevance }];
+  }).sort((first, second) => first.relevance - second.relevance || first.index - second.index);
   const portNamesById = new Map<string, string>(ports.map((port): [string, string] => [port.id, port.name]));
   const getMasterPortName = (portId?: string, portName?: string) =>
     portName || (portId ? portNamesById.get(portId) : undefined) || '';
@@ -1309,7 +1323,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         {activeTab === 'PORTS' && (
           <div className="overflow-x-auto"><table className="w-full text-left text-xs">
             <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-200"><tr><th className="p-3.5">No</th><th className="p-3.5">Code</th><th className="p-3.5">Port</th><th className="p-3.5">Country</th><th className="p-3.5 text-right">Aksi</th></tr></thead>
-            <tbody className="divide-y divide-slate-100">{ports.filter(p=>p.name.toLowerCase().includes(searchQuery.toLowerCase())).map(p=><tr key={p.id} className="hover:bg-slate-50"><td className="p-3.5 font-mono text-slate-500">{ports.indexOf(p)+1}</td><td className="p-3.5 font-mono font-bold text-cyan-600">{p.code}</td><td className="p-3.5 font-bold text-slate-900">{p.name}</td><td className="p-3.5 text-slate-600">{p.country}</td><td className="p-3.5 text-right"><div className="flex items-center justify-end gap-1.5"><button onClick={()=>openMasterEditor('PORTS', p)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500" title="Edit Port"><Edit2 className="w-3.5 h-3.5"/></button><button onClick={()=>void deleteMasterRecord('Port', () => db.deletePort(p.id))} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-500" title="Hapus Port"><Trash2 className="w-3.5 h-3.5"/></button></div></td></tr>)}</tbody>
+            <tbody className="divide-y divide-slate-100">{filteredPorts.map(({ port: p }, index)=><tr key={p.id} className="hover:bg-slate-50"><td className="p-3.5 font-mono text-slate-500">{index + 1}</td><td className="p-3.5 font-mono font-bold text-cyan-600">{p.code}</td><td className="p-3.5 font-bold text-slate-900">{p.name}</td><td className="p-3.5 text-slate-600">{p.country}</td><td className="p-3.5 text-right"><div className="flex items-center justify-end gap-1.5"><button onClick={()=>openMasterEditor('PORTS', p)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500" title="Edit Port"><Edit2 className="w-3.5 h-3.5"/></button><button onClick={()=>void deleteMasterRecord('Port', () => db.deletePort(p.id))} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-500" title="Hapus Port"><Trash2 className="w-3.5 h-3.5"/></button></div></td></tr>)}</tbody>
           </table></div>
         )}
 

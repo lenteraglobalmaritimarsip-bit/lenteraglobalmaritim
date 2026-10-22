@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, CheckCircle2, FileSpreadsheet, Pencil, Plus, Printer, Send, Trash2, X } from 'lucide-react';
 import { JobCall, Vessel, formatPurposeOfCall } from '../../types';
 import { formatDateDisplay, formatInquiryDate } from '../../utils/date';
+import { getPublicLogoUrl } from '../../utils/logo';
 import { DateTimeInput } from '../shared/DateTimeInput';
 import { ContinuedPdaItemReference, loadPdaServiceItemHistory, openPdaDraft, PdaDocumentType, PdaDraft, savePdaDraft, submitPdaDraft } from '../../lib/api';
 
@@ -192,7 +193,7 @@ export const createPdaPreviewHtml = (
       .office-footer{position:fixed;left:50%;bottom:6mm;transform:translateX(-50%);margin:0}
     }
   </style></head><body><div class="a4-page-frame" aria-hidden="true"></div>
-    <div class="brand-row"><div class="brand-wrap"><img class="logo" src="/lgm-logo.png" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div>
+    <div class="brand-row"><div class="brand-wrap"><img class="logo" src="${getPublicLogoUrl()}" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div>
     <h2>${fpda ? 'FINAL DISBURSEMENT ACCOUNT' : 'ESTIMATE PORT DISBURSEMENT OF ACCOUNT'}</h2>
     <section class="meta">
       <div class="meta-col">
