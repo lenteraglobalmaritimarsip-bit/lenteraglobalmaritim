@@ -139,7 +139,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     maximumFractionDigits: currency === 'IDR' ? 0 : 2,
   }).format(amount);
   const getJobExchangeRate = (job: JobCall) => job.fda?.exchangeRateUSDToIDR
-    || job.quotation.epda.exchangeRateUSDToIDR
+    || job.quotation?.epda?.exchangeRateUSDToIDR
     || job.exchangeRateUSDToIDR
     || 15800;
   const isFDAApproved = (job?: JobCall) => Boolean(job?.fda?.fdaApproved || job?.fda?.approvalStatus === 'APPROVED');
