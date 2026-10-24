@@ -97,7 +97,12 @@ function validateCashBalanceAdjustments(array $newState, array $oldState, array 
     foreach ($oldAdjustments as $id => $oldAdjustment) {
         if (!isset($newAdjustments[$id])) return 'Riwayat penyesuaian saldo kas tidak dapat dihapus.';
         foreach (['bankAccountId', 'bankName', 'accountNumber', 'currency', 'amount', 'effectiveDate', 'reason', 'createdBy', 'createdAt'] as $field) {
-            if ((string) ($newAdjustments[$id][$field] ?? '') !== (string) ($oldAdjustment[$field] ?? '')) {
+            $newValue = (string) ($newAdjustments[$id][$field] ?? '');
+            $oldValue = (string) ($oldAdjustment[$field] ?? '');
+            $matches = $field === 'createdAt'
+                ? strtotime($newValue) !== false && strtotime($newValue) === strtotime($oldValue)
+                : $newValue === $oldValue;
+            if (!$matches) {
                 return 'Riwayat penyesuaian saldo kas tidak dapat diubah.';
             }
         }
