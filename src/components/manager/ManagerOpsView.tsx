@@ -140,7 +140,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
           ref={managerPdaPreviewFrameRef}
           title={title}
           srcDoc={srcDoc}
-          className="h-[72vh] min-h-[520px] w-full rounded border border-slate-700 bg-white"
+          className="h-[75vh] min-h-[560px] w-full rounded border border-slate-700 bg-white"
         />
       </div>
     );
@@ -149,18 +149,28 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
   const pendingApprovals = jobCalls.filter(
     (j) =>
       j.managerApproval.status !== 'APPROVED' &&
-      j.quotation.epda.status === 'SUBMITTED'
+      (j.quotation.epda.status === 'SUBMITTED' || db.isCrewOnlyJob(j.jobId))
   );
-  const pendingFDAApprovals = jobCalls.filter((job) => job.fda?.approvalStatus === 'SUBMITTED' && !job.fda.fdaApproved);
+  const pendingFDAApprovals = jobCalls.filter((job) =>
+    !db.isCrewOnlyJob(job.jobId) && job.fda?.approvalStatus === 'SUBMITTED' && !job.fda.fdaApproved
+  );
 
   const approvedOrClosedJobs = jobCalls.filter((j) => j.managerApproval.status === 'APPROVED' || j.currentStage === 'CLOSED');
   const approvedFDAJobs = jobCalls.filter((job) => Boolean(job.fda?.fdaApproved || job.fda?.approvalStatus === 'APPROVED'));
+  const managerFinancialJobs = jobCalls.filter((job) =>
+    Boolean(job.fda?.fdaApproved || job.fda?.approvalStatus === 'APPROVED')
+    || (
+      db.isCrewOnlyJob(job.jobId)
+      && job.managerApproval?.status === 'APPROVED'
+      && approvedFpdaTotals.some((fpda) => fpda.jobId === job.jobId && fpda.total > 0 && Boolean(fpda.pdaNo))
+    )
+  );
   const isClosedJob = (job: JobCall) => job.closing?.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED';
   const approvedFpdaTotalIDR = approvedFpdaTotals.reduce((sum, fpda) => {
-    if (!approvedFDAJobs.some((job) => job.jobId === fpda.jobId)) return sum;
+    if (!managerFinancialJobs.some((job) => job.jobId === fpda.jobId)) return sum;
     return sum + (fpda.currency === 'USD' ? fpda.total * fpda.exchangeRate : fpda.total);
   }, 0);
-  const totalPrincipalBilledIDR = approvedFDAJobs.reduce((sum, job) => {
+  const totalPrincipalBilledIDR = managerFinancialJobs.reduce((sum, job) => {
     const billed = job.fda?.finalBilledToPrincipal
       || job.principalInvoice?.totalAmountUSD
       || job.quotation?.epda?.totalAmount
@@ -169,17 +179,19 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
     const rate = job.fda?.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
     return sum + Math.round(currency === 'USD' ? billed * rate : billed);
   }, 0) + approvedFpdaTotalIDR;
-  const totalOutstandingIDR = approvedFDAJobs.reduce((sum, job) => {
+  const totalOutstandingIDR = managerFinancialJobs.reduce((sum, job) => {
     if (isClosedJob(job)) return sum;
     const billed = job.fda?.finalBilledToPrincipal || job.principalInvoice?.totalAmountUSD || 0;
     const billedCurrency = job.fda?.currency || job.currency || 'IDR';
     const rate = job.fda?.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
-    const billedIDR = billedCurrency === 'USD' ? billed * rate : billed;
+    const fpdaBilledIDR = approvedFpdaTotals
+      .filter((fpda) => fpda.jobId === job.jobId)
+      .reduce((total, fpda) => total + (fpda.currency === 'USD' ? fpda.total * fpda.exchangeRate : fpda.total), 0);
+    const billedIDR = (billedCurrency === 'USD' ? billed * rate : billed) + fpdaBilledIDR;
     const receivedIDR = getPrincipalReceiptSummary(job, 'IDR').totalReceived;
     return sum + Math.max(0, billedIDR - receivedIDR);
   }, 0);
-  const totalReceivedIDR = approvedFDAJobs.reduce((sum, job) => {
-    const rate = job.fda?.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
+  const totalReceivedIDR = managerFinancialJobs.reduce((sum, job) => {
     return sum + getPrincipalReceiptSummary(job, 'IDR').totalReceived;
   }, 0);
   const summaryCards = [
@@ -211,9 +223,10 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
     const roundCurrency = (amount: number) => Math.round((amount + Number.EPSILON) * 100) / 100;
     const vat = categories.reduce((sum, group) => {
       if (quote.globalVatApplied) return sum;
-      return sum + group.items.reduce((categorySum, item) => (
-        categorySum + (item.vatApplied ? roundCurrency(item.amount * 0.11) : 0)
+      const taxableAmount = group.items.reduce((categorySum, item) => (
+        categorySum + (item.vatApplied ? item.amount : 0)
       ), 0);
+      return sum + roundCurrency(taxableAmount * 0.11);
     }, 0);
     const baseAmount = Number(quote.totalAmount || 0);
     const pph23Applied = quote.pph23Applied ?? items.some((item) => item.pph23Applied);
@@ -272,8 +285,13 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
 
   const handleApprove = (jobId: string) => {
     const notes = approvalNotes[jobId] || 'Disetujui untuk pelaksanaan operasional kapal.';
+    const crewOnly = db.isCrewOnlyJob(jobId);
     const result = db.approveJobQuote(jobId, managerActorName, notes);
-    setActionSuccess(result ? `Job ${jobId} berhasil disetujui! Status beralih ke FDA.` : 'Approval ditolak: EPDA harus SUBMITTED terlebih dahulu.');
+    setActionSuccess(result
+      ? crewOnly
+        ? `Job crew-only ${jobId} berhasil disetujui. FPDA tetap melalui antrean approval PDA.`
+        : `Job ${jobId} berhasil disetujui! Status beralih ke FDA.`
+      : db.canApproveJob(jobId).message || 'Approval Job gagal.');
     setTimeout(() => setActionSuccess(null), 4000);
   };
 
@@ -731,7 +749,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                         </tr>
                         {epdaOpen && (
                           <tr><td colSpan={9} className="bg-slate-950 p-4">
-                            <div className="space-y-3 overflow-hidden rounded-xl border border-slate-800 bg-slate-950 p-3">
+                            <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-950 p-3">
                               <div role="tablist" aria-label="Dokumen Sales" className="inline-flex gap-1 rounded-xl border border-emerald-100 bg-white p-1 shadow-sm">
                                 <button type="button" role="tab" aria-selected={quoteReviewDocument === 'EPDA'} onClick={() => setQuoteReviewDocument('EPDA')} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors ${quoteReviewDocument === 'EPDA' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm' : 'border-transparent text-slate-500 hover:bg-slate-50 hover:text-emerald-700'}`}>EPDA</button>
                                 <button type="button" role="tab" aria-selected={quoteReviewDocument === 'PDA'} onClick={() => { setQuoteReviewDocument('PDA'); void loadManagerPdaPreview(job.jobId, 'SALES'); }} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors ${quoteReviewDocument === 'PDA' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm' : 'border-transparent text-slate-500 hover:bg-slate-50 hover:text-emerald-700'}`}>PDA</button>
@@ -753,7 +771,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                         )}
                         {fdaOpen && (
                           <tr><td colSpan={9} className="bg-slate-950 p-4">
-                            <div className="space-y-3 overflow-hidden rounded-xl border border-slate-800 bg-slate-950 p-3">
+                            <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-950 p-3">
                               <div role="tablist" aria-label="Dokumen FDA" className="inline-flex gap-1 rounded-xl border border-emerald-100 bg-white p-1 shadow-sm">
                                 <button type="button" role="tab" aria-selected={fdaReviewDocument === 'FDA'} onClick={() => setFdaReviewDocument('FDA')} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors ${fdaReviewDocument === 'FDA' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm' : 'border-transparent text-slate-500 hover:bg-slate-50 hover:text-emerald-700'}`}>FDA</button>
                                 <button type="button" role="tab" aria-selected={fdaReviewDocument === 'FPDA'} onClick={() => { setFdaReviewDocument('FPDA'); void loadManagerPdaPreview(job.jobId, 'FDA'); }} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors ${fdaReviewDocument === 'FPDA' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm' : 'border-transparent text-slate-500 hover:bg-slate-50 hover:text-emerald-700'}`}>FPDA</button>
@@ -762,6 +780,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                                 <FDAView
                                   initialTab="APPROVAL"
                                   printPreviewOnly
+                                  useJobReceiptsForAdvance
                                   jobCalls={jobCalls}
                                   vessels={vessels}
                                   activeJob={job}
@@ -922,10 +941,10 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
 
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
             <h2 className="text-base font-bold text-white uppercase tracking-wider mb-2">
-              Antrian Approval EPDA
+              Antrian Approval EPDA / Job Crew-only
             </h2>
             <p className="text-xs text-slate-400 mb-4">
-              Manager Ops melakukan review EPDA, kelayakan biaya, dan margin sebelum diteruskan ke FDA.
+              Manager Ops meninjau EPDA sebelum diteruskan ke FDA. Job crew-only dapat disetujui tanpa EPDA; FPDA tetap ditinjau pada antrian PDA.
             </p>
 
             {pendingApprovals.length === 0 ? (
@@ -935,7 +954,9 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
               </div>
             ) : (
               <div className="space-y-4">
-                {pendingApprovals.map((job) => (
+                {pendingApprovals.map((job) => {
+                  const crewOnly = db.isCrewOnlyJob(job.jobId);
+                  return (
                   <div
                     key={job.jobId}
                     className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4 shadow-sm"
@@ -944,13 +965,17 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                       <div>
                         <span className="rounded bg-white px-2 py-0.5 text-xs font-mono font-bold text-blue-700">{job.jobId}</span>
                         <h4 className="mt-1 text-base font-bold text-slate-800">{job.vesselName} • {job.customerName}</h4>
-                        <p className="mt-1 text-xs text-slate-500">EPDA No. {job.quotation.epda.quoteNo} · Dikirim {job.quotation.epda.submittedAt ? formatDateDisplay(job.quotation.epda.submittedAt, true) : '-'} oleh {job.quotation.epda.submittedBy || job.inquiry?.createdByName || 'Sales'}</p>
+                        <p className="mt-1 text-xs text-slate-500">{crewOnly
+                          ? 'Crew-only · FPDA ditinjau terpisah pada antrean approval PDA.'
+                          : `EPDA No. ${job.quotation.epda.quoteNo} · Dikirim ${job.quotation.epda.submittedAt ? formatDateDisplay(job.quotation.epda.submittedAt, true) : '-'} oleh ${job.quotation.epda.submittedBy || job.inquiry?.createdByName || 'Sales'}`}</p>
                       </div>
                       <span className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700">MENUNGGU APPROVAL</span>
                     </div>
 
                     <div className="rounded-xl border border-slate-200 bg-white p-3">
-                      <button
+                      {crewOnly ? (
+                        <p className="text-sm text-slate-600">Persetujuan ini mengizinkan pelaksanaan layanan crew saja dan tidak mengubah status FPDA.</p>
+                      ) : <button
                         type="button"
                         onClick={() => {
                           const next = expandedDetailJobId === job.jobId ? null : job.jobId;
@@ -960,10 +985,10 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                         className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-700 underline hover:text-emerald-800"
                       >
                         {expandedDetailJobId === job.jobId ? 'Tutup EPDA' : 'Lihat EPDA Cetak/PDF'}
-                      </button>
+                      </button>}
                     </div>
  
-                    {expandedDetailJobId === job.jobId && (
+                    {!crewOnly && expandedDetailJobId === job.jobId && (
                       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white p-3">
                         <QuotesEPDAView
                           job={job}
@@ -1002,12 +1027,13 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                           onClick={() => handleApprove(job.jobId)}
                           className="flex-1 rounded-lg bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500 sm:flex-initial"
                         >
-                          <CheckCircle2 className="mr-1 inline h-4 w-4" />Approve EPDA
+                          <CheckCircle2 className="mr-1 inline h-4 w-4" />{crewOnly ? 'Approve Job Crew-only' : 'Approve EPDA'}
                         </button>
                       </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1051,6 +1077,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                         <FDAView
                           initialTab="APPROVAL"
                           printPreviewOnly
+                          useJobReceiptsForAdvance
                           jobCalls={jobCalls}
                           vessels={vessels}
                           activeJob={job}

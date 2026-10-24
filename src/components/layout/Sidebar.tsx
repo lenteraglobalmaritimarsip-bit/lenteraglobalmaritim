@@ -69,6 +69,7 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
             {item({label:'Expenses Item',tab:'EXPENSES_ITEM',icon:Receipt})}
             {item({label:'Vendor Patners',tab:'VENDOR_PARTNERS',icon:Handshake})}
             {item({label:'Bank Account',tab:'BANK_ACCOUNT',icon:Building2})}
+            {item({label:'Penyesuaian Saldo Kas',tab:'CASH_BALANCE_ADJUSTMENTS',icon:Wallet})}
           </div>
           {item({label:'Monitoring Vessel Calls',tab:'ACTIVE_VESSEL_CALLS',icon:Ship})}
         </>}

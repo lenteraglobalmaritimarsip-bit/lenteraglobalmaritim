@@ -8,8 +8,10 @@ import {
   ExpensesItem,
   VendorPartner,
   BankAccount,
+  CashBalanceAdjustment,
   PaymentVoucher,
   JobCall,
+  Currency,
   UserRole,
   AuditLog,
 } from '../types';
@@ -27,7 +29,7 @@ import { apiAuth } from '../lib/api';
 import { dataApi } from '../lib/dataApi';
 
 import { todayISO } from '../utils/date';
-import { convertPrincipalReceiptAmount, syncPrincipalInvoiceSettlement } from '../utils/principalInvoice';
+import { convertPrincipalReceiptAmount, getPrincipalReceiptSummary, syncPrincipalInvoiceSettlement } from '../utils/principalInvoice';
 
 export interface DatabaseState {
   users: User[];
@@ -39,6 +41,7 @@ export interface DatabaseState {
   expensesItems: ExpensesItem[];
   vendorPartners: VendorPartner[];
   bankAccounts: BankAccount[];
+  cashBalanceAdjustments: CashBalanceAdjustment[];
   paymentVouchers: PaymentVoucher[];
   jobCalls: JobCall[];
   reservedJobIds?: string[];
@@ -115,6 +118,10 @@ const migrateJobData = (jobCalls: JobCall[]): { jobCalls: JobCall[]; migrated: b
 const normalizeBranchName = (branch?: string): string => (branch || '').trim().toLowerCase();
 const sameBranch = (left?: string, right?: string): boolean => normalizeBranchName(left) === normalizeBranchName(right);
 const normalizeBranchCode = (branch: string): string => branch.trim().toUpperCase().replace(/[^A-Z0-9]/g, '') || 'JKT';
+const nextFixTariffSequence = (tariffs: FixTariff[]): number => tariffs.reduce((highest, tariff) => {
+  const match = /^TAR-(\d+)$/i.exec(tariff.id);
+  return match ? Math.max(highest, Number(match[1])) : highest;
+}, 0) + 1;
 
 const nextFormNumber = (jobCalls: JobCall[], type: 'EPDA' | 'FDA', branch: string, date: string): string => {
   const [year, month] = date.split('-');
@@ -164,6 +171,7 @@ class DatabaseService {
       expensesItems: INITIAL_EXPENSES_ITEMS,
       vendorPartners: [],
       bankAccounts: [],
+      cashBalanceAdjustments: [],
       paymentVouchers: [],
       jobCalls: withoutRemovedJobCalls(LOCAL_INITIAL_JOB_CALLS),
       currentRole: 'ADMIN',
@@ -207,7 +215,13 @@ class DatabaseService {
     const version = this.stateVersion;
     const remote = await dataApi.load();
     if (version !== this.stateVersion) return;
-    if (remote.revision === this.apiRevision) return;
+    if (remote.revision === this.apiRevision) {
+      if (JSON.stringify(remote.state.auditLogs) !== JSON.stringify(this.state.auditLogs)) {
+        this.state = { ...this.state, auditLogs: remote.state.auditLogs };
+        this.notify();
+      }
+      return;
+    }
     const migration = migrateJobData(remote.state.jobCalls);
     this.state = {
       ...remote.state,
@@ -370,6 +384,8 @@ class DatabaseService {
   }
 
   public resetToSeeds(): void {
+    const retainedAdjustments = this.state.cashBalanceAdjustments || [];
+    const adjustmentAccountIds = new Set(retainedAdjustments.map((adjustment) => adjustment.bankAccountId));
     this.state = {
       users: INITIAL_USERS,
       customers: INITIAL_CUSTOMERS,
@@ -379,7 +395,8 @@ class DatabaseService {
       fixTariffs: INITIAL_FIX_TARIFFS,
       expensesItems: INITIAL_EXPENSES_ITEMS,
       vendorPartners: [],
-      bankAccounts: [],
+      bankAccounts: (this.state.bankAccounts || []).filter((account) => adjustmentAccountIds.has(account.id)),
+      cashBalanceAdjustments: retainedAdjustments,
       paymentVouchers: [],
       jobCalls: withoutRemovedJobCalls(LOCAL_INITIAL_JOB_CALLS),
       currentRole: this.state.currentRole,
@@ -438,10 +455,16 @@ class DatabaseService {
   }
 
   public async updateUser(id: string, updates: Partial<User>): Promise<void> {
+    const currentUser = this.state.users.find((user) => user.id === id);
     this.state.users = this.state.users.map((u) =>
       u.id === id ? { ...u, ...updates } : u
     );
-    this.audit('UPDATE', 'USER', `Updated user ${id}`, id);
+    const statusChanged = currentUser && updates.status && currentUser.status !== updates.status;
+    const action = statusChanged ? (updates.status === 'ACTIVE' ? 'ACTIVATE' : 'DEACTIVATE') : 'UPDATE';
+    const description = statusChanged
+      ? `Admin ${updates.status === 'ACTIVE' ? 'mengaktifkan' : 'menonaktifkan'} akun ${currentUser.name}.`
+      : `Updated user ${id}`;
+    this.audit(action, 'USER', description, id);
     await this.saveToStorage();
   }
 
@@ -557,7 +580,13 @@ class DatabaseService {
 
   // Fix Tariff
   public async addFixTariff(tariff: Omit<FixTariff, 'id'>): Promise<FixTariff> {
-    const id = `TAR-${String(this.state.fixTariffs.length + 1).padStart(3, '0')}`;
+    const usedIds = new Set(this.state.fixTariffs.map((item) => item.id));
+    let sequence = nextFixTariffSequence(this.state.fixTariffs);
+    let id = `TAR-${String(sequence).padStart(4, '0')}`;
+    while (usedIds.has(id)) {
+      sequence += 1;
+      id = `TAR-${String(sequence).padStart(4, '0')}`;
+    }
     const newTariff: FixTariff = { ...tariff, id };
     this.state.fixTariffs = [...this.state.fixTariffs, newTariff];
     this.audit('CREATE', 'FIX_TARIFF', `Created tariff ${newTariff.id}`, newTariff.id);
@@ -568,11 +597,18 @@ class DatabaseService {
   public async addFixTariffsBulk(tariffs: Array<Omit<FixTariff, 'id'>>): Promise<FixTariff[]> {
     if (!tariffs.length) return [];
     const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
-    const startIndex = this.state.fixTariffs.length;
-    const newTariffs = tariffs.map((tariff, index) => ({
-      ...tariff,
-      id: `TAR-${String(startIndex + index + 1).padStart(4, '0')}`,
-    }));
+    const usedIds = new Set(this.state.fixTariffs.map((item) => item.id));
+    let sequence = nextFixTariffSequence(this.state.fixTariffs);
+    const newTariffs = tariffs.map((tariff) => {
+      let id = `TAR-${String(sequence).padStart(4, '0')}`;
+      while (usedIds.has(id)) {
+        sequence += 1;
+        id = `TAR-${String(sequence).padStart(4, '0')}`;
+      }
+      usedIds.add(id);
+      sequence += 1;
+      return { ...tariff, id };
+    });
     this.state.fixTariffs = [...this.state.fixTariffs, ...newTariffs];
     this.audit('CREATE_BULK', 'FIX_TARIFF', `Imported ${newTariffs.length} tariffs`);
     await this.persistMasterMutation(previousState);
@@ -594,12 +630,42 @@ class DatabaseService {
   }
 
   // Expenses Items
+  private createExpensesItems(items: Array<Omit<ExpensesItem, 'id'>>): ExpensesItem[] {
+    const usedIdentifiers = new Set<string>();
+    let nextSequence = 1;
+    this.state.expensesItems.forEach((item) => {
+      usedIdentifiers.add(item.id.toLowerCase());
+      usedIdentifiers.add(item.code.trim().toLowerCase());
+      const match = /^EXP-(\d+)$/i.exec(item.id);
+      if (match) nextSequence = Math.max(nextSequence, Number(match[1]) + 1);
+    });
+    items.forEach((item) => {
+      const code = item.code?.trim();
+      if (code) usedIdentifiers.add(code.toLowerCase());
+    });
+
+    return items.map((item) => {
+      let id = `EXP-${String(nextSequence).padStart(3, '0')}`;
+      while (usedIdentifiers.has(id.toLowerCase())) {
+        nextSequence += 1;
+        id = `EXP-${String(nextSequence).padStart(3, '0')}`;
+      }
+      nextSequence += 1;
+      usedIdentifiers.add(id.toLowerCase());
+      const code = item.code?.trim() || id;
+      usedIdentifiers.add(code.toLowerCase());
+      return {
+        ...item,
+        id,
+        code,
+        portName: item.portName || this.state.ports.find((port) => port.id === item.portId)?.name || '',
+      };
+    });
+  }
+
   public async addExpensesItem(item: Omit<ExpensesItem, 'id'>): Promise<ExpensesItem> {
     const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
-    const id = `EXP-${String(this.state.expensesItems.length + 1).padStart(3, '0')}`;
-    const portName = item.portName || this.state.ports.find((p) => p.id === item.portId)?.name || '';
-    const code = item.code?.trim() || id;
-    const newItem: ExpensesItem = { ...item, code, portName, id };
+    const [newItem] = this.createExpensesItems([item]);
     this.state.expensesItems = [...this.state.expensesItems, newItem];
     this.audit('CREATE', 'EXPENSE_ITEM', `Created expense item ${newItem.name}`, newItem.id);
     await this.persistMasterMutation(previousState);
@@ -609,16 +675,7 @@ class DatabaseService {
   public async addExpensesItemsBulk(items: Array<Omit<ExpensesItem, 'id'>>): Promise<ExpensesItem[]> {
     if (!items.length) return [];
     const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
-    const startIndex = this.state.expensesItems.length;
-    const newItems = items.map((item, index) => {
-      const id = `EXP-${String(startIndex + index + 1).padStart(3, '0')}`;
-      return {
-        ...item,
-        id,
-        code: item.code?.trim() || id,
-        portName: item.portName || this.state.ports.find((port) => port.id === item.portId)?.name || '',
-      };
-    });
+    const newItems = this.createExpensesItems(items);
     this.state.expensesItems = [...this.state.expensesItems, ...newItems];
     this.audit('CREATE_BULK', 'EXPENSE_ITEM', `Imported ${newItems.length} expense items`);
     await this.persistMasterMutation(previousState);
@@ -687,9 +744,58 @@ class DatabaseService {
   }
 
   public async deleteBankAccount(id: string): Promise<void> {
+    if ((this.state.cashBalanceAdjustments || []).some((adjustment) => adjustment.bankAccountId === id)) {
+      throw new Error('Rekening tidak dapat dihapus karena memiliki riwayat penyesuaian saldo kas.');
+    }
     const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.bankAccounts = (this.state.bankAccounts || []).filter((account) => account.id !== id);
     this.audit('DELETE', 'BANK_ACCOUNT', `Deleted bank account ${id}`, id);
+    await this.persistMasterMutation(previousState);
+  }
+
+  public async addCashBalanceAdjustment(input: {
+    bankAccountId: string;
+    amount: number;
+    effectiveDate: string;
+    reason: string;
+  }): Promise<void> {
+    if (this.actor.role !== 'ADMIN') throw new Error('Hanya Admin yang dapat menambahkan penyesuaian saldo kas.');
+    const account = (this.state.bankAccounts || []).find((item) => item.id === input.bankAccountId);
+    if (!account) throw new Error('Rekening bank tidak ditemukan.');
+    if (!account.currency) throw new Error('Currency rekening belum diatur pada Master Bank Account.');
+    if (!Number.isFinite(input.amount) || input.amount === 0) throw new Error('Nominal penyesuaian harus berupa angka selain nol.');
+    const [year, month, day] = input.effectiveDate.split('-').map(Number);
+    const effectiveDate = new Date(Date.UTC(year, month - 1, day));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.effectiveDate)
+      || effectiveDate.getUTCFullYear() !== year
+      || effectiveDate.getUTCMonth() !== month - 1
+      || effectiveDate.getUTCDate() !== day
+      || input.effectiveDate < '2026-10-22') {
+      throw new Error('Tanggal efektif harus pada atau setelah 22 Oktober 2026.');
+    }
+    const reason = input.reason.trim();
+    if (!reason || reason.length > 2000) throw new Error('Alasan wajib diisi dan maksimal 2.000 karakter.');
+
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
+    const adjustment: CashBalanceAdjustment = {
+      id: `CBA-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      bankAccountId: account.id,
+      bankName: account.bankName,
+      accountNumber: account.accountNumber,
+      currency: account.currency,
+      amount: input.amount,
+      effectiveDate: input.effectiveDate,
+      reason,
+      createdBy: this.actor.name,
+      createdAt: new Date().toISOString(),
+    };
+    this.state.cashBalanceAdjustments = [...(this.state.cashBalanceAdjustments || []), adjustment];
+    this.audit(
+      'CREATE',
+      'CASH_BALANCE_ADJUSTMENT',
+      `Added ${adjustment.amount} ${adjustment.currency} cash balance adjustment for ${account.accountNumber}, effective ${adjustment.effectiveDate}: ${reason}`,
+      adjustment.id,
+    );
     await this.persistMasterMutation(previousState);
   }
 
@@ -712,8 +818,14 @@ class DatabaseService {
     const suffix = `${String(valid.getMonth() + 1).padStart(2, '0')}${String(valid.getFullYear()).slice(-2)}`;
     const yearSuffix = suffix.slice(-2);
     const maxSequence = (this.state.paymentVouchers || []).reduce((max, voucher) => {
-      const match = /^PVJKT-(\d+)-(\d{2})(\d{2})$/.exec(voucher.voucherNumber || '');
-      return match && match[3] === yearSuffix ? Math.max(max, Number(match[1])) : max;
+      const usedNumbers = [
+        voucher.voucherNumber || '',
+        ...(voucher.paymentHistory || []).map((payment) => payment.voucherNumber),
+      ];
+      return usedNumbers.reduce((voucherMax, number) => {
+        const match = /^PVJKT-(\d+)-(\d{2})(\d{2})$/.exec(number);
+        return match && match[3] === yearSuffix ? Math.max(voucherMax, Number(match[1])) : voucherMax;
+      }, max);
     }, 0);
     return `PVJKT-${String(maxSequence + 1).padStart(4, '0')}-${suffix}`;
   }
@@ -783,6 +895,19 @@ class DatabaseService {
     if (existing.status !== 'APPROVED') {
       throw new Error(`Voucher belum berstatus Disetujui (status saat ini: ${existing.status || 'PENDING_MANAGER'}).`);
     }
+    const paymentCurrency = existing.currency || 'IDR';
+    const paidFromBankAccount = (this.state.bankAccounts || []).find(
+      (account) => account.id === paymentDetails.paidFromBankAccountId,
+    );
+    if (!paidFromBankAccount) {
+      throw new Error('Pilih rekening pembayaran sebelum memproses voucher.');
+    }
+    if (!paidFromBankAccount.currency) {
+      throw new Error(`Mata uang rekening ${paidFromBankAccount.accountNumber} belum diatur pada Master Bank Account.`);
+    }
+    if (paidFromBankAccount.currency !== paymentCurrency) {
+      throw new Error(`Mata uang rekening ${paidFromBankAccount.accountNumber} (${paidFromBankAccount.currency}) tidak sesuai dengan voucher ${paymentCurrency}.`);
+    }
     const previousVouchers = this.state.paymentVouchers;
     const previousAuditLogs = this.state.auditLogs;
     const paidOn = paymentDate || todayISO();
@@ -791,6 +916,7 @@ class DatabaseService {
     const surcharge = Number(paymentDetails.surcharge) || 0;
     const otherExpenses = Number(paymentDetails.otherExpenses) || 0;
     const totalAmount = Number(paymentDetails.totalAmount) || existing.totalPaidAmount + surcharge + otherExpenses;
+    const description = paymentDetails.description || '';
     this.state.paymentVouchers = this.state.paymentVouchers.map((v) => (v.id === id
       ? {
           ...v,
@@ -800,13 +926,18 @@ class DatabaseService {
           paidAt,
           paymentSurcharge: surcharge,
           paymentOtherExpenses: otherExpenses,
-          paymentDescription: paymentDetails.description || '',
+          paymentDescription: description,
           paymentTotalAmount: totalAmount,
           paidFromBankAccountId: paymentDetails.paidFromBankAccountId || existing.paidFromBankAccountId,
           ...(paymentDetails.paymentProofDataUrl ? { paymentProofDataUrl: paymentDetails.paymentProofDataUrl } : {}),
         }
       : v));
-    this.audit('PAY', 'PAYMENT_VOUCHER', `Paid payment voucher ${existing.requestNumber}`, id);
+    this.audit(
+      'PAY',
+      'PAYMENT_VOUCHER',
+      `Paid payment voucher ${existing.requestNumber}`,
+      id,
+    );
     await this.persistPaymentVoucherMutation(previousVouchers, previousAuditLogs);
   }
 
@@ -1238,17 +1369,32 @@ class DatabaseService {
   // --- Workflow guards / transitions ---
   // One Job/Vessel Call ID owns the complete lifecycle. UI actions should use these guards
   // so a later department cannot bypass an earlier approval.
+  public isCrewOnlyJob(jobId: string): boolean {
+    const job = this.getJob(jobId);
+    return Boolean(
+      job
+      && (job.purposeOfCall === 'CREW_CHANGE_ONLY' || job.purposeOfCall === 'CREW_PASSENGER_OPERATIONS')
+      && (job.quotation?.epda?.items || []).length === 0
+      && !(job.quotation?.epda?.totalAmount > 0)
+    );
+  }
+
   public canApproveJob(jobId: string): { ok: boolean; message?: string } {
     const job = this.getJob(jobId);
     if (!job) return { ok: false, message: 'Job/Vessel Call tidak ditemukan.' };
     if (job.managerApproval.status === 'APPROVED') return { ok: false, message: 'Job sudah disetujui Manager.' };
-    if (job.quotation.epda.status !== 'SUBMITTED') return { ok: false, message: 'EPDA belum disubmit oleh Sales.' };
+    if (!this.isCrewOnlyJob(jobId) && job.quotation.epda.status !== 'SUBMITTED') {
+      return { ok: false, message: 'EPDA belum disubmit oleh Sales.' };
+    }
     return { ok: true };
   }
 
   public canFinalizeFDA(jobId: string): { ok: boolean; message?: string } {
     const job = this.getJob(jobId);
     if (!job) return { ok: false, message: 'Job/Vessel Call tidak ditemukan.' };
+    if (this.isCrewOnlyJob(jobId)) {
+      return { ok: false, message: 'Job crew-only menggunakan FPDA; proses FDA tidak berlaku.' };
+    }
     if (job.managerApproval.status !== 'APPROVED') return { ok: false, message: 'FDA belum dapat diproses. Manager Approval harus APPROVED.' };
     if (job.quotation.epda.status !== 'APPROVED') return { ok: false, message: 'EPDA harus APPROVED sebelum FDA.' };
     const approvedVoucherExists = (this.state.paymentVouchers || []).some((voucher) =>
@@ -1269,27 +1415,45 @@ class DatabaseService {
   public canApproveFDA(jobId: string): { ok: boolean; message?: string } {
     const job = this.getJob(jobId);
     if (!job) return { ok: false, message: 'Job/Vessel Call tidak ditemukan.' };
+    if (this.isCrewOnlyJob(jobId)) {
+      return { ok: false, message: 'Job crew-only menggunakan FPDA; approval FDA tidak berlaku.' };
+    }
     if (job.fda.approvalStatus !== 'SUBMITTED') return { ok: false, message: 'FDA belum dikirim oleh tim FDA.' };
     if (job.fda.fdaApproved) return { ok: false, message: 'FDA sudah disetujui Manager OPS.' };
     return { ok: true };
   }
 
-  public canCloseJob(jobId: string): { ok: boolean; message?: string } {
+  public canCloseJob(
+    jobId: string,
+    approvedFpda?: { total: number; currency: Currency; exchangeRate: number; pdaNo?: string },
+  ): { ok: boolean; message?: string } {
     const job = this.getJob(jobId);
     if (!job) return { ok: false, message: 'Job/Vessel Call tidak ditemukan.' };
-    if (!job.fda.fdaApproved) return { ok: false, message: 'Closing belum dapat dilakukan. FDA belum Approved.' };
+    const crewOnlyFpda = this.isCrewOnlyJob(jobId)
+      && job.managerApproval?.status === 'APPROVED'
+      && Boolean(approvedFpda?.pdaNo)
+      && Number(approvedFpda?.total) > 0;
+    if (!job.fda.fdaApproved && !crewOnlyFpda) {
+      return { ok: false, message: 'Closing belum dapat dilakukan. FDA belum Approved atau FPDA crew-only belum approved.' };
+    }
     if ((job.principalReceipts || []).some((receipt) => receipt.refundStatus === 'PENDING')) {
       return { ok: false, message: 'Closing belum dapat dilakukan. Refund lebih bayar masih menunggu transfer.' };
     }
     if (job.principalInvoice?.status !== 'SETTLED') {
       return { ok: false, message: 'Closing belum dapat dilakukan. Tandai pembayaran PAID di AR setelah saldo lunas.' };
     }
-    const invoiceCurrency = job.fda.currency || job.currency || 'IDR';
-    const exchangeRate = job.fda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
-    const rawInvoiceTotal = job.fda.finalBilledToPrincipal
-      || job.principalInvoice?.totalAmountUSD
-      || job.quotation?.epda?.totalAmount
-      || 0;
+    const invoiceCurrency = crewOnlyFpda
+      ? approvedFpda.currency
+      : job.fda.currency || job.currency || 'IDR';
+    const exchangeRate = crewOnlyFpda
+      ? approvedFpda.exchangeRate || job.exchangeRateUSDToIDR || 15800
+      : job.fda.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
+    const rawInvoiceTotal = crewOnlyFpda
+      ? approvedFpda.total
+      : job.fda.finalBilledToPrincipal
+        || job.principalInvoice?.totalAmountUSD
+        || job.quotation?.epda?.totalAmount
+        || 0;
     const invoicePrecision = invoiceCurrency === 'IDR' ? 1 : 100;
     const invoiceTotal = Math.round((rawInvoiceTotal + Number.EPSILON) * invoicePrecision) / invoicePrecision;
     const rawReceivedTotal = (job.principalReceipts || []).reduce((sum, receipt) => {
@@ -1321,11 +1485,21 @@ class DatabaseService {
     return { ok: true };
   }
 
-  public closeJobWhenPrincipalCollected(jobId: string, closerName: string): boolean {
+  public closeJobWhenPrincipalCollected(
+    jobId: string,
+    closerName: string,
+    approvedFpda?: { total: number; currency: Currency; exchangeRate: number; pdaNo?: string },
+  ): boolean {
     const job = this.getJob(jobId);
-    const guard = this.canCloseJob(jobId);
+    const guard = this.canCloseJob(jobId, approvedFpda);
     if (!job || !guard.ok || job.closing.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED') return false;
-    return this.recordJobClosure(jobId, closerName, 'FDA approved and principal payment fully received.');
+    return this.recordJobClosure(
+      jobId,
+      closerName,
+      this.isCrewOnlyJob(jobId) && approvedFpda
+        ? `Approved FPDA ${approvedFpda.pdaNo || ''} and principal payment fully received.`
+        : 'FDA approved and principal payment fully received.',
+    );
   }
 
   // Manager Approval Action
@@ -1333,6 +1507,7 @@ class DatabaseService {
     const job = this.getJob(jobId);
     const guard = this.canApproveJob(jobId);
     if (!job || !guard.ok) return false;
+    const crewOnly = this.isCrewOnlyJob(jobId);
 
     this.audit('APPROVE', 'MANAGER_APPROVAL', `Approved quotation for ${jobId}`, jobId);
     this.updateJob(jobId, {
@@ -1340,7 +1515,7 @@ class DatabaseService {
       currentStage: 'OPERATIONAL',
       quotation: {
         ...job.quotation,
-        epda: { ...job.quotation.epda, status: 'APPROVED' },
+        epda: crewOnly ? job.quotation.epda : { ...job.quotation.epda, status: 'APPROVED' },
       },
       managerApproval: {
         status: 'APPROVED',
@@ -1404,6 +1579,10 @@ class DatabaseService {
       fda: {
         ...job.fda,
         fdaApproved: true,
+        advancePaymentAtApproval: getPrincipalReceiptSummary(
+          job,
+          job.fda?.currency || job.quotation?.epda?.currency || job.currency || 'IDR',
+        ).advanceReceived,
         approvalStatus: 'APPROVED',
         approvedBy: approverName,
         approvedAt: new Date().toISOString(),
@@ -1438,9 +1617,14 @@ class DatabaseService {
   }
 
   // Close Job Action — only after FDA and AR/Invoice are complete.
-  public closeJob(jobId: string, closerName: string, auditNotes?: string): boolean {
+  public closeJob(
+    jobId: string,
+    closerName: string,
+    auditNotes?: string,
+    approvedFpda?: { total: number; currency: Currency; exchangeRate: number; pdaNo?: string },
+  ): boolean {
     const job = this.getJob(jobId);
-    const guard = this.canCloseJob(jobId);
+    const guard = this.canCloseJob(jobId, approvedFpda);
     if (!job || !guard.ok) return false;
 
     return this.recordJobClosure(jobId, closerName, auditNotes || 'FDA reconciliation and principal invoice settled in full.');

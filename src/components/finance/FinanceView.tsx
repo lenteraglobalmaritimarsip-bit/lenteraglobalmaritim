@@ -143,13 +143,23 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     || job.exchangeRateUSDToIDR
     || 15800;
   const isFDAApproved = (job?: JobCall) => Boolean(job?.fda?.fdaApproved || job?.fda?.approvalStatus === 'APPROVED');
-  const approvedFDAJobs = jobCalls.filter(isFDAApproved);
+  const getApprovedFpda = (job: JobCall) => approvedFpdaTotals.find((fpda) =>
+    fpda.jobId === job.jobId && Boolean(fpda.pdaNo) && fpda.total > 0
+  );
+  const isCrewOnlyFpdaReady = (job: JobCall) =>
+    db.isCrewOnlyJob(job.jobId)
+    && job.managerApproval?.status === 'APPROVED'
+    && Boolean(getApprovedFpda(job))
+    && !job.fda?.fdaApproved
+    && job.fda?.approvalStatus !== 'SUBMITTED';
+  const isFinanceReady = (job: JobCall) => isFDAApproved(job) || isCrewOnlyFpdaReady(job);
+  const financialOverviewJobs = jobCalls.filter(isFinanceReady);
   const financialOverviewPageSize = 10;
-  const financialOverviewPageCount = Math.max(1, Math.ceil(approvedFDAJobs.length / financialOverviewPageSize));
+  const financialOverviewPageCount = Math.max(1, Math.ceil(financialOverviewJobs.length / financialOverviewPageSize));
   const currentFinancialOverviewPage = Math.min(financialOverviewPage, financialOverviewPageCount);
   const financialOverviewPageGroupStart = Math.floor((currentFinancialOverviewPage - 1) / 10) * 10 + 1;
   const financialOverviewPageGroupEnd = Math.min(financialOverviewPageGroupStart + 9, financialOverviewPageCount);
-  const paginatedApprovedFDAJobs = approvedFDAJobs.slice(
+  const paginatedFinancialOverviewJobs = financialOverviewJobs.slice(
     (currentFinancialOverviewPage - 1) * financialOverviewPageSize,
     currentFinancialOverviewPage * financialOverviewPageSize
   );
@@ -312,7 +322,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
   const isClosedJob = (job: JobCall) => job.closing?.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED';
   const sumApprovedFDAValue = (selector: (job: JobCall) => number) =>
-    approvedFDAJobs.reduce((sum, job) => {
+    financialOverviewJobs.reduce((sum, job) => {
       const value = selector(job);
       const currency = (job.fda?.currency || job.currency || 'IDR') as Currency;
       return sum + toIDR(value, currency, getJobExchangeRate(job));
@@ -328,20 +338,20 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   const totalAR_Collected_USD = jobCalls.reduce((s, j) => s + (j.principalReceipts || [])
     .filter((receipt) => receipt.paymentType === 'INVOICE')
     .reduce((sum, receipt) => sum + (receipt.amount || 0), 0), 0);
-  const totalPrincipalBilled_USD = approvedFDAJobs.reduce((s, j) => s + (j.fda?.finalBilledToPrincipal || 0), 0);
-  const totalAdvancePayment_USD = approvedFDAJobs.reduce((s, j) => s + (j.principalReceipts || [])
+  const totalPrincipalBilled_USD = financialOverviewJobs.reduce((s, j) => s + (j.fda?.finalBilledToPrincipal || 0), 0);
+  const totalAdvancePayment_USD = financialOverviewJobs.reduce((s, j) => s + (j.principalReceipts || [])
     .filter((receipt) => receipt.paymentType === 'ADVANCE_PAYMENT')
     .reduce((sum, receipt) => sum + (receipt.amount || 0), 0), 0);
-  const totalPrincipalBilled_IDR = approvedFDAJobs.reduce((sum, job) => sum + getJobPrincipalBilled(job), 0);
-  const totalInvoiceReceived_IDR = approvedFDAJobs.reduce((sum, job) => sum + getJobInvoicePayment(job), 0);
-  const totalAdvancePayment_IDR = approvedFDAJobs.reduce(
+  const totalPrincipalBilled_IDR = financialOverviewJobs.reduce((sum, job) => sum + getJobPrincipalBilled(job), 0);
+  const totalInvoiceReceived_IDR = financialOverviewJobs.reduce((sum, job) => sum + getJobInvoicePayment(job), 0);
+  const totalAdvancePayment_IDR = financialOverviewJobs.reduce(
     (sum, job) => sum + (isClosedJob(job) ? 0 : getJobAdvancePayment(job)),
     0
   );
   const totalReceived_IDR = totalAdvancePayment_IDR + totalInvoiceReceived_IDR;
-  const totalIncomingBill_IDR = approvedFDAJobs.reduce((sum, job) => sum + getJobPrincipalReceived(job), 0);
-  const totalOutstanding_IDR = approvedFDAJobs.reduce((sum, job) => sum + getJobPrincipalOutstandingIDR(job), 0);
-  const pendingJobCount = approvedFDAJobs.filter((job) => !isClosedJob(job) && getJobPrincipalOutstandingIDR(job) > 0).length;
+  const totalIncomingBill_IDR = financialOverviewJobs.reduce((sum, job) => sum + getJobPrincipalReceived(job), 0);
+  const totalOutstanding_IDR = financialOverviewJobs.reduce((sum, job) => sum + getJobPrincipalOutstandingIDR(job), 0);
+  const pendingJobCount = financialOverviewJobs.filter((job) => !isClosedJob(job) && getJobPrincipalOutstandingIDR(job) > 0).length;
   const netOperatingProfit_USD = totalAR_USD - totalAP_USD;
 
   const handleAddPrincipalReceipt = async (event: React.FormEvent) => {
@@ -359,8 +369,8 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     );
     const isWholeIDR = receiptCurrency !== 'IDR' || Number.isInteger(enteredAmount);
     const requiresExchangeRate = receiptCurrency !== jobCurrency;
-    if (!isFDAApproved(activeJob) || !receiptDate || !Number.isFinite(enteredAmount) || enteredAmount <= 0 || !Number.isFinite(amount) || amount <= 0 || !receiptBankRemark.trim()) {
-      setReceiptAmountError('Lengkapi tanggal, nominal penerimaan, dan remark bank. FDA harus Approved.');
+    if (!isFinanceReady(activeJob) || !receiptDate || !Number.isFinite(enteredAmount) || enteredAmount <= 0 || !Number.isFinite(amount) || amount <= 0 || !receiptBankRemark.trim()) {
+      setReceiptAmountError('Lengkapi tanggal, nominal penerimaan, dan remark bank. Job harus memiliki FDA approved atau FPDA approved untuk crew-only.');
       setMsg('Data penerimaan belum lengkap.');
       setTimeout(() => setMsg(null), 4000);
       return;
@@ -420,8 +430,8 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
   const handleMarkPrincipalPaymentPaid = () => {
     const latestJob = db.getJob(activeJob.jobId);
-    if (!latestJob || !isFDAApproved(latestJob)) {
-      setReceiptAmountError('Pembayaran belum dapat ditandai PAID. FDA harus Approved terlebih dahulu.');
+    if (!latestJob || !isFinanceReady(latestJob)) {
+      setReceiptAmountError('Pembayaran belum dapat ditandai PAID. FDA atau FPDA crew-only harus Approved terlebih dahulu.');
       return;
     }
     if ((latestJob.principalReceipts || []).some((receipt) => receipt.refundStatus === 'PENDING')) {
@@ -540,14 +550,15 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   };
 
   const handleCloseCollectedJob = () => {
-    const guard = db.canCloseJob(activeJob.jobId);
+    const approvedFpda = getApprovedFpda(activeJob);
+    const guard = db.canCloseJob(activeJob.jobId, approvedFpda || undefined);
     if (!guard.ok) {
       setMsg(guard.message || 'Job tidak dapat ditutup.');
       setTimeout(() => setMsg(null), 4000);
       return;
     }
     if (!window.confirm(`Tutup Job Vessel ${activeJob.jobId}? Pastikan seluruh saldo AR sudah lunas.`)) return;
-    const closed = db.closeJobWhenPrincipalCollected(activeJob.jobId, 'Finance');
+    const closed = db.closeJobWhenPrincipalCollected(activeJob.jobId, 'Finance', approvedFpda || undefined);
     setMsg(closed
       ? `Job Vessel ${activeJob.jobId} berhasil ditutup.`
       : guard.message || 'Closing gagal disimpan. Periksa kapasitas penyimpanan browser, lalu coba lagi.');
@@ -555,14 +566,23 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   };
 
   const handleCloseJob = (jobId = activeJob.jobId) => {
-    const guard = db.canCloseJob(jobId);
+    const job = jobCalls.find((item) => item.jobId === jobId);
+    const approvedFpda = job ? getApprovedFpda(job) : undefined;
+    const guard = db.canCloseJob(jobId, approvedFpda || undefined);
     if (!guard.ok) {
       setMsg(guard.message || 'Closing belum dapat dilakukan.');
       setTimeout(() => setMsg(null), 4500);
       return;
     }
     if (!window.confirm(`Tutup Job ${jobId} secara resmi? Pastikan seluruh saldo AR sudah lunas.`)) return;
-    const closed = db.closeJob(jobId, 'Finance', 'FDA approved dan pelunasan AR principal sudah diterima.');
+    const closed = db.closeJob(
+      jobId,
+      'Finance',
+      approvedFpda
+        ? `FPDA ${approvedFpda.pdaNo || ''} approved dan pelunasan AR principal sudah diterima.`
+        : 'FDA approved dan pelunasan AR principal sudah diterima.',
+      approvedFpda || undefined,
+    );
     setMsg(closed
       ? `Job Call ${jobId} resmi ditutup (CLOSING COMPLETE)!`
       : 'Closing gagal disimpan. Periksa kapasitas penyimpanan browser, lalu coba lagi.');
@@ -581,14 +601,14 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     : 0;
   const invoiceBalanceAfterAdvance = normalizeOutstanding(invoiceAmount - invoiceAdvancePayment, jobCurrency);
   const fdaBillingTotal = roundInvoiceAmount(getJobPrincipalBilledRaw(activeJob).amount, jobCurrency);
-  const financeGateMessage = !isFDAApproved(activeJob)
-    ? 'Finance menunggu FDA Final. AP, AR, Principal Invoice dan Closing baru aktif setelah FDA Approved.'
+  const financeGateMessage = !isFinanceReady(activeJob)
+    ? 'Finance menunggu FDA approved, atau FPDA approved untuk Job crew-only.'
     : '';
 
   const openInvoiceJobs = jobCalls.filter((job) => {
     const invoiceTotal = getJobPrincipalBilledRaw(job).amount;
     const isClosed = job.closing?.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED';
-    return isFDAApproved(job) && (invoiceTotal > 0 || isClosed);
+    return isFinanceReady(job) && (invoiceTotal > 0 || isClosed);
   });
 
   const closingJobs = openInvoiceJobs.filter((job) => job.closing?.isClosed || job.currentStage === 'CLOSED' || job.status === 'CLOSED');
@@ -962,7 +982,8 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                         invoiceTotal - getJobReceiptsInCurrency(job, invoiceCurrency),
                         invoiceCurrency,
                       );
-                      const fpdaInvoice = approvedFpdaTotals.find((fpda) => fpda.jobId === job.jobId && fpda.pdaNo);
+                      const fpdaInvoice = getApprovedFpda(job);
+                      const crewOnlyFpdaJob = isCrewOnlyFpdaReady(job);
                       return (
                         <tr key={job.jobId} className="hover:bg-slate-800/40">
                           <td className="p-3 font-mono text-slate-300">{(currentInvoicePage - 1) * invoicePageSize + index + 1}</td>
@@ -976,11 +997,11 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                           </td>
                           <td className="p-3">
                             <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300">
-                              APPROVED
+                              {crewOnlyFpdaJob ? 'FPDA APPROVED · FDA N/A' : 'APPROVED'}
                             </span>
                           </td>
                           <td className="p-3 font-mono text-slate-300">
-                            {job.fda?.fdaNo || '-'}
+                            {job.fda?.fdaNo || (crewOnlyFpdaJob ? fpdaInvoice?.pdaNo : '') || '-'}
                           </td>
                           <td className="p-3">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
@@ -1003,12 +1024,15 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                           <td className="p-3">
                             <div className="flex items-center justify-center gap-1.5 flex-row-reverse">
                               <button
+                                type="button"
+                                disabled={crewOnlyFpdaJob}
+                                title={crewOnlyFpdaJob ? 'FDA tidak berlaku untuk Job crew-only; gunakan Invoice FPDA' : 'Buat invoice FDA'}
                                 onClick={() => {
                                   onSelectJob(job.jobId);
                                   setInvoiceDocumentType('FDA');
                                   setSubTab('INVOICES');
                                 }}
-                                className="inline-flex h-9 w-[88px] shrink-0 items-center justify-center whitespace-nowrap rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2 text-center text-[10px] font-bold tracking-wide text-cyan-200 transition-colors hover:bg-cyan-500/20"
+                                className="inline-flex h-9 w-[88px] shrink-0 items-center justify-center whitespace-nowrap rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2 text-center text-[10px] font-bold tracking-wide text-cyan-200 transition-colors hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-500"
                               >
                                 Invoice FDA
                               </button>
@@ -1138,7 +1162,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg">
               <span className="text-xs uppercase font-bold text-slate-400 block">JUMLAH JOB ID PENDING</span>
               <span className="text-xl font-black text-amber-400 font-mono mt-1 block">{pendingJobCount}</span>
-              <span className="text-[11px] text-slate-400">Job FDA approved dengan sisa tagihan</span>
+              <span className="text-[11px] text-slate-400">Job dengan sisa tagihan principal</span>
             </div>
           </div>
 
@@ -1155,7 +1179,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                     <th className="p-3">No</th>
                     <th className="p-3 text-center">JOB ID</th>
                     <th className="p-3">Branch</th>
-                    <th className="p-3">NO FDA</th>
+                    <th className="p-3">NO FDA / FPDA</th>
                     <th className="p-3">Vessel & Principal</th>
                     <th className="p-3 text-right">Total Tagihan (IDR)</th>
                     <th className="p-3 text-right">Tagihan Masuk (IDR)</th>
@@ -1166,7 +1190,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
-                  {paginatedApprovedFDAJobs.map((j, index) => {
+                  {paginatedFinancialOverviewJobs.map((j, index) => {
                     const exchangeRate = getJobExchangeRate(j);
                     const rowCurrency = getJobCurrency(j);
                     const rawBill = getJobPrincipalBilledRaw(j);
@@ -1177,13 +1201,15 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                     const apTotal = j.ap?.reduce((sum, item) => sum + (item.amount || 0), 0) || 0;
                     const apPaid = j.ap?.filter((item) => item.status === 'PAID').reduce((sum, item) => sum + (item.amount || 0), 0) || 0;
                     const apStatus = isClosedJob(j) ? 'CLOSED' : apTotal === 0 || apPaid >= apTotal ? 'PAID' : apPaid > 0 ? 'PARTIALLY_PAID' : 'OPEN';
+                    const crewOnlyFpdaJob = isCrewOnlyFpdaReady(j);
+                    const fpdaInvoice = getApprovedFpda(j);
 
                     return (
                       <tr key={j.jobId} className="hover:bg-slate-800/40">
                         <td className="p-3 text-slate-400">{(currentFinancialOverviewPage - 1) * financialOverviewPageSize + index + 1}</td>
                         <td className="p-3 text-center font-mono font-bold text-cyan-400">{j.jobId}</td>
                         <td className="p-3 text-slate-300">{j.inquiry?.createdByBranch || 'Head Office'}</td>
-                        <td className="p-3 font-mono text-slate-300">{j.fda?.fdaNo || '-'}</td>
+                        <td className="p-3 font-mono text-slate-300">{j.fda?.fdaNo || (crewOnlyFpdaJob ? fpdaInvoice?.pdaNo : '') || '-'}</td>
                         <td className="p-3">
                           <span className="font-bold text-white block">{j.vesselName}</span>
                           <span className="text-[11px] text-slate-400">{j.customerName}</span>
@@ -1217,11 +1243,11 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                           <button
                             onClick={() => {
                               onSelectJob(j.jobId);
-                              setInvoiceDocumentType('FDA');
+                              setInvoiceDocumentType(crewOnlyFpdaJob ? 'FPDA' : 'FDA');
                               setSubTab('INVOICES');
                             }}
-                            title="Lihat Official Principal Invoice"
-                            aria-label={`Lihat Official Principal Invoice ${j.jobId}`}
+                            title={crewOnlyFpdaJob ? 'Lihat invoice FPDA approved' : 'Lihat Official Principal Invoice'}
+                            aria-label={`Lihat ${crewOnlyFpdaJob ? 'invoice FPDA' : 'Official Principal Invoice'} ${j.jobId}`}
                             className="inline-flex items-center justify-center p-2 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300"
                           >
                             <Eye className="w-4 h-4" />

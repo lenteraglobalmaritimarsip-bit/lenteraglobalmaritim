@@ -55,7 +55,7 @@ export const getPrincipalReceiptSummary = (job: JobCall, currency = getInvoiceCu
 
   return {
     advanceReceived: roundCurrency(receipts
-      .filter((receipt) => receipt.paymentType === 'ADVANCE_PAYMENT')
+      .filter((receipt) => receipt.paymentType === 'ADVANCE_PAYMENT' && receipt.invoiceType !== 'FPDA')
       .reduce((total, receipt) => total + netReceiptInCurrency(receipt), 0), currency),
     totalReceived: roundCurrency(receipts.reduce((total, receipt) => total + netReceiptInCurrency(receipt), 0), currency),
     pendingRefund: roundCurrency(receipts

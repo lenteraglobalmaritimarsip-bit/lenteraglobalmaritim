@@ -82,8 +82,8 @@ export const AdminDashboardView: React.FC<Props> = ({ data, onNavigate }) => {
 
       <section className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
         <div className="flex items-center justify-between mb-3"><h2 className="font-black text-slate-900">System Activity</h2><span className="text-xs text-slate-400">{data.auditLogs.length} audit log</span></div>
-        <div className="space-y-2">
-          {data.auditLogs.slice(0, 5).map(log => <div key={log.id} className="flex items-center justify-between gap-3 bg-slate-50 rounded-lg px-3 py-2.5"><div className="min-w-0"><b className="text-xs text-slate-700">{log.action} · {log.entity}</b><div className="text-[11px] text-slate-500 truncate">{log.description}</div><div className="text-[10px] text-slate-400 truncate">Pengguna: {log.actorName || 'Tidak diketahui'} · {log.role}{log.actorId ? ` · ${log.actorId}` : ''}</div></div><span className="text-[10px] text-slate-400 shrink-0">{formatDateDisplay(log.timestamp, true)}</span></div>)}
+        <div className="max-h-[640px] space-y-2 overflow-y-auto pr-1">
+          {data.auditLogs.slice(0, 20).map(log => <div key={log.id} className="flex items-center justify-between gap-3 bg-slate-50 rounded-lg px-3 py-2.5"><div className="min-w-0"><b className="text-xs text-slate-700">{log.action} · {log.entity}</b><div className="text-[11px] text-slate-500">{log.description}</div><div className="text-[10px] text-slate-400">Pengguna: {log.actorName || 'Tidak diketahui'} · {log.role === 'MANAGER_OPS' ? 'MANAGER OPERATIONS' : log.role || 'TANPA AKUN'}{log.actorId ? ` · ${log.actorId}` : ''}</div></div><span className="text-[10px] text-slate-400 shrink-0">{formatDateDisplay(log.timestamp, true)}</span></div>)}
           {!data.auditLogs.length && <div className="text-xs text-slate-400 py-3">Belum ada aktivitas tercatat.</div>}
         </div>
       </section>

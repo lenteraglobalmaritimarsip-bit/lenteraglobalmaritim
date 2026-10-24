@@ -177,22 +177,26 @@ export const createPdaPreviewHtml = (
     .total{font-weight:700}.total td:first-child,.subtotal td:first-child{text-align:right}.subtotal{background:#dbe8f2;font-weight:700}
     .bank{display:inline-block;width:42%;margin-top:16px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}
     .signature{display:inline-block;width:42%;margin:16px 0 0 12%;text-align:center;vertical-align:top;font-size:9px;line-height:1.35}.signature-main{display:block}.signature-role{display:block;margin-top:120px;padding-top:8px}
-    .office-footer{position:static;width:100%;max-width:700px;margin:16px auto 0;text-align:center;font-size:9px;line-height:1.45;font-weight:600;color:#111}
+    .office-footer{position:static;width:100%;max-width:700px;margin:16px auto 0;text-align:center;font-size:9px;line-height:1.45;font-weight:600;color:#111;break-inside:avoid;page-break-inside:avoid}
     .office-footer span{color:#dc2626;text-decoration:underline}
-    @page{size:A4 portrait;margin:15mm 10mm}
+    @page{size:A4 portrait;margin:10mm}
     @media screen{
       html,body{min-height:100%;height:auto;overflow:visible;background:#e2e8f0}
       body{position:relative;box-sizing:border-box;width:210mm;height:297mm;min-height:297mm;max-width:none;margin:0 auto;padding:15mm;background:#fff}
       .a4-page-frame{position:absolute;top:10mm;left:10mm;width:190mm;height:277mm;box-sizing:border-box;border:0.3mm solid #1f2937;pointer-events:none;z-index:9}
-      .office-footer{position:absolute;left:50%;bottom:12mm;transform:translateX(-50%);margin:0}
+      .office-footer{position:static;left:auto;bottom:auto;transform:none;margin:16px auto 0}
     }
     @media print{
+      .a4-frame-line{display:block}
       html,body{width:auto;height:auto;min-height:0;margin:0;padding:0;overflow:visible;background:#fff}
       body{position:static;max-width:none;padding:0 3mm;box-sizing:border-box}
-      .a4-page-frame{position:fixed;inset:0;width:auto;height:auto;box-sizing:border-box;border:0.5mm solid #1f2937;pointer-events:none;z-index:9999}
-      .office-footer{position:fixed;left:50%;bottom:6mm;transform:translateX(-50%);margin:0}
+      .a4-page-frame{position:fixed;top:0;left:0;right:0;bottom:auto;width:auto;height:277mm;box-sizing:border-box;border-left:0.5mm solid #1f2937;border-right:0.5mm solid #1f2937;pointer-events:none;z-index:9999}
+      .a4-frame-line{position:fixed;left:0;right:0;height:0;border-top:0.5mm solid #1f2937;pointer-events:none;z-index:2147483647}
+      .a4-frame-line-top{top:0}
+      .a4-frame-line-bottom{top:276.5mm}
+      .office-footer{position:fixed;left:2mm;right:2mm;bottom:2mm;transform:none;width:auto;max-width:none;margin:0;break-inside:avoid;page-break-inside:avoid}
     }
-  </style></head><body><div class="a4-page-frame" aria-hidden="true"></div>
+  </style></head><body><div class="a4-page-frame" aria-hidden="true"></div><i class="a4-frame-line a4-frame-line-top" aria-hidden="true"></i><i class="a4-frame-line a4-frame-line-bottom" aria-hidden="true"></i>
     <div class="brand-row"><div class="brand-wrap"><img class="logo" src="${getPublicLogoUrl()}" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div>
     <h2>${fpda ? 'FINAL DISBURSEMENT ACCOUNT' : 'ESTIMATE PORT DISBURSEMENT OF ACCOUNT'}</h2>
     <section class="meta">

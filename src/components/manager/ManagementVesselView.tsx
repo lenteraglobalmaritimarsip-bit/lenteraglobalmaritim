@@ -125,7 +125,15 @@ export const ManagementVesselView: React.FC<ManagementVesselViewProps> = ({ jobC
       .sort((first, second) => second.jobId.localeCompare(first.jobId, undefined, { numeric: true }))
       .map((job) => {
         const fdaApproved = Boolean(job.fda?.fdaApproved || job.fda?.approvalStatus === 'APPROVED');
-        const fpdaTotalIDR = fdaApproved ? approvedFpdaTotalsByJob.get(job.jobId) || 0 : 0;
+        const crewOnly = (job.purposeOfCall === 'CREW_CHANGE_ONLY' || job.purposeOfCall === 'CREW_PASSENGER_OPERATIONS')
+          && (job.quotation?.epda?.items || []).length === 0
+          && !(job.quotation?.epda?.totalAmount > 0);
+        const crewOnlyFpdaApproved = crewOnly
+          && job.managerApproval?.status === 'APPROVED'
+          && (approvedFpdaTotalsByJob.get(job.jobId) || 0) > 0;
+        const fpdaTotalIDR = fdaApproved || crewOnlyFpdaApproved
+          ? approvedFpdaTotalsByJob.get(job.jobId) || 0
+          : 0;
         const billedIDR = getBilledToPrincipalIDR(job, fpdaTotalIDR);
         const vendorCostIDR = approvedVendorCosts.get(job.jobId) || 0;
         return {
@@ -159,7 +167,7 @@ export const ManagementVesselView: React.FC<ManagementVesselViewProps> = ({ jobC
     try {
       const workbook = new ExcelJS.Workbook();
       const sheet = workbook.addWorksheet('Management Vessel');
-      sheet.addRow(['No', 'Job Vessel', 'Branch', 'Status', 'Tagihan Principal (FDA)', 'Biaya Vendor Riil', 'Net Profit Margin']);
+      sheet.addRow(['No', 'Job Vessel', 'Branch', 'Status', 'Tagihan Principal (FDA / FPDA)', 'Biaya Vendor Riil', 'Net Profit Margin']);
       rows.forEach((row, index) => {
         sheet.addRow([
           index + 1,
@@ -202,7 +210,7 @@ export const ManagementVesselView: React.FC<ManagementVesselViewProps> = ({ jobC
   };
 
   const cards = [
-    { label: 'Total Tagihan ke Principal (FDA)', value: totals.billedIDR, icon: Wallet, tone: 'text-blue-700 bg-blue-50' },
+    { label: 'Total Tagihan ke Principal (FDA / FPDA)', value: totals.billedIDR, icon: Wallet, tone: 'text-blue-700 bg-blue-50' },
     { label: 'Total Biaya Vendor Riil (Modal)', value: totals.vendorCostIDR, icon: Ship, tone: 'text-amber-700 bg-amber-50' },
     { label: 'Net Profit Margin', value: totals.netProfitIDR, icon: TrendingUp, tone: totals.netProfitIDR < 0 ? 'text-rose-700 bg-rose-50' : 'text-emerald-700 bg-emerald-50' },
   ];
@@ -281,7 +289,7 @@ export const ManagementVesselView: React.FC<ManagementVesselViewProps> = ({ jobC
                 <th className={`${th} text-center`}>Job Vessel</th>
                 <th className={th}>Branch</th>
                 <th className={th}>Status</th>
-                <th className={`${th} text-right`}>Tagihan Principal (FDA)</th>
+                <th className={`${th} text-right`}>Tagihan Principal (FDA / FPDA)</th>
                 <th className={`${th} text-right`}>Biaya Vendor Riil (Modal)</th>
                 <th className={`${th} text-right`}>Net Profit Margin</th>
               </tr>

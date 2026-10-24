@@ -18,6 +18,8 @@ CREATE TABLE users (
   position VARCHAR(120),
   phone VARCHAR(50),
   status ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+  failed_login_attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  locked_at DATETIME(3),
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   INDEX idx_users_role_status (role, status)
@@ -162,9 +164,34 @@ CREATE TABLE bank_accounts (
   branch VARCHAR(150),
   account_name VARCHAR(200) NOT NULL,
   account_number VARCHAR(80) NOT NULL,
+  currency ENUM('IDR', 'USD') NOT NULL DEFAULT 'IDR',
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   INDEX idx_bank_accounts_name (bank_name, account_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE bank_account_opening_balances (
+  bank_account_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  currency ENUM('IDR', 'USD') NOT NULL,
+  opening_amount DECIMAL(30,2) NOT NULL DEFAULT 0 CHECK (opening_amount >= 0),
+  effective_date DATE NOT NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (bank_account_id, currency),
+  INDEX idx_bank_account_opening_balances_date (effective_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE cash_balance_adjustments (
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  bank_account_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  bank_name VARCHAR(200) NOT NULL,
+  account_number VARCHAR(80) NOT NULL,
+  currency ENUM('IDR', 'USD') NOT NULL,
+  amount DECIMAL(30,2) NOT NULL,
+  effective_date DATE NOT NULL,
+  reason TEXT NOT NULL,
+  created_by VARCHAR(200) NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  INDEX idx_cash_balance_adjustments_account_date (bank_account_id, effective_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE payment_vouchers (
@@ -197,6 +224,7 @@ CREATE TABLE payment_vouchers (
   payment_description TEXT,
   payment_total_amount DECIMAL(30,2) NOT NULL DEFAULT 0,
   payment_proof_data_url LONGTEXT,
+  payment_history JSON NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   INDEX idx_payment_vouchers_date (request_date),
@@ -440,6 +468,7 @@ CREATE TABLE fda_records (
   global_vat_applied BOOLEAN NOT NULL DEFAULT FALSE,
   final_billed_to_principal DECIMAL(30,12) NOT NULL DEFAULT 0,
   fda_approved BOOLEAN NOT NULL DEFAULT FALSE,
+  advance_payment_at_approval DECIMAL(30,12),
   approval_status ENUM('DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED') NOT NULL DEFAULT 'DRAFT',
   submitted_by_name VARCHAR(150),
   submitted_at DATETIME(3),
@@ -595,7 +624,7 @@ CREATE TABLE audit_logs (
   logged_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   actor_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin,
   actor_name VARCHAR(150) NOT NULL,
-  actor_role ENUM('ADMIN', 'SALES', 'MANAGER_OPS', 'FDA', 'FINANCE') NOT NULL,
+  actor_role ENUM('ADMIN', 'SALES', 'MANAGER_OPS', 'FDA', 'FINANCE'),
   action VARCHAR(100) NOT NULL,
   entity VARCHAR(100) NOT NULL,
   entity_id VARCHAR(100),

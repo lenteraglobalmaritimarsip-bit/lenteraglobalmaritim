@@ -349,7 +349,8 @@ export default function App() {
               activeTab === 'FIX_TARIFF' ||
               activeTab === 'EXPENSES_ITEM' ||
               activeTab === 'VENDOR_PARTNERS' ||
-              activeTab === 'BANK_ACCOUNT') && (
+              activeTab === 'BANK_ACCOUNT' ||
+              activeTab === 'CASH_BALANCE_ADJUSTMENTS') && (
               <AdminMasterDataView
                 initialTab={activeTab}
                 users={data.users}
@@ -361,6 +362,7 @@ export default function App() {
                 expensesItems={data.expensesItems}
                 vendorPartners={data.vendorPartners || []}
                 bankAccounts={data.bankAccounts || []}
+                cashBalanceAdjustments={data.cashBalanceAdjustments || []}
                 onDataSaved={() => {
                   const latest = db.getState();
                   setData({
@@ -374,6 +376,7 @@ export default function App() {
                     expensesItems: [...latest.expensesItems],
                     vendorPartners: [...(latest.vendorPartners || [])],
                     bankAccounts: [...(latest.bankAccounts || [])],
+                    cashBalanceAdjustments: [...(latest.cashBalanceAdjustments || [])],
                   });
                   notifySaved(activeTab);
                 }}
@@ -637,7 +640,11 @@ export default function App() {
             )}
 
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_CASH_BALANCE' && (
-              <CashBalanceView bankAccounts={data.bankAccounts || []} paymentVouchers={data.paymentVouchers || []} />
+              <CashBalanceView
+                bankAccounts={data.bankAccounts || []}
+                paymentVouchers={data.paymentVouchers || []}
+                cashBalanceAdjustments={data.cashBalanceAdjustments || []}
+              />
             )}
 
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_HISTORY_REPORT' && (

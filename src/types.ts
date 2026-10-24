@@ -7,7 +7,7 @@ export interface AuditLog {
   timestamp: string;
   actorId?: string;
   actorName: string;
-  role: UserRole;
+  role?: UserRole;
   action: string;
   entity: string;
   entityId?: string;
@@ -120,6 +120,20 @@ export interface BankAccount {
   branch?: string;
   accountName: string;
   accountNumber: string;
+  currency?: Currency;
+}
+
+export interface CashBalanceAdjustment {
+  id: string;
+  bankAccountId: string;
+  bankName: string;
+  accountNumber: string;
+  currency: Currency;
+  amount: number;
+  effectiveDate: string;
+  reason: string;
+  createdBy: string;
+  createdAt: string;
 }
 
 export interface PaymentVoucherItem {
@@ -139,6 +153,20 @@ export interface PaymentVoucherItem {
 }
 
 export type PaymentVoucherStatus = 'PENDING_MANAGER' | 'APPROVED' | 'REJECTED' | 'PAID';
+
+export interface PaymentVoucherPaymentRecord {
+  voucherNumber: string;
+  paidBy: string;
+  paidAt: string;
+  paidFromBankAccountId?: string;
+  bankName: string;
+  accountNumber: string;
+  paymentSurcharge?: number;
+  paymentOtherExpenses?: number;
+  paymentDescription?: string;
+  paymentTotalAmount?: number;
+  paymentProofDataUrl?: string;
+}
 
 export interface PaymentVoucher {
   id: string;
@@ -171,6 +199,7 @@ export interface PaymentVoucher {
   paymentDescription?: string;
   paymentTotalAmount?: number;
   paymentProofDataUrl?: string;
+  paymentHistory?: PaymentVoucherPaymentRecord[];
   createdAt: string;
 }
 
@@ -300,6 +329,7 @@ export interface PrincipalReceipt {
   refundBankReference?: string;
   refundStatus?: 'NONE' | 'PENDING' | 'PAID';
   paymentType: 'ADVANCE_PAYMENT' | 'INVOICE';
+  invoiceType?: 'FDA' | 'FPDA';
   bankRemark: string;
   attachmentName?: string;
   attachmentDataUrl?: string;
@@ -317,6 +347,7 @@ export interface ReceivableInvoiceOption {
   vesselName: string;
   currency: Currency;
   exchangeRate: number;
+  fdaApproved?: boolean;
 }
 
 export interface AccountsReceivableEntry {
@@ -504,6 +535,7 @@ export interface JobCall {
     globalVatApplied?: boolean;
     finalBilledToPrincipal: number;
     fdaApproved: boolean;
+    advancePaymentAtApproval?: number;
     approvalStatus?: 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
     submittedBy?: string;
     submittedAt?: string;
@@ -562,6 +594,7 @@ export type ActiveTab =
   | 'EXPENSES_ITEM'
   | 'VENDOR_PARTNERS'
   | 'BANK_ACCOUNT'
+  | 'CASH_BALANCE_ADJUSTMENTS'
   | 'INQUIRIES'
   | 'QUOTES_EPDA'
   | 'QUOTES_EPDA_DETAIL'
@@ -609,6 +642,7 @@ export interface DatabaseState {
   expensesItems: ExpensesItem[];
   vendorPartners: VendorPartner[];
   bankAccounts: BankAccount[];
+  cashBalanceAdjustments: CashBalanceAdjustment[];
   paymentVouchers: PaymentVoucher[];
   jobCalls: JobCall[];
   currentRole: UserRole;

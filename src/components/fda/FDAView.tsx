@@ -36,6 +36,7 @@ import { ApprovedSalesPdaTotal, listApprovedFdaPdaTotals, loadFdaReceivableEntri
 interface FDAViewProps {
   initialTab?: 'DASHBOARD' | 'JOB_ID' | 'FDA_AMOUNT' | 'QUOTES_VIEW' | 'APPROVAL';
   printPreviewOnly?: boolean;
+  useJobReceiptsForAdvance?: boolean;
   jobCalls: JobCall[];
   vessels: Vessel[];
   activeJob: JobCall;
@@ -49,6 +50,7 @@ interface FDAViewProps {
 export const FDAView: React.FC<FDAViewProps> = ({
   initialTab = 'DASHBOARD',
   printPreviewOnly = false,
+  useJobReceiptsForAdvance = false,
   jobCalls,
   vessels,
   activeJob,
@@ -71,6 +73,14 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const isFDAApproved = Boolean(activeJob.fda?.fdaApproved || activeJob.fda?.approvalStatus === 'APPROVED');
   const isFDASubmitted = activeJob.fda?.approvalStatus === 'SUBMITTED';
   const isFDAReadOnly = isFDAApproved || isFDASubmitted;
+  const activeApprovedFpda = approvedFpdaTotals.find((fpda) =>
+    fpda.jobId === activeJob.jobId && Boolean(fpda.pdaNo) && fpda.total > 0
+  );
+  const isCrewOnlyFpdaReady = db.isCrewOnlyJob(activeJob.jobId)
+    && activeJob.managerApproval?.status === 'APPROVED'
+    && Boolean(activeApprovedFpda)
+    && !isFDAApproved
+    && !isFDASubmitted;
   useEffect(() => {
     setSubTab(initialTab);
   }, [initialTab]);
@@ -84,6 +94,11 @@ export const FDAView: React.FC<FDAViewProps> = ({
   }, []);
 
   useEffect(() => {
+    if (useJobReceiptsForAdvance) {
+      setFinanceReceivableEntries([]);
+      setFinanceReceivableError('');
+      return;
+    }
     let cancelled = false;
     const refreshFinanceReceivables = () => {
       void loadFdaReceivableEntries(activeJob.jobId)
@@ -112,7 +127,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       window.clearInterval(intervalId);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [activeJob.jobId]);
+  }, [activeJob.jobId, useJobReceiptsForAdvance]);
 
   useEffect(() => {
     const stopEnterSubmit = (event: KeyboardEvent) => {
@@ -739,9 +754,11 @@ export const FDAView: React.FC<FDAViewProps> = ({
   };
   const principalReceipts = activeJob.principalReceipts || [];
   const advancePaymentHistory = principalReceipts
-    .filter((receipt) => receipt.paymentType === 'ADVANCE_PAYMENT' && !receipt.id.startsWith('FIN-AR-'))
+    .filter((receipt) => receipt.paymentType === 'ADVANCE_PAYMENT'
+      && receipt.invoiceType !== 'FPDA'
+      && (useJobReceiptsForAdvance || !receipt.id.startsWith('FIN-AR-')))
     .sort((a, b) => b.receivedDate.localeCompare(a.receivedDate));
-  const advanceReceived = advancePaymentHistory
+  const jobAdvanceReceived = advancePaymentHistory
     .reduce((total, receipt) => {
       const receiptCurrency = receipt.currency || activeJob.currency || 'IDR';
       const receiptRate = receipt.exchangeRateUSDToIDR || effectiveExchangeRate;
@@ -755,7 +772,10 @@ export const FDAView: React.FC<FDAViewProps> = ({
           )
         : 0;
       return total + received - refunded;
-    }, 0) + financeReceivableEntries.filter((entry) => entry.invoiceType === 'FDA').reduce((total, entry) => total
+    }, 0);
+  const financeAdvanceReceived = useJobReceiptsForAdvance ? 0 : financeReceivableEntries
+    .filter((entry) => entry.invoiceType === 'FDA' && entry.paymentType === 'ADVANCE_PAYMENT')
+    .reduce((total, entry) => total
       + convertReceiptCurrency(Number(entry.idrAmount || 0), 'IDR', viewCurrency)
       + convertReceiptCurrency(
         Number(entry.usdAmount || 0),
@@ -763,6 +783,10 @@ export const FDAView: React.FC<FDAViewProps> = ({
         viewCurrency,
         Number(entry.exchangeRateUSDToIDR) || effectiveExchangeRate,
       ), 0);
+  const currentAdvanceReceived = jobAdvanceReceived + financeAdvanceReceived;
+  const advanceReceived = isFDAApproved && typeof activeJob.fda?.advancePaymentAtApproval === 'number'
+    ? activeJob.fda.advancePaymentAtApproval
+    : currentAdvanceReceived;
   const fdaAmountDue = activeJob.fda?.finalBilledToPrincipal
     ? convertReceiptCurrency(
       activeJob.fda.finalBilledToPrincipal,
@@ -1150,7 +1174,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     const bank = viewCurrency === 'USD'
       ? '<div class="bank"><div>Please kindly remit to our Bank Account</div><div>Bank Account Detail of PT. Lentera Global Maritim asf:</div><br><b>BANK MANDIRI (Persero) Tbk</b><br>Address:<br>BANK MANDIRI TEBET SUPOMO<br>Jl. Prof. Dr.Supomo SH No 43, Tebet, RT.04/RW.03<br>Tebet barat , Kec. Tebet, Kota Jakarta Selatan,<br>Daerah Khusus Ibukota Jakarta 12810<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number (USD) : 120-00-5575599-0</b><br><b>Swift Code Bank : BMRIIDJAXXX</b></div><div class="signature"><div class="signature-main">Sincerely,<br>PT. Lentera Global Maritim</div><div class="signature-role">Finance</div></div>'
       : '<div class="bank"><div>Please kindly remit to our Bank Account</div><div>Bank Account Detail of PT. Lentera Global Maritim asf:</div><br><b>BANK NEGARA INDONESIA (Persero) Tbk</b><br>Address:<br>BNI BIDAKARA<br>Jl. Gatot Subroto Kab 71-73, RT.12/RW.5, Tebet Timur,<br>Kec. Tebet, Kota Jakarta Selatan, Daerah Khusus Ibukota Jakarta 12820<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number : 2824-1212-09</b><br><b>Swift Code Bank : BNINIDJAXXX</b></div><div class="signature"><div class="signature-main">Sincerely,<br>PT. Lentera Global Maritim</div><div class="signature-role">Finance</div></div>';
-    const officeFooter = '<div class="office-footer" style="position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center;font-size:9px;line-height:1.45;font-weight:600;color:#111;z-index:3;">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span style="color:#e11d48;text-decoration:underline">email : maritim@lentera-global.com / web : www.lentera-global.com</span></div>';
+    const officeFooter = '<div class="office-footer" style="width:100%;max-width:700px;margin:16px auto 0;text-align:center;font-size:9px;line-height:1.45;font-weight:600;color:#111;break-inside:avoid;page-break-inside:avoid;">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span style="color:#e11d48;text-decoration:underline">email : maritim@lentera-global.com / web : www.lentera-global.com</span></div>';
     return `<!doctype html><html><head><meta charset="utf-8"><title>${fdaNo}</title><style>@page{size:A4;margin:14mm}body{font-family:Arial,sans-serif;color:#172033;font-size:11px}html,body{margin:0;padding:0}.brand-row{text-align:center;margin:0 0 2px}.brand-wrap{display:inline-flex;align-items:center;gap:14px;text-align:left}.logo{width:82px;height:62px;object-fit:contain}.brand{font-weight:700;font-size:21px;color:#3562a8}.tag{color:#3562a8;font-size:12px;margin-top:3px}.divider{border-bottom:2px solid #315db2;margin:6px 0 12px}.title-block{margin:0 0 10px}.title-block h2{text-align:center;background:#182a50;color:#fff;padding:5px;font-size:12px;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}.meta{display:grid;grid-template-columns:1fr 1fr;gap:2px 28px;margin-bottom:4px}.meta-col{display:flex;flex-direction:column;gap:2px}.meta-row{display:grid;grid-template-columns:105px 8px minmax(0,1fr);line-height:1.25}.meta-col.right .meta-row{grid-template-columns:82px 8px minmax(0,1fr)}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #9ca3af;padding:4px 5px}th{background:#dbe8f2;text-align:center;font-size:9px}th:nth-child(1),td:nth-child(1){width:5%;text-align:center}th:nth-child(2),td:nth-child(2){width:42%;text-align:left}th:nth-child(3),td:nth-child(3){width:8%;text-align:center}th:nth-child(4),td:nth-child(4){width:17%;text-align:right;white-space:nowrap}th:nth-child(5),td:nth-child(5){width:28%;text-align:left}.section td{background:#182a50;color:#fff;font-weight:700;text-align:left;text-transform:uppercase;-webkit-print-color-adjust:exact;print-color-adjust:exact}.subtotal{background:#dbe8f2;font-weight:700}.subtotal td:first-child{text-align:right}.amount{text-align:right;white-space:nowrap}.grand,.net-total{background:#dbe8f2;font-weight:800;color:#f00}.bank{display:inline-block;width:42%;margin-top:24px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.footer{margin-top:22px;text-align:center;font-size:9px;line-height:1.45;font-weight:600}.footer span{color:#e11d48;text-decoration:underline}font-size:9px;line-height:1.35;font-weight:600}.footer span{color:#e11d48;text-decoration:underline}</style></head><body><div class="brand-row"><div class="brand-wrap"><img class="logo" src="${getPublicLogoUrl()}"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div><h2>FINAL DISBURSEMENT ACCOUNT</h2><div class="meta"><div class="meta-col"><div class="meta-row"><b>No FDA</b><span>:</span><span>${escape(fdaNo)}</span></div><div class="meta-row"><b>Date Inquiry</b><span>:</span><span>${escape(activeJob.inquiry?.date || '-')}</span></div><div class="meta-row"><b>Principal</b><span>:</span><span>${escape(activeJob.customerName)}</span></div><div class="meta-row"><b>GRT</b><span>:</span><span>${vessel?.grt?.toLocaleString('id-ID') || '-'}</span></div><div class="meta-row"><b>Port</b><span>:</span><span>${escape(activeJob.portName)}</span></div><div class="meta-row"><b>ETA</b><span>:</span><span>${escape(getFDAScheduleDisplay(fdaSchedule.eta, fdaSchedule.etaRemarks))}</span></div></div><div class="meta-col right"><div class="meta-row"><b>Vessel</b><span>:</span><span>${escape(activeJob.vesselName)}</span></div><div class="meta-row"><b>Estimated Day</b><span>:</span><span>${activeJob.inquiry?.estimatedDays || '-'}</span></div><div class="meta-row"><b>Flag</b><span>:</span><span>${escape(vessel?.flag || '-')}</span></div><div class="meta-row"><b>Cargo Details</b><span>:</span><span>${escape(activeJob.inquiry?.cargoDetails || '-')}</span></div><div class="meta-row"><b>IMO</b><span>:</span><span>${escape(vessel?.imoNumber || '-')}</span></div></div></div><table><thead><tr><th>NO.</th><th>DESCRIPTION</th><th>CURRENCY</th><th>AMOUNT</th><th>REMARKS</th></tr></thead><tbody>${rows}<tr class="grand"><td colspan="3">${fdaSubTotalLabel}</td><td class="amount">${money(totalBeforeGlobalVat, viewCurrency)}</td><td></td></tr>${globalVatRows}</tbody></table>${bank}${officeFooter}</body></html>`;
   };
 
@@ -1203,9 +1227,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   const normalizeFDAExportLayout = (html: string) => normalizeFDAExportLayoutBase(html).replace('</style>', 'table th{text-align:center!important}table thead th:nth-child(2){text-align:center!important}table tr.item-row td:nth-child(1){text-align:center!important}table tr.item-row td:nth-child(2),table tr.item-row td:nth-child(5){text-align:left!important}table tr.item-row td:nth-child(3){text-align:center!important}table tr.item-row td:nth-child(4){text-align:right!important}table tr.section td{text-align:left!important}table tr.subtotal td:first-child{font-weight:700;text-align:right!important}table tr.grand td:first-child{text-align:right!important}table tr.global-vat td:first-child{text-align:right!important}table tr.subtotal td.amount,table tr.grand td.amount,table tr.advance td.amount,table tr.balance td.amount{font-variant-numeric:tabular-nums;text-align:right!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}table tr.advance td:first-child,table tr.balance td:first-child{text-align:center!important}</style>');
   const addA4PageFrame = (html: string) => html
-    .replace('<body>', '<body><div class="a4-page-frame" aria-hidden="true"></div>')
+    .replace('<body>', '<body><div class="a4-page-frame" aria-hidden="true"></div><i class="a4-frame-line a4-frame-line-top" aria-hidden="true"></i><i class="a4-frame-line a4-frame-line-bottom" aria-hidden="true"></i>')
     .replace('</head>', `<style>
-      @page { size: A4 portrait; margin: 15mm 10mm; }
+      @page { size: A4 portrait; margin: 10mm; }
       @media screen, print {
         body { font-size: 12px !important; }
         h2, .title-block h2 { font-size: 14px !important; }
@@ -1254,8 +1278,11 @@ export const FDAView: React.FC<FDAViewProps> = ({
         tbody tr { page-break-inside: avoid !important; break-inside: avoid !important; }
         .meta-col.right { justify-self: stretch !important; width: 100% !important; max-width: 100% !important; min-width: 0 !important; }
         .brand { margin-top: 0 !important; }
-        .a4-page-frame { position: fixed !important; inset: 0 !important; width: auto !important; height: auto !important; box-sizing: border-box; border: 0.5mm solid #1f2937; pointer-events: none; z-index: 9999; }
-        .office-footer { position: fixed !important; left: 3mm !important; bottom: 3mm !important; transform: none !important; display: block !important; width: calc(100% - 6mm) !important; max-width: none !important; margin: 0 !important; text-align: center !important; }
+        .a4-page-frame { position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: auto !important; width: auto !important; height: 277mm !important; box-sizing: border-box; border-left: 0.5mm solid #1f2937; border-right: 0.5mm solid #1f2937; pointer-events: none; z-index: 9999; }
+        .a4-frame-line { position: fixed !important; left: 0 !important; right: 0 !important; height: 0 !important; border-top: 0.5mm solid #1f2937 !important; pointer-events: none !important; z-index: 2147483647 !important; }
+        .a4-frame-line-top { top: 0 !important; }
+        .a4-frame-line-bottom { top: 276.5mm !important; }
+        .office-footer { position: fixed !important; left: 2mm !important; right: 2mm !important; bottom: 2mm !important; transform: none !important; display: block !important; width: auto !important; max-width: none !important; margin: 0 !important; text-align: center !important; }
       }
     </style></head>`);
   const addCargoQuantityAfterIMO = (html: string) => html.replace(
@@ -1289,6 +1316,15 @@ export const FDAView: React.FC<FDAViewProps> = ({
         text-align: center !important;
         vertical-align: middle !important;
       }
+    }
+    @page { size: A4 portrait; margin: 10mm; }
+    @media print {
+      .a4-frame-line { display: block !important; }
+      .office-footer { position: fixed !important; left: 2mm !important; right: 2mm !important; bottom: 2mm !important; inset-block-start: auto !important; transform: none !important; display: block !important; width: auto !important; max-width: none !important; margin: 0 !important; text-align: center !important; page-break-inside: avoid !important; break-inside: avoid !important; }
+    }
+    @media screen {
+      .a4-frame-line { display: none !important; }
+      .office-footer { position: static !important; inset: auto !important; transform: none !important; display: block !important; width: 100% !important; max-width: 700px !important; margin: 16px auto 0 !important; text-align: center !important; page-break-inside: avoid !important; break-inside: avoid !important; }
     }
   </style></head>`);
 
@@ -2521,8 +2557,18 @@ export const FDAView: React.FC<FDAViewProps> = ({
                 </div>
               </div>
 
+              {isCrewOnlyFpdaReady && activeApprovedFpda && (
+                <div role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200">
+                  <p className="font-bold">Job crew-only ini tidak perlu mengirim FDA.</p>
+                  <p className="mt-1 text-xs">
+                    FPDA {activeApprovedFpda.pdaNo} sudah disetujui Manager dengan total {formatAccountingNumber(activeApprovedFpda.total, activeApprovedFpda.currency)} {activeApprovedFpda.currency}.
+                    Lanjutkan penagihan melalui Finance menggunakan invoice FPDA.
+                  </p>
+                </div>
+              )}
+
               <div className="pt-4 flex justify-end">
-                {!isFDAReadOnly && <button
+                {!isFDAReadOnly && !isCrewOnlyFpdaReady && <button
                   onClick={handleFinalizeFDA}
                   className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-bold shadow-lg shadow-cyan-900/30 transition flex items-center gap-2"
                 >

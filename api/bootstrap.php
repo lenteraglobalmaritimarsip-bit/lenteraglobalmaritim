@@ -76,6 +76,13 @@ function requireAuthenticatedUser(): array
     if (empty($_SESSION['user'])) {
         jsonResponse(['error' => 'Authentication required'], 401);
     }
+    $query = db()->prepare('SELECT status FROM users WHERE id = :id LIMIT 1');
+    $query->execute(['id' => $_SESSION['user']['id']]);
+    if ($query->fetchColumn() !== 'ACTIVE') {
+        $_SESSION = [];
+        session_destroy();
+        jsonResponse(['error' => 'Akun tidak aktif. Hubungi administrator.'], 401);
+    }
     return $_SESSION['user'];
 }
 

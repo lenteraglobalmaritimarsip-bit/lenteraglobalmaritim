@@ -12,6 +12,12 @@ Inquiry yang belum masuk approval dapat dikoreksi oleh Sales dari cabang pembuat
 
 Menu **Sales > Quotes > Buat PDA** menyediakan form PDA Crew dengan nomor otomatis berformat `xxxx/PDA-LGM-ttt/mm/yyyy` (`ttt` mengikuti branch user aktif). Urutan nomor dimulai dari `0001` setiap tahun untuk masing-masing branch. Data header, rincian item, dan isian item yang belum ditambahkan disimpan otomatis ke MariaDB saat entry; draft dimuat kembali saat form dibuka untuk job yang sama.
 
+Untuk koreksi Payment Voucher yang sudah dibayar, Finance dapat membuka **Error Correction** dari History Payable. Aksi ini wajib mencatat alasan dan rekening tujuan yang sudah diperbaiki, mempertahankan pembayaran dan nomor PV lama di riwayat, lalu mengembalikan request ke Accounts Payable. Pembayaran koreksi mendapat nomor PV baru; riwayat pembayaran lama dan baru tetap masuk ke laporan kas/keuangan. Satu voucher hanya dapat menjalani satu Error Correction. Sebelum memakai fitur pada database lama, terapkan `database/migrations/20261023_add_payment_voucher_error_correction.sql`.
+
+Pembayaran Accounts Payable hanya dapat diproses dari rekening dengan mata uang yang sama dengan voucher. Atur currency setiap rekening di Master Bank Account. Untuk database lama, jalankan `database/migrations/20261023_add_bank_account_currency.sql` sebelum deployment; migrasi ini menetapkan rekening Mandiri `1200055755990` sebagai USD dan rekening Mandiri `1200055755883` serta BNI `2824121209` sebagai IDR.
+
+Admin dapat membuat koreksi bertanda plus/minus melalui **Master Data → Penyesuaian Saldo Kas**. Koreksi berlaku pada saldo awal sejak tanggal efektif (minimal 22 Oktober 2026) dan tidak mengubah tanggal sebelumnya. Catatan tersimpan permanen bersama rekening, currency, alasan, Admin pembuat, dan waktu; catatan tidak dapat diedit atau dihapus. Database lama harus menjalankan `database/migrations/20261023_add_cash_balance_adjustments.sql` sebelum fitur dirilis.
+
 ## Standar pesan informasi
 
 Pesan informasi, status, peringatan, dan validasi di semua role menggunakan gaya terpusat di `src/index.css`: panel biru muda, border biru, teks gelap, font Inter/system, ukuran 14 px, dan radius 8 px. Gunakan `role="status"` untuk pembaruan non-kritis dan `role="alert"` untuk kesalahan/validasi agar gaya dan aksesibilitas tetap konsisten. Notifikasi login menampilkan nama lengkap pemegang user dan menggunakan standar yang sama di seluruh role. Jangan menimpa warnanya dengan kelas role-specific.

@@ -57,6 +57,9 @@ const safeInquiry = (job: JobCall) => ({
 
 function getManagementStatus(job: JobCall): Array<{label:string; value:string; tone:StatusTone}> {
   const epda = job.quotation?.epda?.status;
+  const isCrewOnlyJob = (job.purposeOfCall === 'CREW_CHANGE_ONLY' || job.purposeOfCall === 'CREW_PASSENGER_OPERATIONS')
+    && (job.quotation?.epda?.items || []).length === 0
+    && !(job.quotation?.epda?.totalAmount > 0);
   const crew = job.quotation?.crewChange;
   const approval = job.managerApproval?.status;
   const operational = job.operationalData?.atd
@@ -64,7 +67,7 @@ function getManagementStatus(job: JobCall): Array<{label:string; value:string; t
     : job.operationalData?.ata || job.operationalData?.atb
       ? 'Berjalan'
       : 'Belum Mulai';
-  const fda = job.fda?.fdaApproved ? 'Approved' : 'Open';
+  const fda = isCrewOnlyJob ? 'N/A · FPDA workflow' : job.fda?.fdaApproved ? 'Approved' : 'Open';
   const ap = job.ap?.length
     ? (job.ap.every(x => x.status === 'PAID') ? 'Paid' : job.ap.some(x => x.status === 'PARTIALLY_PAID') ? 'Partial' : 'Open')
     : 'Open';
@@ -77,7 +80,9 @@ function getManagementStatus(job: JobCall): Array<{label:string; value:string; t
     : job.closing?.isClosed ? 'Closed vessel calls' : 'Open';
 
   const inquiryLabel = job.inquiry?.status === 'CONVERTED' ? 'Converted to Job' : job.inquiry?.status || 'Open';
-  const epdaLabel = epda === 'APPROVED' ? 'Approved' : epda === 'SUBMITTED' ? 'Submitted' : 'Open';
+  const epdaLabel = isCrewOnlyJob
+    ? 'N/A · Crew-only'
+    : epda === 'APPROVED' ? 'Approved' : epda === 'SUBMITTED' ? 'Submitted' : 'Open';
   const crewLabel = crew?.signOnCount || crew?.signOffCount || crew?.members?.length ? crew.status : 'Not Required / Planned';
   const approvalLabel = approval === 'APPROVED' ? 'Approved' : approval === 'REJECTED' ? 'Rejected' : 'Belum Approval';
   const financeLabel = job.closing?.isClosed
@@ -91,11 +96,11 @@ function getManagementStatus(job: JobCall): Array<{label:string; value:string; t
 
   return [
     stageStatus('Inquiry', inquiryLabel, inquiryLabel === 'Converted to Job' ? 'done' : 'waiting'),
-    stageStatus('EPDA', epdaLabel, epdaLabel === 'Approved' ? 'done' : epdaLabel === 'Submitted' ? 'waiting' : 'open'),
+    stageStatus('EPDA', epdaLabel, isCrewOnlyJob ? 'done' : epdaLabel === 'Approved' ? 'done' : epdaLabel === 'Submitted' ? 'waiting' : 'open'),
     stageStatus('Crew Change', crewLabel, crewLabel === 'COMPLETED' ? 'done' : crewLabel === 'Not Required / Planned' ? 'open' : 'waiting'),
     stageStatus('Manager Approval', approvalLabel, approvalLabel === 'Approved' ? 'done' : approvalLabel === 'Rejected' ? 'danger' : 'waiting'),
     stageStatus('Operational Data', operational, operational === 'Selesai' ? 'done' : operational === 'Berjalan' ? 'waiting' : 'open'),
-    stageStatus('FDA', fda, fda === 'Approved' ? 'done' : 'open'),
+    stageStatus('FDA', fda, isCrewOnlyJob ? 'waiting' : fda === 'Approved' ? 'done' : 'open'),
     stageStatus('Finance (AP / AR / Invoice)', financeLabel, financeLabel === 'AP Open • AR Received' || financeLabel === 'Closed vessel calls' ? 'done' : 'waiting'),
     stageStatus('Closing', closing, closing === 'Closed vessel calls' ? 'done' : 'open'),
     stageStatus('KESIMPULAN', job.voidedAt ? 'Job VOID / Closed' : attention ? 'Masih ada proses terbuka' : 'Siklus terkontrol', job.voidedAt ? 'done' : attention ? 'waiting' : 'done')

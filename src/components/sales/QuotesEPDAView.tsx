@@ -869,7 +869,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   const getBankFooterByCurrency = (currency: Currency) => currency === 'USD'
     ? '<div class="bank bank-mandiri"><div>Please kindly remit to our Bank Account</div><div>Bank Account Detail of PT. Lentera Global Maritim asf:</div><br><b>BANK MANDIRI (Persero) Tbk</b><br>Address:<br>BANK MANDIRI TEBET SUPOMO<br>Jl. Prof. Dr.Supomo SH No 43, Tebet, RT.04/RW.03<br>Tebet barat , Kec. Tebet, Kota Jakarta Selatan,<br>Daerah Khusus Ibukota Jakarta 12810<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number (USD) : 120-00-5575599-0</b><br><b>Swift Code Bank : BMRIIDJAXXX</b></div>'
     : '<div class="bank"><div>Please kindly remit to our Bank Account</div><div>Bank Account Detail of PT. Lentera Global Maritim asf:</div><br><b>BANK NEGARA INDONESIA (Persero) Tbk</b><br>Address:<br>BNI BIDAKARA<br>Jl. Gatot Subroto Kab 71-73, RT.12/RW.5, Tebet Timur,<br>Kec. Tebet, Kota Jakarta Selatan, Daerah Khusus Ibukota Jakarta 12820<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number : 2824-1212-09</b><br><b>Swift Code Bank : BNINIDJAXXX</b></div>';
-  const officeFooter = '<div class="office-footer" style="position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center;font-size:9px;line-height:1.45;font-weight:600;color:#111;z-index:3;">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span style="color:#dc2626;text-decoration:underline">email : maritim@lentera-global.com / web : www.lentera-global.com</span></div>';
+  const officeFooter = '<div class="office-footer" style="width:100%;max-width:700px;margin:16px auto 0;text-align:center;font-size:9px;line-height:1.45;font-weight:600;color:#111;break-inside:avoid;page-break-inside:avoid;">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span style="color:#dc2626;text-decoration:underline">email : maritim@lentera-global.com / web : www.lentera-global.com</span></div>';
   const printFooter = getBankFooterByCurrency(viewCurrency);
   const pushFinanceSignatureDown = (html: string) => html
     .replaceAll('.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}', '.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.signature-main{display:block}.signature-role{display:block;margin-top:120px;padding-top:12px}')
@@ -932,7 +932,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       .grand, .grand td, .grand td:first-child { font-weight: 400 !important; }
       h2, .category-row, .category-row td { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
       table thead th:nth-child(2) { text-align: center !important; }
-      @page { size: A4 portrait; margin: 15mm 10mm; }
+      @page { size: A4 portrait; margin: 10mm; }
       @media screen {
         html, body { min-height: 100%; height: auto; overflow: visible; background: #e2e8f0; }
         body { position: relative; box-sizing: border-box; width: 210mm; height: 297mm; min-height: 297mm; max-width: none; margin: 0 auto; padding: 15mm; background: #fff; }
@@ -943,7 +943,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
         .brand-row { margin-top: 0 !important; }
         .a4-page-frame { position: absolute; top: 10mm; left: 10mm; width: 190mm; height: 277mm; box-sizing: border-box; border: 0.3mm solid #1f2937; pointer-events: none; z-index: 9; }
         .office-footer { position: absolute !important; left: 50% !important; bottom: 15mm !important; transform: translateX(-50%) !important; width: 100% !important; margin: 0 !important; }
-        .bank { position: relative !important; top: 5mm !important; width: 52% !important; margin-top: 4px !important; padding: 5px !important; font-size: 12px !important; line-height: 1.1 !important; }
+        .bank { position: static !important; top: auto !important; width: 52% !important; margin-top: 4px !important; padding: 5px !important; font-size: 12px !important; line-height: 1.1 !important; }
         .office-footer { font-size: 9px !important; line-height: 1.1 !important; }
         body { font-size: 11px !important; }
         h2 { font-size: 14px !important; }
@@ -1002,7 +1002,10 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
         .meta-row { grid-template-columns: minmax(0, 105px) 8px minmax(0, 1fr) !important; min-width: 0; }
         .meta-row > span:last-child { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
         .brand-row { margin-top: 0 !important; }
-        .a4-page-frame { position: fixed !important; inset: 0 !important; width: auto !important; height: auto !important; box-sizing: border-box; border: 0.5mm solid #1f2937; pointer-events: none; z-index: 9999; }
+        .a4-page-frame { position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: auto !important; width: auto !important; height: 277mm !important; box-sizing: border-box; border-left: 0.5mm solid #1f2937; border-right: 0.5mm solid #1f2937; pointer-events: none; z-index: 9999; }
+        .a4-frame-line { position: fixed !important; left: 0 !important; right: 0 !important; height: 0 !important; border-top: 0.5mm solid #1f2937 !important; pointer-events: none !important; z-index: 2147483647 !important; }
+        .a4-frame-line-top { top: 0 !important; }
+        .a4-frame-line-bottom { top: 276.5mm !important; }
         body { font-size: 11px !important; }
         h2 { font-size: 14px !important; }
         .meta-row, .meta-row .label { font-size: 11px !important; }
@@ -1016,8 +1019,8 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
         tbody { display: table-row-group; }
         tbody tr { page-break-inside: avoid !important; break-inside: avoid !important; }
         tbody tr.category-row { page-break-after: avoid !important; break-after: avoid-page !important; }
-        .bank { position: relative !important; top: 5mm !important; width: 52% !important; margin-top: 4px !important; padding: 5px !important; font-size: 12px !important; line-height: 1.1 !important; }
-        .office-footer { position: fixed !important; left: 3mm !important; bottom: 3mm !important; transform: none !important; display: block !important; width: calc(100% - 6mm) !important; max-width: none !important; margin: 0 !important; text-align: center !important; font-size: 9px !important; line-height: 1.1 !important; }
+        .bank { position: static !important; top: auto !important; width: 52% !important; margin-top: 4px !important; padding: 5px !important; font-size: 12px !important; line-height: 1.1 !important; }
+        .office-footer { position: fixed !important; left: 2mm !important; right: 2mm !important; bottom: 2mm !important; inset-block-start: auto !important; transform: none !important; display: block !important; width: auto !important; max-width: none !important; margin: 0 !important; text-align: center !important; page-break-inside: avoid !important; break-inside: avoid !important; font-size: 9px !important; line-height: 1.1 !important; }
         .bank, .signature { page-break-inside: avoid; break-inside: avoid; }
         html, body, body * { font-family: Helvetica, Arial, sans-serif !important; }
         body, .meta, .meta-row, .meta-row .label, table th, table td { font-size: 11px !important; }
@@ -1032,9 +1035,10 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
           vertical-align: middle !important;
         }
       }
+      .office-footer { position: static !important; inset: auto !important; transform: none !important; display: block !important; width: 100% !important; max-width: 700px !important; margin: 16px auto 0 !important; text-align: center !important; page-break-inside: avoid !important; break-inside: avoid !important; }
     </style>`;
     return previewHtml
-      .replace('<body>', '<body><div class="a4-page-frame" aria-hidden="true"></div>')
+      .replace('<body>', '<body><div class="a4-page-frame" aria-hidden="true"></div><i class="a4-frame-line a4-frame-line-top" aria-hidden="true"></i><i class="a4-frame-line a4-frame-line-bottom" aria-hidden="true"></i>')
       .replace('</head>', `${printStyles}</head>`);
   };
 

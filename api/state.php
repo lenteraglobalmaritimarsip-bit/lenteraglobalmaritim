@@ -26,10 +26,174 @@ function normalizedManagerApproval(array $approval): array
 
 function stateRevision(array $state): string
 {
-    unset($state['currentRole'], $state['selectedJobId']);
+    unset($state['currentRole'], $state['selectedJobId'], $state['auditLogs']);
     $encoded = json_encode($state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if ($encoded === false) throw new RuntimeException('Unable to calculate application state revision');
     return hash('sha256', $encoded);
+}
+
+function validatePaymentVoucherPaymentHistories(array $newState, array $oldState): ?string
+{
+    $oldVouchers = [];
+    foreach ($oldState['paymentVouchers'] ?? [] as $voucher) {
+        if (isset($voucher['id'])) $oldVouchers[(string) $voucher['id']] = $voucher;
+    }
+    foreach ($newState['paymentVouchers'] ?? [] as $voucher) {
+        $id = (string) ($voucher['id'] ?? '');
+        if (!isset($oldVouchers[$id])) continue;
+        $oldVoucher = $oldVouchers[$id];
+        $oldHistory = $oldVoucher['paymentHistory'] ?? [];
+        $newHistory = $voucher['paymentHistory'] ?? [];
+        if (json_encode($oldHistory) !== json_encode($newHistory)) {
+            return 'Payment history cannot be changed.';
+        }
+    }
+    return null;
+}
+
+function validatePaymentVoucherBankCurrencies(array $newState, array $oldState): ?string
+{
+    $oldVouchers = [];
+    foreach ($oldState['paymentVouchers'] ?? [] as $voucher) {
+        if (isset($voucher['id'])) $oldVouchers[(string) $voucher['id']] = $voucher;
+    }
+    $bankAccounts = [];
+    foreach ($oldState['bankAccounts'] ?? [] as $account) {
+        if (isset($account['id'])) $bankAccounts[(string) $account['id']] = $account;
+    }
+    foreach ($newState['paymentVouchers'] ?? [] as $voucher) {
+        $id = (string) ($voucher['id'] ?? '');
+        $oldVoucher = $oldVouchers[$id] ?? null;
+        if (($voucher['status'] ?? '') !== 'PAID' || ($oldVoucher['status'] ?? '') === 'PAID') continue;
+        $currency = (string) ($voucher['currency'] ?? 'IDR');
+        $accountId = (string) ($voucher['paidFromBankAccountId'] ?? '');
+        $account = $bankAccounts[$accountId] ?? null;
+        if ($account === null) {
+            return 'Pilih rekening pembayaran yang terdaftar sebelum memproses voucher.';
+        }
+        $accountCurrency = (string) ($account['currency'] ?? '');
+        if (!in_array($accountCurrency, ['IDR', 'USD'], true)) {
+            return 'Mata uang rekening belum diatur pada Master Bank Account. Pembayaran diblokir.';
+        }
+        if (!in_array($currency, ['IDR', 'USD'], true) || $accountCurrency !== $currency) {
+            return "Mata uang rekening ({$accountCurrency}) harus sama dengan mata uang voucher ({$currency}). Pembayaran diblokir.";
+        }
+    }
+    return null;
+}
+
+function validateCashBalanceAdjustments(array $newState, array $oldState, array $actor): ?string
+{
+    $oldAdjustments = [];
+    foreach ($oldState['cashBalanceAdjustments'] ?? [] as $adjustment) {
+        if (isset($adjustment['id'])) $oldAdjustments[(string) $adjustment['id']] = $adjustment;
+    }
+    $newAdjustments = [];
+    foreach ($newState['cashBalanceAdjustments'] ?? [] as $adjustment) {
+        $id = trim((string) ($adjustment['id'] ?? ''));
+        if ($id === '' || isset($newAdjustments[$id])) return 'Penyesuaian saldo kas harus memiliki ID unik.';
+        $newAdjustments[$id] = $adjustment;
+    }
+    foreach ($oldAdjustments as $id => $oldAdjustment) {
+        if (!isset($newAdjustments[$id])) return 'Riwayat penyesuaian saldo kas tidak dapat dihapus.';
+        foreach (['bankAccountId', 'bankName', 'accountNumber', 'currency', 'amount', 'effectiveDate', 'reason', 'createdBy', 'createdAt'] as $field) {
+            if ((string) ($newAdjustments[$id][$field] ?? '') !== (string) ($oldAdjustment[$field] ?? '')) {
+                return 'Riwayat penyesuaian saldo kas tidak dapat diubah.';
+            }
+        }
+    }
+    $accounts = [];
+    foreach ($newState['bankAccounts'] ?? [] as $account) {
+        if (isset($account['id'])) $accounts[(string) $account['id']] = $account;
+    }
+    foreach ($newAdjustments as $adjustment) {
+        $account = $accounts[(string) ($adjustment['bankAccountId'] ?? '')] ?? null;
+        if ($account === null || ($account['currency'] ?? '') !== ($adjustment['currency'] ?? '')) {
+            return 'Rekening dengan riwayat penyesuaian tidak dapat dihapus atau diganti currency-nya.';
+        }
+    }
+    foreach (array_diff_key($newAdjustments, $oldAdjustments) as $adjustment) {
+        if (($actor['role'] ?? '') !== 'ADMIN') return 'Hanya Admin yang dapat menambahkan penyesuaian saldo kas.';
+        $accountId = trim((string) ($adjustment['bankAccountId'] ?? ''));
+        $account = $accounts[$accountId] ?? null;
+        $currency = (string) ($adjustment['currency'] ?? '');
+        $effectiveDate = (string) ($adjustment['effectiveDate'] ?? '');
+        $dateParts = array_map('intval', explode('-', $effectiveDate));
+        $validDate = preg_match('/^\d{4}-\d{2}-\d{2}$/', $effectiveDate) === 1
+            && count($dateParts) === 3
+            && checkdate($dateParts[1], $dateParts[2], $dateParts[0])
+            && $effectiveDate >= '2026-10-22';
+        $amount = $adjustment['amount'] ?? null;
+        $reason = trim((string) ($adjustment['reason'] ?? ''));
+        if ($account === null
+            || !in_array($currency, ['IDR', 'USD'], true)
+            || ($account['currency'] ?? '') !== $currency
+            || (string) ($adjustment['bankName'] ?? '') !== (string) ($account['bankName'] ?? '')
+            || (string) ($adjustment['accountNumber'] ?? '') !== (string) ($account['accountNumber'] ?? '')
+            || !is_numeric($amount)
+            || !is_finite((float) $amount)
+            || (float) $amount === 0.0
+            || !$validDate
+            || $reason === ''
+            || strlen($reason) > 2000
+            || trim((string) ($adjustment['createdBy'] ?? '')) !== trim((string) ($actor['name'] ?? ''))
+            || empty($adjustment['createdAt'])
+            || strtotime((string) $adjustment['createdAt']) === false) {
+            return 'Data penyesuaian saldo kas tidak valid. Periksa rekening, currency, nominal, tanggal, alasan, dan pembuat.';
+        }
+    }
+    return null;
+}
+
+function describeJobUpdate(array $oldJob, array $newJob, string $role): string
+{
+    $sections = match ($role) {
+        'SALES' => [
+            'inquiry' => 'inquiry',
+            'quotation' => 'quotation EPDA/FPDA',
+            'vesselId' => 'data kapal',
+            'vesselName' => 'data kapal',
+            'portId' => 'data pelabuhan',
+            'portName' => 'data pelabuhan',
+            'eta' => 'jadwal ETA',
+            'etd' => 'jadwal ETD',
+            'purposeOfCall' => 'purpose of call',
+            'status' => 'status job',
+        ],
+        'MANAGER_OPS' => [
+            'managerApproval' => 'persetujuan Manager',
+            'quotation' => 'quotation EPDA/FPDA',
+            'fda' => 'status FDA',
+        ],
+        'FDA' => [
+            'fda' => 'data dan approval FDA',
+            'fdaItems' => 'item biaya FDA',
+            'ap' => 'data hutang vendor',
+            'ar' => 'data piutang',
+            'principalReceipts' => 'penerimaan principal',
+            'principalInvoice' => 'invoice principal',
+        ],
+        'FINANCE' => [
+            'ap' => 'pembayaran vendor',
+            'ar' => 'piutang',
+            'principalReceipts' => 'penerimaan principal',
+            'principalInvoice' => 'invoice principal',
+            'closing' => 'closing vessel call',
+        ],
+        default => [],
+    };
+    $changed = [];
+    foreach ($sections as $field => $label) {
+        if (json_encode($oldJob[$field] ?? null) !== json_encode($newJob[$field] ?? null)) $changed[$label] = true;
+    }
+    $roleLabel = match ($role) {
+        'SALES' => 'Sales',
+        'MANAGER_OPS' => 'Manager Operations',
+        'FDA' => 'FDA',
+        'FINANCE' => 'Finance',
+        default => $role,
+    };
+    return $roleLabel . ' memperbarui ' . ($changed ? implode(', ', array_keys($changed)) : 'data workflow') . '.';
 }
 
 function validAdvancePaymentReceipt(array $receipt, string $jobId): bool
@@ -162,6 +326,7 @@ function applyNonAdminMasterData(array &$state, array $before, string $role): vo
     }
     $state['vendorPartners'] = $before['vendorPartners'] ?? [];
     $state['bankAccounts'] = $before['bankAccounts'] ?? [];
+    $state['cashBalanceAdjustments'] = $before['cashBalanceAdjustments'] ?? [];
 
     $canAddItems = in_array($role, ['SALES', 'FDA'], true);
     foreach (['fixTariffs', 'expensesItems'] as $key) {
@@ -212,6 +377,14 @@ try {
     if (!is_string($revision) || $revision === '') {
         jsonResponse(['error' => 'Application state revision is required'], 400);
     }
+    foreach ($state['bankAccounts'] ?? [] as $account) {
+        if (!in_array($account['currency'] ?? null, ['IDR', 'USD'], true)) {
+            jsonResponse(['error' => 'Setiap rekening bank harus memiliki mata uang IDR atau USD sebelum menyimpan.'], 400);
+        }
+    }
+    if (!is_array($state['cashBalanceAdjustments'] ?? [])) {
+        jsonResponse(['error' => 'Invalid cash balance adjustments'], 400);
+    }
     foreach ($state['paymentVouchers'] ?? [] as $voucher) {
         if (!validPaymentProofDataUrl($voucher['paymentProofDataUrl'] ?? null)) {
             jsonResponse(['error' => 'Payment proof must be a valid JPG or PNG image no larger than 1 MB'], 400);
@@ -249,7 +422,8 @@ try {
     }
     foreach ($state['paymentVouchers'] ?? [] as $voucher) {
         $voucherId = (string) ($voucher['id'] ?? '');
-        $oldProof = $oldPaymentVouchers[$voucherId]['paymentProofDataUrl'] ?? '';
+        $oldVoucher = $oldPaymentVouchers[$voucherId] ?? [];
+        $oldProof = $oldVoucher['paymentProofDataUrl'] ?? '';
         $newProof = $voucher['paymentProofDataUrl'] ?? '';
         if ($oldProof === $newProof) continue;
         if ($actor['role'] !== 'FINANCE') {
@@ -268,6 +442,21 @@ try {
             'state' => $before,
             'revision' => $currentRevision,
         ], 409);
+    }
+    $paymentHistoryError = validatePaymentVoucherPaymentHistories($state, $before);
+    if ($paymentHistoryError !== null) {
+        $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+        jsonResponse(['error' => $paymentHistoryError], 403);
+    }
+    $bankCurrencyError = validatePaymentVoucherBankCurrencies($state, $before);
+    if ($bankCurrencyError !== null) {
+        $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+        jsonResponse(['error' => $bankCurrencyError], 400);
+    }
+    $cashAdjustmentError = validateCashBalanceAdjustments($state, $before, $actor);
+    if ($cashAdjustmentError !== null) {
+        $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+        jsonResponse(['error' => $cashAdjustmentError], 403);
     }
 
     if ($actor['role'] !== 'ADMIN') {
@@ -527,12 +716,26 @@ try {
                 'entity' => 'VESSEL_CALL',
                 'entityId' => $jobId,
                 'description' => $isDeletedJob
-                    ? 'Inquiry and vessel call permanently deleted through the authenticated API.'
-                    : 'Workflow state updated through the authenticated API.',
+                    ? 'Sales menghapus inquiry dan vessel call secara permanen.'
+                    : (isset($oldJobs[$jobId])
+                        ? describeJobUpdate($oldJobs[$jobId], $newJobs[$jobId] ?? [], (string) $actor['role'])
+                        : 'Sales membuat inquiry dan vessel call baru.'),
             ]);
         }
-        $state['auditLogs'] = array_slice($state['auditLogs'], 0, 500);
+        $state['auditLogs'] = array_slice($state['auditLogs'], 0, 1000);
     }
+
+    $incomingAuditLogIds = array_fill_keys(array_map(
+        static fn (array $log): string => (string) ($log['id'] ?? ''),
+        $state['auditLogs'] ?? [],
+    ), true);
+    $state['auditLogs'] = array_merge(
+        array_values(array_filter(
+            $before['auditLogs'] ?? [],
+            static fn (array $log): bool => !isset($incomingAuditLogIds[(string) ($log['id'] ?? '')]),
+        )),
+        $state['auditLogs'] ?? [],
+    );
 
     replaceAppState($state);
     $savedState = loadAppState();

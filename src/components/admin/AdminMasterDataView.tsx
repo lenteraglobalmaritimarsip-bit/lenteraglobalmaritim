@@ -29,6 +29,7 @@ import {
   ExpensesItem,
   VendorPartner,
   BankAccount,
+  CashBalanceAdjustment,
   UserRole,
   ActiveTab,
 } from '../../types';
@@ -37,9 +38,10 @@ import { apiAuth } from '../../lib/api';
 import { formatTariffNumber, getTariffRateForCurrency, parseTariffNumber } from '../../utils/tariff';
 import { formatCostCategoryLabel, normalizeCostCategory } from '../../utils/costCategories';
 import { expensesItemRatePatch, findMatchingExpensesItem, findMatchingFixTariff, fixTariffRatePatch } from '../../utils/masterDataIdentity';
+import { todayISO } from '../../utils/date';
 
 interface AdminMasterDataViewProps {
-  initialTab?: 'USERS' | 'CUSTOMERS' | 'VESSELS' | 'PORTS' | 'ZONES' | 'FIX_TARIFF' | 'EXPENSES_ITEM' | 'VENDOR_PARTNERS' | 'BANK_ACCOUNT';
+  initialTab?: 'USERS' | 'CUSTOMERS' | 'VESSELS' | 'PORTS' | 'ZONES' | 'FIX_TARIFF' | 'EXPENSES_ITEM' | 'VENDOR_PARTNERS' | 'BANK_ACCOUNT' | 'CASH_BALANCE_ADJUSTMENTS';
   users: User[];
   customers: Customer[];
   vessels: Vessel[];
@@ -49,6 +51,7 @@ interface AdminMasterDataViewProps {
   expensesItems: ExpensesItem[];
   vendorPartners?: VendorPartner[];
   bankAccounts?: BankAccount[];
+  cashBalanceAdjustments?: CashBalanceAdjustment[];
   onDataSaved?: (returnToTab?: ActiveTab) => void;
 }
 
@@ -63,6 +66,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   expensesItems,
   vendorPartners = [],
   bankAccounts = [],
+  cashBalanceAdjustments = [],
   onDataSaved,
 }) => {
   const formatMasterRate = (value: unknown) => {
@@ -78,6 +82,10 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   };
   const formatMasterNumber = (value: unknown) => formatTariffNumber(value);
   const [activeTab, setActiveTab] = useState(initialTab);
+  const [adjustmentAccountId, setAdjustmentAccountId] = useState(bankAccounts[0]?.id || '');
+  const [adjustmentAmount, setAdjustmentAmount] = useState('');
+  const [adjustmentEffectiveDate, setAdjustmentEffectiveDate] = useState(todayISO());
+  const [adjustmentReason, setAdjustmentReason] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [fixTariffPage, setFixTariffPage] = useState(1);
   const [expensesItemPage, setExpensesItemPage] = useState(1);
@@ -92,6 +100,55 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     { type: 'CUSTOMERS' | 'VESSELS' | 'PORTS' | 'FIX_TARIFF' | 'EXPENSES_ITEM' | 'VENDOR_PARTNERS' | 'BANK_ACCOUNT'; id: string } | null
   >(null);
   const [editMasterForm, setEditMasterForm] = useState<any>({});
+
+  useEffect(() => {
+    setUploadMessage('');
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!bankAccounts.some((account) => account.id === adjustmentAccountId)) {
+      setAdjustmentAccountId(bankAccounts[0]?.id || '');
+    }
+  }, [bankAccounts, adjustmentAccountId]);
+
+  const saveCashBalanceAdjustment = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setAddFormError('');
+    setUploadMessage('');
+    const amount = Number(adjustmentAmount);
+    if (!adjustmentAccountId) {
+      setAddFormError('Pilih rekening bank untuk penyesuaian.');
+      return;
+    }
+    if (!Number.isFinite(amount) || amount === 0) {
+      setAddFormError('Nominal harus berupa angka selain nol. Gunakan minus untuk mengurangi saldo.');
+      return;
+    }
+    if (!adjustmentReason.trim()) {
+      setAddFormError('Alasan penyesuaian wajib diisi.');
+      return;
+    }
+    try {
+      await db.addCashBalanceAdjustment({
+        bankAccountId: adjustmentAccountId,
+        amount,
+        effectiveDate: adjustmentEffectiveDate,
+        reason: adjustmentReason,
+      });
+      const account = bankAccounts.find((item) => item.id === adjustmentAccountId);
+      const currency = account?.currency || 'IDR';
+      const formattedAmount = new Intl.NumberFormat(currency === 'IDR' ? 'id-ID' : 'en-US', {
+        maximumFractionDigits: currency === 'IDR' ? 0 : 2,
+      }).format(Math.abs(amount));
+      setAdjustmentAmount('');
+      setAdjustmentEffectiveDate(todayISO());
+      setAdjustmentReason('');
+      setUploadMessage(`Berhasil disimpan: ${amount > 0 ? '+' : '-'}${formattedAmount} ${currency} untuk rekening ${account?.accountNumber || ''}. Saldo berubah mulai ${adjustmentEffectiveDate} (tanggal efektif termasuk). Buka Saldo Kas dan pilih tanggal tersebut atau sesudahnya.`);
+      onDataSaved?.('CASH_BALANCE_ADJUSTMENTS');
+    } catch (error) {
+      setAddFormError(error instanceof Error ? error.message : 'Penyesuaian saldo gagal disimpan.');
+    }
+  };
 
   const openMasterEditor = (
     type: 'CUSTOMERS' | 'VESSELS' | 'PORTS' | 'FIX_TARIFF' | 'EXPENSES_ITEM' | 'VENDOR_PARTNERS' | 'BANK_ACCOUNT',
@@ -174,6 +231,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           branch: (editMasterForm.branch || '').trim(),
           accountName: editMasterForm.accountName.trim(),
           accountNumber: editMasterForm.accountNumber.trim(),
+          currency: editMasterForm.currency,
         });
       }
       if (type === 'EXPENSES_ITEM') {
@@ -267,7 +325,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   const resetNewUser = () => {
     setNewUser({ name: '', email: '', department: '', branch: '', phone: '', username: '', password: '', position: '' });
     setNewVendor({ vendorName: '', bankName: '', paidName: '', accountNumber: '' });
-    setNewBankAccount({ bankName: '', branch: '', accountName: '', accountNumber: '' });
+    setNewBankAccount({ bankName: '', branch: '', accountName: '', accountNumber: '', currency: 'IDR' });
     setAddFormError('');
   };
 
@@ -379,6 +437,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     branch: '',
     accountName: '',
     accountNumber: '',
+    currency: 'IDR',
   });
 
   const deleteVendorPartner = async (id: string) => {
@@ -656,7 +715,11 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
 
         const portId = String(readUploadValue(row, 'portId', 'port_id')).trim();
         const portInput = String(readUploadValue(row, 'portName', 'portName', 'port', 'port_name', 'namaPelabuhan', 'pelabuhan', 'portNameValue')).trim();
-        const selectedPort = ports.find((port) =>
+        const exactPortMatches = ports.filter((port) =>
+          (!!portId && [port.id, port.code].some((value) => normalizeUploadMatch(portId) === normalizeUploadMatch(value)))
+          || (!!portInput && [port.id, port.code, port.name].some((value) => normalizeUploadMatch(portInput) === normalizeUploadMatch(value)))
+        );
+        const partialPortMatches = ports.filter((port) =>
           (!!portId && matchesUploadPort(portId, port.id))
           || (!!portId && matchesUploadPort(portId, port.code))
           || (!!portInput && (
@@ -665,8 +728,12 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
             || matchesUploadPort(portInput, port.name)
           ))
         );
+        const matchingPorts = exactPortMatches.length ? exactPortMatches : partialPortMatches;
+        const selectedPort = matchingPorts.length === 1 ? matchingPorts[0] : undefined;
         if (!selectedPort) {
-          markInvalid('port tidak cocok dengan master data / header port tidak terbaca');
+          markInvalid(matchingPorts.length > 1
+            ? 'port cocok dengan lebih dari satu master data; gunakan nama/kode/ID yang tepat'
+            : 'port tidak cocok dengan master data / header port tidak terbaca');
           return;
         }
         const resolvedPortId = selectedPort.id;
@@ -951,8 +1018,9 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           branch: (newBankAccount.branch || '').trim(),
           accountName: newBankAccount.accountName.trim(),
           accountNumber: newBankAccount.accountNumber.trim(),
+          currency: newBankAccount.currency || 'IDR',
         });
-        setNewBankAccount({ bankName: '', branch: '', accountName: '', accountNumber: '' });
+        setNewBankAccount({ bankName: '', branch: '', accountName: '', accountNumber: '', currency: 'IDR' });
       } else {
         setAddFormError('Menu master data tidak dikenali.');
         return;
@@ -1087,7 +1155,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 </button>
               </>
             )}
-            {!isFormOpen && (
+            {!isFormOpen && activeTab !== 'CASH_BALANCE_ADJUSTMENTS' && (
               <button
                 onClick={() => {
                   resetNewUser();
@@ -1203,7 +1271,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       )}
 
       {/* Filter and Search Bar */}
-      {!isFormOpen && <div className="flex items-center justify-between gap-4 bg-white border border-slate-200 p-3 rounded-xl shadow-sm">
+      {!isFormOpen && activeTab !== 'CASH_BALANCE_ADJUSTMENTS' && <div className="flex items-center justify-between gap-4 bg-white border border-slate-200 p-3 rounded-xl shadow-sm">
         <div className="relative flex-1 max-w-md">
           <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
           <input
@@ -1223,14 +1291,14 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         </span>
       </div>}
 
-      {!isFormOpen && uploadMessage && (activeTab === 'FIX_TARIFF' || activeTab === 'EXPENSES_ITEM') && (
+      {!isFormOpen && uploadMessage && (activeTab === 'FIX_TARIFF' || activeTab === 'EXPENSES_ITEM' || activeTab === 'BANK_ACCOUNT') && (
         <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-700">
           {uploadMessage}
         </div>
       )}
 
       {/* Tables for each Tab */}
-      {!isFormOpen && <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+      {!isFormOpen && <div className="admin-master-table-area bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
         {/* USERS TABLE */}
         {activeTab === 'USERS' && (
           <div className="overflow-x-auto">
@@ -1249,7 +1317,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     <td className="p-3.5 text-slate-600">{u.position || u.department || '-'}</td>
                     <td className="p-3.5 text-slate-600">{u.email}</td>
                     <td className="p-3.5 text-slate-600">{u.branch || '-'}</td>
-                    <td className="p-3.5"><button onClick={()=>void db.updateUser(u.id,{status:u.status==='ACTIVE'?'INACTIVE':'ACTIVE'})} className={`px-2.5 py-1 rounded-md text-[10px] font-bold ${u.status==='ACTIVE'?'bg-emerald-50 text-emerald-600 hover:bg-emerald-100':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{u.status}</button></td>
+                    <td className="p-3.5"><button onClick={()=>void db.updateUser(u.id,{status:u.status==='ACTIVE'?'INACTIVE':'ACTIVE'})} title={u.status === 'INACTIVE' ? 'Aktifkan akun dan reset penghitung login gagal' : 'Nonaktifkan akun'} className={`px-2.5 py-1 rounded-md text-[10px] font-bold ${u.status==='ACTIVE'?'bg-emerald-50 text-emerald-600 hover:bg-emerald-100':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{u.status}</button></td>
                     <td className="p-3.5 text-right"><div className="flex items-center justify-end gap-1.5"><button onClick={() => openUserEditor(u)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500 transition" title="Edit User"><Edit2 className="w-3.5 h-3.5" /></button><button onClick={() => void deleteMasterRecord('User', () => db.deleteUser(u.id))} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-500 transition" title="Hapus User"><Trash2 className="w-3.5 h-3.5" /></button></div></td>
                   </tr>
                 ))}
@@ -1608,6 +1676,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                   <th className="p-3.5">Branch</th>
                   <th className="p-3.5">A/c Name</th>
                   <th className="p-3.5">A/c Number</th>
+                  <th className="p-3.5">Currency</th>
                   <th className="p-3.5 text-right">Aksi</th>
                 </tr>
               </thead>
@@ -1621,6 +1690,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                       <td className="p-3.5 text-slate-700">{item.branch || '-'}</td>
                       <td className="p-3.5 text-slate-700">{item.accountName || '-'}</td>
                       <td className="p-3.5 font-mono text-slate-700">{item.accountNumber || '-'}</td>
+                      <td className="p-3.5 font-bold text-slate-700">{item.currency || 'Belum diatur'}</td>
                       <td className="p-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button onClick={() => openMasterEditor('BANK_ACCOUNT', item)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500" title="Edit Bank Account"><Edit2 className="w-3.5 h-3.5"/></button>
@@ -1630,10 +1700,122 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     </tr>
                   ))}
                 {bankAccounts.length === 0 && (
-                  <tr><td colSpan={6} className="p-6 text-center text-slate-400">Belum ada data bank account.</td></tr>
+                  <tr><td colSpan={7} className="p-6 text-center text-slate-400">Belum ada data bank account.</td></tr>
                 )}
               </tbody>
             </table>
+          </div>
+        )}
+        {activeTab === 'CASH_BALANCE_ADJUSTMENTS' && (
+          <div className="space-y-5 p-5">
+            <section className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <h2 className="text-sm font-black text-amber-900">Tambah Penyesuaian Saldo Kas Awal</h2>
+              <p className="mt-1 text-xs text-amber-800">
+                Nominal positif (+) menambah saldo; nominal negatif (-) mengurangi saldo. Perubahan berlaku mulai tanggal efektif, termasuk tanggal itu. Jika tanggal efektif hari ini, saldo hari ini langsung berubah setelah disimpan; tanggal efektif mendatang baru mengubah saldo pada tanggal tersebut. Catatan tidak dapat diedit atau dihapus.
+              </p>
+              <form onSubmit={(event) => { void saveCashBalanceAdjustment(event); }} className="mt-4 grid gap-3 md:grid-cols-2">
+                <label className="text-xs font-semibold text-slate-600">
+                  Rekening
+                  <select
+                    required
+                    value={adjustmentAccountId}
+                    onChange={(event) => setAdjustmentAccountId(event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800"
+                  >
+                    <option value="">Pilih rekening</option>
+                    {bankAccounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.bankName} · {account.accountNumber} · {account.currency || 'Currency belum diatur'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-xs font-semibold text-slate-600">
+                  Nominal koreksi (gunakan minus untuk mengurangi)
+                  <input
+                    required
+                    type="number"
+                    step="0.01"
+                    value={adjustmentAmount}
+                    onChange={(event) => setAdjustmentAmount(event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 font-mono text-sm text-slate-800"
+                    placeholder={bankAccounts.find((account) => account.id === adjustmentAccountId)?.currency === 'USD' ? 'Contoh: 5000 atau -5000' : 'Contoh: 10000000 atau -10000000'}
+                  />
+                </label>
+                <label className="text-xs font-semibold text-slate-600">
+                  Tanggal efektif
+                  <input
+                    required
+                    type="date"
+                    min="2026-10-22"
+                    value={adjustmentEffectiveDate}
+                    onChange={(event) => setAdjustmentEffectiveDate(event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800"
+                  />
+                </label>
+                <label className="text-xs font-semibold text-slate-600">
+                  Alasan penyesuaian
+                  <input
+                    required
+                    maxLength={2000}
+                    value={adjustmentReason}
+                    onChange={(event) => setAdjustmentReason(event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800"
+                    placeholder="Jelaskan alasan koreksi saldo"
+                  />
+                </label>
+                {bankAccounts.length === 0 && (
+                  <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 md:col-span-2">
+                    Tambahkan rekening bank di Master Data → Bank Account terlebih dahulu.
+                  </div>
+                )}
+                {addFormError && <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 md:col-span-2">{addFormError}</div>}
+                <div className="flex justify-end md:col-span-2">
+                  <button
+                    type="submit"
+                    disabled={bankAccounts.length === 0}
+                    className="master-data-submit rounded-lg px-4 py-2.5 text-xs font-bold !text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Simpan Penyesuaian
+                  </button>
+                </div>
+              </form>
+            </section>
+
+            {uploadMessage && <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">{uploadMessage}</div>}
+
+            <section className="overflow-x-auto rounded-xl border border-slate-200">
+              <h2 className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-black uppercase tracking-wide text-slate-600">Riwayat Penyesuaian (tidak dapat diubah)</h2>
+              <table className="w-full min-w-[800px] text-left text-xs">
+                <thead className="bg-white text-[10px] uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="p-3">Tanggal Efektif</th>
+                    <th className="p-3">Rekening</th>
+                    <th className="p-3 text-right">Nominal</th>
+                    <th className="p-3">Alasan</th>
+                    <th className="p-3">Dibuat Oleh / Waktu</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {[...cashBalanceAdjustments]
+                    .sort((first, second) => second.effectiveDate.localeCompare(first.effectiveDate) || second.createdAt.localeCompare(first.createdAt))
+                    .map((adjustment) => (
+                      <tr key={adjustment.id}>
+                        <td className="whitespace-nowrap p-3 font-mono text-slate-700">{adjustment.effectiveDate}</td>
+                        <td className="p-3 text-slate-700">{adjustment.bankName}<div className="font-mono text-[10px] text-slate-500">{adjustment.accountNumber} · {adjustment.currency}</div></td>
+                        <td className={`whitespace-nowrap p-3 text-right font-mono font-bold ${adjustment.amount > 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                          {adjustment.amount > 0 ? '+' : ''}{new Intl.NumberFormat(adjustment.currency === 'IDR' ? 'id-ID' : 'en-US', { maximumFractionDigits: 2 }).format(adjustment.amount)} {adjustment.currency}
+                        </td>
+                        <td className="max-w-sm p-3 text-slate-700">{adjustment.reason}</td>
+                        <td className="whitespace-nowrap p-3 text-slate-600">{adjustment.createdBy}<div className="text-[10px] text-slate-400">{adjustment.createdAt}</div></td>
+                      </tr>
+                    ))}
+                  {cashBalanceAdjustments.length === 0 && (
+                    <tr><td colSpan={5} className="p-6 text-center text-slate-400">Belum ada penyesuaian saldo kas.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </section>
           </div>
         )}
       </div>}
@@ -1776,6 +1958,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                   <label className="block"><span className="text-slate-500 font-semibold">Branch</span><input value={editMasterForm.branch || ''} onChange={e=>setEditMasterForm({...editMasterForm,branch:e.target.value})} className="master-edit-input" /></label>
                   <label className="block"><span className="text-slate-500 font-semibold">A/C Name</span><input required value={editMasterForm.accountName || ''} onChange={e=>setEditMasterForm({...editMasterForm,accountName:e.target.value})} className="master-edit-input" /></label>
                   <label className="block"><span className="text-slate-500 font-semibold">A/C Number</span><input required value={editMasterForm.accountNumber || ''} onChange={e=>setEditMasterForm({...editMasterForm,accountNumber:e.target.value})} className="master-edit-input" /></label>
+                  <label className="block"><span className="text-slate-500 font-semibold">Currency</span><select required value={editMasterForm.currency || ''} onChange={e=>setEditMasterForm({...editMasterForm,currency:e.target.value})} className="master-edit-input"><option value="" disabled>Pilih mata uang</option><option value="IDR">IDR</option><option value="USD">USD</option></select></label>
                 </>
               )}
 
@@ -2341,6 +2524,13 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                   <div>
                     <label className="text-slate-400 block mb-1">A/c Number:</label>
                     <input required value={newBankAccount.accountNumber} onChange={(e) => setNewBankAccount({ ...newBankAccount, accountNumber: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono" placeholder="Nomor rekening" />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Currency:</label>
+                    <select required value={newBankAccount.currency || 'IDR'} onChange={(e) => setNewBankAccount({ ...newBankAccount, currency: e.target.value as 'IDR' | 'USD' })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white">
+                      <option value="IDR">IDR</option>
+                      <option value="USD">USD</option>
+                    </select>
                   </div>
                   {addFormError && <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{addFormError}</div>}
                 </>

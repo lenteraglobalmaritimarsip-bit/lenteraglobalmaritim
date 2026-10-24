@@ -105,6 +105,12 @@ export const apiAuth = {
       body: JSON.stringify({ oldPassword, newPassword }),
     });
   },
+  async verifyCurrentPassword(password: string): Promise<void> {
+    await request<{ ok: boolean }>('auth.php?action=verify-current-password', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    });
+  },
 };
 
 export interface PdaDraftItem {

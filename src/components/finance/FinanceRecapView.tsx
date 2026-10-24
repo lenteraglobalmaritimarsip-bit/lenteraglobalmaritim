@@ -5,6 +5,7 @@ import { AccountsReceivableEntry, Currency, JobCall, PaymentVoucher, PrincipalRe
 import { loadAccountsReceivableHistory } from '../../lib/api';
 import { formatDateDisplay, toLocalISODate } from '../../utils/date';
 import { DateInput } from '../shared/DateInput';
+import { getPaymentVoucherPaymentEvents } from '../../utils/paymentVoucherHistory';
 
 interface FinanceRecapViewProps {
   paymentVouchers: PaymentVoucher[];
@@ -113,7 +114,7 @@ const toIncomeRow = (entry: AccountsReceivableEntry): IncomeRow => {
     id: entry.id,
     jobId: entry.jobId || '',
     date: String(entry.incomeDate).slice(0, 10),
-    paymentType: principalEntry ? (entry.invoiceType === 'FDA' ? 'ADVANCE_PAYMENT' : 'INVOICE') : null,
+    paymentType: principalEntry ? entry.paymentType : null,
     subject: principalEntry ? 'Principal' : 'Operasional',
     principal: principalEntry ? entry.principalName || '-' : '-',
     vesselOrJob: principalEntry ? entry.vesselName || entry.jobId || '-' : '-',
@@ -303,7 +304,8 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
   const expenseRows = useMemo(() => {
     if (invalidRange) return [];
     const voucherExpenses = paymentVouchers
-      .filter((voucher) => voucher.status === 'PAID' && Boolean(voucher.paidAt))
+      .flatMap(getPaymentVoucherPaymentEvents)
+      .filter((voucher) => Boolean(voucher.paidAt))
       .map(toExpenseRow);
     const refundExpenses = jobCalls.flatMap((job) => (job.principalReceipts || [])
       .filter((receipt) => receipt.refundStatus === 'PAID')
@@ -732,7 +734,7 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
       </div>
 
       <p className="text-[11px] text-slate-500">
-        Dasar perhitungan: pemasukan dari Accounts Receivable menurut Date Income; pengeluaran dari Payment Voucher berstatus PAID menurut tanggal bayar. Nilai USD dikonversi ke IDR memakai kurs historis yang tersimpan pada Request Date.
+        Dasar perhitungan: pemasukan dari Accounts Receivable menurut Date Income; pengeluaran dari seluruh transaksi Payment Voucher yang dibayar, termasuk pembayaran lama pada Error Correction. Nilai USD dikonversi ke IDR memakai kurs historis yang tersimpan pada Request Date.
       </p>
     </div>
   );

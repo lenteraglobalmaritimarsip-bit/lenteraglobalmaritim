@@ -22,7 +22,7 @@ try {
                 ? 'ar.exchange_rate_usd_to_idr'
                 : "CASE WHEN ar.invoice_type = 'FPDA' THEN COALESCE(NULLIF(pd.exchange_rate, 0), vc.exchange_rate_usd_to_idr, 0) "
                     . 'ELSE COALESCE(f.exchange_rate_usd_to_idr, vc.exchange_rate_usd_to_idr, 0) END';
-            $sql = 'SELECT ar.id, ar.job_id, ar.invoice_type, ar.invoice_no, ar.income_date, ar.principal_name, ar.vessel_name, '
+            $sql = 'SELECT ar.id, ar.job_id, ar.invoice_type, ar.payment_type, ar.invoice_no, ar.income_date, ar.principal_name, ar.vessel_name, '
                 . $exchangeRateSelect . ' AS exchange_rate_usd_to_idr, '
                 . 'ar.remark, ar.bank_name, ar.idr_amount, ar.usd_amount, ar.created_by_name, ar.created_at '
                 . 'FROM accounts_receivable_entries ar '
@@ -44,6 +44,7 @@ try {
                 'id' => $row['id'],
                 'jobId' => $row['job_id'],
                 'invoiceType' => $row['invoice_type'],
+                'paymentType' => $row['payment_type'],
                 'invoiceNo' => $row['invoice_no'],
                 'incomeDate' => (string) $row['income_date'],
                 'principalName' => $row['principal_name'] ?? '',
@@ -94,7 +95,7 @@ try {
                     . 'ELSE COALESCE(f.exchange_rate_usd_to_idr, vc.exchange_rate_usd_to_idr, 0) END';
             $rows = $pdo->query(
                 'SELECT ar.id, ar.subject_data, ar.job_id, ar.invoice_type, ar.invoice_no, ar.income_date, ar.principal_name, ar.vessel_name, '
-                . 'ar.pph23_amount_idr, ar.remark, ar.bank_account_id, ar.bank_name, ar.account_name, ar.account_number, '
+                .                 'ar.payment_type, ar.pph23_amount_idr, ar.remark, ar.bank_account_id, ar.bank_name, ar.account_name, ar.account_number, '
                 . 'ar.idr_amount, ar.usd_amount, ' . $exchangeRateSelect . ' AS exchange_rate_usd_to_idr, '
                 . 'ar.attachment_name, ar.created_by_name, ar.created_at '
                 . 'FROM accounts_receivable_entries ar '
@@ -108,6 +109,7 @@ try {
                 'subjectData' => $row['subject_data'],
                 'jobId' => $row['job_id'],
                 'invoiceType' => $row['invoice_type'],
+                'paymentType' => $row['payment_type'],
                 'invoiceNo' => $row['invoice_no'],
                 'incomeDate' => (string) $row['income_date'],
                 'principalName' => $row['principal_name'],
@@ -133,7 +135,8 @@ try {
             "SELECT vc.job_id AS job_id, 'FDA' AS invoice_type, f.fda_no AS invoice_no, "
             . 'c.company_name AS principal_name, v.name AS vessel_name, '
             . 'COALESCE(f.currency, vc.currency) AS currency, '
-            . 'COALESCE(f.exchange_rate_usd_to_idr, vc.exchange_rate_usd_to_idr, 0) AS exchange_rate '
+            . 'COALESCE(f.exchange_rate_usd_to_idr, vc.exchange_rate_usd_to_idr, 0) AS exchange_rate, '
+            . 'CASE WHEN f.fda_approved = 1 OR f.approval_status = \'APPROVED\' THEN 1 ELSE 0 END AS fda_approved '
             . 'FROM vessel_calls vc '
             . 'INNER JOIN customers c ON c.id = vc.customer_id '
             . 'INNER JOIN vessels v ON v.id = vc.vessel_id '
@@ -142,7 +145,7 @@ try {
             . "WHERE f.fda_no <> '' AND vc.status <> 'CLOSED' AND vc.current_stage <> 'CLOSED' AND COALESCE(cr.is_closed, 0) = 0 "
             . 'UNION ALL '
             . "SELECT vc.job_id AS job_id, 'FPDA' AS invoice_type, pd.pda_no AS invoice_no, "
-            . 'c.company_name AS principal_name, v.name AS vessel_name, pd.currency, pd.exchange_rate '
+            . 'c.company_name AS principal_name, v.name AS vessel_name, pd.currency, pd.exchange_rate, 0 AS fda_approved '
             . 'FROM vessel_calls vc '
             . 'INNER JOIN customers c ON c.id = vc.customer_id '
             . 'INNER JOIN vessels v ON v.id = vc.vessel_id '
@@ -161,6 +164,7 @@ try {
                 'vesselName' => $row['vessel_name'],
                 'currency' => $row['currency'],
                 'exchangeRate' => (float) $row['exchange_rate'],
+                'fdaApproved' => (bool) $row['fda_approved'],
             ], $invoiceOptions),
             'bankAccounts' => array_map(static fn (array $row): array => [
                 'id' => $row['id'],
@@ -179,6 +183,7 @@ try {
     $subjectData = (string) ($body['subjectData'] ?? 'PRINCIPAL');
     $jobId = trim((string) ($body['jobId'] ?? ''));
     $invoiceType = (string) ($body['invoiceType'] ?? '');
+    $paymentType = (string) ($body['paymentType'] ?? '');
     $invoiceNo = trim((string) ($body['invoiceNo'] ?? ''));
     $incomeDate = (string) ($body['incomeDate'] ?? '');
     $bankAccountId = trim((string) ($body['bankAccountId'] ?? ''));
@@ -198,7 +203,9 @@ try {
         jsonResponse(['error' => 'Data Accounts Receivable belum lengkap atau tidak valid'], 400);
     }
     if ($subjectData === 'PRINCIPAL' && ($jobId === '' || strlen($jobId) > 50
-        || !in_array($invoiceType, ['FDA', 'FPDA'], true) || $invoiceNo === '' || strlen($invoiceNo) > 180)) {
+        || !in_array($invoiceType, ['FDA', 'FPDA'], true)
+        || ($invoiceType === 'FPDA' && !in_array($paymentType, ['ADVANCE_PAYMENT', 'INVOICE'], true))
+        || $invoiceNo === '' || strlen($invoiceNo) > 180)) {
         jsonResponse(['error' => 'Principal, Vessel, dan Invoice wajib dipilih untuk Subject Data Principal'], 400);
     }
     $attachmentBytes = base64_decode($attachmentMatch[2], true);
@@ -227,7 +234,7 @@ try {
     if ($subjectData === 'PRINCIPAL') {
         if ($invoiceType === 'FDA') {
             $invoiceQuery = $pdo->prepare(
-                "SELECT vc.job_id, f.fda_no AS invoice_no, c.company_name AS principal_name, v.name AS vessel_name, COALESCE(f.exchange_rate_usd_to_idr, vc.exchange_rate_usd_to_idr, 0) AS exchange_rate "
+                "SELECT vc.job_id, f.fda_no AS invoice_no, c.company_name AS principal_name, v.name AS vessel_name, COALESCE(f.exchange_rate_usd_to_idr, vc.exchange_rate_usd_to_idr, 0) AS exchange_rate, CASE WHEN f.fda_approved = 1 OR f.approval_status = 'APPROVED' THEN 1 ELSE 0 END AS fda_approved "
                 . 'FROM vessel_calls vc INNER JOIN fda_records f ON f.job_id = vc.job_id '
                 . 'INNER JOIN customers c ON c.id = vc.customer_id INNER JOIN vessels v ON v.id = vc.vessel_id '
                 . 'LEFT JOIN closing_records cr ON cr.job_id = vc.job_id '
@@ -246,6 +253,9 @@ try {
         $invoice = $invoiceQuery->fetch();
         if (!$invoice) jsonResponse(['error' => 'Invoice FDA/FPDA tidak ditemukan atau Job sudah ditutup'], 409);
         $exchangeRate = (float) ($invoice['exchange_rate'] ?? 0);
+        if ($invoiceType === 'FDA') {
+            $paymentType = !empty($invoice['fda_approved']) ? 'INVOICE' : 'ADVANCE_PAYMENT';
+        }
         if ($usdAmount > 0 && (!is_finite($exchangeRate) || $exchangeRate <= 0)) {
             jsonResponse(['error' => 'Kurs pada invoice FDA/FPDA belum valid untuk penerimaan USD'], 409);
         }
@@ -265,6 +275,7 @@ try {
         'subject_data' => $subjectData,
         'job_id' => $jobId,
         'invoice_type' => $invoiceType,
+        'payment_type' => $subjectData === 'PRINCIPAL' ? $paymentType : 'INVOICE',
         'invoice_no' => $invoiceNo,
         'income_date' => $incomeDate,
         'principal_name' => $invoice['principal_name'],

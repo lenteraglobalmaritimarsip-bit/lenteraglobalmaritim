@@ -116,6 +116,9 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
     [invoiceOptions, principalName, vesselName],
   );
   const selectedInvoice = filteredInvoices.find((option) => invoiceOptionKey(option) === selectedInvoiceKey) || null;
+  const effectivePaymentType = subjectData === 'PRINCIPAL' && selectedInvoice?.invoiceType === 'FDA'
+    ? selectedInvoice.fdaApproved ? 'INVOICE' : 'ADVANCE_PAYMENT'
+    : paymentType;
   const selectedBank = bankAccounts.find((account) => account.id === bankAccountId) || null;
   const isInvoiceRateLocked = subjectData === 'PRINCIPAL';
   const effectiveUsdIdrRate = subjectData === 'PRINCIPAL'
@@ -247,7 +250,7 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
     try {
       await createAccountsReceivableEntry({
         subjectData,
-        paymentType,
+        paymentType: effectivePaymentType,
         ...(subjectData === 'PRINCIPAL' && selectedInvoice ? {
           jobId: selectedInvoice.jobId,
           invoiceType: selectedInvoice.invoiceType,
@@ -303,10 +306,16 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
             </select>
           </label>
           <label className="text-xs font-semibold text-slate-600">Tujuan Penerimaan *
-            <select required value={paymentType} onChange={(event) => setPaymentType(event.target.value as ReceivablePaymentType)} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900">
-              <option value="ADVANCE_PAYMENT">Advance Payment</option>
-              <option value="INVOICE">Pembayaran / Pelunasan Invoice</option>
-            </select>
+            {subjectData === 'PRINCIPAL' && selectedInvoice?.invoiceType === 'FDA' ? (
+              <div className="mt-1 flex h-10 items-center rounded-md border border-slate-300 bg-slate-50 px-3 text-sm font-bold text-slate-800">
+                {effectivePaymentType === 'ADVANCE_PAYMENT' ? 'Advance Payment (FDA belum disetujui)' : 'Pembayaran / Pelunasan Invoice (FDA disetujui)'}
+              </div>
+            ) : (
+              <select required value={paymentType} onChange={(event) => setPaymentType(event.target.value as ReceivablePaymentType)} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900">
+                <option value="ADVANCE_PAYMENT">Advance Payment</option>
+                <option value="INVOICE">Pembayaran / Pelunasan Invoice</option>
+              </select>
+            )}
           </label>
           <label className="text-xs font-semibold text-slate-600">Principal {subjectData === 'PRINCIPAL' ? '*' : ''}
             <select required={subjectData === 'PRINCIPAL'} disabled={subjectData === 'OPERATIONAL'} value={principalName} onChange={(event) => { setPrincipalName(event.target.value); setVesselName(''); setSelectedInvoiceKey(''); }} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 disabled:bg-slate-100">

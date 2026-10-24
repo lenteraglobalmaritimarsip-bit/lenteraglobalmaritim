@@ -65,9 +65,10 @@ export const SalesDashboardView:React.FC<SalesDashboardViewProps>=({jobCalls,onN
     const roundCurrency = (amount: number) => Math.round((amount + Number.EPSILON) * 100) / 100;
     const vat = categories.reduce((sum, group) => {
       if (quote.globalVatApplied) return sum;
-      return sum + group.items.reduce((categorySum, item) => (
-        categorySum + (item.vatApplied ? roundCurrency(item.amount * 0.11) : 0)
+      const taxableAmount = group.items.reduce((categorySum, item) => (
+        categorySum + (item.vatApplied ? item.amount : 0)
       ), 0);
+      return sum + roundCurrency(taxableAmount * 0.11);
     }, 0);
     const baseAmount = Number(quote.totalAmount || 0);
     const pph23Applied = quote.pph23Applied ?? items.some((item) => item.pph23Applied);

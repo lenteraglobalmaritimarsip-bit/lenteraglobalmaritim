@@ -4,6 +4,7 @@ import ExcelJS from 'exceljs';
 import { listFpdaNumbers } from '../../lib/api';
 import { JobCall, PaymentVoucher } from '../../types';
 import { formatDateDisplay } from '../../utils/date';
+import { getPaymentVoucherPaymentEvents } from '../../utils/paymentVoucherHistory';
 
 interface FinancialHistoryViewProps {
   paymentVouchers: PaymentVoucher[];
@@ -88,7 +89,8 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
 
   const rows = useMemo(
     () => invalidFilter ? [] : paymentVouchers
-      .filter((voucher) => voucher.status === 'PAID' && Boolean(voucher.paidAt))
+      .flatMap(getPaymentVoucherPaymentEvents)
+      .filter((voucher) => Boolean(voucher.paidAt))
       .filter((voucher) => {
         const paidDate = String(voucher.paidAt).slice(0, 10);
         return (!startPaidDate || paidDate >= startPaidDate) && (!endPaidDate || paidDate <= endPaidDate);
