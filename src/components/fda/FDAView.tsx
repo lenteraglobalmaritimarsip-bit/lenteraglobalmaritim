@@ -21,7 +21,7 @@ import {
   Upload,
   Trash2,
 } from 'lucide-react';
-import { JobCall, FdaItem, ActiveTab, Vessel, FixTariff, ExpensesItem, Currency, DisbursementItem, PrincipalReceipt, formatPurposeOfCall } from '../../types';
+import { JobCall, FdaItem, ActiveTab, Vessel, FixTariff, ExpensesItem, Currency, DisbursementItem, PrincipalReceipt, User, Customer, formatPurposeOfCall } from '../../types';
 import { db } from '../../db/storage';
 import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, filterTariffsByGRT, selectPreferredTariffOptions } from '../../utils/tariff';
 import { formatDateDisplay, formatInquiryDate, getLatestInquiryMonthRange, isInquiryDateInRange, todayISO } from '../../utils/date';
@@ -34,6 +34,7 @@ import { createMasterItemSearchOptions, MasterItemSearch, MasterItemSearchOption
 import { FormattedNumberInput } from '../shared/FormattedNumberInput';
 import { ApprovedSalesPdaTotal, listApprovedFdaPdaTotals, loadFdaReceivableEntries } from '../../lib/api';
 import { officePrintPageStyles } from '../../utils/officePrintPageStyles';
+import { InquiryVesselDetails } from '../shared/InquiryVesselDetails';
 
 interface FDAViewProps {
   initialTab?: 'DASHBOARD' | 'JOB_ID' | 'FDA_AMOUNT' | 'QUOTES_VIEW' | 'APPROVAL';
@@ -41,6 +42,8 @@ interface FDAViewProps {
   useJobReceiptsForAdvance?: boolean;
   jobCalls: JobCall[];
   vessels: Vessel[];
+  users?: User[];
+  customers?: Customer[];
   activeJob: JobCall;
   activeUserBranch?: string;
   onSelectJob: (jobId: string) => void;
@@ -55,6 +58,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
   useJobReceiptsForAdvance = false,
   jobCalls,
   vessels,
+  users = [],
+  customers = [],
   activeJob,
   activeUserBranch,
   onSelectJob,
@@ -456,6 +461,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
   const fdaEpdaDisplayNo = activeJob.quotation?.epda?.quoteNo || `EPDA-${activeJob.jobId}`;
   const vesselMaster = vessels.find((vessel) => vessel.id === activeJob.vesselId);
+  const creator = users.find((user) => user.id === activeJob.inquiry?.createdByUserId)
+    || users.find((user) => user.name.trim().toLowerCase() === (activeJob.inquiry?.createdByName || activeJob.inquiry?.createdBy || '').split(' (')[0].trim().toLowerCase());
+  const customer = customers.find((item) => item.id === activeJob.customerId);
   const rateForCurrency = (currency: 'IDR' | 'USD', rateIDR: number | undefined, rateUSD: number | undefined, legacyRate: number, legacyCurrency?: 'IDR' | 'USD') => {
     return getTariffRateForCurrency(currency, rateIDR, rateUSD, legacyRate, legacyCurrency);
   };
@@ -1877,44 +1885,29 @@ export const FDAView: React.FC<FDAViewProps> = ({
             </div>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
-            <div className="flex items-center justify-between gap-3 mb-4">
-              <div>
-                <div className="text-[10px] font-mono font-bold uppercase text-emerald-400">Inquiry Vessel Details</div>
-                <h2 className="text-lg font-black text-white mt-1">Informasi Lengkap Inquiry Vessel</h2>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 text-xs">
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Inquiry No</div><div className="mt-1 font-bold text-cyan-300 font-mono">{activeJob.inquiry?.inquiryNo || '-'}</div></div>
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Tanggal Inquiry</div><div className="mt-1 font-bold text-white">{formatInquiryDate(activeJob.inquiry?.date)}</div></div>
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Status Inquiry</div><div className="mt-1 font-bold text-emerald-300">{activeJob.inquiry?.status || 'CONVERTED'}</div></div>
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Dibuat Oleh</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.createdBy || '-'}</div></div>
-
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Branch</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.createdByBranch || '-'}</div></div>
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Vessel</div><div className="mt-1 font-bold text-white">{activeJob.vesselName || '-'}</div></div>
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">IMO</div><div className="mt-1 font-bold text-white font-mono">{vesselMaster?.imoNumber || '-'}</div></div>
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Call Sign / Flag</div><div className="mt-1 font-bold text-white font-mono">{vesselMaster?.callSign || '-'} / {vesselMaster?.flag || '-'}</div></div>
-
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Principal</div><div className="mt-1 font-bold text-white">{activeJob.customerName || '-'}</div></div>
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Port</div><div className="mt-1 font-bold text-white">{activeJob.portName || '-'}</div></div>
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">ETA</div><div className="mt-1 font-bold text-white font-mono">{getFDAScheduleDisplay(fdaSchedule.eta, fdaSchedule.etaRemarks)}</div></div>
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">ETD</div><div className="mt-1 font-bold text-white font-mono">{getFDAScheduleDisplay(fdaSchedule.etd, fdaSchedule.etdRemarks)}</div></div>
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Cargo Quantity</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.cargoQuantity || 0} {activeJob.inquiry?.quantityUnit || 'TON'}</div></div>
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Purpose</div><div className="mt-1 font-bold text-white">{activeJob.purposeOfCall || '-'}</div></div>
-  <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Purpose</div><div className="mt-1 font-bold text-white">{formatPurposeOfCall(activeJob.purposeOfCall)}</div></div>
-
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Estimated Days</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.estimatedDays || 0} hari</div></div>
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Cargo Details</div><div className="mt-1 font-bold text-white">{activeJob.inquiry?.cargoDetails || '-'}</div></div>
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Vessel Type</div><div className="mt-1 font-bold text-white">{vesselMaster?.vesselType || '-'}</div></div>
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Gross / Net / DWT</div><div className="mt-1 font-bold text-white font-mono">{formatTariffNumber(vesselMaster?.grt)} / {formatTariffNumber(vesselMaster?.nrt)} / {formatTariffNumber(vesselMaster?.dwt)}</div></div>
-
-              <div className="md:col-span-2 xl:col-span-4 bg-slate-950 border border-slate-800 rounded-xl p-3">
-                <div className="text-slate-400 uppercase tracking-wider">Special Requirements</div>
-                <div className="mt-1 text-white leading-relaxed">{activeJob.inquiry?.specialRequirements || 'Tidak ada requirement khusus.'}</div>
-              </div>
-            </div>
-          </div>
+          <InquiryVesselDetails
+            dateLabel="Tanggal Inquiry"
+            inquiryNo={activeJob.inquiry?.inquiryNo}
+            inquiryDate={activeJob.inquiry?.date}
+            status={activeJob.inquiry?.status || 'CONVERTED'}
+            branch={activeJob.inquiry?.createdByBranch}
+            createdBy={activeJob.inquiry?.createdByName || activeJob.inquiry?.createdBy}
+            vesselName={activeJob.vesselName}
+            vessel={vesselMaster}
+            eta={fdaSchedule.eta || activeJob.inquiry?.eta || activeJob.eta}
+            etd={fdaSchedule.etd || activeJob.inquiry?.etd || activeJob.etd}
+            etaRemarks={fdaSchedule.etaRemarks || activeJob.inquiry?.etaRemarks}
+            etdRemarks={fdaSchedule.etdRemarks || activeJob.inquiry?.etdRemarks}
+            cargoQuantity={activeJob.inquiry?.cargoQuantity}
+            quantityUnit={activeJob.inquiry?.quantityUnit}
+            purposeOfCall={activeJob.purposeOfCall}
+            portName={activeJob.portName}
+            estimatedDays={activeJob.inquiry?.estimatedDays}
+            cargoDetails={activeJob.inquiry?.cargoDetails}
+            specialRequirements={activeJob.inquiry?.specialRequirements}
+            customer={customer}
+            recipient={creator}
+          />
 
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
             <div className="mb-4">
@@ -2261,17 +2254,17 @@ export const FDAView: React.FC<FDAViewProps> = ({
       )}
 
       {subTab === 'FDA_AMOUNT' && (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
-          <h3 className="mb-4 text-[15px] font-bold uppercase tracking-wide text-emerald-800">
+        <div className="fda-advance-history w-full min-w-0 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
+          <h3 className="mb-4 break-words text-[15px] font-bold uppercase leading-relaxed tracking-wide text-emerald-800">
             Advance Received · History
           </h3>
-          <div className="overflow-x-auto">
+          <div className="min-w-0">
             <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-700">History Payment</h4>
             {financeReceivableError && <p role="alert" className="mb-2 text-xs font-semibold text-rose-600">{financeReceivableError}</p>}
             {(advancePaymentHistory.length > 0 || financeReceivableEntries.length > 0) && (
-              <div className="space-y-1 text-xs text-slate-700">
+              <div className="min-w-0 space-y-1 text-xs text-slate-700">
                 {financeReceivableEntries.map((entry) => (
-                  <div key={entry.id} className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+                  <div key={entry.id} className="min-w-0 break-words rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 leading-relaxed">
                     {formatDateDisplay(entry.incomeDate)} · {formatAccountingNumber(
                       convertReceiptCurrency(Number(entry.idrAmount || 0), 'IDR', viewCurrency)
                         + convertReceiptCurrency(Number(entry.usdAmount || 0), 'USD', viewCurrency),
@@ -2281,8 +2274,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
                 ))}
                 {advancePaymentHistory.map((receipt) => (
                   <React.Fragment key={receipt.id}>
-                    <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-100 bg-white px-3 py-2">
-                      <span>
+                    <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-100 bg-white px-3 py-2">
+                      <span className="min-w-0 flex-1 break-words leading-relaxed">
                         {formatDateDisplay(receipt.receivedDate)} · {formatAccountingNumber(
                           convertReceiptCurrency(
                             Number(receipt.amount || 0),

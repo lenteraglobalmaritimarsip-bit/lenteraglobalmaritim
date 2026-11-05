@@ -1,16 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, CheckCircle2, FileSpreadsheet, Pencil, Plus, Printer, Send, Trash2, X } from 'lucide-react';
-import { JobCall, Vessel, formatPurposeOfCall } from '../../types';
+import { Customer, JobCall, User, Vessel, formatPurposeOfCall } from '../../types';
 import { formatDateDisplay, formatInquiryDate } from '../../utils/date';
 import { getPublicLogoUrl } from '../../utils/logo';
 import { DateTimeInput } from '../shared/DateTimeInput';
 import { FormattedNumberInput } from '../shared/FormattedNumberInput';
 import { ContinuedPdaItemReference, loadPdaServiceItemHistory, openPdaDraft, PdaDocumentType, PdaDraft, savePdaDraft, submitPdaDraft } from '../../lib/api';
 import { officePrintPageStyles } from '../../utils/officePrintPageStyles';
+import { InquiryVesselDetails } from '../shared/InquiryVesselDetails';
 
 interface CrewPDAViewProps {
   job?: JobCall;
   vessels: Vessel[];
+  users?: User[];
+  customers?: Customer[];
   onBack: () => void;
   pdaType?: PdaDocumentType;
 }
@@ -229,7 +232,7 @@ export const createPdaPreviewHtml = (
   </body></html>`;
 };
 
-export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, pdaType = 'SALES' }) => {
+export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, users = [], customers = [], onBack, pdaType = 'SALES' }) => {
   const documentPdaType: PdaDocumentType = pdaType === 'FDA' ? 'FDA' : 'SALES';
   const documentLabel = documentPdaType === 'FDA' ? 'FPDA' : 'PDA Crew';
   const [items, setItems] = useState<PdaEntryItem[]>([]);
@@ -576,28 +579,9 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
     return <div role="alert" className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-200">Pilih Job terlebih dahulu untuk mengisi PDA Crew.</div>;
   }
 
-  const detailCards = [
-    ['Inquiry No', job.inquiry.inquiryNo],
-    ['Date Quotes', formatInquiryDate(job.quotation?.epda?.date || job.inquiry.date)],
-    ['Status Inquiry', job.inquiry.status],
-    ['Dibuat Oleh', job.inquiry.createdByName || job.inquiry.createdBy || 'System'],
-    ['Branch', job.inquiry.createdByBranch || '-'],
-    ['Vessel', job.vesselName],
-    ['IMO', vesselMaster?.imoNumber || '-'],
-    ['Call Sign / Flag', `${vesselMaster?.callSign || '-'} / ${vesselMaster?.flag || '-'}`],
-    ['Principal', job.customerName],
-    ['Port', job.portName],
-    ['ETA', job.inquiry.eta || job.eta || '-'],
-    ['ETD', job.inquiry.etd || job.etd || '-'],
-    ['Keterangan ETA', etaRemarks || '-'],
-    ['Keterangan ETD', etdRemarks || '-'],
-    ['Cargo Quantity', `${job.inquiry.cargoQuantity || 0} ${job.inquiry.quantityUnit || 'TON'}`],
-    ['Purpose', formatPurposeOfCall(job.purposeOfCall)],
-    ['Estimated Days', `${job.inquiry.estimatedDays || 0} hari`],
-    ['Cargo Details', job.inquiry.cargoDetails || '-'],
-    ['Vessel Type', vesselMaster?.vesselType || '-'],
-    ['Gross / Net / DWT', `${vesselMaster?.grt?.toLocaleString('en-US') || '-'} / ${vesselMaster?.nrt?.toLocaleString('en-US') || '-'} / ${vesselMaster?.dwt?.toLocaleString('en-US') || '-'}`],
-  ];
+  const creator = users.find((user) => user.id === job.inquiry.createdByUserId)
+    || users.find((user) => user.name.trim().toLowerCase() === (job.inquiry.createdByName || job.inquiry.createdBy).split(' (')[0].trim().toLowerCase());
+  const customer = customers.find((item) => item.id === job.customerId);
   const pdaGroups = groupPdaItems(items);
   const grandTotalLabel = pdaGroups.length
     ? documentPdaType === 'FDA'
@@ -661,24 +645,29 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
         <div className="epda-summary-card epda-summary-total rounded-2xl border border-slate-800 bg-slate-900 p-4"><span className="text-xs font-bold uppercase text-slate-400">Grand Total</span><span className="mt-1 block font-mono text-emerald-300">{formatAmount(total, currency)}</span></div>
       </div>
 
-      <section className="epda-results-card rounded-2xl border border-slate-800 bg-slate-900 p-4 shadow-xl">
-        <div className="mb-3">
-          <div className="text-[10px] font-mono font-bold uppercase text-emerald-400">Inquiry Vessel Details</div>
-          <h2 className="mt-1 text-lg font-black text-white">Informasi Lengkap Inquiry Vessel</h2>
-        </div>
-        <div className="grid grid-cols-1 gap-2.5 text-xs md:grid-cols-2 xl:grid-cols-4">
-          {detailCards.map(([label, value]) => (
-            <div key={label} className="rounded-xl border border-slate-800 bg-slate-950 p-2.5">
-              <div className="uppercase tracking-wider text-slate-400">{label}</div>
-              <div className="mt-1 font-bold text-white">{value}</div>
-            </div>
-          ))}
-          <div className="rounded-xl border border-slate-800 bg-slate-950 p-2.5 md:col-span-2 xl:col-span-4">
-            <div className="uppercase tracking-wider text-slate-400">Special Requirements</div>
-            <div className="mt-1 leading-relaxed text-white">{job.inquiry.specialRequirements || 'Tidak ada requirement khusus.'}</div>
-          </div>
-        </div>
-      </section>
+      <InquiryVesselDetails
+        inquiryNo={job.inquiry.inquiryNo}
+        inquiryDate={job.inquiry.date}
+        quoteDate={job.quotation?.epda?.date}
+        status={job.inquiry.status}
+        branch={job.inquiry.createdByBranch}
+        createdBy={job.inquiry.createdByName || job.inquiry.createdBy}
+        vesselName={job.vesselName}
+        vessel={vesselMaster}
+        eta={eta || job.inquiry.eta || job.eta}
+        etd={etd || job.inquiry.etd || job.etd}
+        etaRemarks={etaRemarks || job.inquiry.etaRemarks}
+        etdRemarks={etdRemarks || job.inquiry.etdRemarks}
+        cargoQuantity={job.inquiry.cargoQuantity}
+        quantityUnit={job.inquiry.quantityUnit}
+        purposeOfCall={job.purposeOfCall}
+        portName={job.portName}
+        estimatedDays={job.inquiry.estimatedDays}
+        cargoDetails={job.inquiry.cargoDetails}
+        specialRequirements={job.inquiry.specialRequirements}
+        customer={customer}
+        recipient={creator}
+      />
 
       <section className="epda-results-card rounded-2xl border border-slate-800 bg-slate-900 p-4 shadow-xl">
         <div className="mb-3">

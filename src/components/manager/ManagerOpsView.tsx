@@ -16,7 +16,7 @@ import {
   Search,
   Printer,
 } from 'lucide-react';
-import { JobCall, ActiveTab, ExpensesItem, FixTariff, Vessel } from '../../types';
+import { JobCall, ActiveTab, Customer, ExpensesItem, FixTariff, User, Vessel } from '../../types';
 import { db } from '../../db/storage';
 import { formatDateDisplay, formatInquiryDate, formatInquiryDateRange, isInquiryDateInRange } from '../../utils/date';
 import { formatCostCategoryLabel } from '../../utils/costCategories';
@@ -32,7 +32,8 @@ interface ManagerOpsViewProps {
   jobCalls: JobCall[];
   approverName: string;
   vessels?: Vessel[];
-  users?: Array<{ id?: string; name?: string; branch?: string; username?: string; role?: string }>;
+  users?: User[];
+  customers?: Customer[];
   fixTariffs: FixTariff[];
   expensesItems: ExpensesItem[];
   onSelectJob: (jobId: string) => void;
@@ -45,6 +46,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
   approverName,
   vessels = [],
   users = [],
+  customers = [],
   fixTariffs,
   expensesItems,
   onSelectJob,
@@ -762,6 +764,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                                   onSelectJob={onSelectJob}
                                   allJobs={jobCalls}
                                   users={users}
+                                  customers={customers}
                                   fixTariffs={fixTariffs}
                                   expensesItems={expensesItems}
                                   printPreviewOnly
@@ -785,6 +788,8 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                                   jobCalls={jobCalls}
                                   vessels={vessels}
                                   activeJob={job}
+                                  users={users}
+                                  customers={customers}
                                   fixTariffs={fixTariffs}
                                   expensesItems={expensesItems}
                                   onSelectJob={onSelectJob}
@@ -996,7 +1001,8 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                           vessels={vessels}
                           onSelectJob={onSelectJob}
                           allJobs={jobCalls}
-                          users={[]}
+                          users={users}
+                          customers={customers}
                           fixTariffs={fixTariffs}
                           expensesItems={expensesItems}
                           printPreviewOnly
@@ -1082,6 +1088,8 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                           jobCalls={jobCalls}
                           vessels={vessels}
                           activeJob={job}
+                          users={users}
+                          customers={customers}
                           onSelectJob={onSelectJob}
                           fixTariffs={fixTariffs}
                           expensesItems={expensesItems}

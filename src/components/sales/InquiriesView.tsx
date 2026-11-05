@@ -14,19 +14,21 @@ import {
   Trash2,
   ChevronDown,
 } from 'lucide-react';
-import { JobCall, Vessel, Port, Customer, PurposeOfCall, PURPOSE_OF_CALL_OPTIONS } from '../../types';
+import { JobCall, Vessel, Port, Customer, User, PurposeOfCall, PURPOSE_OF_CALL_OPTIONS } from '../../types';
 import { db } from '../../db/storage';
 import { AuthAccount } from '../../auth';
 import { formatDateDisplay, formatInquiryDate, isInquiryDateInRange, todayISO } from '../../utils/date';
 import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateRangePicker';
 import { DateTimeInput } from '../shared/DateTimeInput';
 import { listApprovedPdaJobIds } from '../../lib/api';
+import { InquiryVesselDetails } from '../shared/InquiryVesselDetails';
 
 interface InquiriesViewProps {
   jobCalls: JobCall[];
   vessels: Vessel[];
   ports: Port[];
   customers: Customer[];
+  users: User[];
   currentUser: AuthAccount;
   onSelectJob: (jobId: string) => void;
   onNavigateToQuotes: () => void;
@@ -138,6 +140,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
   vessels,
   ports,
   customers,
+  users,
   currentUser,
   onSelectJob,
   onNavigateToQuotes,
@@ -245,6 +248,11 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
   });
 
   const selectedVessel = vessels.find((v) => v.id === form.vesselId);
+  const selectedCustomer = customers.find((customer) => customer.id === form.customerId);
+  const selectedInquiryJob = jobCalls.find((job) => job.jobId === editingJobId);
+  const inquiryCreatorName = selectedInquiryJob?.inquiry.createdByName || selectedInquiryJob?.inquiry.createdBy || currentUser.name;
+  const inquiryCreator = users.find((user) => user.id === selectedInquiryJob?.inquiry.createdByUserId)
+    || users.find((user) => user.name.trim().toLowerCase() === inquiryCreatorName.split(' (')[0].trim().toLowerCase());
   const inquiryDatePickerRef = useRef<HTMLInputElement>(null);
   const openInquiryDatePicker = () => {
     const datePicker = inquiryDatePickerRef.current as (HTMLInputElement & { showPicker?: () => void }) | null;
@@ -991,6 +999,30 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
                 />
               </div>
+
+              <InquiryVesselDetails
+                dateLabel="Date Inquiry"
+                inquiryNo={selectedInquiryJob?.inquiry.inquiryNo}
+                inquiryDate={form.inquiryDate}
+                status={selectedInquiryJob?.inquiry.status}
+                branch={selectedInquiryJob?.inquiry.createdByBranch || currentUser.branch}
+                createdBy={selectedInquiryJob?.inquiry.createdByName || currentUser.name}
+                vesselName={selectedVessel?.name}
+                vessel={selectedVessel}
+                eta={form.eta}
+                etd={form.etd}
+                etaRemarks={form.etaRemarks}
+                etdRemarks={form.etdRemarks}
+                cargoQuantity={Number(form.cargoQuantity) || 0}
+                quantityUnit={form.quantityUnit}
+                purposeOfCall={form.purposeOfCall}
+                portName={ports.find((port) => port.id === form.portId)?.name}
+                estimatedDays={Number(form.estimatedDays) || 0}
+                cargoDetails={form.cargoDetails}
+                specialRequirements={form.specialRequirements}
+                customer={selectedCustomer}
+                recipient={inquiryCreator}
+              />
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
                 <button

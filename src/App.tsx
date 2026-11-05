@@ -455,6 +455,7 @@ export default function App() {
                 vessels={data.vessels}
                 ports={data.ports}
                 customers={data.customers}
+                users={data.users}
                 currentUser={currentUser}
                 onSelectJob={setSelectedJobId}
                 onNavigateToQuotes={() => setActiveTab('QUOTES_EPDA_DETAIL')}
@@ -485,6 +486,7 @@ export default function App() {
                 onSelectJob={setSelectedJobId}
                 allJobs={roleVisibleJobCalls}
                 users={data.users}
+                customers={data.customers}
                 fixTariffs={data.fixTariffs}
                 expensesItems={data.expensesItems}
                 onDataSaved={notifySaved}
@@ -495,6 +497,8 @@ export default function App() {
               <CrewPDAView
                 job={currentJob}
                 vessels={data.vessels}
+                users={data.users}
+                customers={data.customers}
                 onBack={() => setActiveTab('QUOTES_EPDA')}
               />
             )}
@@ -513,6 +517,7 @@ export default function App() {
                 vessels={data.vessels}
                 ports={data.ports}
                 customers={data.customers}
+                users={data.users}
                 currentUser={currentUser}
                 onSelectJob={setSelectedJobId}
                 onNavigateToQuotes={() => setActiveTab('FDA_AMOUNT')}
@@ -546,6 +551,8 @@ export default function App() {
               <CrewPDAView
                 job={currentJob}
                 vessels={data.vessels}
+                users={data.users}
+                customers={data.customers}
                 pdaType="FDA"
                 onBack={() => setActiveTab('FDA_QUOTES_EPDA')}
               />
@@ -612,6 +619,7 @@ export default function App() {
                   approverName={currentUser.name}
                   vessels={data.vessels}
                   users={data.users}
+                  customers={data.customers}
                   fixTariffs={data.fixTariffs}
                   expensesItems={data.expensesItems}
                   onSelectJob={setSelectedJobId}
@@ -643,6 +651,8 @@ export default function App() {
                   }
                   jobCalls={roleVisibleJobCalls}
                   vessels={data.vessels}
+                  users={data.users}
+                  customers={data.customers}
                   activeJob={currentJob}
                   activeUserBranch={currentUser?.branch}
                   onSelectJob={setSelectedJobId}
@@ -728,6 +738,8 @@ export default function App() {
                 key={viewSessionKey}
                 jobCalls={data.jobCalls}
                 vessels={data.vessels}
+                users={data.users}
+                customers={data.customers}
                 onSelectJob={setSelectedJobId}
               />
             )}
@@ -848,6 +860,8 @@ export default function App() {
                 key={viewSessionKey}
                 jobCalls={currentRole === 'FDA' ? data.jobCalls : roleVisibleJobCalls}
                 vessels={data.vessels}
+                users={data.users}
+                customers={data.customers}
                 onSelectJob={setSelectedJobId}
                 onOpenJob={(jobId) => { setSelectedJobId(jobId); }}
               />

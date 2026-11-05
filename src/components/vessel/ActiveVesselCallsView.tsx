@@ -3,13 +3,16 @@ import {
   Download, FileSpreadsheet, FileText, Search, Ship, CalendarDays, ChevronRight, ChevronDown,
   ArrowLeft, CheckCircle2, Clock3, AlertCircle, CircleDot
 } from 'lucide-react';
-import { JobCall, Vessel } from '../../types';
+import { Customer, JobCall, User, Vessel } from '../../types';
 import { formatDateDisplay, formatInquiryDate, formatInquiryDateRange, isInquiryDateInRange } from '../../utils/date';
 import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateRangePicker';
+import { InquiryVesselDetails } from '../shared/InquiryVesselDetails';
 
 interface Props {
   jobCalls: JobCall[];
   vessels: Vessel[];
+  users?: User[];
+  customers?: Customer[];
   onSelectJob: (id: string) => void;
   onOpenJob?: (id: string) => void;
 }
@@ -113,7 +116,7 @@ const toneIcon = (tone: 'open'|'done'|'waiting'|'danger') => {
   return <CircleDot size={16}/>;
 };
 
-export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,onSelectJob}) => {
+export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,users = [],customers = [],onSelectJob}) => {
   const [dateRange, setDateRange] = useState<InquiryDateRange>({ from: '', to: '' });
   const [query,setQuery] = useState('');
   const [page,setPage] = useState(1);
@@ -221,6 +224,9 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,onSelec
     const conclusion = statuses[statuses.length - 1];
     const inquiryOwner = resolveInquiryOwner(selectedJob);
     const inquiry = safeInquiry(selectedJob);
+    const inquiryCreator = users.find((user) => user.id === inquiry.createdByUserId)
+      || users.find((user) => user.name.trim().toLowerCase() === inquiryOwner.createdBy.split(' (')[0].trim().toLowerCase());
+    const customer = customers.find((item) => item.id === selectedJob.customerId);
     return <div className="vessel-calls-page">
       <section className="vessel-calls-hero">
         <div>
@@ -236,47 +242,34 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,onSelec
         </div>
       </section>
 
-      <section className="vessel-inquiry-card">
-        <div className="vessel-inquiry-head">
-          <div><div className="eyebrow"><FileText size={14}/> INQUIRY DATA</div><h2>Vessel Call Inquiry</h2><p>Ringkasan inquiry yang menjadi dasar pembentukan Vessel Call ini.</p></div>
-          <span className={`inquiry-status ${String(inquiry.status || 'received').toLowerCase()}`}>{inquiry.status}</span>
-        </div>
-        <div className="vessel-inquiry-grid">
-          <div><small>INQUIRY NO.</small><strong>{inquiry.inquiryNo}</strong></div>
-          <div><small>TANGGAL INQUIRY</small><strong>{formatInquiryDate(inquiry.date)}</strong></div>
-          <div><small>STATUS INQUIRY</small><strong>{inquiry.status}</strong></div>
-          <div><small>DIBUAT OLEH</small><strong>{inquiryOwner.createdBy}</strong></div>
-
-          <div><small>BRANCH</small><strong>{inquiryOwner.branch}</strong></div>
-          <div><small>VESSEL</small><strong>{selectedJob.vesselName}</strong></div>
-          <div><small>IMO</small><strong>{selectedVessel?.imoNumber || '-'}</strong></div>
-          <div><small>CALL SIGN / FLAG</small><strong>{selectedVessel?.callSign || '-'} / {selectedVessel?.flag || '-'}</strong></div>
-
-          <div><small>CUSTOMER / PRINCIPAL</small><strong>{selectedJob.customerName}</strong></div>
-          <div><small>PELABUHAN TUJUAN</small><strong>{selectedJob.portName}</strong></div>
-          <div><small>ETA</small><strong>{formatDateDisplay(selectedJob.eta, true)}</strong></div>
-          <div><small>KETERANGAN ETA</small><strong>{inquiry.etaRemarks || '-'}</strong></div>
-
-          <div><small>ETD</small><strong>{formatDateDisplay(selectedJob.etd, true)}</strong></div>
-          <div><small>KETERANGAN ETD</small><strong>{inquiry.etdRemarks || '-'}</strong></div>
-          <div><small>CARGO QUANTITY</small><strong>{inquiry.cargoQuantity ?? '-'} {inquiry.quantityUnit === 'MT' ? 'MT' : 'T'}</strong></div>
-          <div><small>ESTIMASI DURASI</small><strong>{inquiry.estimatedDays ?? 0} hari</strong></div>
-
-          <div><small>VESSEL TYPE</small><strong>{selectedVessel?.vesselType || '-'}</strong></div>
-          <div><small>GRT / NRT / DWT</small><strong>{selectedVessel?.grt ?? '-'} / {selectedVessel?.nrt ?? '-'} / {selectedVessel?.dwt ?? '-'}</strong></div>
-          <div><small>LOA / BEAM</small><strong>{selectedVessel ? `${selectedVessel.loa} m` : '-'} / {selectedVessel ? `${selectedVessel.beam} m` : '-'}</strong></div>
-          <div><small>FDA NO.</small><strong>{selectedJob.fda?.fdaNo || '-'}</strong></div>
-
-          <div><small>FDA DATE</small><strong>{selectedJob.fda?.date ? formatDateDisplay(selectedJob.fda.date) : '-'}</strong></div>
-          <div><small>USER CREATE EPDA</small><strong>{inquiryOwner.createdBy}</strong></div>
-          <div><small>BRANCH</small><strong>{inquiryOwner.branch}</strong></div>
-          <div><small>STATUS VESSEL CALL</small><strong>{selectedJob.status}</strong></div>
-
-          <div className="wide"><small>TUJUAN KUNJUNGAN</small><strong>{(selectedJob.purposeOfCall || '').replace(/_/g, ' ') || '-'}</strong></div>
-          <div className="wide"><small>CARGO / PURPOSE DETAILS</small><strong>{inquiry.cargoDetails || '-'}</strong></div>
-          <div className="wide"><small>SPECIAL REQUIREMENTS</small><strong>{inquiry.specialRequirements || 'Tidak ada catatan khusus.'}</strong></div>
-        </div>
-      </section>
+      <InquiryVesselDetails
+        dateLabel="Tanggal Inquiry"
+        inquiryNo={inquiry.inquiryNo}
+        inquiryDate={inquiry.date}
+        status={inquiry.status}
+        branch={inquiryOwner.branch}
+        createdBy={inquiry.createdByName || inquiryOwner.createdBy}
+        vesselName={selectedJob.vesselName}
+        vessel={selectedVessel || undefined}
+        eta={selectedJob.eta}
+        etd={selectedJob.etd}
+        etaRemarks={inquiry.etaRemarks}
+        etdRemarks={inquiry.etdRemarks}
+        cargoQuantity={inquiry.cargoQuantity}
+        quantityUnit={inquiry.quantityUnit}
+        purposeOfCall={selectedJob.purposeOfCall}
+        portName={selectedJob.portName}
+        estimatedDays={inquiry.estimatedDays}
+        cargoDetails={inquiry.cargoDetails}
+        specialRequirements={inquiry.specialRequirements}
+        customer={customer}
+        recipient={inquiryCreator}
+        fdaNo={selectedJob.fda?.fdaNo || '-'}
+        fdaDate={selectedJob.fda?.date || ''}
+        vesselCallStatus={statusLabel[selectedJob.status] || selectedJob.status}
+        loa={selectedVessel?.loa}
+        beam={selectedVessel?.beam}
+      />
 
       <section className="vessel-status-conclusion">
         <div className="vessel-conclusion-head">

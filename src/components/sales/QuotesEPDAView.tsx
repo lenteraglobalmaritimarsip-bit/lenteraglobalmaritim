@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getPublicLogoUrl } from '../../utils/logo';
 import { FileSpreadsheet, Plus, Trash2, Save, Ship, Building, CheckCircle2, Download, Printer, Eye, Send, Pencil, Check, X } from 'lucide-react';
-import { JobCall, DisbursementItem, Currency, User, Vessel, FixTariff, ExpensesItem, formatPurposeOfCall } from '../../types';
+import { JobCall, DisbursementItem, Currency, User, Vessel, Customer, FixTariff, ExpensesItem, formatPurposeOfCall } from '../../types';
 import { db } from '../../db/storage';
 import { calculateTariffForJob, CalculationBasis, describeTariffFormula, describeTariffService, matchesTariffGRT, parseTariffNumber, formatTariffNumber, getTariffRateForCurrency, selectPreferredTariffOptions } from '../../utils/tariff';
 import { formatCostCategoryLabel, getCostCategoryRank, normalizeCostCategory } from '../../utils/costCategories';
@@ -11,6 +11,7 @@ import { FormattedNumberInput } from '../shared/FormattedNumberInput';
 import { findMatchingExpensesItem, findMatchingFixTariff } from '../../utils/masterDataIdentity';
 import { createMasterItemSearchOptions, MasterItemSearch, MasterItemSearchOption } from '../shared/MasterItemSearch';
 import { officePrintPageStyles } from '../../utils/officePrintPageStyles';
+import { InquiryVesselDetails } from '../shared/InquiryVesselDetails';
 
 interface QuotesEPDAViewProps {
   job?: JobCall;
@@ -18,13 +19,14 @@ interface QuotesEPDAViewProps {
   onSelectJob: (jobId: string) => void;
   allJobs: JobCall[];
   users: User[];
+  customers?: Customer[];
   fixTariffs?: FixTariff[];
   expensesItems?: ExpensesItem[];
   onDataSaved?: () => void;
   printPreviewOnly?: boolean;
 }
 
-export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, users, allJobs, fixTariffs = [], expensesItems = [], onDataSaved, printPreviewOnly = false }) => {
+export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, users, customers = [], allJobs, fixTariffs = [], expensesItems = [], onDataSaved, printPreviewOnly = false }) => {
   if (!job) {
     return (
       <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-5 text-sm text-amber-200">
@@ -178,7 +180,9 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     return Math.round((taxableAmount * 0.11 + Number.EPSILON) * 100) / 100;
   };
   const creatorName = job.inquiry.createdBy.split(' (')[0].trim().toLowerCase();
-  const creator = users.find((user) => user.name.trim().toLowerCase() === creatorName);
+  const creator = users.find((user) => user.id === job.inquiry.createdByUserId)
+    || users.find((user) => user.name.trim().toLowerCase() === creatorName);
+  const customer = customers.find((item) => item.id === job.customerId);
   const vesselMaster = vessels.find((vessel) => vessel.id === job.vesselId);
   const manualTariffPreview = calculateTariffForJob({
     vesselGRT: vesselMaster?.grt || 0,
@@ -1184,45 +1188,29 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
         <div className="epda-summary-card epda-summary-total bg-slate-900 border border-slate-800 rounded-2xl p-4"><span className="text-xs uppercase font-normal text-slate-400">Grand Total</span><span className="mt-1 block font-normal text-emerald-300 font-mono">{formatAmount(grandTotalAmount)}</span></div>
       </div>
 
-      <div className="epda-results-card bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
-        <div className="flex items-center justify-between gap-3 mb-4">
-          <div>
-            <div className="text-[10px] font-mono font-bold uppercase text-emerald-400">Inquiry Vessel Details</div>
-            <h2 className="text-lg font-black text-white mt-1">Informasi Lengkap Inquiry Vessel</h2>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 text-xs">
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Inquiry No</div><div className="mt-1 font-bold text-cyan-300 font-mono">{job.inquiry.inquiryNo}</div></div>
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Date Quotes</div><div className="mt-1 font-bold text-white">{formatInquiryDate(quoteDate)}</div></div>
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Status Inquiry</div><div className="mt-1 font-bold text-emerald-300">{job.inquiry.status}</div></div>
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Dibuat Oleh</div><div className="mt-1 font-bold text-white">{job.inquiry.createdBy || 'System'}</div></div>
-
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Branch</div><div className="mt-1 font-bold text-white">{job.inquiry.createdByBranch || creator?.branch || 'Head Office'}</div></div>
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Vessel</div><div className="mt-1 font-bold text-white">{job.vesselName}</div></div>
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">IMO</div><div className="mt-1 font-bold text-white font-mono">{vesselMaster?.imoNumber || '-'}</div></div>
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Call Sign / Flag</div><div className="mt-1 font-bold text-white font-mono">{vesselMaster?.callSign || '-'} / {vesselMaster?.flag || '-'}</div></div>
-
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Principal</div><div className="mt-1 font-bold text-white">{job.customerName}</div></div>
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Port</div><div className="mt-1 font-bold text-white">{job.portName}</div></div>
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">ETA</div><div className="mt-1 font-bold text-white font-mono">{inquiryEtaDisplay}</div></div>
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">ETD</div><div className="mt-1 font-bold text-white font-mono">{inquiryEtdDisplay}</div></div>
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Keterangan ETA</div><div className="mt-1 font-bold text-white">{job.inquiry?.etaRemarks || '-'}</div></div>
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Keterangan ETD</div><div className="mt-1 font-bold text-white">{job.inquiry?.etdRemarks || '-'}</div></div>
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Cargo Quantity</div><div className="mt-1 font-bold text-white">{job.inquiry.cargoQuantity || 0} {job.inquiry.quantityUnit || 'TON'}</div></div>
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Purpose</div><div className="mt-1 font-bold text-white">{formatPurposeOfCall(job.purposeOfCall)}</div></div>
-
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Estimated Days</div><div className="mt-1 font-bold text-white">{job.inquiry.estimatedDays || 0} hari</div></div>
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Cargo Details</div><div className="mt-1 font-bold text-white">{job.inquiry.cargoDetails || '-'}</div></div>
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Vessel Type</div><div className="mt-1 font-bold text-white">{vesselMaster?.vesselType || '-'}</div></div>
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3"><div className="text-slate-400 uppercase tracking-wider">Gross / Net / DWT</div><div className="mt-1 font-bold text-white font-mono">{formatTariffNumber(vesselMaster?.grt)} / {formatTariffNumber(vesselMaster?.nrt)} / {formatTariffNumber(vesselMaster?.dwt)}</div></div>
-
-          <div className="md:col-span-2 xl:col-span-4 bg-slate-950 border border-slate-800 rounded-xl p-3">
-            <div className="text-slate-400 uppercase tracking-wider">Special Requirements</div>
-            <div className="mt-1 text-white leading-relaxed">{job.inquiry.specialRequirements || 'Tidak ada requirement khusus.'}</div>
-          </div>
-        </div>
-      </div>
+      <InquiryVesselDetails
+        inquiryNo={job.inquiry.inquiryNo}
+        inquiryDate={job.inquiry.date}
+        quoteDate={quoteDate}
+        status={job.inquiry.status}
+        branch={job.inquiry.createdByBranch || creator?.branch || 'Head Office'}
+        createdBy={job.inquiry.createdByName || job.inquiry.createdBy || 'System'}
+        vesselName={job.vesselName}
+        vessel={vesselMaster}
+        eta={inquiryEta}
+        etd={inquiryEtd}
+        etaRemarks={job.inquiry.etaRemarks}
+        etdRemarks={job.inquiry.etdRemarks}
+        cargoQuantity={job.inquiry.cargoQuantity}
+        quantityUnit={job.inquiry.quantityUnit}
+        purposeOfCall={job.purposeOfCall}
+        portName={job.portName}
+        estimatedDays={job.inquiry.estimatedDays}
+        cargoDetails={job.inquiry.cargoDetails}
+        specialRequirements={job.inquiry.specialRequirements}
+        customer={customer}
+        recipient={creator}
+      />
 
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
         <div className="mb-4">
