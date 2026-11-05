@@ -21,10 +21,92 @@ function tableColumns(PDO $pdo, string $table): ?array
     return $cache[$table];
 }
 
+function allocateFinanceJournalNumber(PDO $pdo, string $branchId, string $branchName, string $date): string
+{
+    if (!preg_match('/^(\d{4})-\d{2}-\d{2}$/', substr($date, 0, 10), $dateMatch)) {
+        throw new RuntimeException('Tanggal transaksi tidak valid untuk membuat nomor jurnal.');
+    }
+    $branchQuery = $pdo->prepare('SELECT code FROM branches WHERE id = :branch_id AND is_active = 1 LIMIT 1');
+    $branchQuery->execute(['branch_id' => (int) $branchId]);
+    $branchCode = (string) ($branchQuery->fetchColumn() ?: strtoupper(trim($branchName)));
+    if (!preg_match('/^[A-Z0-9]{2,10}$/', $branchCode)) {
+        throw new RuntimeException('Kode branch tidak valid untuk membuat nomor jurnal.');
+    }
+
+    $ownsTransaction = !$pdo->inTransaction();
+    if ($ownsTransaction) $pdo->beginTransaction();
+    try {
+        $insert = $pdo->prepare(
+            'INSERT IGNORE INTO finance_journal_sequences (branch_code, journal_year, last_number) '
+            . 'VALUES (:branch_code, :journal_year, 0)'
+        );
+        $insert->execute(['branch_code' => $branchCode, 'journal_year' => (int) $dateMatch[1]]);
+        $select = $pdo->prepare(
+            'SELECT last_number FROM finance_journal_sequences '
+            . 'WHERE branch_code = :branch_code AND journal_year = :journal_year FOR UPDATE'
+        );
+        $select->execute(['branch_code' => $branchCode, 'journal_year' => (int) $dateMatch[1]]);
+        $nextNumber = (int) $select->fetchColumn() + 1;
+        $update = $pdo->prepare(
+            'UPDATE finance_journal_sequences SET last_number = :last_number '
+            . 'WHERE branch_code = :branch_code AND journal_year = :journal_year'
+        );
+        $update->execute([
+            'last_number' => $nextNumber,
+            'branch_code' => $branchCode,
+            'journal_year' => (int) $dateMatch[1],
+        ]);
+        if ($ownsTransaction) $pdo->commit();
+        return sprintf('JRN/%s/%s/%06d', $branchCode, $dateMatch[1], $nextNumber);
+    } catch (Throwable $error) {
+        if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
+        throw $error;
+    }
+}
+
 function tableRows(string $table): array
 {
     if (tableColumns(db(), $table) === null) return [];
     return db()->query("SELECT * FROM `{$table}`")->fetchAll();
+}
+
+function branchCatalog(): array
+{
+    static $branches = null;
+    if ($branches === null) $branches = tableRows('branches');
+    return $branches;
+}
+
+function branchDisplayId(mixed $id): ?string
+{
+    if ($id === null || !is_numeric($id) || (int) $id <= 0) return null;
+    return str_pad((string) (int) $id, 3, '0', STR_PAD_LEFT);
+}
+
+function branchIdFromValue(?string $value): ?string
+{
+    $value = strtolower(trim((string) $value));
+    if ($value === '') return null;
+    foreach (branchCatalog() as $branch) {
+        $displayId = str_pad((string) $branch['id'], 3, '0', STR_PAD_LEFT);
+        if ($value === strtolower($displayId)
+            || $value === strtolower((string) $branch['code'])
+            || $value === strtolower((string) $branch['name'])) {
+            return $displayId;
+        }
+    }
+    return null;
+}
+
+function branchCodeFromId(mixed $id, ?string $fallback = ''): string
+{
+    $id = trim((string) $id);
+    if ($id !== '') {
+        foreach (branchCatalog() as $branch) {
+            if (ctype_digit($id) && (int) $id === (int) $branch['id']) return (string) $branch['code'];
+        }
+    }
+    return trim((string) $fallback);
 }
 
 function indexBy(array $rows, string $key): array
@@ -61,10 +143,20 @@ function appDateTime(?string $value): ?string
 
 function loadAppState(): array
 {
+    $branchRows = tableRows('branches');
+    usort($branchRows, static fn (array $first, array $second): int => strcmp((string) $first['id'], (string) $second['id']));
+    $branches = array_map(static fn (array $row): array => [
+        'id' => str_pad((string) $row['id'], 3, '0', STR_PAD_LEFT),
+        'code' => (string) $row['code'],
+        'name' => (string) $row['name'],
+        'isActive' => (bool) $row['is_active'],
+    ], $branchRows);
     $users = array_map(static fn (array $row): array => [
         'id' => $row['id'], 'name' => $row['name'], 'email' => $row['email'],
         'username' => $row['username'], 'role' => $row['role'], 'department' => $row['department'],
-        'branch' => $row['branch_name'] ?? '', 'position' => $row['position'],
+        'branch' => branchCodeFromId($row['branch_id'] ?? null, $row['branch_name'] ?? ''),
+        'branchId' => branchDisplayId($row['branch_id'] ?? null) ?? branchIdFromValue($row['branch_name'] ?? ''),
+        'position' => $row['position'],
         'phone' => $row['phone'], 'status' => $row['status'],
     ], tableRows('users'));
     $customers = array_map(static fn (array $row): array => [
@@ -107,6 +199,13 @@ function loadAppState(): array
         ...($row['rate_usd'] === null ? [] : ['rateUSD' => (float) $row['rate_usd']]),
         'calculationType' => $row['calculation_type'], 'remarks' => $row['remarks'] ?? '',
     ], tableRows('expenses_items'));
+    $chartOfAccounts = array_map(static fn (array $row): array => [
+        'id' => $row['id'],
+        'code' => $row['code'],
+        'accountDesc' => $row['account_desc'],
+        'accountGroup' => $row['account_group'],
+        'isActive' => (bool) $row['is_active'],
+    ], tableRows('chart_of_accounts'));
     $vendorPartners = array_map(static fn (array $row): array => [
         'id' => $row['id'], 'vendorName' => $row['vendor_name'], 'bankName' => $row['bank_name'] ?? '',
         'picName' => $row['pic_name'] ?? '', 'address' => $row['address'] ?? '', 'phone' => $row['phone'] ?? '',
@@ -115,11 +214,16 @@ function loadAppState(): array
     $bankAccounts = array_map(static fn (array $row): array => [
         'id' => $row['id'], 'bankName' => $row['bank_name'], 'accountName' => $row['account_name'],
         'branch' => $row['branch'] ?? '', 'accountNumber' => $row['account_number'],
+        'coaId' => $row['coa_id'] ?? '',
+        'branchName' => branchCodeFromId($row['branch_id'] ?? null, $row['branch_name'] ?? ''),
+        'branchId' => branchDisplayId($row['branch_id'] ?? null) ?? branchIdFromValue($row['branch_name'] ?? ''),
         'currency' => $row['currency'] ?? null,
     ], tableRows('bank_accounts'));
     $cashBalanceAdjustments = array_map(static fn (array $row): array => [
         'id' => $row['id'],
         'bankAccountId' => $row['bank_account_id'],
+        'branchName' => branchCodeFromId($row['branch_id'] ?? null, $row['branch_name'] ?? ''),
+        'branchId' => branchDisplayId($row['branch_id'] ?? null) ?? branchIdFromValue($row['branch_name'] ?? ''),
         'bankName' => $row['bank_name'],
         'accountNumber' => $row['account_number'],
         'currency' => $row['currency'],
@@ -134,8 +238,11 @@ function loadAppState(): array
         $voucherItems[$row['voucher_id']][] = [
             'line' => (int) $row['line_no'], 'id' => $row['id'], 'jobNumber' => $row['job_number'], 'customerName' => $row['customer_name'],
             'documentType' => $row['document_type'] ?? null, 'documentNumber' => $row['document_number'] ?? null,
-            'itemService' => $row['item_service'], 'amount' => (float) $row['amount'], 'vatApplied' => (bool) $row['vat_applied'],
+            'itemService' => $row['item_service'], 'category' => $row['category'] ?? '', 'tariffType' => $row['tariff_type'] ?? 'FIXED', 'price' => (float) ($row['price'] ?? $row['amount']),
+            'quantity' => (float) ($row['quantity'] ?? 1), 'unit' => $row['unit'] ?? '', 'remarks' => $row['remarks'] ?? '',
+            'coaId' => $row['coa_id'] ?? '', 'amount' => (float) $row['amount'], 'vatApplied' => (bool) $row['vat_applied'],
             'vatAmount' => (float) $row['vat_amount'], 'total' => (float) $row['total'], 'pph23Applied' => (bool) $row['pph23_applied'],
+            'pphRate' => (float) ($row['pph_rate'] ?? 0),
             'pph23Amount' => (float) $row['pph23_amount'], 'paidAmount' => (float) $row['paid_amount'],
         ];
     }
@@ -144,26 +251,33 @@ function loadAppState(): array
         usort($items, static fn (array $a, array $b): int => $a['line'] <=> $b['line']);
         $paymentHistory = json_decode((string) ($row['payment_history'] ?? ''), true);
         if (!is_array($paymentHistory)) $paymentHistory = [];
+        $paymentJournalLines = json_decode((string) ($row['payment_journal_lines'] ?? ''), true);
+        if (!is_array($paymentJournalLines)) $paymentJournalLines = [];
         $paymentHistory = array_map(static function (array $payment): array {
             unset($payment['correctionReason']);
             return $payment;
         }, $paymentHistory);
         return [
-            'id' => $row['id'], 'voucherNumber' => $row['voucher_number'] ?: null, 'requestNumber' => $row['request_number'], 'requestDate' => $row['request_date'], 'currency' => $row['currency'] ?? 'IDR', 'exchangeRateUSDToIDR' => (float) ($row['exchange_rate_usd_to_idr'] ?? 0), 'exchangeRateDate' => $row['exchange_rate_date'] ?? '', 'requestedPaymentDate' => $row['requested_payment_date'] ?? $row['request_date'], 'jobInfo' => $row['job_info'],
+            'id' => $row['id'], 'branchName' => branchCodeFromId($row['branch_id'] ?? null, $row['branch_name'] ?? ''), 'branchId' => branchDisplayId($row['branch_id'] ?? null) ?? branchIdFromValue($row['branch_name'] ?? ''), 'voucherNumber' => $row['voucher_number'] ?: null, 'journalNumber' => $row['journal_number'] ?? '', 'requestNumber' => $row['request_number'], 'requestDate' => $row['request_date'], 'currency' => $row['currency'] ?? 'IDR', 'exchangeRateUSDToIDR' => (float) ($row['exchange_rate_usd_to_idr'] ?? 0), 'exchangeRateDate' => $row['exchange_rate_date'] ?? '', 'requestedPaymentDate' => $row['requested_payment_date'] ?? $row['request_date'], 'jobInfo' => $row['job_info'],
             'paidFromBankAccountId' => $row['paid_from_bank_account_id'] ?? '',
             'requestBy' => $row['request_by'], 'requestByUserId' => $row['request_by_user_id'] ?? null, 'vendorPartnerId' => $row['vendor_partner_id'] ?? '', 'vendorName' => $row['vendor_name'],
             'paidTo' => $row['paid_to'] ?? '', 'bankName' => $row['bank_name'] ?? '', 'accountNumber' => $row['account_number'] ?? '',
             'items' => array_map(static function (array $item): array { unset($item['line']); return $item; }, $items),
             'totalPaidAmount' => (float) $row['total_paid_amount'], 'createdAt' => appDateTime($row['created_at']),
-                        'status' => $row['status'] ?? 'PENDING_MANAGER', 'managerNote' => $row['manager_note'] ?? '', 'reviewedBy' => $row['reviewed_by'] ?? '',
+                        'status' => $row['status'] ?? 'PENDING_MANAGER', 'approvalTargetRole' => $row['approval_target_role'] ?? null,
+                        'approvalTargetUserId' => $row['approval_target_user_id'] ?? null, 'approvalTargetName' => $row['approval_target_name'] ?? '',
+                        'managerNote' => $row['manager_note'] ?? '', 'reviewedBy' => $row['reviewed_by'] ?? '',
                         'reviewedAt' => !empty($row['reviewed_at']) ? appDateTime($row['reviewed_at']) : '', 'paidBy' => $row['paid_by'] ?? '',
                         'paidAt' => !empty($row['paid_at']) ? appDateTime($row['paid_at']) : '',
                         'paymentProofDataUrl' => $row['payment_proof_data_url'] ?? '',
                         'paymentSurcharge' => (float) ($row['payment_surcharge'] ?? 0),
+                        'paymentSurchargeCoaId' => $row['payment_surcharge_coa_id'] ?? '',
                         'paymentOtherExpenses' => (float) ($row['payment_other_expenses'] ?? 0),
+                        'paymentOtherExpensesCoaId' => $row['payment_other_expenses_coa_id'] ?? '',
                         'paymentDescription' => $row['payment_description'] ?? '',
                         'paymentTotalAmount' => (float) ($row['payment_total_amount'] ?? 0) ?: (float) $row['total_paid_amount'],
                         'paymentHistory' => $paymentHistory,
+                        'paymentJournalLines' => $paymentJournalLines,
                     ];
     }, tableRows('payment_vouchers'));
 
@@ -294,7 +408,7 @@ function loadAppState(): array
             'voidedBy' => $job['voided_by_name'] ?? '',
             'voidReason' => $job['void_reason'] ?? '',
             'createdAt' => appDateTime($job['created_at']), 'updatedAt' => appDateTime($job['updated_at']),
-            'inquiry' => ['inquiryNo' => $inquiry['inquiry_no'] ?? '', 'date' => $inquiry['inquiry_date'] ?? date('Y-m-d'), 'eta' => appDateTime($inquiry['eta'] ?? null) ?? '', 'etd' => appDateTime($inquiry['etd'] ?? null) ?? '', 'etaRemarks' => $inquiry['eta_remarks'] ?? '', 'etdRemarks' => $inquiry['etd_remarks'] ?? '', 'cargoQuantity' => isset($inquiry['cargo_quantity']) ? (float) $inquiry['cargo_quantity'] : null, 'quantityUnit' => ($inquiry['quantity_unit'] ?? 'TON') === 'MATRIX_TON' ? 'MT' : ($inquiry['quantity_unit'] ?? 'TON'), 'cargoDetails' => $inquiry['cargo_details'] ?? '', 'estimatedDays' => (float) ($inquiry['estimated_days'] ?? 0), 'specialRequirements' => $inquiry['special_requirements'] ?? '', 'status' => $inquiry['status'] ?? 'RECEIVED', 'createdBy' => $inquiry['created_by'] ?? $inquiry['created_by_name'] ?? '', 'createdByName' => $inquiry['created_by_name'] ?? '', 'createdByUserId' => ($inquiry['created_by_user_id'] ?? null) ?: null, 'createdByBranch' => $inquiry['created_by_branch'] ?? ''],
+            'inquiry' => ['inquiryNo' => $inquiry['inquiry_no'] ?? '', 'date' => $inquiry['inquiry_date'] ?? date('Y-m-d'), 'eta' => appDateTime($inquiry['eta'] ?? null) ?? '', 'etd' => appDateTime($inquiry['etd'] ?? null) ?? '', 'etaRemarks' => $inquiry['eta_remarks'] ?? '', 'etdRemarks' => $inquiry['etd_remarks'] ?? '', 'cargoQuantity' => isset($inquiry['cargo_quantity']) ? (float) $inquiry['cargo_quantity'] : null, 'quantityUnit' => ($inquiry['quantity_unit'] ?? 'TON') === 'MATRIX_TON' ? 'MT' : ($inquiry['quantity_unit'] ?? 'TON'), 'cargoDetails' => $inquiry['cargo_details'] ?? '', 'estimatedDays' => (float) ($inquiry['estimated_days'] ?? 0), 'specialRequirements' => $inquiry['special_requirements'] ?? '', 'status' => $inquiry['status'] ?? 'RECEIVED', 'createdBy' => $inquiry['created_by'] ?? $inquiry['created_by_name'] ?? '', 'createdByName' => $inquiry['created_by_name'] ?? '', 'createdByUserId' => ($inquiry['created_by_user_id'] ?? null) ?: null, 'createdByBranch' => branchCodeFromId($inquiry['created_by_branch_id'] ?? null, $inquiry['created_by_branch'] ?? ''), 'createdByBranchId' => branchDisplayId($inquiry['created_by_branch_id'] ?? null) ?? branchIdFromValue($inquiry['created_by_branch'] ?? '')],
             'quotation' => ['epda' => $epda, 'crewChange' => $crewChange],
             'managerApproval' => ['status' => $approval['status'] ?? 'PENDING', 'approvedBy' => $approval['approved_by_name'] ?? '', 'approvedAt' => appDateTime($approval['approved_at'] ?? null), 'notes' => $approval['notes'] ?? ''],
             'operationalData' => ['ata' => appDateTime($operation['ata'] ?? null), 'atb' => appDateTime($operation['atb'] ?? null), 'atd' => appDateTime($operation['atd'] ?? null), 'berthZoneName' => $operation['berth_zone_name'] ?? '', 'statementOfFacts' => $statementOfFacts],
@@ -314,7 +428,7 @@ function loadAppState(): array
         static fn (array $row): bool => !in_array($row['action'] ?? '', ['ERROR_CORRECTION', 'ERROR_CORRECTION_PAID'], true),
     )));
     $reservedJobIds = array_column(tableRows('job_call_number_registry'), 'job_id');
-    return ['users' => $users, 'customers' => $customers, 'vessels' => $vessels, 'ports' => $ports, 'zones' => $zones, 'fixTariffs' => $fixTariffs, 'expensesItems' => $expensesItems, 'vendorPartners' => $vendorPartners, 'bankAccounts' => $bankAccounts, 'cashBalanceAdjustments' => $cashBalanceAdjustments, 'paymentVouchers' => $paymentVouchers, 'jobCalls' => $jobCalls, 'reservedJobIds' => $reservedJobIds, 'currentRole' => $_SESSION['user']['role'] ?? 'ADMIN', 'selectedJobId' => $jobCalls[0]['jobId'] ?? '', 'auditLogs' => $auditLogs];
+    return ['branches' => $branches, 'users' => $users, 'customers' => $customers, 'vessels' => $vessels, 'ports' => $ports, 'zones' => $zones, 'fixTariffs' => $fixTariffs, 'expensesItems' => $expensesItems, 'chartOfAccounts' => $chartOfAccounts, 'vendorPartners' => $vendorPartners, 'bankAccounts' => $bankAccounts, 'cashBalanceAdjustments' => $cashBalanceAdjustments, 'paymentVouchers' => $paymentVouchers, 'jobCalls' => $jobCalls, 'reservedJobIds' => $reservedJobIds, 'currentRole' => $_SESSION['user']['role'] ?? 'ADMIN', 'selectedJobId' => $jobCalls[0]['jobId'] ?? '', 'auditLogs' => $auditLogs];
 }
 
 function normalizedCostCategory(array $item, array $fixTariffs): string
@@ -409,15 +523,24 @@ function replaceAppState(array $state): void
             . 'Apply database/migrations/20261020_add_inquiry_created_by.sql before saving inquiries.'
         );
     }
-    $bankAccountColumns = tableColumns($pdo, 'bank_accounts');
-    if ($bankAccountColumns === null || !in_array('currency', $bankAccountColumns, true)) {
+    if (!in_array('created_by_branch_id', $inquiryColumns, true)) {
         throw new DatabaseSchemaException(
-            'Database schema mismatch: bank_accounts is missing currency. '
-            . 'Apply database/migrations/20261023_add_bank_account_currency.sql before deploying the currency-aware release.'
+            'Database schema mismatch: inquiries is missing created_by_branch_id. '
+            . 'Apply database/migrations/20261024_add_branch_master.sql before saving Jobs.'
         );
     }
+    $bankAccountColumns = tableColumns($pdo, 'bank_accounts');
+    if ($bankAccountColumns === null || !in_array('currency', $bankAccountColumns, true) || !in_array('branch_name', $bankAccountColumns, true) || !in_array('branch_id', $bankAccountColumns, true) || !in_array('coa_id', $bankAccountColumns, true)) {
+        throw new DatabaseSchemaException(
+            'Database schema mismatch: bank_accounts is missing currency, branch ownership, or COA mapping. '
+            . 'Apply database/migrations/20261023_add_bank_account_currency.sql, database/migrations/20261024_add_branch_finance_scope.sql, database/migrations/20261024_add_branch_master.sql, and database/migrations/20261025_add_finance_coa.sql.'
+        );
+    }
+    if (tableColumns($pdo, 'branches') === null) {
+        throw new DatabaseSchemaException('Database schema mismatch: branches table is missing. Apply database/migrations/20261024_add_branch_master.sql.');
+    }
     $adjustmentColumns = tableColumns($pdo, 'cash_balance_adjustments');
-    $requiredAdjustmentColumns = ['id', 'bank_account_id', 'bank_name', 'account_number', 'currency', 'amount', 'effective_date', 'reason', 'created_by', 'created_at'];
+    $requiredAdjustmentColumns = ['id', 'bank_account_id', 'branch_name', 'branch_id', 'bank_name', 'account_number', 'currency', 'amount', 'effective_date', 'reason', 'created_by', 'created_at'];
     $missingAdjustmentColumns = $adjustmentColumns === null
         ? $requiredAdjustmentColumns
         : array_values(array_diff($requiredAdjustmentColumns, $adjustmentColumns));
@@ -425,7 +548,7 @@ function replaceAppState(array $state): void
         throw new DatabaseSchemaException(
             'Database schema mismatch: cash_balance_adjustments is missing required columns: '
             . implode(', ', $missingAdjustmentColumns)
-            . '. Apply database/migrations/20261023_add_cash_balance_adjustments.sql before saving adjustments.'
+            . '. Apply database/migrations/20261023_add_cash_balance_adjustments.sql and the branch finance migration before saving adjustments.'
         );
     }
     $vesselCallColumns = tableColumns($pdo, 'vessel_calls');
@@ -460,9 +583,14 @@ function replaceAppState(array $state): void
         }
     }
     $paymentVoucherColumns = tableColumns($pdo, 'payment_vouchers');
+    if (tableColumns($pdo, 'chart_of_accounts') === null) {
+        throw new DatabaseSchemaException('Database schema mismatch: chart_of_accounts is missing. Apply database/migrations/20261025_add_finance_coa.sql.');
+    }
     $requiredPaymentVoucherColumns = [
         'id', 'request_number', 'request_date', 'currency', 'exchange_rate_usd_to_idr', 'exchange_rate_date', 'requested_payment_date', 'job_info', 'request_by', 'request_by_user_id', 'vendor_name',
-        'total_paid_amount', 'status', 'manager_note', 'reviewed_by', 'reviewed_at',
+        'branch_name',
+        'branch_id',
+        'total_paid_amount', 'status', 'approval_target_role', 'approval_target_user_id', 'approval_target_name', 'manager_note', 'reviewed_by', 'reviewed_at',
         'paid_by', 'paid_at', 'paid_from_bank_account_id', 'voucher_number', 'payment_surcharge', 'payment_other_expenses',
         'payment_description', 'payment_total_amount', 'payment_proof_data_url', 'payment_history',
     ];
@@ -473,18 +601,22 @@ function replaceAppState(array $state): void
         throw new DatabaseSchemaException(
             'Database schema mismatch: payment_vouchers is missing required columns: '
             . implode(', ', $missingPaymentVoucherColumns)
-            . '. Apply the required payment voucher migrations before saving.'
+            . '. Apply the payment voucher migrations before saving.'
         );
     }
+    $userColumns = tableColumns($pdo, 'users');
+    if ($userColumns === null || !in_array('branch_id', $userColumns, true)) {
+        throw new DatabaseSchemaException('Database schema mismatch: users is missing branch_id. Apply database/migrations/20261024_add_branch_master.sql.');
+    }
     $paymentVoucherItemColumns = tableColumns($pdo, 'payment_voucher_items');
-    $requiredPaymentVoucherItemColumns = ['id', 'voucher_id', 'line_no', 'job_number', 'document_type', 'document_number', 'customer_name', 'item_service', 'amount', 'vat_applied', 'vat_amount', 'total', 'pph23_applied', 'pph23_amount', 'paid_amount'];
+    $requiredPaymentVoucherItemColumns = ['id', 'voucher_id', 'line_no', 'job_number', 'document_type', 'document_number', 'customer_name', 'item_service', 'category', 'tariff_type', 'price', 'quantity', 'unit', 'remarks', 'amount', 'vat_applied', 'vat_amount', 'total', 'pph23_applied', 'pph_rate', 'pph23_amount', 'paid_amount'];
     $missingPaymentVoucherItemColumns = $paymentVoucherItemColumns === null
         ? $requiredPaymentVoucherItemColumns
         : array_values(array_diff($requiredPaymentVoucherItemColumns, $paymentVoucherItemColumns));
     if ($missingPaymentVoucherItemColumns) {
         throw new DatabaseSchemaException(
-            'Database schema mismatch: payment_voucher_items is missing document reference columns. '
-            . 'Apply database/migrations/20261020_add_payment_voucher_item_document_reference.sql before saving payment requests.'
+            'Database schema mismatch: payment_voucher_items is missing required item, COA, or PPh-rate columns. '
+            . 'Apply the payment voucher item, Finance COA, 20261033_add_payment_voucher_pph_rate.sql, 20261035_add_payment_voucher_epda_fields.sql, and 20261036_add_payment_voucher_tariff_type.sql migrations before saving payment requests.'
         );
     }
     $pdo->beginTransaction();
@@ -541,18 +673,22 @@ function replaceAppState(array $state): void
                 && $status === 'ACTIVE';
             $failedLoginAttempts = $reactivated ? 0 : (int) ($existingUser['failed_login_attempts'] ?? 0);
             $lockedAt = $reactivated ? null : ($existingUser['locked_at'] ?? null);
-            upsertRow($pdo, 'users', ['id' => (string) $row['id'], 'name' => (string) ($row['name'] ?? ''), 'email' => (string) ($row['email'] ?? ''), 'username' => $row['username'] ?? null, 'password_hash' => $passwordHash, 'role' => $row['role'] ?? 'SALES', 'department' => (string) ($row['department'] ?? ''), 'branch_name' => $row['branch'] ?? null, 'position' => $row['position'] ?? null, 'phone' => $row['phone'] ?? null, 'status' => $status, 'failed_login_attempts' => $failedLoginAttempts, 'locked_at' => $lockedAt]);
+            upsertRow($pdo, 'users', ['id' => (string) $row['id'], 'name' => (string) ($row['name'] ?? ''), 'email' => (string) ($row['email'] ?? ''), 'username' => $row['username'] ?? null, 'password_hash' => $passwordHash, 'role' => $row['role'] ?? 'SALES', 'department' => (string) ($row['department'] ?? ''), 'branch_name' => $row['branch'] ?? null, 'branch_id' => $row['branchId'] ?? branchIdFromValue($row['branch'] ?? null), 'position' => $row['position'] ?? null, 'phone' => $row['phone'] ?? null, 'status' => $status, 'failed_login_attempts' => $failedLoginAttempts, 'locked_at' => $lockedAt]);
         }
         foreach (($state['customers'] ?? []) as $row) upsertRow($pdo, 'customers', ['id' => $row['id'], 'code' => $row['code'], 'company_name' => $row['companyName'], 'country' => $row['country'], 'customer_type' => $row['type'], 'contact_person' => $row['contactPerson'], 'email' => $row['email'], 'phone' => $row['phone'], 'address' => $row['address'], 'credit_term_days' => $row['creditTermDays'] ?? 30]);
         foreach (($state['vessels'] ?? []) as $row) upsertRow($pdo, 'vessels', ['id' => $row['id'], 'name' => $row['name'], 'imo_number' => $row['imoNumber'], 'call_sign' => $row['callSign'], 'flag' => $row['flag'], 'vessel_type' => $row['vesselType'], 'grt' => $row['grt'], 'nrt' => $row['nrt'], 'dwt' => $row['dwt'], 'loa' => $row['loa'], 'beam' => $row['beam'], 'year_built' => $row['yearBuilt'] ?: null]);
         foreach (($state['ports'] ?? []) as $row) upsertRow($pdo, 'ports', ['id' => $row['id'], 'code' => $row['code'], 'name' => $row['name'], 'country' => $row['country'], 'channel_depth_meters' => (int) round((float) ($row['channelDepthMeters'] ?? 0)), 'tide_restriction' => $row['tideRestriction'] ?? null, 'operating_hours' => $row['operatingHours'] ?? null]);
         $portNames = indexBy($state['ports'] ?? [], 'id');
         foreach (($state['zones'] ?? []) as $row) {
-            if (!isset($portNames[$row['portId']])) continue;
+            if (!isset($portNames[$row['portId']])) {
+                throw new RuntimeException('Zona harus terhubung ke port yang terdaftar.');
+            }
             insertRow($pdo, 'zones', ['id' => $row['id'], 'port_id' => $row['portId'], 'zone_code' => $row['zoneCode'], 'zone_name' => $row['zoneName'], 'zone_type' => $row['type'], 'max_draft_meters' => $row['maxDraftMeters'], 'description' => $row['description'] ?? null]);
         }
         foreach (($state['fixTariffs'] ?? []) as $row) {
-            if (!isset($portNames[$row['portId']])) continue;
+            if (!isset($portNames[$row['portId']])) {
+                throw new RuntimeException('Fix tariff harus terhubung ke port yang terdaftar.');
+            }
             $portName = trim((string) ($row['portName'] ?? $portNames[$row['portId']]['name'] ?? ''));
             if ($portName === '') throw new RuntimeException('Fix tariff must include a valid port name.');
             insertRow($pdo, 'fix_tariffs', ['id' => $row['id'], 'port_id' => $row['portId'], 'port_name' => $portName, 'service_name' => $row['serviceName'], 'cost_category' => $row['costCategory'] ?? null, 'grt_min' => isset($row['grtMin']) ? (int) round((float) $row['grtMin']) : null, 'grt_max' => isset($row['grtMax']) ? (int) round((float) $row['grtMax']) : null, 'dwt' => isset($row['dwt']) ? (int) round((float) $row['dwt']) : null, 'calculation_basis' => $row['calculationBasis'], 'tariff_type' => $row['tariffType'] ?? null, 'rate_idr' => $row['rateIDR'] ?? null, 'rate_usd' => $row['rateUSD'] ?? null, 'remarks' => $row['remarks'] ?? null]);
@@ -561,10 +697,21 @@ function replaceAppState(array $state): void
         $vendorPartnerIds = array_fill_keys(array_map(static fn (array $partner): string => (string) $partner['id'], $state['vendorPartners'] ?? []), true);
         $bankAccountIds = array_fill_keys(array_map(static fn (array $account): string => (string) $account['id'], $state['bankAccounts'] ?? []), true);
         foreach (($state['vendorPartners'] ?? []) as $row) insertRow($pdo, 'vendor_partners', ['id' => $row['id'], 'vendor_name' => $row['vendorName'], 'pic_name' => $row['picName'] ?? null, 'address' => $row['address'] ?? null, 'phone' => $row['phone'] ?? null, 'bank_name' => $row['bankName'] ?? null, 'paid_name' => $row['paidName'] ?? null, 'account_number' => $row['accountNumber'] ?? null]);
-        foreach (($state['bankAccounts'] ?? []) as $row) insertRow($pdo, 'bank_accounts', ['id' => $row['id'], 'bank_name' => $row['bankName'], 'branch' => $row['branch'] ?? null, 'account_name' => $row['accountName'], 'account_number' => $row['accountNumber'], 'currency' => $row['currency'] ?? 'IDR']);
+        foreach (($state['chartOfAccounts'] ?? []) as $row) {
+            upsertRow($pdo, 'chart_of_accounts', [
+                'id' => $row['id'],
+                'code' => trim((string) $row['code']),
+                'account_desc' => trim((string) $row['accountDesc']),
+                'account_group' => trim((string) $row['accountGroup']),
+                'is_active' => !empty($row['isActive']) ? 1 : 0,
+            ]);
+        }
+        foreach (($state['bankAccounts'] ?? []) as $row) insertRow($pdo, 'bank_accounts', ['id' => $row['id'], 'bank_name' => $row['bankName'], 'branch' => $row['branch'] ?? null, 'branch_name' => trim((string) ($row['branchName'] ?? '')), 'branch_id' => $row['branchId'] ?? branchIdFromValue($row['branchName'] ?? null), 'account_name' => $row['accountName'], 'account_number' => $row['accountNumber'], 'currency' => $row['currency'] ?? 'IDR', 'coa_id' => !empty($row['coaId']) ? $row['coaId'] : null]);
         foreach (($state['cashBalanceAdjustments'] ?? []) as $row) insertRow($pdo, 'cash_balance_adjustments', [
             'id' => $row['id'],
             'bank_account_id' => $row['bankAccountId'],
+            'branch_name' => trim((string) ($row['branchName'] ?? '')),
+            'branch_id' => $row['branchId'] ?? branchIdFromValue($row['branchName'] ?? null),
             'bank_name' => $row['bankName'],
             'account_number' => $row['accountNumber'],
             'currency' => $row['currency'],
@@ -580,6 +727,8 @@ function replaceAppState(array $state): void
                 'id' => $voucher['id'],
                 'voucher_number' => !empty($voucher['voucherNumber']) ? $voucher['voucherNumber'] : null,
                 'request_number' => $voucher['requestNumber'],
+                'branch_name' => trim((string) ($voucher['branchName'] ?? '')),
+                'branch_id' => $voucher['branchId'] ?? branchIdFromValue($voucher['branchName'] ?? null),
                 'request_date' => $requestDate,
                 'currency' => $voucher['currency'] ?? 'IDR',
                 'exchange_rate_usd_to_idr' => $voucher['exchangeRateUSDToIDR'] ?? null,
@@ -597,13 +746,20 @@ function replaceAppState(array $state): void
                 'payment_surcharge' => $voucher['paymentSurcharge'] ?? 0,
                 'payment_other_expenses' => $voucher['paymentOtherExpenses'] ?? 0,
                 'payment_description' => $voucher['paymentDescription'] ?? null,
+                'payment_surcharge_coa_id' => !empty($voucher['paymentSurchargeCoaId']) ? $voucher['paymentSurchargeCoaId'] : null,
+                'payment_other_expenses_coa_id' => !empty($voucher['paymentOtherExpensesCoaId']) ? $voucher['paymentOtherExpensesCoaId'] : null,
                 'payment_total_amount' => $voucher['paymentTotalAmount'] ?? $voucher['totalPaidAmount'] ?? 0,
                 'payment_proof_data_url' => $voucher['paymentProofDataUrl'] ?? null,
                 'payment_history' => json_encode(array_map(static function (array $payment): array {
                     unset($payment['correctionReason']);
                     return $payment;
                 }, $voucher['paymentHistory'] ?? []), JSON_THROW_ON_ERROR),
+                'payment_journal_lines' => json_encode($voucher['paymentJournalLines'] ?? [], JSON_THROW_ON_ERROR),
+                'journal_number' => !empty($voucher['journalNumber']) ? $voucher['journalNumber'] : null,
                 'status' => $voucher['status'] ?? 'PENDING_MANAGER',
+                'approval_target_role' => $voucher['approvalTargetRole'] ?? null,
+                'approval_target_user_id' => $voucher['approvalTargetUserId'] ?? null,
+                'approval_target_name' => $voucher['approvalTargetName'] ?? null,
                 'manager_note' => $voucher['managerNote'] ?? null,
                 'reviewed_by' => $voucher['reviewedBy'] ?? null,
                 'reviewed_at' => sqlDate($voucher['reviewedAt'] ?? null),
@@ -613,13 +769,13 @@ function replaceAppState(array $state): void
                 'created_at' => sqlDate($voucher['createdAt'] ?? null) ?? date('Y-m-d H:i:s'),
             ]);
             foreach (($voucher['items'] ?? []) as $index => $item) {
-                insertRow($pdo, 'payment_voucher_items', ['id' => $item['id'], 'voucher_id' => $voucher['id'], 'line_no' => $index + 1, 'job_number' => $item['jobNumber'] ?? '', 'document_type' => $item['documentType'] ?? null, 'document_number' => $item['documentNumber'] ?? null, 'customer_name' => $item['customerName'] ?? '', 'item_service' => $item['itemService'] ?? '', 'amount' => $item['amount'] ?? 0, 'vat_applied' => !empty($item['vatApplied']) ? 1 : 0, 'vat_amount' => $item['vatAmount'] ?? 0, 'total' => $item['total'] ?? 0, 'pph23_applied' => !empty($item['pph23Applied']) ? 1 : 0, 'pph23_amount' => $item['pph23Amount'] ?? 0, 'paid_amount' => $item['paidAmount'] ?? 0]);
+                insertRow($pdo, 'payment_voucher_items', ['id' => $item['id'], 'voucher_id' => $voucher['id'], 'line_no' => $index + 1, 'job_number' => $item['jobNumber'] ?? '', 'document_type' => $item['documentType'] ?? null, 'document_number' => $item['documentNumber'] ?? null, 'customer_name' => $item['customerName'] ?? '', 'item_service' => $item['itemService'] ?? '', 'category' => $item['category'] ?? '', 'tariff_type' => $item['tariffType'] ?? 'FIXED', 'price' => $item['price'] ?? $item['amount'] ?? 0, 'quantity' => $item['quantity'] ?? 1, 'unit' => $item['unit'] ?? null, 'remarks' => $item['remarks'] ?? null, 'coa_id' => !empty($item['coaId']) ? $item['coaId'] : null, 'amount' => $item['amount'] ?? 0, 'vat_applied' => !empty($item['vatApplied']) ? 1 : 0, 'vat_amount' => $item['vatAmount'] ?? 0, 'total' => $item['total'] ?? 0, 'pph23_applied' => !empty($item['pph23Applied']) ? 1 : 0, 'pph_rate' => $item['pphRate'] ?? 0, 'pph23_amount' => $item['pph23Amount'] ?? 0, 'paid_amount' => $item['paidAmount'] ?? 0]);
             }
         }
         foreach (($state['jobCalls'] ?? []) as $job) {
             upsertRow($pdo, 'vessel_calls', ['job_id' => $job['jobId'], 'vessel_id' => $job['vesselId'], 'port_id' => $job['portId'], 'customer_id' => $job['customerId'], 'currency' => $job['currency'], 'exchange_rate_usd_to_idr' => $job['exchangeRateUSDToIDR'] ?? 15800, 'eta' => sqlDate($job['eta'] ?? null), 'etd' => sqlDate($job['etd'] ?? null), 'purpose_of_call' => $job['purposeOfCall'], 'current_stage' => $job['currentStage'], 'status' => $job['status'], 'voided_at' => sqlDate($job['voidedAt'] ?? null), 'voided_by_name' => $job['voidedBy'] ?? null, 'void_reason' => $job['voidReason'] ?? null, 'created_at' => sqlDate($job['createdAt'] ?? null) ?? date('Y-m-d H:i:s'), 'updated_at' => sqlDate($job['updatedAt'] ?? null) ?? date('Y-m-d H:i:s')], 'job_id');
             $inquiry = $job['inquiry'] ?? [];
-            insertRow($pdo, 'inquiries', ['job_id' => $job['jobId'], 'inquiry_no' => $inquiry['inquiryNo'], 'inquiry_date' => sqlDate($inquiry['date'] ?? null, true) ?? date('Y-m-d'), 'purpose_of_call' => $job['purposeOfCall'], 'eta' => sqlDate($inquiry['eta'] ?? $job['eta'] ?? null) ?? null, 'etd' => sqlDate($inquiry['etd'] ?? $job['etd'] ?? null) ?? null, 'eta_remarks' => $inquiry['etaRemarks'] ?? null, 'etd_remarks' => $inquiry['etdRemarks'] ?? null, 'cargo_quantity' => $inquiry['cargoQuantity'] ?? null, 'quantity_unit' => ($inquiry['quantityUnit'] ?? null) === 'MATRIX_TON' ? 'MT' : ($inquiry['quantityUnit'] ?? null), 'cargo_details' => $inquiry['cargoDetails'] ?? '', 'estimated_days' => $inquiry['estimatedDays'] ?? 0, 'special_requirements' => $inquiry['specialRequirements'] ?? '', 'status' => $inquiry['status'] ?? 'RECEIVED', 'created_by' => $inquiry['createdBy'] ?? $inquiry['createdByName'] ?? '', 'created_by_user_id' => !empty($inquiry['createdByUserId']) ? $inquiry['createdByUserId'] : null, 'created_by_name' => $inquiry['createdByName'] ?? $inquiry['createdBy'] ?? '', 'created_by_branch' => $inquiry['createdByBranch'] ?? null]);
+            insertRow($pdo, 'inquiries', ['job_id' => $job['jobId'], 'inquiry_no' => $inquiry['inquiryNo'], 'inquiry_date' => sqlDate($inquiry['date'] ?? null, true) ?? date('Y-m-d'), 'purpose_of_call' => $job['purposeOfCall'], 'eta' => sqlDate($inquiry['eta'] ?? $job['eta'] ?? null) ?? null, 'etd' => sqlDate($inquiry['etd'] ?? $job['etd'] ?? null) ?? null, 'eta_remarks' => $inquiry['etaRemarks'] ?? null, 'etd_remarks' => $inquiry['etdRemarks'] ?? null, 'cargo_quantity' => $inquiry['cargoQuantity'] ?? null, 'quantity_unit' => ($inquiry['quantityUnit'] ?? null) === 'MATRIX_TON' ? 'MT' : ($inquiry['quantityUnit'] ?? null), 'cargo_details' => $inquiry['cargoDetails'] ?? '', 'estimated_days' => $inquiry['estimatedDays'] ?? 0, 'special_requirements' => $inquiry['specialRequirements'] ?? '', 'status' => $inquiry['status'] ?? 'RECEIVED', 'created_by' => $inquiry['createdBy'] ?? $inquiry['createdByName'] ?? '', 'created_by_user_id' => !empty($inquiry['createdByUserId']) ? $inquiry['createdByUserId'] : null, 'created_by_name' => $inquiry['createdByName'] ?? $inquiry['createdBy'] ?? '', 'created_by_branch' => $inquiry['createdByBranch'] ?? null, 'created_by_branch_id' => $inquiry['createdByBranchId'] ?? branchIdFromValue($inquiry['createdByBranch'] ?? null)]);
             foreach (['EPDA' => 'epda'] as $quoteType => $key) {
                 $quote = $job['quotation'][$key] ?? [];
                 insertRow($pdo, 'quotations', ['id' => $job['jobId'] . '-' . $quoteType, 'job_id' => $job['jobId'], 'quote_type' => $quoteType, 'quote_no' => $quote['quoteNo'] ?: $job['jobId'] . '-' . $quoteType, 'quote_date' => sqlDate($quote['date'] ?? null, true) ?? date('Y-m-d'), 'eta' => sqlDate($quote['eta'] ?? null), 'etd' => sqlDate($quote['etd'] ?? null), 'eta_remarks' => $quote['etaRemarks'] ?? null, 'etd_remarks' => $quote['etdRemarks'] ?? null, 'currency' => $quote['currency'] ?? $job['currency'], 'exchange_rate_usd_to_idr' => $quote['exchangeRateUSDToIDR'] ?? $job['exchangeRateUSDToIDR'] ?? 15800, 'pph23_applied' => !empty($quote['pph23Applied']), 'global_vat_applied' => !empty($quote['globalVatApplied']), 'total_amount' => $quote['totalAmount'] ?? 0, 'status' => $quote['status'] ?? 'DRAFT']);

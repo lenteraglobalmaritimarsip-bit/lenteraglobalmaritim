@@ -22,9 +22,10 @@ interface ManagementRow {
 }
 
 const formatIDR = (amount: number) =>
-  new Intl.NumberFormat('id-ID', {
+  new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'IDR',
+    currencyDisplay: 'narrowSymbol',
     maximumFractionDigits: 0,
   }).format(amount);
 
@@ -167,11 +168,12 @@ export const ManagementVesselView: React.FC<ManagementVesselViewProps> = ({ jobC
     try {
       const workbook = new ExcelJS.Workbook();
       const sheet = workbook.addWorksheet('Management Vessel');
-      sheet.addRow(['No', 'Job Vessel', 'Branch', 'Status', 'Tagihan Principal (FDA / FPDA)', 'Biaya Vendor Riil', 'Net Profit Margin']);
+      sheet.addRow(['No', 'Job Vessel', 'Customer', 'Branch', 'Status', 'Tagihan Principal (FDA / FPDA)', 'Biaya Vendor Riil', 'Net Profit Margin']);
       rows.forEach((row, index) => {
         sheet.addRow([
           index + 1,
           `${row.job.jobId} - ${row.job.vesselName}`,
+          row.job.customerName,
           row.branch,
           row.status,
           row.billedIDR,
@@ -179,16 +181,16 @@ export const ManagementVesselView: React.FC<ManagementVesselViewProps> = ({ jobC
           row.netProfitIDR,
         ]);
       });
-      sheet.addRow(['', '', '', 'TOTAL', totals.billedIDR, totals.vendorCostIDR, totals.netProfitIDR]);
+      sheet.addRow(['', '', '', '', 'TOTAL', totals.billedIDR, totals.vendorCostIDR, totals.netProfitIDR]);
       sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
       sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1E3A5F' } };
       sheet.getRow(1).alignment = { vertical: 'middle', wrapText: true };
-      sheet.autoFilter = { from: 'A1', to: `G${Math.max(1, rows.length + 1)}` };
+      sheet.autoFilter = { from: 'A1', to: `H${Math.max(1, rows.length + 1)}` };
       sheet.views = [{ state: 'frozen', ySplit: 1 }];
-      [8, 30, 22, 34, 25, 25, 25].forEach((width, index) => {
+      [8, 30, 26, 22, 20, 34, 25, 25].forEach((width, index) => {
         sheet.getColumn(index + 1).width = width;
       });
-      [5, 6, 7].forEach((column) => {
+      [6, 7, 8].forEach((column) => {
         sheet.getColumn(column).numFmt = '"Rp" #,##0;[Red]-"Rp" #,##0';
       });
       sheet.lastRow!.font = { bold: true };
@@ -282,11 +284,12 @@ export const ManagementVesselView: React.FC<ManagementVesselViewProps> = ({ jobC
           <p className="mt-1 text-xs text-slate-500">{rows.length} Job/Vessel sesuai filter. Tagihan dikonversi ke IDR dengan kurs FDA/job; biaya vendor adalah Paid Amount voucher JOB Vessel yang disetujui dan belum dibayar.</p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[960px] text-left">
+          <table className="w-full min-w-[1100px] text-left">
             <thead className="border-b border-slate-200 bg-slate-50">
               <tr>
                 <th className={th}>No</th>
                 <th className={`${th} text-center`}>Job Vessel</th>
+                <th className={th}>Customer</th>
                 <th className={th}>Branch</th>
                 <th className={th}>Status</th>
                 <th className={`${th} text-right`}>Tagihan Principal (FDA / FPDA)</th>
@@ -296,7 +299,7 @@ export const ManagementVesselView: React.FC<ManagementVesselViewProps> = ({ jobC
             </thead>
             <tbody className="divide-y divide-slate-100">
               {rows.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-12 text-center text-xs text-slate-400">Tidak ada data untuk pencarian atau periode ini.</td></tr>
+                <tr><td colSpan={8} className="px-4 py-12 text-center text-xs text-slate-400">Tidak ada data untuk pencarian atau periode ini.</td></tr>
               )}
               {paginatedRows.map((row, index) => (
                 <tr key={row.job.jobId} className="hover:bg-slate-50/70">
@@ -305,6 +308,7 @@ export const ManagementVesselView: React.FC<ManagementVesselViewProps> = ({ jobC
                     <div className="font-semibold text-slate-900">{row.job.jobId}</div>
                     <div className="mt-0.5 text-[11px] text-slate-500">{row.job.vesselName}</div>
                   </td>
+                  <td className={td}>{row.job.customerName || '-'}</td>
                   <td className={td}>{row.branch}</td>
                   <td className={td}>
                     <span className="inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700">
@@ -320,7 +324,7 @@ export const ManagementVesselView: React.FC<ManagementVesselViewProps> = ({ jobC
             {rows.length > 0 && (
               <tfoot className="border-t-2 border-slate-200 bg-slate-50">
                 <tr>
-                  <td className={`${td} font-bold`} colSpan={4}>TOTAL</td>
+                  <td className={`${td} font-bold`} colSpan={5}>TOTAL</td>
                   <td className={`${amount} font-black`}>{formatIDR(totals.billedIDR)}</td>
                   <td className={`${amount} font-black`}>{formatIDR(totals.vendorCostIDR)}</td>
                   <td className={`${amount} font-black ${totals.netProfitIDR < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{formatIDR(totals.netProfitIDR)}</td>

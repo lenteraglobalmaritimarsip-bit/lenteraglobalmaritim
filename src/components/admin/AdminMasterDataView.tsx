@@ -7,6 +7,7 @@ import {
   Compass,
   Coins,
   Receipt,
+  BookOpen,
   Plus,
   Search,
   Edit2,
@@ -29,19 +30,24 @@ import {
   ExpensesItem,
   VendorPartner,
   BankAccount,
+  ChartOfAccount,
   CashBalanceAdjustment,
   UserRole,
   ActiveTab,
+  Branch,
 } from '../../types';
 import { db } from '../../db/storage';
 import { apiAuth } from '../../lib/api';
 import { formatTariffNumber, getTariffRateForCurrency, parseTariffNumber } from '../../utils/tariff';
 import { formatCostCategoryLabel, normalizeCostCategory } from '../../utils/costCategories';
+import { formatDateDisplay } from '../../utils/date';
 import { expensesItemRatePatch, findMatchingExpensesItem, findMatchingFixTariff, fixTariffRatePatch } from '../../utils/masterDataIdentity';
 import { todayISO } from '../../utils/date';
+import { getBranchByValue, INITIAL_BRANCHES } from '../../branches';
 
 interface AdminMasterDataViewProps {
-  initialTab?: 'USERS' | 'CUSTOMERS' | 'VESSELS' | 'PORTS' | 'ZONES' | 'FIX_TARIFF' | 'EXPENSES_ITEM' | 'VENDOR_PARTNERS' | 'BANK_ACCOUNT' | 'CASH_BALANCE_ADJUSTMENTS';
+  initialTab?: 'USERS' | 'CUSTOMERS' | 'VESSELS' | 'PORTS' | 'ZONES' | 'FIX_TARIFF' | 'EXPENSES_ITEM' | 'VENDOR_PARTNERS' | 'BANK_ACCOUNT' | 'CHART_OF_ACCOUNTS' | 'CASH_BALANCE_ADJUSTMENTS';
+  branches?: Branch[];
   users: User[];
   customers: Customer[];
   vessels: Vessel[];
@@ -57,6 +63,7 @@ interface AdminMasterDataViewProps {
 
 export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   initialTab = 'USERS',
+  branches = INITIAL_BRANCHES,
   users,
   customers,
   vessels,
@@ -69,6 +76,15 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   cashBalanceAdjustments = [],
   onDataSaved,
 }) => {
+  const activeBranches = branches.filter((branch) => branch.isActive);
+  const activeChartOfAccounts = db.getState().chartOfAccounts.filter((account) => account.isActive);
+  const findBranch = (value?: string) => branches.find((branch) =>
+    [branch.id, branch.code, branch.name].some((candidate) => candidate.toLocaleLowerCase() === (value || '').trim().toLocaleLowerCase()),
+  ) || getBranchByValue(value);
+  const branchLabel = (branchId?: string, branchValue?: string) => {
+    const branch = branches.find((item) => item.id === branchId) || findBranch(branchValue);
+    return branch ? `${branch.id} · ${branch.code} · ${branch.name}` : (branchValue || 'Belum ditetapkan');
+  };
   const formatMasterRate = (value: unknown) => {
     const parsed = parseTariffNumber(value, Number.NaN);
     if (!Number.isFinite(parsed) || parsed === 0) return '-';
@@ -100,6 +116,10 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     { type: 'CUSTOMERS' | 'VESSELS' | 'PORTS' | 'FIX_TARIFF' | 'EXPENSES_ITEM' | 'VENDOR_PARTNERS' | 'BANK_ACCOUNT'; id: string } | null
   >(null);
   const [editMasterForm, setEditMasterForm] = useState<any>({});
+  const [chartFormOpen, setChartFormOpen] = useState(false);
+  const [editingChartAccount, setEditingChartAccount] = useState<ChartOfAccount | null>(null);
+  const [chartForm, setChartForm] = useState<Partial<ChartOfAccount>>({ isActive: true });
+  const [chartFormError, setChartFormError] = useState('');
 
   useEffect(() => {
     setUploadMessage('');
@@ -137,7 +157,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       });
       const account = bankAccounts.find((item) => item.id === adjustmentAccountId);
       const currency = account?.currency || 'IDR';
-      const formattedAmount = new Intl.NumberFormat(currency === 'IDR' ? 'id-ID' : 'en-US', {
+      const formattedAmount = new Intl.NumberFormat('en-US', {
         maximumFractionDigits: currency === 'IDR' ? 0 : 2,
       }).format(Math.abs(amount));
       setAdjustmentAmount('');
@@ -185,6 +205,10 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
       }
       if (type === 'FIX_TARIFF') {
         const port = ports.find((p) => p.id === editMasterForm.portId);
+        if (!port) {
+          setAddFormError('Pilih port yang terdaftar sebelum menyimpan fix tariff.');
+          return;
+        }
         const rateIDR = parseTariffNumber(editMasterForm.rateIDR);
         const rateUSD = parseTariffNumber(editMasterForm.rateUSD);
         const rangeError = validateGRTBounds(editMasterForm.grtMin ?? 0, editMasterForm.grtMax ?? 0);
@@ -222,16 +246,19 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         });
       }
       if (type === 'BANK_ACCOUNT') {
-        if (!editMasterForm.bankName?.trim() || !editMasterForm.accountName?.trim() || !editMasterForm.accountNumber?.trim()) {
-          setAddFormError('Bank Name, A/C Name, dan A/C Number wajib diisi sebelum menyimpan.');
+        if (!editMasterForm.bankName?.trim() || !editMasterForm.accountName?.trim() || !editMasterForm.accountNumber?.trim() || !editMasterForm.branchName?.trim() || !editMasterForm.coaId) {
+          setAddFormError('Bank Name, A/C Name, A/C Number, branch kantor, dan COA rekening wajib diisi sebelum menyimpan.');
           return;
         }
         await db.updateBankAccount(id, {
           bankName: editMasterForm.bankName.trim(),
           branch: (editMasterForm.branch || '').trim(),
+          branchName: editMasterForm.branchName.trim(),
+          branchId: editMasterForm.branchId || findBranch(editMasterForm.branchName)?.id,
           accountName: editMasterForm.accountName.trim(),
           accountNumber: editMasterForm.accountNumber.trim(),
           currency: editMasterForm.currency,
+          coaId: editMasterForm.coaId,
         });
       }
       if (type === 'EXPENSES_ITEM') {
@@ -266,7 +293,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     if (!editingUser) return;
 
     if (!editUserForm.username || !editUserForm.name || !editUserForm.email || !editUserForm.position) {
-      setUserEditError('User, nama, jabatan, dan email wajib diisi.');
+      setUserEditError('Username, nama, jabatan, dan email wajib diisi.');
       return;
     }
     if (editUserForm.newPassword && (apiAuth.enabled ? !/^\d{8}$/.test(editUserForm.newPassword) : editUserForm.newPassword.length < 6)) {
@@ -281,7 +308,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         role: editUserForm.role as UserRole,
         position: editUserForm.position,
         department: editUserForm.department || editingUser.department,
-        branch: editUserForm.branch || editingUser.branch,
+        branch: ['ACCOUNTING', 'DIRECTOR'].includes(editUserForm.role) ? '' : editUserForm.branch || editingUser.branch,
+        branchId: ['ACCOUNTING', 'DIRECTOR'].includes(editUserForm.role) ? undefined : editUserForm.branchId || findBranch(editUserForm.branch || editingUser.branch)?.id,
         email: editUserForm.email,
         phone: editUserForm.phone,
         status: editUserForm.status as User['status'],
@@ -297,6 +325,18 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     }
   };
 
+  const updateUserStatus = async (user: User) => {
+    try {
+      await db.updateUser(user.id, { status: user.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' });
+      onDataSaved?.(activeTab);
+    } catch (error) {
+      console.error('User status save failed:', error);
+      window.dispatchEvent(new CustomEvent('lgm:api-save-error', {
+        detail: error instanceof Error ? error.message : 'Perubahan status user gagal disimpan.',
+      }));
+    }
+  };
+
   // Keep the content synchronized with the sidebar selection.
   // Without this, initialTab is only read on first mount, so clicking
   // Customers/Vessels/Ports/etc. in the sidebar would leave the old table visible.
@@ -308,6 +348,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     // Auto-back/reset whenever another master-data menu is clicked.
     setShowAddModal(false);
     closeMasterEditor();
+    closeChartAccountForm();
     setEditingUser(null);
   }, [initialTab]);
 
@@ -325,7 +366,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   const resetNewUser = () => {
     setNewUser({ name: '', email: '', department: '', branch: '', phone: '', username: '', password: '', position: '' });
     setNewVendor({ vendorName: '', bankName: '', paidName: '', accountNumber: '' });
-    setNewBankAccount({ bankName: '', branch: '', accountName: '', accountNumber: '', currency: 'IDR' });
+    setNewBankAccount({ bankName: '', branch: '', branchName: '', accountName: '', accountNumber: '', currency: 'IDR', coaId: '' });
     setAddFormError('');
   };
 
@@ -435,6 +476,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   const [newBankAccount, setNewBankAccount] = useState<Omit<BankAccount, 'id'>>({
     bankName: '',
     branch: '',
+    branchName: '',
     accountName: '',
     accountNumber: '',
     currency: 'IDR',
@@ -895,15 +937,20 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     setAddFormError('');
     try {
       if (activeTab === 'USERS') {
-        if (!newUser.name?.trim() || !newUser.email?.trim() || !newUser.username?.trim() || !newUser.password || !newUser.position?.trim() || !newUser.role || !newUser.status || !newUser.department?.trim() || !newUser.branch?.trim()) {
-          setAddFormError('Lengkapi User, Password, Nama, Jabatan, Email, Role, Status, Departemen, dan Branch sebelum menyimpan.');
+        const branchIsRequired = !['ACCOUNTING', 'DIRECTOR'].includes(newUser.role);
+        if (!newUser.name?.trim() || !newUser.email?.trim() || !newUser.username?.trim() || !newUser.password || !newUser.position?.trim() || !newUser.role || !newUser.status || !newUser.department?.trim()
+          || (branchIsRequired && (!newUser.branch?.trim() || !(newUser.branchId || findBranch(newUser.branch)?.id)))) {
+          setAddFormError(`Lengkapi User, Password, Nama, Jabatan, Email, Role, Status, Departemen${branchIsRequired ? ', dan Branch' : ''} sebelum menyimpan.`);
           return;
         }
         if (apiAuth.enabled && !/^\d{8}$/.test(newUser.password)) {
           setAddFormError('Password harus tepat 8 digit angka.');
           return;
         }
-        await db.addUser(newUser as Omit<User, 'id'>);
+        await db.addUser({
+          ...newUser,
+          branchId: ['ACCOUNTING', 'DIRECTOR'].includes(newUser.role) ? undefined : newUser.branchId || findBranch(newUser.branch)?.id,
+        } as Omit<User, 'id'>);
       } else if (activeTab === 'CUSTOMERS') {
         if (!newCustomer.companyName?.trim()) {
           setAddFormError('Nama perusahaan wajib diisi sebelum menyimpan.');
@@ -934,10 +981,28 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           return;
         }
         const port = ports.find((p) => p.id === newZone.portId);
-        db.addZone({ ...newZone, portName: port?.name || '' } as Omit<Zone, 'id'>);
+        if (!port) {
+          setAddFormError('Tambahkan port terlebih dahulu dan pilih port zona.');
+          return;
+        }
+        const zoneCode = String(newZone.zoneCode || '').trim().toUpperCase();
+        if (!zoneCode) {
+          setAddFormError('Kode zona wajib diisi sebelum menyimpan.');
+          return;
+        }
+        if (zones.some((zone) => zone.portId === port.id && zone.zoneCode.trim().toUpperCase() === zoneCode)) {
+          setAddFormError(`Kode zona "${zoneCode}" sudah digunakan pada ${port.name}.`);
+          return;
+        }
+        await db.addZone({ ...newZone, zoneCode, portName: port.name } as Omit<Zone, 'id'>);
       } else if (activeTab === 'FIX_TARIFF') {
         if (!newTariff.serviceName?.trim()) {
           setAddFormError('Nama layanan wajib diisi sebelum menyimpan.');
+          return;
+        }
+        const port = ports.find((p) => p.id === newTariff.portId);
+        if (!port) {
+          setAddFormError('Tambahkan port terlebih dahulu dan pilih port untuk fix tariff.');
           return;
         }
         const rangeError = validateGRTBounds(newTariff.grtMin ?? 0, newTariff.grtMax ?? 0);
@@ -945,7 +1010,6 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           setAddFormError(rangeError);
           return;
         }
-        const port = ports.find((p) => p.id === newTariff.portId);
         const rateIDR = parseTariffNumber(newTariff.rateIDR);
         const rateUSD = parseTariffNumber(newTariff.rateUSD);
         const tariffToAdd = {
@@ -1009,27 +1073,30 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         });
         setNewVendor(emptyVendor);
       } else if (activeTab === 'BANK_ACCOUNT') {
-        if (!newBankAccount.bankName.trim() || !newBankAccount.accountName.trim() || !newBankAccount.accountNumber.trim()) {
-          setAddFormError('Bank Name, A/C Name, dan A/C Number wajib diisi sebelum menyimpan.');
+        if (!newBankAccount.bankName.trim() || !newBankAccount.accountName.trim() || !newBankAccount.accountNumber.trim() || !newBankAccount.branchName?.trim() || !(newBankAccount.branchId || findBranch(newBankAccount.branchName)?.id) || !newBankAccount.coaId) {
+          setAddFormError('Bank Name, A/C Name, A/C Number, branch kantor, dan COA rekening wajib diisi sebelum menyimpan.');
           return;
         }
         await db.addBankAccount({
           bankName: newBankAccount.bankName.trim(),
           branch: (newBankAccount.branch || '').trim(),
+          branchName: newBankAccount.branchName.trim(),
+          branchId: newBankAccount.branchId || findBranch(newBankAccount.branchName)?.id,
           accountName: newBankAccount.accountName.trim(),
           accountNumber: newBankAccount.accountNumber.trim(),
           currency: newBankAccount.currency || 'IDR',
+          coaId: newBankAccount.coaId,
         });
-        setNewBankAccount({ bankName: '', branch: '', accountName: '', accountNumber: '', currency: 'IDR' });
+        setNewBankAccount({ bankName: '', branch: '', branchName: '', accountName: '', accountNumber: '', currency: 'IDR', coaId: '' });
       } else {
         setAddFormError('Menu master data tidak dikenali.');
         return;
       }
     } catch (error) {
       console.error('Master data save failed:', error);
-      setAddFormError(activeTab === 'PORTS' && error instanceof Error
+      setAddFormError(error instanceof Error
         ? error.message
-        : 'Data gagal disimpan. Periksa penyimpanan browser lalu coba lagi.');
+        : 'Data gagal disimpan ke database server.');
       return;
     }
 
@@ -1043,8 +1110,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
 
   const formatExpenseCategory = (category?: string) => formatCostCategoryLabel(category);
   const isUserFormOpen = activeTab === 'USERS' && (showAddModal || editingUser !== null);
-  const isMasterFormOpen = activeTab !== 'USERS' && (showAddModal || editingMaster !== null);
-  const isFormOpen = isUserFormOpen || isMasterFormOpen;
+  const isMasterFormOpen = activeTab !== 'USERS' && activeTab !== 'CHART_OF_ACCOUNTS' && (showAddModal || editingMaster !== null);
+  const isFormOpen = isUserFormOpen || isMasterFormOpen || chartFormOpen;
   const userForm = editingUser ? editUserForm : newUser;
   const normalizedPortQuery = searchQuery.trim().toLowerCase().replace(/\s+/g, ' ');
   const filteredPorts = ports.flatMap((port, index) => {
@@ -1114,8 +1181,75 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     setShowAddModal(false);
   };
 
+  const isChartAccountInUse = (accountId: string) => {
+    const state = db.getState();
+    return state.bankAccounts.some((account) => account.coaId === accountId)
+      || state.paymentVouchers.some((voucher) =>
+        voucher.items.some((item) => item.coaId === accountId)
+        || voucher.paymentSurchargeCoaId === accountId
+        || voucher.paymentOtherExpensesCoaId === accountId);
+  };
+  const openChartAccountForm = (account?: ChartOfAccount) => {
+    setEditingChartAccount(account || null);
+    setChartForm(account ? { ...account } : { code: '', accountDesc: '', accountGroup: '', isActive: true });
+    setChartFormError('');
+    setChartFormOpen(true);
+    setShowAddModal(false);
+  };
+  const closeChartAccountForm = () => {
+    setChartFormOpen(false);
+    setEditingChartAccount(null);
+    setChartForm({ isActive: true });
+    setChartFormError('');
+  };
+  const saveChartAccount = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const code = String(chartForm.code || '').trim().toUpperCase();
+    const accountDesc = String(chartForm.accountDesc || '').trim();
+    const accountGroup = String(chartForm.accountGroup || '').trim();
+    if (!/^[A-Z0-9._-]{1,20}$/.test(code) || !accountDesc || !accountGroup) {
+      setChartFormError('Kode COA (maksimal 20 karakter), nama akun, dan kelompok akun wajib diisi.');
+      return;
+    }
+    if (db.getState().chartOfAccounts.some((account) =>
+      account.id !== editingChartAccount?.id
+      && account.code.toLocaleUpperCase() === code)
+      && (!editingChartAccount || editingChartAccount.code.toLocaleUpperCase() !== code)) {
+      setChartFormError('Kode COA sudah digunakan. Setiap kode akun baru harus unik.');
+      return;
+    }
+    if (editingChartAccount && isChartAccountInUse(editingChartAccount.id)
+      && (editingChartAccount.accountGroup.trim().toLocaleLowerCase() !== accountGroup.toLocaleLowerCase()
+        || (editingChartAccount.isActive && chartForm.isActive === false))) {
+      setChartFormError('Kelompok dan status akun yang sudah digunakan tidak dapat diubah. Kode COA boleh diganti selama kelompok tetap sama.');
+      return;
+    }
+    try {
+      if (editingChartAccount) {
+        await db.updateChartOfAccount(editingChartAccount.id, {
+          code,
+          accountDesc,
+          accountGroup,
+          isActive: chartForm.isActive !== false,
+        });
+      } else {
+        await db.addChartOfAccount({
+          code,
+          accountDesc,
+          accountGroup,
+          isActive: true,
+        });
+      }
+      closeChartAccountForm();
+      onDataSaved?.('CHART_OF_ACCOUNTS');
+    } catch (error) {
+      console.error('Chart of Accounts save failed:', error);
+      setChartFormError(error instanceof Error ? error.message : 'Master COA gagal disimpan ke database.');
+    }
+  };
+
   return (
-    <div className="space-y-5">
+    <div className="admin-master-data-root space-y-5">
       {/* Top Banner */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1128,7 +1262,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
               Master Data Management
             </h1>
             <p className="text-xs text-slate-500">
-              Konfigurasi data master portal: User, Customer, Vessel, Port, Fix Tariff & Expenses Item
+              Konfigurasi master portal termasuk COA untuk pencatatan jurnal keuangan.
             </p>
           </div>
 
@@ -1139,7 +1273,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 <button
                   type="button"
                   onClick={downloadMasterDataTemplate}
-                  className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-[11px] font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
+                  className="master-data-secondary flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-[11px] font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
                 >
                   <Download className="w-4 h-4" />
                   <span>Download Template</span>
@@ -1148,7 +1282,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                   type="button"
                   onClick={() => uploadInputRef.current?.click()}
                   disabled={isFormOpen}
-                  className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-[11px] font-bold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
+                  className="master-data-primary flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-[11px] font-bold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
                 >
                   <Upload className="w-4 h-4" />
                   <span>Upload Excel</span>
@@ -1158,16 +1292,20 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
             {!isFormOpen && activeTab !== 'CASH_BALANCE_ADJUSTMENTS' && (
               <button
                 onClick={() => {
+                  if (activeTab === 'CHART_OF_ACCOUNTS') {
+                    openChartAccountForm();
+                    return;
+                  }
                   resetNewUser();
                   setEditingUser(null);
                   setUserEditError('');
                   setEditingMaster(null);
                   setShowAddModal(true);
                 }}
-                className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-slate-300 bg-slate-200 px-3.5 py-2 text-[11px] font-bold text-slate-700 shadow-sm transition hover:bg-slate-300"
+                className="master-data-primary flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-slate-300 bg-slate-200 px-3.5 py-2 text-[11px] font-bold text-slate-700 shadow-sm transition hover:bg-slate-300"
               >
                 <Plus className="w-4 h-4" />
-                <span>Tambah Data {activeTab.replace('_', ' ')}</span>
+                <span>Tambah Data {activeTab === 'CHART_OF_ACCOUNTS' ? 'COA' : activeTab.replace('_', ' ')}</span>
               </button>
             )}
           </div>
@@ -1176,13 +1314,86 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         <div className="mt-5 border-t border-slate-200" />
       </div>
 
+      {chartFormOpen && activeTab === 'CHART_OF_ACCOUNTS' && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-5 border-b border-slate-200 pb-4">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-violet-600">Master Chart of Accounts</div>
+            <h2 className="mt-1 text-lg font-black text-slate-900">{editingChartAccount ? 'Edit COA' : 'Tambah COA'}</h2>
+            <p className="mt-1 text-xs text-slate-500">Kode COA yang sudah digunakan boleh diganti selama kelompok akun tetap sama. Akun yang digunakan tidak dapat dipindah kelompok atau dinonaktifkan.</p>
+          </div>
+          <form onSubmit={(event) => void saveChartAccount(event)} className="space-y-4 text-xs text-slate-700">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <label className="block">
+                <span className="font-semibold text-slate-600">Kode COA</span>
+                <input
+                  required
+                  maxLength={20}
+                  value={chartForm.code || ''}
+                  onChange={(event) => setChartForm((current) => ({ ...current, code: event.target.value.toUpperCase() }))}
+                  className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 font-mono text-slate-800"
+                  placeholder="contoh: GA24001"
+                />
+              </label>
+              <label className="block md:col-span-2">
+                <span className="font-semibold text-slate-600">Nama Akun</span>
+                <input
+                  required
+                  maxLength={250}
+                  value={chartForm.accountDesc || ''}
+                  onChange={(event) => setChartForm((current) => ({ ...current, accountDesc: event.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-slate-800"
+                  placeholder="Nama akun sesuai kebutuhan akuntansi"
+                />
+              </label>
+              <label className="block">
+                <span className="font-semibold text-slate-600">Kelompok Akun</span>
+                <input
+                  required
+                  maxLength={80}
+                  list="coa-account-groups"
+                  value={chartForm.accountGroup || ''}
+                  onChange={(event) => setChartForm((current) => ({ ...current, accountGroup: event.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-slate-800"
+                  placeholder="contoh: Asset, Liability, Revenue"
+                />
+                <datalist id="coa-account-groups">
+                  {[...new Set(db.getState().chartOfAccounts.map((account) => account.accountGroup))].sort().map((group) => (
+                    <option key={group} value={group} />
+                  ))}
+                </datalist>
+              </label>
+              {editingChartAccount && (
+                <label className="flex items-center gap-2 self-end rounded-lg border border-slate-200 p-2.5">
+                  <input
+                    type="checkbox"
+                    checked={chartForm.isActive !== false}
+                    disabled={isChartAccountInUse(editingChartAccount.id)}
+                    onChange={(event) => setChartForm((current) => ({ ...current, isActive: event.target.checked }))}
+                  />
+                  <span className="font-semibold text-slate-600">Akun aktif / dapat dipilih</span>
+                </label>
+              )}
+            </div>
+            {chartFormError && (
+              <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{chartFormError}</div>
+            )}
+            <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
+              <button type="button" onClick={closeChartAccountForm} className="master-data-cancel rounded-lg border border-slate-200 px-4 py-2 font-semibold text-slate-600">Batal</button>
+              <button type="submit" className="master-data-submit rounded-lg bg-violet-600 px-4 py-2 font-semibold text-white hover:bg-violet-700">
+                {editingChartAccount ? 'Simpan Perubahan' : 'Simpan COA'}
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
+
       {isUserFormOpen && (
         <section className="admin-add-modal rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-5 border-b border-slate-200 pb-4">
             <div className="text-[10px] font-bold uppercase tracking-widest text-violet-600">User Management</div>
             <h2 className="mt-1 text-lg font-black text-slate-900">{editingUser ? 'Edit Data User' : 'Tambah Data User'}</h2>
             <p className="mt-1 text-xs text-slate-500">
-              {editingUser ? 'Perubahan disimpan ke database dan akun login.' : 'Lengkapi informasi akun dan akses user.'}
+              {editingUser ? 'Perubahan disimpan ke database dan akun login.' : 'Lengkapi informasi akun dan akses user. Login menggunakan username unik.'}
             </p>
           </div>
           <form
@@ -1217,13 +1428,18 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
               </label>
               <label className="block">
                 <span className="font-semibold text-slate-600">Role</span>
-                <select required value={userForm.role || ''} onChange={(e) => updateUserForm({ role: e.target.value as UserRole })} className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-slate-800">
+                <select required value={userForm.role || ''} onChange={(e) => {
+                  const role = e.target.value as UserRole;
+                  updateUserForm(['ACCOUNTING', 'DIRECTOR'].includes(role) ? { role, branch: '', branchId: undefined } : { role });
+                }} className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-slate-800">
                   <option value="">Pilih role</option>
                   <option value="ADMIN">ADMIN</option>
                   <option value="SALES">SALES</option>
                   <option value="MANAGER_OPS">MANAGER_OPS</option>
                   <option value="FDA">FDA</option>
                   <option value="FINANCE">FINANCE</option>
+                  <option value="ACCOUNTING">ACCOUNTING</option>
+                  <option value="DIRECTOR">DIREKTUR</option>
                 </select>
               </label>
               <label className="block">
@@ -1233,6 +1449,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
               <label className="block">
                 <span className="font-semibold text-slate-600">Email</span>
                 <input required type="email" value={userForm.email || ''} onChange={(e) => updateUserForm({ email: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-slate-800" />
+                <small className="mt-1 block text-slate-500">Email corporate boleh digunakan oleh beberapa user.</small>
               </label>
               <label className="block">
                 <span className="font-semibold text-slate-600">Status</span>
@@ -1243,8 +1460,22 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 </select>
               </label>
               <label className="block">
-                <span className="font-semibold text-slate-600">Branch</span>
-                <input required value={userForm.branch || ''} onChange={(e) => updateUserForm({ branch: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-slate-800" placeholder="contoh: JKT, Head Office, Surabaya" />
+                <span className="font-semibold text-slate-600">Branch {['ACCOUNTING', 'DIRECTOR'].includes(userForm.role) ? '(Pusat)' : ''}</span>
+                <select
+                  required={!['ACCOUNTING', 'DIRECTOR'].includes(userForm.role)}
+                  disabled={['ACCOUNTING', 'DIRECTOR'].includes(userForm.role)}
+                  value={userForm.branchId || findBranch(userForm.branch)?.id || ''}
+                  onChange={(e) => {
+                    const branch = branches.find((item) => item.id === e.target.value);
+                    updateUserForm({ branchId: branch?.id, branch: branch?.code || '' });
+                  }}
+                  className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-slate-800"
+                >
+                  <option value="">{['ACCOUNTING', 'DIRECTOR'].includes(userForm.role) ? 'Tidak dibatasi ke satu branch' : 'Pilih branch'}</option>
+                  {activeBranches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>{branch.id} · {branch.code} · {branch.name}</option>
+                  ))}
+                </select>
               </label>
               <label className="block">
                 <span className="font-semibold text-slate-600">Departemen</span>
@@ -1287,7 +1518,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
           />
         </div>
         <span className="text-xs text-slate-500">
-          Tersimpan di Relational Database Browser Storage
+          Tersimpan di database server (MariaDB)
         </span>
       </div>}
 
@@ -1312,12 +1543,12 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 {users.filter((u) => `${u.username || ''} ${u.name} ${u.email}`.toLowerCase().includes(searchQuery.toLowerCase())).map((u) => (
                   <tr key={u.id} className="hover:bg-violet-50/40 transition-colors cursor-pointer" onDoubleClick={() => openUserEditor(u)}>
                     <td className="p-3.5 font-mono text-slate-500">{users.indexOf(u) + 1}</td>
-                    <td className="p-3.5"><button type="button" onClick={() => openUserEditor(u)} className="text-left"><div className="font-mono font-bold text-violet-600 hover:text-indigo-700 hover:underline">{u.username || '-'}</div></button></td>
-                    <td className="p-3.5"><button type="button" onClick={() => openUserEditor(u)} className="font-bold text-slate-900 hover:text-violet-700 hover:underline text-left">{u.name}</button></td>
+                    <td className="p-3.5"><button type="button" onClick={() => openUserEditor(u)} className="master-data-link-button text-left"><div className="font-mono font-bold text-violet-600 hover:text-indigo-700 hover:underline">{u.username || '-'}</div></button></td>
+                    <td className="p-3.5"><button type="button" onClick={() => openUserEditor(u)} className="master-data-link-button font-bold text-slate-900 hover:text-violet-700 hover:underline text-left">{u.name}</button></td>
                     <td className="p-3.5 text-slate-600">{u.position || u.department || '-'}</td>
                     <td className="p-3.5 text-slate-600">{u.email}</td>
-                    <td className="p-3.5 text-slate-600">{u.branch || '-'}</td>
-                    <td className="p-3.5"><button onClick={()=>void db.updateUser(u.id,{status:u.status==='ACTIVE'?'INACTIVE':'ACTIVE'})} title={u.status === 'INACTIVE' ? 'Aktifkan akun dan reset penghitung login gagal' : 'Nonaktifkan akun'} className={`px-2.5 py-1 rounded-md text-[10px] font-bold ${u.status==='ACTIVE'?'bg-emerald-50 text-emerald-600 hover:bg-emerald-100':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{u.status}</button></td>
+                    <td className="p-3.5 text-slate-600">{branchLabel(u.branchId, u.branch)}</td>
+                    <td className="p-3.5"><button onClick={() => void updateUserStatus(u)} title={u.status === 'INACTIVE' ? 'Aktifkan akun dan reset penghitung login gagal' : 'Nonaktifkan akun'} className={`master-data-status px-2.5 py-1 rounded-md text-[10px] font-bold ${u.status==='ACTIVE'?'bg-emerald-50 text-emerald-600 hover:bg-emerald-100':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{u.status}</button></td>
                     <td className="p-3.5 text-right"><div className="flex items-center justify-end gap-1.5"><button onClick={() => openUserEditor(u)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500 transition" title="Edit User"><Edit2 className="w-3.5 h-3.5" /></button><button onClick={() => void deleteMasterRecord('User', () => db.deleteUser(u.id))} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-500 transition" title="Hapus User"><Trash2 className="w-3.5 h-3.5" /></button></div></td>
                   </tr>
                 ))}
@@ -1673,24 +1904,28 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 <tr>
                   <th className="p-3.5">No</th>
                   <th className="p-3.5">Bank Name</th>
-                  <th className="p-3.5">Branch</th>
+                  <th className="p-3.5">Branch Bank</th>
+                  <th className="p-3.5">Branch Kantor</th>
                   <th className="p-3.5">A/c Name</th>
                   <th className="p-3.5">A/c Number</th>
                   <th className="p-3.5">Currency</th>
+                  <th className="p-3.5">COA Buku Bank</th>
                   <th className="p-3.5 text-right">Aksi</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {bankAccounts
-                  .filter((item) => `${item.bankName} ${item.branch || ''} ${item.accountName} ${item.accountNumber}`.toLowerCase().includes(searchQuery.toLowerCase()))
+                  .filter((item) => `${item.bankName} ${item.branch || ''} ${item.branchName || ''} ${item.accountName} ${item.accountNumber}`.toLowerCase().includes(searchQuery.toLowerCase()))
                   .map((item, index) => (
                     <tr key={item.id} className="hover:bg-slate-50">
                       <td className="p-3.5 font-mono text-slate-500">{index + 1}</td>
                       <td className="p-3.5 font-bold text-slate-900">{item.bankName}</td>
                       <td className="p-3.5 text-slate-700">{item.branch || '-'}</td>
+                      <td className="p-3.5 text-slate-700">{branchLabel(item.branchId, item.branchName)}</td>
                       <td className="p-3.5 text-slate-700">{item.accountName || '-'}</td>
                       <td className="p-3.5 font-mono text-slate-700">{item.accountNumber || '-'}</td>
                       <td className="p-3.5 font-bold text-slate-700">{item.currency || 'Belum diatur'}</td>
+                      <td className="p-3.5 text-xs text-slate-700">{activeChartOfAccounts.find((account) => account.id === item.coaId)?.code || 'Belum dipetakan'}</td>
                       <td className="p-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button onClick={() => openMasterEditor('BANK_ACCOUNT', item)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500" title="Edit Bank Account"><Edit2 className="w-3.5 h-3.5"/></button>
@@ -1700,12 +1935,56 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     </tr>
                   ))}
                 {bankAccounts.length === 0 && (
-                  <tr><td colSpan={7} className="p-6 text-center text-slate-400">Belum ada data bank account.</td></tr>
+                  <tr><td colSpan={9} className="p-6 text-center text-slate-400">Belum ada data bank account.</td></tr>
                 )}
               </tbody>
             </table>
           </div>
         )}
+
+        {activeTab === 'CHART_OF_ACCOUNTS' && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="border-b border-slate-200 bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500">
+                <tr>
+                  <th className="p-3.5">No</th>
+                  <th className="p-3.5">Kode COA</th>
+                  <th className="p-3.5">Nama Akun</th>
+                  <th className="p-3.5">Kelompok</th>
+                  <th className="p-3.5">Status</th>
+                  <th className="p-3.5 text-right">Aksi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {db.getState().chartOfAccounts
+                  .filter((account) => `${account.code} ${account.accountDesc} ${account.accountGroup}`.toLocaleLowerCase().includes(searchQuery.toLocaleLowerCase()))
+                  .sort((first, second) => first.code.localeCompare(second.code) || first.accountDesc.localeCompare(second.accountDesc))
+                  .map((account, index) => (
+                    <tr key={account.id} className="hover:bg-slate-50">
+                      <td className="p-3.5 font-mono text-slate-500">{index + 1}</td>
+                      <td className="p-3.5 font-mono font-bold text-slate-800">{account.code}</td>
+                      <td className="p-3.5 text-slate-700">{account.accountDesc}</td>
+                      <td className="p-3.5 text-slate-600">{account.accountGroup}</td>
+                      <td className="p-3.5">
+                        <span className={`rounded px-2 py-1 text-[10px] font-bold ${account.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                          {account.isActive ? 'Aktif' : 'Nonaktif'}
+                        </span>
+                      </td>
+                      <td className="p-3.5 text-right">
+                        <button type="button" onClick={() => openChartAccountForm(account)} className="rounded border border-slate-200 bg-white p-1.5 text-slate-500 hover:bg-violet-50 hover:text-violet-600" title="Edit COA">
+                          <Edit2 className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                {db.getState().chartOfAccounts.length === 0 && (
+                  <tr><td colSpan={6} className="p-6 text-center text-slate-400">Belum ada master COA. Impor daftar akun melalui migrasi COA, atau tambahkan akun baru.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         {activeTab === 'CASH_BALANCE_ADJUSTMENTS' && (
           <div className="space-y-5 p-5">
             <section className="rounded-xl border border-amber-200 bg-amber-50 p-4">
@@ -1804,10 +2083,10 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                         <td className="whitespace-nowrap p-3 font-mono text-slate-700">{adjustment.effectiveDate}</td>
                         <td className="p-3 text-slate-700">{adjustment.bankName}<div className="font-mono text-[10px] text-slate-500">{adjustment.accountNumber} · {adjustment.currency}</div></td>
                         <td className={`whitespace-nowrap p-3 text-right font-mono font-bold ${adjustment.amount > 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                          {adjustment.amount > 0 ? '+' : ''}{new Intl.NumberFormat(adjustment.currency === 'IDR' ? 'id-ID' : 'en-US', { maximumFractionDigits: 2 }).format(adjustment.amount)} {adjustment.currency}
+                          {adjustment.amount > 0 ? '+' : ''}{new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(adjustment.amount)} {adjustment.currency}
                         </td>
                         <td className="max-w-sm p-3 text-slate-700">{adjustment.reason}</td>
-                        <td className="whitespace-nowrap p-3 text-slate-600">{adjustment.createdBy}<div className="text-[10px] text-slate-400">{adjustment.createdAt}</div></td>
+                        <td className="whitespace-nowrap p-3 text-slate-600">{adjustment.createdBy}<div className="text-[10px] text-slate-400">{formatDateDisplay(adjustment.createdAt, true)} WIB</div></td>
                       </tr>
                     ))}
                   {cashBalanceAdjustments.length === 0 && (
@@ -1955,10 +2234,12 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
               {editingMaster.type === 'BANK_ACCOUNT' && (
                 <>
                   <label className="block"><span className="text-slate-500 font-semibold">Bank Name</span><input required value={editMasterForm.bankName || ''} onChange={e=>setEditMasterForm({...editMasterForm,bankName:e.target.value})} className="master-edit-input" /></label>
-                  <label className="block"><span className="text-slate-500 font-semibold">Branch</span><input value={editMasterForm.branch || ''} onChange={e=>setEditMasterForm({...editMasterForm,branch:e.target.value})} className="master-edit-input" /></label>
+                  <label className="block"><span className="text-slate-500 font-semibold">Branch Bank</span><input value={editMasterForm.branch || ''} onChange={e=>setEditMasterForm({...editMasterForm,branch:e.target.value})} className="master-edit-input" /></label>
+                  <label className="block"><span className="text-slate-500 font-semibold">Branch Kantor (Pemilik Rekening)</span><select required value={editMasterForm.branchId || findBranch(editMasterForm.branchName)?.id || ''} onChange={e=>{const branch=branches.find(item=>item.id===e.target.value);setEditMasterForm({...editMasterForm,branchId:branch?.id,branchName:branch?.code||''});}} className="master-edit-input"><option value="">Pilih branch</option>{activeBranches.map(branch=><option key={branch.id} value={branch.id}>{branch.id} · {branch.code} · {branch.name}</option>)}</select></label>
                   <label className="block"><span className="text-slate-500 font-semibold">A/C Name</span><input required value={editMasterForm.accountName || ''} onChange={e=>setEditMasterForm({...editMasterForm,accountName:e.target.value})} className="master-edit-input" /></label>
                   <label className="block"><span className="text-slate-500 font-semibold">A/C Number</span><input required value={editMasterForm.accountNumber || ''} onChange={e=>setEditMasterForm({...editMasterForm,accountNumber:e.target.value})} className="master-edit-input" /></label>
                   <label className="block"><span className="text-slate-500 font-semibold">Currency</span><select required value={editMasterForm.currency || ''} onChange={e=>setEditMasterForm({...editMasterForm,currency:e.target.value})} className="master-edit-input"><option value="" disabled>Pilih mata uang</option><option value="IDR">IDR</option><option value="USD">USD</option></select></label>
+                  <label className="block"><span className="text-slate-500 font-semibold">COA Buku Bank</span><select required value={editMasterForm.coaId || ''} onChange={e=>setEditMasterForm({...editMasterForm,coaId:e.target.value})} className="master-edit-input"><option value="">Pilih COA bank</option>{activeChartOfAccounts.filter(account=>account.accountGroup==='Asset').map(account=><option key={account.id} value={account.id}>{account.code} - {account.accountDesc}</option>)}</select></label>
                 </>
               )}
 
@@ -2229,6 +2510,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                         onChange={(e) => setNewZone({ ...newZone, portId: e.target.value })}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
                       >
+                        {ports.length === 0 && <option value="">Tambahkan port terlebih dahulu</option>}
                         {ports.map((p) => (
                           <option key={p.id} value={p.id}>{p.name}</option>
                         ))}
@@ -2247,6 +2529,16 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                         <option value="INNER_ROAD">INNER ROAD</option>
                       </select>
                     </div>
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Kode Zona:</label>
+                    <input
+                      type="text"
+                      required
+                      value={newZone.zoneCode || ''}
+                      onChange={(e) => setNewZone({ ...newZone, zoneCode: e.target.value.toUpperCase() })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
+                    />
                   </div>
                   <div>
                     <label className="text-slate-400 block mb-1">Nama Zona / Dermaga:</label>
@@ -2279,6 +2571,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                         }}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
                       >
+                        {ports.length === 0 && <option value="">Tambahkan port terlebih dahulu</option>}
                         {ports.map((p) => (
                           <option key={p.id} value={p.id}>{p.name}</option>
                         ))}
@@ -2514,8 +2807,15 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     <input required value={newBankAccount.bankName} onChange={(e) => setNewBankAccount({ ...newBankAccount, bankName: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" placeholder="e.g. Bank Mandiri" />
                   </div>
                   <div>
-                    <label className="text-slate-400 block mb-1">Branch:</label>
+                    <label className="text-slate-400 block mb-1">Branch Bank:</label>
                     <input value={newBankAccount.branch || ''} onChange={(e) => setNewBankAccount({ ...newBankAccount, branch: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white" placeholder="Nama cabang bank" />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Branch Kantor (Pemilik Rekening):</label>
+                    <select required value={newBankAccount.branchId || findBranch(newBankAccount.branchName)?.id || ''} onChange={(e) => { const branch = branches.find((item) => item.id === e.target.value); setNewBankAccount({ ...newBankAccount, branchId: branch?.id, branchName: branch?.code || '' }); }} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white">
+                      <option value="">Pilih branch kantor</option>
+                      {activeBranches.map((branch) => <option key={branch.id} value={branch.id}>{branch.id} · {branch.code} · {branch.name}</option>)}
+                    </select>
                   </div>
                   <div>
                     <label className="text-slate-400 block mb-1">A/c Name:</label>
@@ -2530,6 +2830,13 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     <select required value={newBankAccount.currency || 'IDR'} onChange={(e) => setNewBankAccount({ ...newBankAccount, currency: e.target.value as 'IDR' | 'USD' })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white">
                       <option value="IDR">IDR</option>
                       <option value="USD">USD</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">COA Buku Bank:</label>
+                    <select required value={newBankAccount.coaId || ''} onChange={(e) => setNewBankAccount({ ...newBankAccount, coaId: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white">
+                      <option value="">Pilih COA bank</option>
+                      {activeChartOfAccounts.filter((account) => account.accountGroup === 'Asset').map((account) => <option key={account.id} value={account.id}>{account.code} - {account.accountDesc}</option>)}
                     </select>
                   </div>
                   {addFormError && <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{addFormError}</div>}

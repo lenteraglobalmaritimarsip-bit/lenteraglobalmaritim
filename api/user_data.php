@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/bootstrap.php';
 
-$allowedKeys = ['voucher_draft', 'finance_payment_draft', 'notification_reads'];
+$allowedKeys = ['voucher_draft', 'finance_payment_draft', 'finance_receivable_draft', 'notification_reads'];
 
 try {
     $user = requireAuthenticatedUser();

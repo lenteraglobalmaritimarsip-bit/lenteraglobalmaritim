@@ -83,7 +83,8 @@ export const syncPrincipalInvoiceSettlement = (job: JobCall): JobCall => {
   const savedInvoiceAmount = Number(currency === 'USD'
     ? principalInvoice.totalAmountUSD
     : principalInvoice.totalAmountIDR) || 0;
-  const fallbackAmount = Number(job.fda?.finalBilledToPrincipal ?? job.quotation?.epda?.totalAmount ?? 0);
+  const fallbackAmount = Number(job.fda?.finalBilledToPrincipal
+    ?? Math.max(0, (job.quotation?.epda?.totalAmount || 0) - (job.quotation?.epda?.discountAmount || 0)));
   const fallbackCurrency = job.fda?.currency || job.quotation?.epda?.currency || currency;
   const invoiceAmount = roundCurrency(savedInvoiceAmount > 0
     ? savedInvoiceAmount

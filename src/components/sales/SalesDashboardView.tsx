@@ -102,9 +102,10 @@ export const SalesDashboardView:React.FC<SalesDashboardViewProps>=({jobCalls,onN
     return sum + (pda.currency === 'USD' ? normalizedTotal * pda.exchangeRate : normalizedTotal);
   }, 0);
   const totalApprovedEpdaAndPdaIDR = totalApprovedEpdaIDR + approvedPdaTotalIDR;
-  const formatIDR = (value: number) => new Intl.NumberFormat('id-ID', {
+  const formatIDR = (value: number) => new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'IDR',
+    currencyDisplay: 'narrowSymbol',
     maximumFractionDigits: 0,
   }).format(value);
 

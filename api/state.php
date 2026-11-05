@@ -9,6 +9,21 @@ function branchNameKey(?string $branch): string
     return strtolower(trim(preg_replace('/\s+/', ' ', (string) ($branch ?? ''))));
 }
 
+function branchIdKey(?string $branchId): string
+{
+    $value = trim((string) ($branchId ?? ''));
+    return $value !== '' && ctype_digit($value) ? str_pad((string) (int) $value, 3, '0', STR_PAD_LEFT) : '';
+}
+
+function validBranchSelection(?string $branchId, ?string $branchCode): bool
+{
+    if ($branchId === null || trim($branchId) === '') return false;
+    $query = db()->prepare('SELECT code FROM branches WHERE id = :id AND is_active = 1 LIMIT 1');
+    $query->execute(['id' => trim($branchId)]);
+    $code = $query->fetchColumn();
+    return is_string($code) && branchNameKey($code) === branchNameKey($branchCode);
+}
+
 function normalizedManagerApproval(array $approval): array
 {
     $normalized = [
@@ -30,6 +45,201 @@ function stateRevision(array $state): string
     $encoded = json_encode($state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if ($encoded === false) throw new RuntimeException('Unable to calculate application state revision');
     return hash('sha256', $encoded);
+}
+
+function isPaymentVoucherApprovalOnlyChange(array $newVoucher, array $oldVoucher): bool
+{
+    foreach (['status', 'managerNote', 'reviewedBy', 'reviewedAt'] as $field) {
+        unset($newVoucher[$field], $oldVoucher[$field]);
+    }
+    return json_encode($newVoucher) === json_encode($oldVoucher);
+}
+
+function validatePaymentVoucherApprovalTargets(array $newState, array $oldState, array $actor): ?string
+{
+    $oldVouchers = [];
+    foreach ($oldState['paymentVouchers'] ?? [] as $voucher) {
+        if (isset($voucher['id'])) $oldVouchers[(string) $voucher['id']] = $voucher;
+    }
+    $users = [];
+    foreach ($newState['users'] ?? [] as $user) {
+        if (isset($user['id'])) $users[(string) $user['id']] = $user;
+    }
+    foreach ($newState['paymentVouchers'] ?? [] as $voucher) {
+        $id = (string) ($voucher['id'] ?? '');
+        $oldVoucher = $oldVouchers[$id] ?? null;
+        $targetRole = trim((string) ($voucher['approvalTargetRole'] ?? ''));
+        $targetUserId = trim((string) ($voucher['approvalTargetUserId'] ?? ''));
+        $targetName = trim((string) ($voucher['approvalTargetName'] ?? ''));
+
+        if ($oldVoucher !== null) {
+            foreach (['approvalTargetRole', 'approvalTargetUserId', 'approvalTargetName'] as $field) {
+                if ((string) ($voucher[$field] ?? '') !== (string) ($oldVoucher[$field] ?? '')) {
+                    return 'Tujuan approval tidak dapat diubah setelah voucher dikirim.';
+                }
+            }
+            continue;
+        }
+
+        if (($actor['role'] ?? '') === 'FINANCE' && (($voucher['jobInfo'] ?? '') === 'OPERASIONAL')
+            && ($targetRole === '' || $targetUserId === '')) {
+            return 'Pilih user tujuan approval sebelum mengirim voucher Finance.';
+        }
+        if ($targetRole === '' && $targetUserId === '' && $targetName === '') continue;
+        if (!in_array($targetRole, ['MANAGER_OPS', 'DIRECTOR'], true) || $targetUserId === '' || $targetName === '') {
+            return 'Tujuan approval voucher tidak valid.';
+        }
+        $targetUser = $users[$targetUserId] ?? null;
+        if ($targetUser === null || ($targetUser['status'] ?? '') !== 'ACTIVE'
+            || ($targetUser['role'] ?? '') !== $targetRole
+            || trim((string) ($targetUser['name'] ?? '')) !== $targetName) {
+            return 'User approver harus aktif dan sesuai dengan role tujuan.';
+        }
+        if ($targetRole === 'MANAGER_OPS') {
+            $voucherBranchId = branchIdKey((string) ($voucher['branchId'] ?? ''));
+            $managerBranchId = branchIdKey((string) ($targetUser['branchId'] ?? ''));
+            $sameBranch = $voucherBranchId !== '' && $managerBranchId !== ''
+                ? $voucherBranchId === $managerBranchId
+                : branchNameKey((string) ($voucher['branchName'] ?? '')) === branchNameKey((string) ($targetUser['branch'] ?? ''));
+            if (!$sameBranch) return 'User Manager Branch harus berasal dari branch voucher.';
+        }
+    }
+    return null;
+}
+
+function validatePaymentVoucherApprovalChanges(array $newState, array $oldState, array $actor): ?string
+{
+    $oldVouchers = [];
+    foreach ($oldState['paymentVouchers'] ?? [] as $voucher) {
+        if (isset($voucher['id'])) $oldVouchers[(string) $voucher['id']] = $voucher;
+    }
+    $approvalChanged = false;
+    $approvalDecisions = [];
+    foreach ($newState['paymentVouchers'] ?? [] as $voucher) {
+        $id = (string) ($voucher['id'] ?? '');
+        $oldVoucher = $oldVouchers[$id] ?? null;
+        if ($oldVoucher === null) {
+            if (($actor['role'] ?? '') === 'DIRECTOR') return 'Direktur hanya dapat menyetujui voucher yang sudah ada.';
+            continue;
+        }
+        $oldStatus = (string) ($oldVoucher['status'] ?? 'PENDING_MANAGER');
+        $newStatus = (string) ($voucher['status'] ?? 'PENDING_MANAGER');
+        $isDecision = $oldStatus === 'PENDING_MANAGER' && in_array($newStatus, ['APPROVED', 'REJECTED'], true);
+
+        if ($isDecision) {
+            $approvalChanged = true;
+            if (!isPaymentVoucherApprovalOnlyChange($voucher, $oldVoucher)) {
+                return 'Persetujuan voucher tidak boleh mengubah data selain keputusan approval.';
+            }
+            if (!in_array(($actor['role'] ?? ''), ['MANAGER_OPS', 'DIRECTOR'], true)) {
+                return 'Role Anda tidak dapat menyetujui payment voucher.';
+            }
+            $targetRole = (string) ($voucher['approvalTargetRole'] ?? '');
+            $targetUserId = (string) ($voucher['approvalTargetUserId'] ?? '');
+            if ($targetUserId !== '') {
+                if ($targetUserId !== (string) ($actor['id'] ?? '') || $targetRole !== (string) ($actor['role'] ?? '')) {
+                    return 'Voucher ini hanya dapat diproses oleh user approver yang dituju.';
+                }
+            } elseif (($actor['role'] ?? '') !== 'MANAGER_OPS') {
+                return 'Voucher ini tidak ditujukan kepada user Anda.';
+            }
+            if (trim((string) ($voucher['reviewedBy'] ?? '')) !== trim((string) ($actor['name'] ?? ''))) {
+                return 'Nama approver tidak sesuai dengan akun yang sedang login.';
+            }
+            if (trim((string) ($voucher['reviewedAt'] ?? '')) === '') {
+                return 'Waktu persetujuan wajib dicatat.';
+            }
+            if (strtotime((string) $voucher['reviewedAt']) === false) {
+                return 'Waktu persetujuan tidak valid.';
+            }
+            if ($newStatus === 'REJECTED' && trim((string) ($voucher['managerNote'] ?? '')) === '') {
+                return 'Alasan penolakan wajib diisi.';
+            }
+            $approvalDecisions[$id] = $newStatus;
+            continue;
+        }
+
+        if (in_array($newStatus, ['APPROVED', 'REJECTED'], true) && $newStatus !== $oldStatus) {
+            return 'Voucher tidak sedang menunggu persetujuan.';
+        }
+        $approvalMetadataChanged = false;
+        foreach (['managerNote', 'reviewedBy', 'reviewedAt'] as $field) {
+            if ((string) ($voucher[$field] ?? '') !== (string) ($oldVoucher[$field] ?? '')) {
+                $approvalMetadataChanged = true;
+                break;
+            }
+        }
+        $isRejectedResubmission = $oldStatus === 'REJECTED' && $newStatus === 'PENDING_MANAGER'
+            && in_array(($actor['role'] ?? ''), ['FDA', 'FINANCE'], true)
+            && trim((string) ($voucher['managerNote'] ?? '')) === ''
+            && trim((string) ($voucher['reviewedBy'] ?? '')) === ''
+            && trim((string) ($voucher['reviewedAt'] ?? '')) === '';
+        if ($approvalMetadataChanged && !$isRejectedResubmission) {
+            return 'Informasi review hanya dapat diubah saat approver mengambil keputusan.';
+        }
+        if (($actor['role'] ?? '') === 'DIRECTOR' && json_encode($voucher) !== json_encode($oldVoucher)) {
+            return 'Direktur hanya dapat menyetujui atau menolak voucher yang ditujukan kepadanya.';
+        }
+    }
+    if (($actor['role'] ?? '') === 'DIRECTOR') {
+        $newVoucherIds = array_fill_keys(array_map(
+            static fn (array $voucher): string => (string) ($voucher['id'] ?? ''),
+            $newState['paymentVouchers'] ?? [],
+        ), true);
+        foreach (array_keys($oldVouchers) as $id) {
+            if (!isset($newVoucherIds[$id])) return 'Direktur tidak dapat menghapus voucher.';
+        }
+        $newStateWithoutVoucherApproval = $newState;
+        $oldStateWithoutVoucherApproval = $oldState;
+        foreach (['paymentVouchers', 'auditLogs', 'currentRole', 'selectedJobId'] as $key) {
+            unset($newStateWithoutVoucherApproval[$key], $oldStateWithoutVoucherApproval[$key]);
+        }
+        if (json_encode($newStateWithoutVoucherApproval) !== json_encode($oldStateWithoutVoucherApproval) || !$approvalChanged) {
+            return 'Akun Direktur hanya dapat menyimpan keputusan approval voucher.';
+        }
+        $oldAuditLogs = [];
+        foreach ($oldState['auditLogs'] ?? [] as $log) {
+            if (isset($log['id'])) $oldAuditLogs[(string) $log['id']] = $log;
+        }
+        $newAuditLogs = [];
+        $newApprovalLogs = [];
+        foreach ($newState['auditLogs'] ?? [] as $log) {
+            $logId = (string) ($log['id'] ?? '');
+            if ($logId === '' || isset($newAuditLogs[$logId])) return 'Audit approval voucher tidak valid.';
+            $newAuditLogs[$logId] = $log;
+            if (!isset($oldAuditLogs[$logId])) $newApprovalLogs[] = $log;
+            elseif (json_encode($oldAuditLogs[$logId]) !== json_encode($log)) return 'Riwayat audit yang sudah ada tidak dapat diubah.';
+        }
+        if (count($newApprovalLogs) !== count($approvalDecisions)) return 'Setiap keputusan harus memiliki catatan audit.';
+        $permanentAuditIds = [];
+        $recentAuditIds = [];
+        foreach ($oldState['auditLogs'] ?? [] as $log) {
+            $logId = (string) ($log['id'] ?? '');
+            if (($log['entity'] ?? '') === 'VESSEL_CALL' && ($log['action'] ?? '') === 'DELETE') {
+                $permanentAuditIds[] = $logId;
+            } else {
+                $recentAuditIds[] = $logId;
+            }
+        }
+        $recentCapacity = max(0, 1000 - count($permanentAuditIds));
+        $retainedRecentIds = array_slice($recentAuditIds, 0, max(0, $recentCapacity - count($newApprovalLogs)));
+        foreach (array_merge($permanentAuditIds, $retainedRecentIds) as $logId) {
+            if (!isset($newAuditLogs[$logId])) return 'Riwayat audit yang sudah ada tidak dapat dihapus.';
+        }
+        foreach ($newApprovalLogs as $log) {
+            $voucherId = (string) ($log['entityId'] ?? '');
+            $expectedAction = ($approvalDecisions[$voucherId] ?? '') === 'APPROVED' ? 'APPROVE' : 'REJECT';
+            if (!isset($approvalDecisions[$voucherId])
+                || ($log['entity'] ?? '') !== 'PAYMENT_VOUCHER'
+                || ($log['actorId'] ?? '') !== ($actor['id'] ?? '')
+                || ($log['actorName'] ?? '') !== ($actor['name'] ?? '')
+                || ($log['role'] ?? '') !== 'DIRECTOR'
+                || ($log['action'] ?? '') !== $expectedAction) {
+                return 'Catatan audit harus sesuai dengan user dan keputusan approval.';
+            }
+        }
+    }
+    return null;
 }
 
 function validatePaymentVoucherPaymentHistories(array $newState, array $oldState): ?string
@@ -82,6 +292,114 @@ function validatePaymentVoucherBankCurrencies(array $newState, array $oldState):
     return null;
 }
 
+function validateBankAccountBranches(array $newState, array $oldState): ?string
+{
+    $oldAccounts = [];
+    foreach ($oldState['bankAccounts'] ?? [] as $account) {
+        if (isset($account['id'])) $oldAccounts[(string) $account['id']] = $account;
+    }
+    foreach ($newState['bankAccounts'] ?? [] as $account) {
+        $id = trim((string) ($account['id'] ?? ''));
+        $branch = trim((string) ($account['branchName'] ?? ''));
+        $branchId = trim((string) ($account['branchId'] ?? ''));
+        $oldBranch = trim((string) ($oldAccounts[$id]['branchName'] ?? ''));
+        $oldBranchId = trim((string) ($oldAccounts[$id]['branchId'] ?? ''));
+        if ($branch !== '' && strlen($branch) > 150) return 'Nama branch rekening maksimal 150 karakter.';
+        if ((!isset($oldAccounts[$id]) && ($branch === '' || !validBranchSelection($branchId, $branch)))
+            || ($branchId !== '' && !validBranchSelection($branchId, $branch))) {
+            return 'Pilih branch kantor yang valid dari master branch.';
+        }
+        if ($oldBranch !== '' && branchNameKey($oldBranch) !== branchNameKey($branch)) {
+            return 'Branch pemilik rekening tidak dapat diubah setelah ditetapkan.';
+        }
+        if ($oldBranchId !== '' && branchIdKey($oldBranchId) !== branchIdKey($branchId)) {
+            return 'ID branch pemilik rekening tidak dapat diubah setelah ditetapkan.';
+        }
+    }
+    return null;
+}
+
+function validateUserBranches(array $newState, array $oldState): ?string
+{
+    $oldUsers = [];
+    foreach ($oldState['users'] ?? [] as $user) {
+        if (isset($user['id'])) $oldUsers[(string) $user['id']] = $user;
+    }
+    foreach ($newState['users'] ?? [] as $user) {
+        $id = (string) ($user['id'] ?? '');
+        $branchCode = trim((string) ($user['branch'] ?? ''));
+        $branchId = trim((string) ($user['branchId'] ?? ''));
+        $oldUser = $oldUsers[$id] ?? null;
+        $branchChanged = $oldUser === null
+            || branchNameKey((string) ($oldUser['branch'] ?? '')) !== branchNameKey($branchCode)
+            || branchIdKey((string) ($oldUser['branchId'] ?? '')) !== branchIdKey($branchId);
+        if ($branchCode === '' && in_array(($user['role'] ?? ''), ['ADMIN', 'ACCOUNTING', 'DIRECTOR'], true)) continue;
+        if ($branchId === '') $branchId = branchIdFromValue($branchCode) ?? '';
+        if ($branchId !== '' && !validBranchSelection($branchId, $branchCode)) {
+            return 'Pilih branch aktif yang valid dari master branch untuk user.';
+        }
+        if ($branchChanged && ($branchId === '' || $branchCode === '')) {
+            return 'Setiap user baru atau perubahan branch wajib memilih branch dari master branch.';
+        }
+    }
+    return null;
+}
+
+function validatePaymentVoucherBranches(array $newState, array $oldState, array $actor): ?string
+{
+    $oldVouchers = [];
+    foreach ($oldState['paymentVouchers'] ?? [] as $voucher) {
+        if (isset($voucher['id'])) $oldVouchers[(string) $voucher['id']] = $voucher;
+    }
+    $accounts = [];
+    foreach ($newState['bankAccounts'] ?? [] as $account) {
+        if (isset($account['id'])) $accounts[(string) $account['id']] = $account;
+    }
+    $actorBranch = branchNameKey((string) ($actor['branch_name'] ?? $actor['branch'] ?? ''));
+    $actorBranchId = branchIdKey((string) ($actor['branch_id'] ?? ''));
+    foreach ($newState['paymentVouchers'] ?? [] as $voucher) {
+        $id = (string) ($voucher['id'] ?? '');
+        $oldVoucher = $oldVouchers[$id] ?? null;
+        $branch = trim((string) ($voucher['branchName'] ?? ''));
+        $branchId = trim((string) ($voucher['branchId'] ?? ''));
+        $oldBranch = trim((string) ($oldVoucher['branchName'] ?? ''));
+        $oldBranchId = trim((string) ($oldVoucher['branchId'] ?? ''));
+        if ($oldVoucher === null) {
+            if (!in_array(($actor['role'] ?? ''), ['FDA', 'FINANCE'], true)
+                || $branch === ''
+                || branchNameKey($branch) !== $actorBranch
+                || $branchId === ''
+                || branchIdKey($branchId) !== $actorBranchId
+                || !validBranchSelection($branchId, $branch)) {
+                return 'Payment request harus dibuat oleh user Finance/FDA pada branch pemiliknya.';
+            }
+        } elseif ($branch !== $oldBranch || ($oldBranchId !== '' && branchIdKey($branchId) !== branchIdKey($oldBranchId))) {
+            return 'Branch payment request tidak dapat diubah setelah dibuat.';
+        }
+
+        if ($oldVoucher !== null && ($actor['role'] ?? '') !== 'ADMIN'
+            && !(($actor['role'] ?? '') === 'DIRECTOR' && isPaymentVoucherApprovalOnlyChange($voucher, $oldVoucher))) {
+            $changed = json_encode($voucher) !== json_encode($oldVoucher);
+            if ($changed && ($branch === '' || $actorBranch === '' || branchNameKey($branch) !== $actorBranch
+                || ($branchId !== '' && $actorBranchId !== '' && branchIdKey($branchId) !== $actorBranchId))) {
+                return 'Payment request hanya dapat diproses oleh user pada branch pemiliknya.';
+            }
+        }
+
+        $bankAccountId = trim((string) ($voucher['paidFromBankAccountId'] ?? ''));
+        if ($bankAccountId !== '') {
+            $accountBranch = trim((string) ($accounts[$bankAccountId]['branchName'] ?? ''));
+            $requiresBranchAssignment = $oldVoucher === null
+                || (string) ($oldVoucher['paidFromBankAccountId'] ?? '') !== $bankAccountId;
+            if (($requiresBranchAssignment && ($accountBranch === '' || $branch === ''))
+                || ($accountBranch !== '' && $branch !== '' && branchNameKey($accountBranch) !== branchNameKey($branch))) {
+                return 'Rekening pembayaran harus berasal dari branch yang sama dengan payment request.';
+            }
+        }
+    }
+    return null;
+}
+
 function validateCashBalanceAdjustments(array $newState, array $oldState, array $actor): ?string
 {
     $oldAdjustments = [];
@@ -96,7 +414,7 @@ function validateCashBalanceAdjustments(array $newState, array $oldState, array 
     }
     foreach ($oldAdjustments as $id => $oldAdjustment) {
         if (!isset($newAdjustments[$id])) return 'Riwayat penyesuaian saldo kas tidak dapat dihapus.';
-        foreach (['bankAccountId', 'bankName', 'accountNumber', 'currency', 'amount', 'effectiveDate', 'reason', 'createdBy', 'createdAt'] as $field) {
+        foreach (['bankAccountId', 'branchName', 'branchId', 'bankName', 'accountNumber', 'currency', 'amount', 'effectiveDate', 'reason', 'createdBy', 'createdAt'] as $field) {
             $newValue = (string) ($newAdjustments[$id][$field] ?? '');
             $oldValue = (string) ($oldAdjustment[$field] ?? '');
             $matches = $field === 'createdAt'
@@ -116,6 +434,14 @@ function validateCashBalanceAdjustments(array $newState, array $oldState, array 
         if ($account === null || ($account['currency'] ?? '') !== ($adjustment['currency'] ?? '')) {
             return 'Rekening dengan riwayat penyesuaian tidak dapat dihapus atau diganti currency-nya.';
         }
+        $adjustmentBranch = trim((string) ($adjustment['branchName'] ?? ''));
+        $adjustmentBranchId = branchIdKey((string) ($adjustment['branchId'] ?? ''));
+        $accountBranch = trim((string) ($account['branchName'] ?? ''));
+        $accountBranchId = branchIdKey((string) ($account['branchId'] ?? ''));
+        if (($adjustmentBranch !== '' && $accountBranch !== '' && branchNameKey($adjustmentBranch) !== branchNameKey($accountBranch))
+            || ($adjustmentBranchId !== '' && $accountBranchId !== '' && $adjustmentBranchId !== $accountBranchId)) {
+            return 'Branch penyesuaian saldo harus sama dengan branch pemilik rekening.';
+        }
     }
     foreach (array_diff_key($newAdjustments, $oldAdjustments) as $adjustment) {
         if (($actor['role'] ?? '') !== 'ADMIN') return 'Hanya Admin yang dapat menambahkan penyesuaian saldo kas.';
@@ -131,6 +457,9 @@ function validateCashBalanceAdjustments(array $newState, array $oldState, array 
         $amount = $adjustment['amount'] ?? null;
         $reason = trim((string) ($adjustment['reason'] ?? ''));
         if ($account === null
+            || trim((string) ($account['branchName'] ?? '')) === ''
+            || branchNameKey((string) ($adjustment['branchName'] ?? '')) !== branchNameKey((string) ($account['branchName'] ?? ''))
+            || branchIdKey((string) ($adjustment['branchId'] ?? '')) !== branchIdKey((string) ($account['branchId'] ?? ''))
             || !in_array($currency, ['IDR', 'USD'], true)
             || ($account['currency'] ?? '') !== $currency
             || (string) ($adjustment['bankName'] ?? '') !== (string) ($account['bankName'] ?? '')
@@ -421,6 +750,147 @@ try {
     $lock = $pdo->query("SELECT GET_LOCK('maritimport_app_state', 10)")->fetchColumn();
     if ((int) $lock !== 1) jsonResponse(['error' => 'Could not lock application state for saving'], 503);
     $before = loadAppState();
+    $approvalTargetError = validatePaymentVoucherApprovalTargets($state, $before, $actor);
+    if ($approvalTargetError !== null) {
+        $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+        jsonResponse(['error' => $approvalTargetError], 403);
+    }
+    $approvalChangeError = validatePaymentVoucherApprovalChanges($state, $before, $actor);
+    if ($approvalChangeError !== null) {
+        $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+        jsonResponse(['error' => $approvalChangeError], 403);
+    }
+    if (json_encode($state['branches'] ?? []) !== json_encode($before['branches'] ?? [])) {
+        $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+        jsonResponse(['error' => 'Master branch tidak dapat diubah melalui sinkronisasi state. Gunakan migrasi database yang terkontrol.'], 403);
+    }
+    $oldCoaById = [];
+    foreach ($before['chartOfAccounts'] ?? [] as $account) {
+        $oldCoaById[(string) ($account['id'] ?? '')] = $account;
+    }
+    $newCoaRows = $state['chartOfAccounts'] ?? null;
+    if (!is_array($newCoaRows)) {
+        $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+        jsonResponse(['error' => 'Data Master COA tidak valid.'], 400);
+    }
+    $newCoaById = [];
+    $usedCoaIds = [];
+    foreach ($before['bankAccounts'] ?? [] as $account) {
+        if (!empty($account['coaId'])) $usedCoaIds[(string) $account['coaId']] = true;
+    }
+    foreach ($before['paymentVouchers'] ?? [] as $voucher) {
+        foreach ($voucher['items'] ?? [] as $item) {
+            if (!empty($item['coaId'])) $usedCoaIds[(string) $item['coaId']] = true;
+        }
+        foreach ($voucher['paymentJournalLines'] ?? [] as $line) {
+            if (!empty($line['coaId'])) $usedCoaIds[(string) $line['coaId']] = true;
+        }
+        foreach ($voucher['paymentHistory'] ?? [] as $payment) {
+            foreach ($payment['paymentJournalLines'] ?? [] as $line) {
+                if (!empty($line['coaId'])) $usedCoaIds[(string) $line['coaId']] = true;
+            }
+        }
+        foreach (['paymentSurchargeCoaId', 'paymentOtherExpensesCoaId'] as $field) {
+            if (!empty($voucher[$field])) $usedCoaIds[(string) $voucher[$field]] = true;
+        }
+    }
+    $receivableTableExists = (int) $pdo->query(
+        "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'accounts_receivable_entries'"
+    )->fetchColumn() === 1;
+    if ($receivableTableExists) {
+        $receivableColumns = array_column($pdo->query('SHOW COLUMNS FROM accounts_receivable_entries')->fetchAll(), 'Field');
+        if (in_array('journal_lines', $receivableColumns, true)) {
+            foreach ($pdo->query('SELECT journal_lines FROM accounts_receivable_entries WHERE journal_lines IS NOT NULL')->fetchAll(PDO::FETCH_COLUMN) as $storedLines) {
+                $storedJournalLines = json_decode((string) $storedLines, true);
+                foreach (is_array($storedJournalLines) ? $storedJournalLines : [] as $line) {
+                    if (!empty($line['coaId'])) $usedCoaIds[(string) $line['coaId']] = true;
+                }
+            }
+        }
+    }
+    if (tableColumns($pdo, 'accounting_journal_lines') !== null) {
+        foreach ($pdo->query('SELECT DISTINCT coa_id FROM accounting_journal_lines')->fetchAll(PDO::FETCH_COLUMN) as $accountId) {
+            if ($accountId !== null && $accountId !== '') $usedCoaIds[(string) $accountId] = true;
+        }
+    }
+    foreach ($newCoaRows as $account) {
+        if (!is_array($account)) {
+            $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+            jsonResponse(['error' => 'Data Master COA tidak valid.'], 400);
+        }
+        $id = trim((string) ($account['id'] ?? ''));
+        $code = trim((string) ($account['code'] ?? ''));
+        $description = trim((string) ($account['accountDesc'] ?? ''));
+        $group = trim((string) ($account['accountGroup'] ?? ''));
+        if ($id === '' || strlen($id) > 16 || $code === '' || strlen($code) > 20
+            || !preg_match('/^[A-Za-z0-9._-]+$/', $code)
+            || $description === '' || strlen($description) > 250
+            || $group === '' || strlen($group) > 80
+            || !is_bool($account['isActive'] ?? null)
+            || isset($newCoaById[$id])) {
+            $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+            jsonResponse(['error' => 'Kode, nama akun, kelompok, atau status COA tidak valid.'], 400);
+        }
+        $newCoaById[$id] = $account;
+    }
+    if (array_diff_key($oldCoaById, $newCoaById)) {
+        $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+        jsonResponse(['error' => 'COA tidak dapat dihapus. Nonaktifkan akun yang tidak digunakan agar riwayat tetap terjaga.'], 403);
+    }
+    if ($newCoaRows !== ($before['chartOfAccounts'] ?? []) && ($actor['role'] ?? '') !== 'ADMIN') {
+        $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+        jsonResponse(['error' => 'Hanya Admin yang dapat mengelola Master COA.'], 403);
+    }
+    foreach ($newCoaById as $id => $account) {
+        $oldAccount = $oldCoaById[$id] ?? null;
+        $code = strtolower(trim((string) $account['code']));
+        $description = strtolower(trim((string) $account['accountDesc']));
+        foreach ($newCoaById as $otherId => $otherAccount) {
+            if ($otherId !== $id
+                && strtolower(trim((string) ($otherAccount['code'] ?? ''))) === $code
+                && strtolower(trim((string) ($otherAccount['accountDesc'] ?? ''))) === $description) {
+                $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+                jsonResponse(['error' => 'Pasangan kode dan nama akun COA harus unik.'], 409);
+            }
+        }
+        if ($oldAccount === null || strtolower((string) ($oldAccount['code'] ?? '')) !== $code) {
+            foreach ($newCoaById as $otherId => $otherAccount) {
+                if ($otherId !== $id && strtolower(trim((string) ($otherAccount['code'] ?? ''))) === $code) {
+                    $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+                    jsonResponse(['error' => 'Kode COA sudah digunakan. Kode akun baru harus unik.'], 409);
+                }
+            }
+        }
+        if ($oldAccount !== null) {
+            $groupChanged = strtolower(trim((string) ($oldAccount['accountGroup'] ?? '')))
+                !== strtolower(trim((string) ($account['accountGroup'] ?? '')));
+            $deactivated = !empty($oldAccount['isActive']) && empty($account['isActive']);
+            if (($groupChanged || $deactivated) && isset($usedCoaIds[$id])) {
+                $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+                jsonResponse(['error' => 'Kelompok dan status COA yang sudah digunakan pada rekening/transaksi tidak dapat diubah. Kode COA boleh diganti selama kelompok tetap sama.'], 409);
+            }
+        }
+    }
+    $state['chartOfAccounts'] = array_values($newCoaRows);
+    $activeCoaIds = array_fill_keys(array_column(
+        array_values(array_filter($before['chartOfAccounts'] ?? [], static fn (array $account): bool => !empty($account['isActive']))),
+        'id',
+    ), true);
+    $activeCoaGroups = [];
+    foreach ($before['chartOfAccounts'] ?? [] as $account) {
+        if (!empty($account['isActive'])) {
+            $activeCoaGroups[(string) ($account['id'] ?? '')] = (string) ($account['accountGroup'] ?? '');
+        }
+    }
+    $bankAccountsById = [];
+    foreach ($state['bankAccounts'] ?? [] as $account) {
+        if (isset($account['id'])) $bankAccountsById[(string) $account['id']] = $account;
+        $coaId = (string) ($account['coaId'] ?? '');
+        if ($coaId !== '' && !isset($activeCoaIds[$coaId])) {
+            $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+            jsonResponse(['error' => 'COA rekening bank tidak ditemukan atau tidak aktif. Pilih COA Asset yang berlaku.'], 400);
+        }
+    }
     $oldPaymentVouchers = [];
     foreach ($before['paymentVouchers'] ?? [] as $voucher) {
         if (isset($voucher['id'])) $oldPaymentVouchers[(string) $voucher['id']] = $voucher;
@@ -428,6 +898,43 @@ try {
     foreach ($state['paymentVouchers'] ?? [] as $voucher) {
         $voucherId = (string) ($voucher['id'] ?? '');
         $oldVoucher = $oldPaymentVouchers[$voucherId] ?? [];
+        $newlyPaid = ($voucher['status'] ?? '') === 'PAID' && ($oldVoucher['status'] ?? '') !== 'PAID';
+        if ($newlyPaid) {
+            if (($voucher['currency'] ?? 'IDR') === 'USD' && (float) ($voucher['exchangeRateUSDToIDR'] ?? 0) <= 0) {
+                $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+                jsonResponse(['error' => 'Kurs USD/IDR wajib tersedia untuk pembayaran voucher USD.'], 400);
+            }
+        }
+        if (($oldVoucher['status'] ?? '') === 'PAID' && ($voucher['status'] ?? '') === 'PAID') {
+            if (json_encode($oldVoucher['paymentJournalLines'] ?? []) !== json_encode($voucher['paymentJournalLines'] ?? [])) {
+                $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+                jsonResponse(['error' => 'Jurnal yang sudah diposting tidak dapat diubah. Gunakan alur koreksi Finance.'], 403);
+            }
+            $oldItemsById = [];
+            foreach ($oldVoucher['items'] ?? [] as $oldItem) {
+                if (!empty($oldItem['coaId'])) $oldItemsById[(string) ($oldItem['id'] ?? '')] = (string) $oldItem['coaId'];
+            }
+            foreach ($voucher['items'] ?? [] as $item) {
+                $itemId = (string) ($item['id'] ?? '');
+                if (isset($oldItemsById[$itemId]) && $oldItemsById[$itemId] !== (string) ($item['coaId'] ?? '')) {
+                    $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+                    jsonResponse(['error' => 'COA pada voucher yang sudah dibayar tidak dapat diubah. Gunakan alur koreksi voucher jika perlu.'], 403);
+                }
+            }
+            $newItemIds = array_fill_keys(array_map(static fn (array $item): string => (string) ($item['id'] ?? ''), $voucher['items'] ?? []), true);
+            foreach (array_keys($oldItemsById) as $oldItemId) {
+                if (!isset($newItemIds[$oldItemId])) {
+                    $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+                    jsonResponse(['error' => 'Rincian ber-COA pada voucher yang sudah dibayar tidak dapat dihapus. Gunakan alur koreksi voucher jika perlu.'], 403);
+                }
+            }
+            foreach (['paymentSurchargeCoaId', 'paymentOtherExpensesCoaId'] as $coaField) {
+                if (!empty($oldVoucher[$coaField]) && (string) $oldVoucher[$coaField] !== (string) ($voucher[$coaField] ?? '')) {
+                    $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+                    jsonResponse(['error' => 'COA biaya pada voucher yang sudah dibayar tidak dapat diubah. Gunakan alur koreksi voucher jika perlu.'], 403);
+                }
+            }
+        }
         $oldProof = $oldVoucher['paymentProofDataUrl'] ?? '';
         $newProof = $voucher['paymentProofDataUrl'] ?? '';
         if ($oldProof === $newProof) continue;
@@ -457,6 +964,21 @@ try {
     if ($bankCurrencyError !== null) {
         $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
         jsonResponse(['error' => $bankCurrencyError], 400);
+    }
+    $bankBranchError = validateBankAccountBranches($state, $before);
+    if ($bankBranchError !== null) {
+        $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+        jsonResponse(['error' => $bankBranchError], 400);
+    }
+    $userBranchError = validateUserBranches($state, $before);
+    if ($userBranchError !== null) {
+        $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+        jsonResponse(['error' => $userBranchError], 400);
+    }
+    $paymentVoucherBranchError = validatePaymentVoucherBranches($state, $before, $actor);
+    if ($paymentVoucherBranchError !== null) {
+        $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+        jsonResponse(['error' => $paymentVoucherBranchError], 403);
     }
     $cashAdjustmentError = validateCashBalanceAdjustments($state, $before, $actor);
     if ($cashAdjustmentError !== null) {
@@ -537,6 +1059,20 @@ try {
                 $deletedJobIds[] = $jobId;
                 continue;
             }
+            $jobBranch = branchNameKey((string) ($oldJob['inquiry']['createdByBranch'] ?? ''));
+            $actorBranch = branchNameKey((string) ($actor['branch_name'] ?? $actor['branch'] ?? ''));
+            $jobBranchId = branchIdKey((string) ($oldJob['inquiry']['createdByBranchId'] ?? ''));
+            $actorBranchId = branchIdKey((string) ($actor['branch_id'] ?? ''));
+            if ($actorBranch !== '' && $jobBranch !== '' && $jobBranch !== $actorBranch
+                && in_array($actor['role'], ['SALES', 'MANAGER_OPS', 'FDA', 'FINANCE'], true)
+                && json_encode($oldJob) !== json_encode($newJob)) {
+                jsonResponse(['error' => 'Job hanya dapat diproses oleh user pada branch pemiliknya'], 403);
+            }
+            if ($actorBranchId !== '' && $jobBranchId !== '' && $jobBranchId !== $actorBranchId
+                && in_array($actor['role'], ['SALES', 'MANAGER_OPS', 'FDA', 'FINANCE'], true)
+                && json_encode($oldJob) !== json_encode($newJob)) {
+                jsonResponse(['error' => 'Job hanya dapat diproses oleh user pada branch pemiliknya'], 403);
+            }
             $voidFields = ['voidedAt', 'voidedBy', 'voidReason'];
             $voidFieldsChanged = false;
             foreach ($voidFields as $field) {
@@ -556,6 +1092,8 @@ try {
                     && trim((string) ($newJob['voidReason'] ?? '')) !== ''
                     && branchNameKey((string) ($oldJob['inquiry']['createdByBranch'] ?? ''))
                         === branchNameKey((string) ($actor['branch_name'] ?? $actor['branch'] ?? ''))
+                    && (branchIdKey((string) ($oldJob['inquiry']['createdByBranchId'] ?? '')) === ''
+                        || branchIdKey((string) ($oldJob['inquiry']['createdByBranchId'] ?? '')) === branchIdKey((string) ($actor['branch_id'] ?? '')))
                     && ($oldJob['managerApproval']['status'] ?? '') !== 'APPROVED'
                     && ($oldJob['quotation']['epda']['status'] ?? '') !== 'SUBMITTED'
                     && ($oldJob['quotation']['epda']['status'] ?? '') !== 'APPROVED'
@@ -701,7 +1239,8 @@ try {
         if ($actor['role'] === 'SALES') {
             foreach ($newJobs as $jobId => $newJob) {
                 if (!isset($oldJobs[$jobId])) {
-                    if (branchNameKey((string) ($newJob['inquiry']['createdByBranch'] ?? '')) !== branchNameKey((string) ($actor['branch_name'] ?? $actor['branch'] ?? ''))) {
+                    if (branchNameKey((string) ($newJob['inquiry']['createdByBranch'] ?? '')) !== branchNameKey((string) ($actor['branch_name'] ?? $actor['branch'] ?? ''))
+                        || branchIdKey((string) ($newJob['inquiry']['createdByBranchId'] ?? '')) !== branchIdKey((string) ($actor['branch_id'] ?? ''))) {
                         jsonResponse(['error' => 'New jobs must belong to the active Sales branch'], 403);
                     }
                     $changedJobIds[] = $jobId;

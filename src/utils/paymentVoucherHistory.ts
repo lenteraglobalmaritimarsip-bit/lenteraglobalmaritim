@@ -8,16 +8,20 @@ const currentPaymentRecord = (voucher: PaymentVoucher): PaymentVoucherPaymentRec
   if (voucher.status !== 'PAID' || !voucher.paidAt) return null;
   return {
     voucherNumber: voucher.voucherNumber || '',
+    journalNumber: voucher.journalNumber,
     paidBy: voucher.paidBy || '',
     paidAt: voucher.paidAt,
     paidFromBankAccountId: voucher.paidFromBankAccountId,
     bankName: voucher.bankName,
     accountNumber: voucher.accountNumber,
     paymentSurcharge: voucher.paymentSurcharge,
+    paymentSurchargeCoaId: voucher.paymentSurchargeCoaId,
     paymentOtherExpenses: voucher.paymentOtherExpenses,
+    paymentOtherExpensesCoaId: voucher.paymentOtherExpensesCoaId,
     paymentDescription: voucher.paymentDescription,
     paymentTotalAmount: voucher.paymentTotalAmount,
     paymentProofDataUrl: voucher.paymentProofDataUrl,
+    paymentJournalLines: voucher.paymentJournalLines,
   };
 };
 

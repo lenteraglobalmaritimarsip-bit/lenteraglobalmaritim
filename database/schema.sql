@@ -6,15 +6,33 @@
 
 SET NAMES utf8mb4;
 
+CREATE TABLE branches (
+  id SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  code VARCHAR(10) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL UNIQUE,
+  name VARCHAR(100) NOT NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO branches (id, code, name) VALUES
+  (1, 'JKT', 'Jakarta'),
+  (2, 'BJM', 'Banjarmasin'),
+  (3, 'SBY', 'Surabaya'),
+  (4, 'MKS', 'Makassar'),
+  (5, 'SRG', 'Semarang'),
+  (6, 'BTM', 'Batam');
+
 CREATE TABLE users (
   id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
   name VARCHAR(150) NOT NULL,
-  email VARCHAR(255) NOT NULL UNIQUE,
+  email VARCHAR(255) NOT NULL,
   username VARCHAR(100) UNIQUE,
   password_hash TEXT,
-  role ENUM('ADMIN', 'SALES', 'MANAGER_OPS', 'FDA', 'FINANCE') NOT NULL,
+  role ENUM('ADMIN', 'SALES', 'MANAGER_OPS', 'FDA', 'FINANCE', 'ACCOUNTING', 'DIRECTOR') NOT NULL,
   department VARCHAR(120) NOT NULL,
   branch_name VARCHAR(150),
+  branch_id SMALLINT UNSIGNED,
   position VARCHAR(120),
   phone VARCHAR(50),
   status ENUM('ACTIVE', 'INACTIVE') NOT NULL DEFAULT 'ACTIVE',
@@ -22,7 +40,9 @@ CREATE TABLE users (
   locked_at DATETIME(3),
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
-  INDEX idx_users_role_status (role, status)
+  INDEX idx_users_role_status (role, status),
+  INDEX idx_users_branch (branch_id),
+  CONSTRAINT fk_users_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE user_app_data (
@@ -158,16 +178,35 @@ CREATE TABLE vendor_partners (
   INDEX idx_vendor_partners_name (vendor_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE chart_of_accounts (
+  id VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  code VARCHAR(20) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL,
+  account_desc VARCHAR(250) NOT NULL,
+  account_group VARCHAR(80) NOT NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  UNIQUE KEY uq_chart_of_accounts_code_desc (code, account_desc),
+  INDEX idx_chart_of_accounts_group (account_group, code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE bank_accounts (
   id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
   bank_name VARCHAR(200) NOT NULL,
   branch VARCHAR(150),
+  branch_name VARCHAR(150) NOT NULL,
+  branch_id SMALLINT UNSIGNED,
   account_name VARCHAR(200) NOT NULL,
   account_number VARCHAR(80) NOT NULL,
   currency ENUM('IDR', 'USD') NOT NULL DEFAULT 'IDR',
+  coa_id VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
-  INDEX idx_bank_accounts_name (bank_name, account_name)
+  INDEX idx_bank_accounts_name (bank_name, account_name),
+  INDEX idx_bank_accounts_branch (branch_name),
+  INDEX idx_bank_accounts_branch_id (branch_id),
+  CONSTRAINT fk_bank_accounts_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_bank_accounts_coa FOREIGN KEY (coa_id) REFERENCES chart_of_accounts(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE bank_account_opening_balances (
@@ -183,6 +222,8 @@ CREATE TABLE bank_account_opening_balances (
 CREATE TABLE cash_balance_adjustments (
   id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
   bank_account_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  branch_name VARCHAR(150) NOT NULL,
+  branch_id SMALLINT UNSIGNED,
   bank_name VARCHAR(200) NOT NULL,
   account_number VARCHAR(80) NOT NULL,
   currency ENUM('IDR', 'USD') NOT NULL,
@@ -191,13 +232,19 @@ CREATE TABLE cash_balance_adjustments (
   reason TEXT NOT NULL,
   created_by VARCHAR(200) NOT NULL,
   created_at DATETIME(3) NOT NULL,
-  INDEX idx_cash_balance_adjustments_account_date (bank_account_id, effective_date)
+  INDEX idx_cash_balance_adjustments_account_date (bank_account_id, effective_date),
+  INDEX idx_cash_balance_adjustments_branch_date (branch_name, effective_date),
+  INDEX idx_cash_balance_adjustments_branch_id_date (branch_id, effective_date),
+  CONSTRAINT fk_cash_balance_adjustments_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE payment_vouchers (
   id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
   voucher_number VARCHAR(50) UNIQUE,
+  journal_number VARCHAR(40) UNIQUE,
   request_number VARCHAR(50) NOT NULL UNIQUE,
+  branch_name VARCHAR(150) NOT NULL,
+  branch_id SMALLINT UNSIGNED,
   request_date DATE NOT NULL,
   currency ENUM('IDR', 'USD') NOT NULL DEFAULT 'IDR',
   exchange_rate_usd_to_idr DECIMAL(30,12) NULL,
@@ -213,6 +260,9 @@ CREATE TABLE payment_vouchers (
   account_number VARCHAR(80),
   total_paid_amount DECIMAL(30,2) NOT NULL DEFAULT 0,
   status ENUM('PENDING_MANAGER', 'APPROVED', 'REJECTED', 'PAID') NOT NULL DEFAULT 'PENDING_MANAGER',
+  approval_target_role VARCHAR(30),
+  approval_target_user_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin,
+  approval_target_name VARCHAR(200),
   manager_note TEXT,
   reviewed_by VARCHAR(200),
   reviewed_at DATETIME(3) NULL,
@@ -222,16 +272,25 @@ CREATE TABLE payment_vouchers (
   payment_surcharge DECIMAL(30,2) NOT NULL DEFAULT 0,
   payment_other_expenses DECIMAL(30,2) NOT NULL DEFAULT 0,
   payment_description TEXT,
+  payment_surcharge_coa_id VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  payment_other_expenses_coa_id VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NULL,
   payment_total_amount DECIMAL(30,2) NOT NULL DEFAULT 0,
   payment_proof_data_url LONGTEXT,
   payment_history JSON NULL,
+  payment_journal_lines JSON NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   INDEX idx_payment_vouchers_date (request_date),
   INDEX idx_payment_vouchers_requester (request_by_user_id),
+  INDEX idx_payment_vouchers_branch_date (branch_name, request_date),
+  INDEX idx_payment_vouchers_branch_id_date (branch_id, request_date),
+  INDEX idx_payment_vouchers_approval_target (approval_target_user_id, status),
   INDEX idx_payment_vouchers_source_bank (paid_from_bank_account_id),
   CONSTRAINT fk_payment_vouchers_vendor FOREIGN KEY (vendor_partner_id) REFERENCES vendor_partners(id) ON DELETE SET NULL,
-  CONSTRAINT fk_payment_vouchers_source_bank FOREIGN KEY (paid_from_bank_account_id) REFERENCES bank_accounts(id) ON DELETE SET NULL
+  CONSTRAINT fk_payment_vouchers_source_bank FOREIGN KEY (paid_from_bank_account_id) REFERENCES bank_accounts(id) ON DELETE SET NULL,
+  CONSTRAINT fk_payment_vouchers_surcharge_coa FOREIGN KEY (payment_surcharge_coa_id) REFERENCES chart_of_accounts(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_payment_vouchers_other_expenses_coa FOREIGN KEY (payment_other_expenses_coa_id) REFERENCES chart_of_accounts(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_payment_vouchers_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE payment_voucher_items (
@@ -243,15 +302,25 @@ CREATE TABLE payment_voucher_items (
   document_number VARCHAR(180) NULL,
   customer_name VARCHAR(200) NOT NULL,
   item_service VARCHAR(250) NOT NULL,
+  category VARCHAR(100) NOT NULL DEFAULT '',
+  tariff_type VARCHAR(20) NOT NULL DEFAULT 'FIXED',
+  price DECIMAL(30,2) NOT NULL DEFAULT 0,
+  quantity DECIMAL(12,3) NOT NULL DEFAULT 1,
+  unit VARCHAR(60) NULL,
+  remarks TEXT NULL,
+  coa_id VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NULL,
   amount DECIMAL(30,2) NOT NULL DEFAULT 0,
   vat_applied TINYINT(1) NOT NULL DEFAULT 0,
   vat_amount DECIMAL(30,2) NOT NULL DEFAULT 0,
   total DECIMAL(30,2) NOT NULL DEFAULT 0,
   pph23_applied TINYINT(1) NOT NULL DEFAULT 0,
+  pph_rate DECIMAL(5,4) NOT NULL DEFAULT 0,
   pph23_amount DECIMAL(30,2) NOT NULL DEFAULT 0,
   paid_amount DECIMAL(30,2) NOT NULL DEFAULT 0,
   INDEX idx_payment_voucher_items_voucher (voucher_id, line_no),
   INDEX idx_payment_voucher_items_job (job_number),
+  INDEX idx_payment_voucher_items_coa (coa_id),
+  CONSTRAINT fk_payment_voucher_items_coa FOREIGN KEY (coa_id) REFERENCES chart_of_accounts(id) ON DELETE RESTRICT,
   CONSTRAINT fk_payment_voucher_items_voucher FOREIGN KEY (voucher_id) REFERENCES payment_vouchers(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -349,8 +418,11 @@ CREATE TABLE inquiries (
   created_by_user_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin,
   created_by_name VARCHAR(150),
   created_by_branch VARCHAR(150),
+  created_by_branch_id SMALLINT UNSIGNED,
   CONSTRAINT fk_inquiries_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id) ON DELETE CASCADE,
-  CONSTRAINT fk_inquiries_user FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+  CONSTRAINT fk_inquiries_user FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_inquiries_branch_id (created_by_branch_id),
+  CONSTRAINT fk_inquiries_branch FOREIGN KEY (created_by_branch_id) REFERENCES branches(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE quotations (
@@ -580,6 +652,10 @@ CREATE TABLE principal_receipts (
 
 CREATE TABLE accounts_receivable_entries (
   id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  receipt_number VARCHAR(40) UNIQUE,
+  journal_number VARCHAR(40) UNIQUE,
+  branch_name VARCHAR(150) NOT NULL,
+  branch_id SMALLINT UNSIGNED,
   job_id VARCHAR(50) CHARACTER SET ascii COLLATE ascii_bin,
   invoice_type ENUM('FDA', 'FPDA'),
   invoice_no VARCHAR(180),
@@ -590,6 +666,8 @@ CREATE TABLE accounts_receivable_entries (
   principal_name VARCHAR(200),
   vessel_name VARCHAR(200),
   pph23_amount_idr DECIMAL(30,2) NOT NULL DEFAULT 0 CHECK (pph23_amount_idr >= 0),
+  coa_id VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  journal_lines JSON NULL,
   remark TEXT NOT NULL,
   bank_account_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin,
   bank_name VARCHAR(200) NOT NULL,
@@ -605,9 +683,103 @@ CREATE TABLE accounts_receivable_entries (
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   INDEX idx_accounts_receivable_job_invoice (job_id, invoice_type, invoice_no),
   INDEX idx_accounts_receivable_invoice_allocation (job_id, invoice_allocation_status),
+  INDEX idx_accounts_receivable_branch_date (branch_name, income_date),
+  INDEX idx_accounts_receivable_branch_id_date (branch_id, income_date),
   INDEX idx_accounts_receivable_income_date (income_date),
+  INDEX idx_accounts_receivable_coa (coa_id),
   CONSTRAINT fk_accounts_receivable_job FOREIGN KEY (job_id) REFERENCES vessel_calls(job_id),
-  CONSTRAINT fk_accounts_receivable_bank FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id) ON DELETE SET NULL
+  CONSTRAINT fk_accounts_receivable_bank FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id) ON DELETE SET NULL,
+  CONSTRAINT fk_accounts_receivable_coa FOREIGN KEY (coa_id) REFERENCES chart_of_accounts(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_accounts_receivable_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE receivable_voucher_sequences (
+  branch_code VARCHAR(10) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL,
+  period_key CHAR(6) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  last_number INT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (branch_code, period_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE finance_journal_sequences (
+  branch_code VARCHAR(10) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL,
+  journal_year SMALLINT UNSIGNED NOT NULL,
+  last_number INT UNSIGNED NOT NULL DEFAULT 0,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (branch_code, journal_year)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE accounting_journal_sequences (
+  branch_code VARCHAR(10) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL,
+  journal_year SMALLINT UNSIGNED NOT NULL,
+  last_number INT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (branch_code, journal_year)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE accounting_journals (
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  journal_number VARCHAR(40) UNIQUE,
+  source_type ENUM('PAYABLE', 'RECEIVABLE') NOT NULL,
+  source_key VARCHAR(180) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  source_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  branch_id SMALLINT UNSIGNED NOT NULL,
+  branch_name VARCHAR(150) NOT NULL,
+  entry_date DATE NOT NULL,
+  description TEXT NOT NULL,
+  status ENUM('DRAFT', 'POSTED') NOT NULL DEFAULT 'DRAFT',
+  created_by_user_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  created_by_name VARCHAR(200) NOT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_by_user_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  updated_by_name VARCHAR(200) NOT NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  posted_by_user_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin,
+  posted_by_name VARCHAR(200),
+  posted_at DATETIME(3),
+  UNIQUE KEY uq_accounting_journal_source (source_type, source_key),
+  INDEX idx_accounting_journals_branch_date (branch_id, entry_date),
+  INDEX idx_accounting_journals_status_date (status, entry_date),
+  CONSTRAINT fk_accounting_journals_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_accounting_journals_creator FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_accounting_journals_updater FOREIGN KEY (updated_by_user_id) REFERENCES users(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_accounting_journals_poster FOREIGN KEY (posted_by_user_id) REFERENCES users(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE accounting_journal_lines (
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  journal_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  line_no SMALLINT UNSIGNED NOT NULL,
+  coa_id VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  memo VARCHAR(250) NOT NULL DEFAULT '',
+  direction ENUM('DEBIT', 'CREDIT') NOT NULL,
+  amount DECIMAL(30,2) NOT NULL CHECK (amount > 0),
+  report_overrides JSON NULL,
+  UNIQUE KEY uq_accounting_journal_line (journal_id, line_no),
+  INDEX idx_accounting_journal_lines_coa (coa_id),
+  CONSTRAINT fk_accounting_journal_lines_journal FOREIGN KEY (journal_id) REFERENCES accounting_journals(id) ON DELETE CASCADE,
+  CONSTRAINT fk_accounting_journal_lines_coa FOREIGN KEY (coa_id) REFERENCES chart_of_accounts(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE accounting_assets (
+  id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  asset_code VARCHAR(60) NOT NULL UNIQUE,
+  asset_name VARCHAR(200) NOT NULL,
+  category VARCHAR(120),
+  acquisition_date DATE,
+  acquisition_cost DECIMAL(20,2) NOT NULL DEFAULT 0.00,
+  useful_life_months INT UNSIGNED NOT NULL DEFAULT 0,
+  residual_value DECIMAL(20,2) NOT NULL DEFAULT 0.00,
+  location VARCHAR(200),
+  branch_id SMALLINT UNSIGNED NOT NULL,
+  status ENUM('Aktif', 'Dijual', 'Dihapuskan') NOT NULL DEFAULT 'Aktif',
+  coa_asset_id VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin,
+  coa_depreciation_id VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  INDEX idx_accounting_assets_branch_status (branch_id, status),
+  INDEX idx_accounting_assets_acquisition_date (acquisition_date),
+  CONSTRAINT fk_accounting_assets_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_accounting_assets_asset_coa FOREIGN KEY (coa_asset_id) REFERENCES chart_of_accounts(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_accounting_assets_depreciation_coa FOREIGN KEY (coa_depreciation_id) REFERENCES chart_of_accounts(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE closing_records (
@@ -624,7 +796,7 @@ CREATE TABLE audit_logs (
   logged_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   actor_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin,
   actor_name VARCHAR(150) NOT NULL,
-  actor_role ENUM('ADMIN', 'SALES', 'MANAGER_OPS', 'FDA', 'FINANCE'),
+  actor_role ENUM('ADMIN', 'SALES', 'MANAGER_OPS', 'FDA', 'FINANCE', 'ACCOUNTING', 'DIRECTOR'),
   action VARCHAR(100) NOT NULL,
   entity VARCHAR(100) NOT NULL,
   entity_id VARCHAR(100),

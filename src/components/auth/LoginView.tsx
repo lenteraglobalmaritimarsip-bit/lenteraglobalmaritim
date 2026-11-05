@@ -108,7 +108,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
               <h2>Login ke Portal</h2>
               <p>Silakan masuk menggunakan akun sesuai role pekerjaan Anda.</p>
             </div>
-            <span className="lgm-demo-mode">Mode Database</span>
           </div>
 
           <form onSubmit={submit} onKeyDownCapture={handlePasswordEnter} onKeyUpCapture={handlePasswordEnter}>
@@ -118,8 +117,8 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
                 autoFocus
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="Username atau email"
-                aria-label="Username atau email"
+                placeholder="Username"
+                aria-label="Username"
               />
             </label>
 

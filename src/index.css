@@ -36,6 +36,15 @@ button{ cursor:pointer; }
   padding: 8px 12px !important;
 }
 
+.admin-master-table-area tbody td {
+  font-size: 14px;
+}
+
+.admin-master-table-area tbody td,
+.admin-master-table-area tbody td :where(*) {
+  font-weight: 400 !important;
+}
+
 :where([data-app-feedback], [role="status"], [role="alert"]) {
   padding: 10px 12px !important;
   border: 1px solid #bfdbfe !important;
@@ -560,8 +569,61 @@ button{ cursor:pointer; }
 
 .master-edit-input{margin-top:4px;width:100%;border:1px solid #dbe3ef;border-radius:9px;padding:9px 10px;color:#172033;background:#fff;outline:none}
 .master-edit-input:focus{border-color:#7c3aed;box-shadow:0 0 0 3px rgba(124,58,237,.08)}
-.master-data-submit{background:linear-gradient(135deg,#315fd8,#5b4bd8);color:#fff!important;box-shadow:0 8px 16px rgba(49,95,216,.18);transition:background .15s ease,box-shadow .15s ease}
-.master-data-submit:hover{background:linear-gradient(135deg,#2854c5,#4d3fc4);box-shadow:0 10px 20px rgba(49,95,216,.24)}
+.admin-master-data-root button,
+.admin-master-data-root button :where(span, small, strong) {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  line-height: 1.25 !important;
+}
+.admin-master-data-root button:not(.master-data-submit):not(.master-data-primary):not(.master-data-cancel):not(.master-data-status):not(.master-data-link-button):not([title^="Hapus"]):not([title^="Delete"]) {
+  border-color: #dbe3ef;
+  background: #fff;
+  color: #334155;
+}
+.admin-master-data-root button:not(.master-data-submit):not(.master-data-primary):not(.master-data-cancel):not(.master-data-status):not(.master-data-link-button):not([title^="Hapus"]):not([title^="Delete"]):hover {
+  border-color: #b8c8e0;
+  background: #f1f5f9;
+  color: #1e3a8a;
+}
+.admin-master-data-root .master-data-submit,
+.admin-master-data-root .master-data-primary {
+  border-color: transparent !important;
+  background: linear-gradient(110deg, #3563d9 0%, #5945da 100%) !important;
+  color: #fff !important;
+  box-shadow: 0 5px 12px rgba(53, 87, 205, .18);
+  transition: filter .15s ease, box-shadow .15s ease;
+}
+.admin-master-data-root .master-data-submit:hover,
+.admin-master-data-root .master-data-primary:hover {
+  filter: brightness(.95);
+  box-shadow: 0 7px 16px rgba(53, 87, 205, .24);
+}
+.admin-master-data-root .master-data-cancel {
+  border: 1px solid #dbe3ef !important;
+  background: #fff !important;
+  color: #475569 !important;
+}
+.admin-master-data-root .master-data-cancel:hover {
+  background: #f1f5f9 !important;
+}
+.admin-master-data-root button.master-data-link-button {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: inherit;
+}
+.admin-master-data-root button[title^="Hapus"],
+.admin-master-data-root button[title^="Delete"] {
+  border-color: #fecdd3;
+  background: #fff1f2;
+  color: #e11d48;
+}
+.admin-master-data-root button[title^="Hapus"]:hover,
+.admin-master-data-root button[title^="Delete"]:hover {
+  border-color: #fda4af;
+  background: #ffe4e6;
+}
 .admin-add-modal label{color:#52637a;font-weight:600}
 .admin-add-modal label span{color:#52637a;font-weight:700}
 .admin-add-modal input,.admin-add-modal select,.admin-add-modal textarea{margin-top:4px;width:100%;border:1px solid #fff;border-radius:9px;padding:9px 10px;color:#172033;background:#fff;outline:none}
@@ -913,6 +975,55 @@ button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid 
   height:36px!important;
   box-shadow:0 2px 8px rgba(27,58,100,.04)!important;
 }
+.epda-form-root .account-currency-switch,
+.fda-form-root .account-currency-switch{
+  box-sizing:border-box;
+  height:52px;
+  gap:6px!important;
+  padding:5px!important;
+}
+.epda-form-root .account-currency-switch .account-currency-button,
+.fda-form-root .account-currency-switch .account-currency-button{
+  box-sizing:border-box;
+  height:40px!important;
+  padding:0 14px!important;
+  border-radius:9px!important;
+  font-size:14px!important;
+  white-space:nowrap;
+}
+.epda-form-root .account-rate-control,
+.fda-form-root .account-rate-control{
+  box-sizing:border-box;
+  height:52px!important;
+  gap:8px!important;
+  padding:0 12px!important;
+  font-size:12px!important;
+  white-space:nowrap;
+}
+.epda-form-root .account-rate-input,
+.fda-form-root .account-rate-input{
+  box-sizing:border-box;
+  width:94px!important;
+  height:40px!important;
+  padding:0 10px!important;
+  font-size:14px!important;
+}
+.epda-form-root .account-submit-button,
+.fda-form-root .account-submit-button{
+  box-sizing:border-box;
+  height:52px!important;
+  gap:10px!important;
+  padding:0 18px!important;
+  border-radius:12px!important;
+  font-size:14px!important;
+  white-space:nowrap;
+}
+.epda-form-root .account-submit-button svg,
+.fda-form-root .account-submit-button svg{
+  width:20px!important;
+  height:20px!important;
+  flex:0 0 20px;
+}
 .epda-page-header .account-currency-switch button:not(.bg-emerald-600),
 .fda-page-header .account-currency-switch button:not(.bg-emerald-600){
   color:#91a0b5!important;
@@ -921,8 +1032,191 @@ button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid 
   .erp-tax-option{flex-basis:100%;padding:10px 12px}
   .epda-summary-card{min-height:72px}
   .epda-page-header,.fda-page-header{padding:16px!important}
+  .epda-form-root .account-submit-button,
+  .fda-form-root .account-submit-button{flex:1 1 100%;justify-content:center}
+  .epda-form-root .account-rate-control,
+  .fda-form-root .account-rate-control{flex:1 1 170px;justify-content:space-between}
 }
 
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+}
+
+.epda-form-root button,
+.fda-form-root button {
+  border-radius: 8px;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  line-height: 1.25 !important;
+}
+
+.epda-form-root button:not([class*="bg-emerald-600"]):not([class*="bg-cyan-600"]):not([class*="bg-blue-600"]):not([class*="bg-blue-700"]):not([class*="from-cyan-600"]):not([class*="bg-rose-"]):not([class*="text-rose-"]):not([title^="Hapus"]),
+.fda-form-root button:not([class*="bg-emerald-600"]):not([class*="bg-cyan-600"]):not([class*="bg-blue-600"]):not([class*="bg-blue-700"]):not([class*="from-cyan-600"]):not([class*="bg-rose-"]):not([class*="text-rose-"]):not([title^="Hapus"]) {
+  border: 1px solid #dbe3ef !important;
+  background: #fff !important;
+  color: #334155 !important;
+  box-shadow: 0 2px 6px rgba(27, 58, 100, .05);
+}
+
+.epda-form-root button:not(:disabled):not([class*="bg-emerald-600"]):not([class*="bg-cyan-600"]):not([class*="bg-blue-600"]):not([class*="bg-blue-700"]):not([class*="from-cyan-600"]):not([class*="bg-rose-"]):not([class*="text-rose-"]):not([title^="Hapus"]):hover,
+.fda-form-root button:not(:disabled):not([class*="bg-emerald-600"]):not([class*="bg-cyan-600"]):not([class*="bg-blue-600"]):not([class*="bg-blue-700"]):not([class*="from-cyan-600"]):not([class*="bg-rose-"]):not([class*="text-rose-"]):not([title^="Hapus"]):hover {
+  border-color: #b8c8e0 !important;
+  background: #f1f5f9 !important;
+  color: #1e3a8a !important;
+}
+
+.epda-form-root button[class*="bg-emerald-600"]:not([class*="bg-emerald-600/"]),
+.epda-form-root button[class*="bg-cyan-600"]:not([class*="bg-cyan-600/"]),
+.epda-form-root button[class*="bg-blue-600"],
+.epda-form-root button[class*="bg-blue-700"],
+.epda-form-root button[class*="from-cyan-600"],
+.fda-form-root button[class*="bg-emerald-600"]:not([class*="bg-emerald-600/"]),
+.fda-form-root button[class*="bg-cyan-600"]:not([class*="bg-cyan-600/"]),
+.fda-form-root button[class*="bg-blue-600"],
+.fda-form-root button[class*="bg-blue-700"],
+.fda-form-root button[class*="from-cyan-600"] {
+  border-color: transparent !important;
+  background: linear-gradient(110deg, #3563d9 0%, #5945da 100%) !important;
+  color: #fff !important;
+  box-shadow: 0 5px 12px rgba(53, 87, 205, .18) !important;
+  transition: filter .15s ease, box-shadow .15s ease;
+}
+
+.epda-form-root button[class*="bg-emerald-600"]:not([class*="bg-emerald-600/"]):not(:disabled):hover,
+.epda-form-root button[class*="bg-cyan-600"]:not([class*="bg-cyan-600/"]):not(:disabled):hover,
+.epda-form-root button[class*="bg-blue-600"]:not(:disabled):hover,
+.epda-form-root button[class*="bg-blue-700"]:not(:disabled):hover,
+.epda-form-root button[class*="from-cyan-600"]:not(:disabled):hover,
+.fda-form-root button[class*="bg-emerald-600"]:not([class*="bg-emerald-600/"]):not(:disabled):hover,
+.fda-form-root button[class*="bg-cyan-600"]:not([class*="bg-cyan-600/"]):not(:disabled):hover,
+.fda-form-root button[class*="bg-blue-600"]:not(:disabled):hover,
+.fda-form-root button[class*="bg-blue-700"]:not(:disabled):hover,
+.fda-form-root button[class*="from-cyan-600"]:not(:disabled):hover {
+  filter: brightness(.95);
+  box-shadow: 0 7px 16px rgba(53, 87, 205, .24) !important;
+}
+
+.epda-form-root button[class*="bg-rose-"],
+.epda-form-root button[class*="text-rose-"],
+.epda-form-root button[title^="Hapus"],
+.fda-form-root button[class*="bg-rose-"],
+.fda-form-root button[class*="text-rose-"],
+.fda-form-root button[title^="Hapus"] {
+  border-color: #fecdd3 !important;
+  background: #fff1f2 !important;
+  color: #e11d48 !important;
+  box-shadow: none !important;
+}
+
+.epda-form-root button[class*="bg-emerald-500/"],
+.epda-form-root button[class*="bg-emerald-600/"],
+.epda-form-root button[class*="bg-cyan-600/"],
+.fda-form-root button[class*="bg-emerald-500/"],
+.fda-form-root button[class*="bg-emerald-600/"],
+.fda-form-root button[class*="bg-cyan-600/"] {
+  border: 1px solid #dbe3ef !important;
+  background: #fff !important;
+  color: #334155 !important;
+  box-shadow: 0 2px 6px rgba(27, 58, 100, .05) !important;
+}
+
+.epda-form-root button[class*="bg-emerald-500/"]:not(:disabled):hover,
+.epda-form-root button[class*="bg-emerald-600/"]:not(:disabled):hover,
+.epda-form-root button[class*="bg-cyan-600/"]:not(:disabled):hover,
+.fda-form-root button[class*="bg-emerald-500/"]:not(:disabled):hover,
+.fda-form-root button[class*="bg-emerald-600/"]:not(:disabled):hover,
+.fda-form-root button[class*="bg-cyan-600/"]:not(:disabled):hover {
+  border-color: #b8c8e0 !important;
+  background: #f1f5f9 !important;
+  color: #1e3a8a !important;
+}
+
+.epda-form-root button[class*="bg-rose-"]:not(:disabled):hover,
+.epda-form-root button[class*="text-rose-"]:not(:disabled):hover,
+.epda-form-root button[title^="Hapus"]:not(:disabled):hover,
+.fda-form-root button[class*="bg-rose-"]:not(:disabled):hover,
+.fda-form-root button[class*="text-rose-"]:not(:disabled):hover,
+.fda-form-root button[title^="Hapus"]:not(:disabled):hover {
+  border-color: #fda4af !important;
+  background: #ffe4e6 !important;
+}
+
+.manager-director-workspace button,
+.manager-director-workspace button :where(span, small, strong) {
+  border-radius: 8px;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  line-height: 1.25 !important;
+}
+
+.manager-director-workspace button:not([class*="bg-blue-"]):not([class*="bg-cyan-"]):not([class*="bg-indigo-"]):not([class*="bg-emerald-"]):not([class*="from-cyan-"]):not([class*="bg-rose-"]):not([class*="bg-red-"]):not([class*="text-rose-"]):not([title^="Hapus"]):not([title^="Delete"]) {
+  border: 1px solid #dbe3ef !important;
+  background: #fff !important;
+  color: #334155 !important;
+  box-shadow: 0 2px 6px rgba(27, 58, 100, .05) !important;
+}
+
+.manager-director-workspace button:not(:disabled):not([class*="bg-blue-"]):not([class*="bg-cyan-"]):not([class*="bg-indigo-"]):not([class*="bg-emerald-"]):not([class*="from-cyan-"]):not([class*="bg-rose-"]):not([class*="bg-red-"]):not([class*="text-rose-"]):not([title^="Hapus"]):not([title^="Delete"]):hover {
+  border-color: #b8c8e0 !important;
+  background: #f1f5f9 !important;
+  color: #1e3a8a !important;
+}
+
+.manager-director-workspace button[class*="bg-slate-200"] {
+  border-color: #cfe1fb !important;
+  background: #eaf3ff !important;
+  color: #1769e8 !important;
+}
+
+.manager-director-workspace button[class*="bg-blue-"],
+.manager-director-workspace button[class*="bg-cyan-"],
+.manager-director-workspace button[class*="bg-indigo-"],
+.manager-director-workspace button[class*="bg-emerald-"]:not([class*="bg-emerald-500/"]):not([class*="bg-emerald-600/"]),
+.manager-director-workspace button[class*="from-cyan-"] {
+  border-color: transparent !important;
+  background: linear-gradient(110deg, #3563d9 0%, #5945da 100%) !important;
+  color: #fff !important;
+  box-shadow: 0 5px 12px rgba(53, 87, 205, .18) !important;
+  transition: filter .15s ease, box-shadow .15s ease;
+}
+
+.manager-director-workspace button[class*="bg-blue-"]:not(:disabled):hover,
+.manager-director-workspace button[class*="bg-cyan-"]:not(:disabled):hover,
+.manager-director-workspace button[class*="bg-indigo-"]:not(:disabled):hover,
+.manager-director-workspace button[class*="bg-emerald-"]:not([class*="bg-emerald-500/"]):not([class*="bg-emerald-600/"]):not(:disabled):hover,
+.manager-director-workspace button[class*="from-cyan-"]:not(:disabled):hover {
+  filter: brightness(.95);
+  box-shadow: 0 7px 16px rgba(53, 87, 205, .24) !important;
+}
+
+.manager-director-workspace button[class*="bg-rose-"],
+.manager-director-workspace button[class*="bg-red-"],
+.manager-director-workspace button[class*="text-rose-"],
+.manager-director-workspace button[title^="Hapus"],
+.manager-director-workspace button[title^="Delete"] {
+  border-color: #fecdd3 !important;
+  background: #fff1f2 !important;
+  color: #e11d48 !important;
+  box-shadow: none !important;
+}
+
+.manager-director-workspace button[class*="bg-emerald-500/"],
+.manager-director-workspace button[class*="bg-emerald-600/"],
+.manager-director-workspace button[class*="bg-cyan-600/"],
+.manager-director-workspace button[class*="bg-indigo-600/"] {
+  border: 1px solid #dbe3ef !important;
+  background: #fff !important;
+  color: #334155 !important;
+  box-shadow: 0 2px 6px rgba(27, 58, 100, .05) !important;
+}
+
+.manager-director-workspace button[class*="bg-rose-"]:not(:disabled):hover,
+.manager-director-workspace button[class*="bg-red-"]:not(:disabled):hover,
+.manager-director-workspace button[class*="text-rose-"]:not(:disabled):hover,
+.manager-director-workspace button[title^="Hapus"]:not(:disabled):hover,
+.manager-director-workspace button[title^="Delete"]:not(:disabled):hover {
+  border-color: #fda4af !important;
+  background: #ffe4e6 !important;
 }

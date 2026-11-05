@@ -31,7 +31,9 @@ import { DateTimeInput } from '../shared/DateTimeInput';
 import { formatCostCategoryLabel, getCostCategoryRank, normalizeCostCategory } from '../../utils/costCategories';
 import { findMatchingExpensesItem, findMatchingFixTariff } from '../../utils/masterDataIdentity';
 import { createMasterItemSearchOptions, MasterItemSearch, MasterItemSearchOption } from '../shared/MasterItemSearch';
+import { FormattedNumberInput } from '../shared/FormattedNumberInput';
 import { ApprovedSalesPdaTotal, listApprovedFdaPdaTotals, loadFdaReceivableEntries } from '../../lib/api';
+import { officePrintPageStyles } from '../../utils/officePrintPageStyles';
 
 interface FDAViewProps {
   initialTab?: 'DASHBOARD' | 'JOB_ID' | 'FDA_AMOUNT' | 'QUOTES_VIEW' | 'APPROVAL';
@@ -148,13 +150,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const [showAddActualModal, setShowAddActualModal] = useState(false);
   const [editingActualId, setEditingActualId] = useState<string | null>(null);
   const [editingResultAmountId, setEditingResultAmountId] = useState<string | null>(null);
-  const [resultAmountDraft, setResultAmountDraft] = useState({ description: '', tariff: '', amount: '', remarks: '' });
+  const [resultAmountDraft, setResultAmountDraft] = useState({ description: '', tariff: '', amount: '', remarks: '', vatApplied: false });
   const [msg, setMsg] = useState<string | null>(null);
-  const [advancePaymentDate, setAdvancePaymentDate] = useState(todayISO());
-  const [advancePaymentAmount, setAdvancePaymentAmount] = useState('');
-  const [advancePaymentRemark, setAdvancePaymentRemark] = useState('');
-  const [advancePaymentError, setAdvancePaymentError] = useState('');
-  const [isSavingAdvancePayment, setIsSavingAdvancePayment] = useState(false);
   const [editingAdvanceReceipt, setEditingAdvanceReceipt] = useState<PrincipalReceipt | null>(null);
   const [advanceReceiptEditDate, setAdvanceReceiptEditDate] = useState('');
   const [advanceReceiptEditAmount, setAdvanceReceiptEditAmount] = useState('');
@@ -179,6 +176,10 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const [viewCurrency, setViewCurrency] = useState<'USD' | 'IDR'>(
     activeJob.fda?.currency || activeJob.fdaItems?.[0]?.currency || activeJob.quotation?.epda?.currency || activeJob.currency || 'USD'
   );
+  const [discountAmount, setDiscountAmount] = useState(Number(activeJob.fda?.discountAmount) || 0);
+  useEffect(() => {
+    setDiscountAmount(Number(activeJob.fda?.discountAmount) || 0);
+  }, [activeJob.jobId, activeJob.fda?.discountAmount]);
   const [exchangeRateInput, setExchangeRateInput] = useState(() =>
     activeJob.fda?.exchangeRateUSDToIDR
       ? String(activeJob.fda.exchangeRateUSDToIDR)
@@ -204,11 +205,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
   }));
 
   useEffect(() => {
-    setAdvancePaymentDate(todayISO());
-    setAdvancePaymentAmount('');
-    setAdvancePaymentRemark('');
-    setAdvancePaymentError('');
     setEditingAdvanceReceipt(null);
+    setAdvanceReceiptEditError('');
   }, [activeJob.jobId]);
 
   useEffect(() => {
@@ -240,57 +238,6 @@ export const FDAView: React.FC<FDAViewProps> = ({
     db.updateJob(activeJob.jobId, {
       fda: { ...currentJob.fda, globalVatApplied: checked },
     });
-  };
-
-  const handleAddAdvancePayment = async () => {
-    if (isFDAReadOnly || isSavingAdvancePayment) return;
-    const amount = Number(advancePaymentAmount);
-    if (!advancePaymentDate || !Number.isFinite(amount) || amount <= 0 || !advancePaymentRemark.trim()) {
-      setAdvancePaymentError('Lengkapi tanggal, nominal, dan remark Advance Received.');
-      return;
-    }
-    if (viewCurrency === 'IDR' && !Number.isInteger(amount)) {
-      setAdvancePaymentError('Nominal IDR harus berupa angka bulat tanpa desimal.');
-      return;
-    }
-
-    const currentJob = db.getJob(activeJob.jobId);
-    if (!currentJob) {
-      setAdvancePaymentError('Data job tidak ditemukan. Penerimaan tidak disimpan.');
-      return;
-    }
-
-    const receipt: PrincipalReceipt = {
-      id: `RECEIPT-${activeJob.jobId}-${Date.now()}`,
-      jobId: activeJob.jobId,
-      receivedDate: advancePaymentDate,
-      amount: viewCurrency === 'IDR' ? Math.round(amount) : Math.round((amount + Number.EPSILON) * 100) / 100,
-      currency: viewCurrency,
-      exchangeRateUSDToIDR: effectiveExchangeRate,
-      paymentType: 'ADVANCE_PAYMENT',
-      bankRemark: advancePaymentRemark.trim(),
-    };
-
-    setIsSavingAdvancePayment(true);
-    setAdvancePaymentError('');
-    try {
-      const result = await db.updateJobAndPersist(activeJob.jobId, {
-        principalReceipts: [...(currentJob.principalReceipts || []), receipt],
-      });
-      if (!result.saved) {
-        setAdvancePaymentError(result.error
-          ? `Penerimaan gagal disimpan ke database: ${result.error}. Data form tetap dipertahankan.`
-          : 'Penerimaan tidak tersimpan. Periksa status FDA dan hak akses.');
-        return;
-      }
-
-      setAdvancePaymentAmount('');
-      setAdvancePaymentRemark('');
-      setMsg('Advance Received berhasil ditambahkan.');
-      setTimeout(() => setMsg(null), 3500);
-    } finally {
-      setIsSavingAdvancePayment(false);
-    }
   };
 
   const openAdvanceReceiptEdit = (receipt: PrincipalReceipt) => {
@@ -417,7 +364,8 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const handleViewCurrencyChange = (currency: 'USD' | 'IDR') => {
     if (isFDAReadOnly) return;
     setViewCurrency(currency);
-    db.updateJob(activeJob.jobId, { fda: { ...activeJob.fda, currency } });
+    const currentJob = db.getJob(activeJob.jobId);
+    if (currentJob) db.updateJob(activeJob.jobId, { fda: { ...currentJob.fda, currency } });
     if (actualEntryMode !== 'AUTO') return;
     const selected = buildAutoServiceOptions(currency).find((option) => option.name === newActual.description && option.category === newActual.category);
     setNewActual((current) => selected
@@ -701,7 +649,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       currency: item.currency || viewCurrency,
       tariff: actualItem?.tariffDescription ?? getEPDAItemTariff(item),
       remarks: actualItem ? actualItem.remarks || '' : item.remarks || '',
-      vatApplied: item.vatApplied ?? false,
+      vatApplied: actualItem?.vatApplied ?? item.vatApplied ?? false,
       pph23Applied: item.pph23Applied ?? false,
     };
   });
@@ -747,7 +695,23 @@ export const FDAView: React.FC<FDAViewProps> = ({
     : 0;
   const totalEPDAAfterGlobalVat = Math.round(((fdaResultRows.length > 0 ? totalEPDAAfterPph23 : totalQuotedEPDA - pph23Amount) + globalVatAmount + Number.EPSILON) * 100) / 100;
   const totalEPDASubtotal = Math.round(((fdaResultRows.length > 0 ? roundedTotalEPDAWithVat : totalQuotedEPDA) + Number.EPSILON) * 100) / 100;
-  const fdaGrandTotal = globalVatApplied ? totalEPDAAfterGlobalVat : totalEPDAAfterPph23;
+  const inheritedEPDADiscount = fdaResultRows.length === 0
+    ? Math.min(Math.max(0, Number(activeJob.quotation?.epda?.discountAmount) || 0), totalEPDAAfterGlobalVat)
+    : 0;
+  const fdaGrandTotalBeforeDiscount = Math.max(0, totalEPDAAfterGlobalVat - inheritedEPDADiscount);
+  const appliedDiscount = Math.min(Math.max(0, Number(discountAmount) || 0), fdaGrandTotalBeforeDiscount);
+  const totalAppliedDiscount = inheritedEPDADiscount + appliedDiscount;
+  const fdaGrandTotal = Math.round((fdaGrandTotalBeforeDiscount - appliedDiscount + Number.EPSILON) * 100) / 100;
+  const updateFDADiscount = (value: string) => {
+    if (isFDAReadOnly) return;
+    const amount = Math.min(Math.max(0, Number(value) || 0), fdaGrandTotalBeforeDiscount);
+    setDiscountAmount(amount);
+    const currentJob = db.getJob(activeJob.jobId);
+    if (!currentJob) return;
+    db.updateJob(activeJob.jobId, {
+      fda: { ...currentJob.fda, discountAmount: amount },
+    });
+  };
   const convertReceiptCurrency = (amount: number, from: Currency, to: Currency, exchangeRate = effectiveExchangeRate) => {
     if (from === to) return amount;
     return from === 'USD' ? amount * exchangeRate : amount / exchangeRate;
@@ -793,7 +757,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       activeJob.fda.currency || viewCurrency,
       viewCurrency,
     )
-    : totalEPDAAfterGlobalVat;
+    : fdaGrandTotal;
   const balanceDue = Math.max(0, fdaAmountDue - advanceReceived);
   const totalEPDAReady = jobCalls.filter((job) => job.managerApproval?.status === 'APPROVED').length;
   const totalPendingFDA = jobCalls.filter(
@@ -808,7 +772,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     const grandTotal = job.fda?.finalBilledToPrincipal
       ?? job.principalInvoice?.totalAmountUSD
       ?? job.principalInvoice?.totalAmountIDR
-      ?? job.quotation?.epda?.totalAmount
+      ?? Math.max(0, (job.quotation?.epda?.totalAmount || 0) - (job.quotation?.epda?.discountAmount || 0))
       ?? 0;
 
     return currency === 'USD' ? grandTotal * exchangeRate : grandTotal;
@@ -1056,6 +1020,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       tariff: actualItem?.tariffDescription ?? item.tariff,
       amount: String(item.amount),
       remarks: actualItem?.remarks || '',
+      vatApplied: actualItem?.vatApplied ?? sourceItem?.vatApplied ?? item.vatApplied,
     });
   };
 
@@ -1120,7 +1085,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       attachmentName: existing?.attachmentName,
       attachmentDataUrl: existing?.attachmentDataUrl,
       remarks: resultAmountDraft.remarks,
-      vatApplied: sourceItem.vatApplied ?? false,
+      vatApplied: resultAmountDraft.vatApplied,
       pph23Applied: sourceItem.pph23Applied ?? false,
     };
     const updated = existing
@@ -1129,12 +1094,12 @@ export const FDAView: React.FC<FDAViewProps> = ({
     setActualList(updated);
     db.updateJob(activeJob.jobId, { fdaItems: updated, currentStage: 'FDA' });
     setEditingResultAmountId(null);
-    setResultAmountDraft({ description: '', tariff: '', amount: '', remarks: '' });
+    setResultAmountDraft({ description: '', tariff: '', amount: '', remarks: '', vatApplied: false });
   };
 
   const cancelEditResultAmount = () => {
     setEditingResultAmountId(null);
-    setResultAmountDraft({ description: '', tariff: '', amount: '', remarks: '' });
+    setResultAmountDraft({ description: '', tariff: '', amount: '', remarks: '', vatApplied: false });
   };
 
   const handleInlineInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -1167,9 +1132,12 @@ export const FDAView: React.FC<FDAViewProps> = ({
       const vatRow = !globalVatApplied && group.items.some((item) => item.vatApplied) ? `<tr class="vat"><td colspan="3">VAT 11%</td><td class="amount">${money(vat, currency)}</td><td></td></tr>` : '';
       return `<tr class="section"><td colspan="5" style="text-indent:1em">${escape(formatCategoryCost(String(group.category)))}</td></tr>${group.items.map((item, index) => { const itemCurrency = (item.currency || viewCurrency) as 'USD' | 'IDR'; return `<tr class="item-row"><td>${index + 1}</td><td>${escape(item.description)}</td><td>${escape(item.tariff)}</td><td class="amount">${money(item.amount || 0, itemCurrency)}</td><td>${escape(item.remarks || '')}</td></tr>`; }).join('')}<tr class="total"><td colspan="3">TOTAL</td><td class="amount">${money(total, currency)}</td><td></td></tr>${vatRow}<tr class="subtotal"><td colspan="3">SUB TOTAL ${categoryIndex + 1}</td><td class="amount">${money(subtotal, currency)}</td><td></td></tr>`;
     }).join('');
-    const total = totalEPDAAfterGlobalVat;
+    const total = fdaGrandTotal;
     const totalBeforeGlobalVat = totalEPDASubtotal;
-    const globalVatRows = `${globalVatApplied ? `<tr class="global-vat"><td colspan="3">TOTAL VAT11%</td><td class="amount">${money(globalVatAmount, viewCurrency)}</td><td></td></tr>` : ''}${pph23Amount > 0 ? `<tr class="pph23"><td colspan="3">TOTAL TAX 23</td><td class="amount">-${money(pph23Amount, viewCurrency)}</td><td></td></tr>` : ''}${globalVatApplied || pph23Amount > 0 ? `<tr class="net-total"><td colspan="3">GRAND TOTAL</td><td class="amount">${money(total, viewCurrency)}</td><td></td></tr>` : ''}`;
+    const discountRow = totalAppliedDiscount > 0
+      ? `<tr class="discount"><td colspan="3">DISCOUNT</td><td class="amount">-${money(totalAppliedDiscount, viewCurrency)}</td><td></td></tr>`
+      : '';
+    const globalVatRows = `${globalVatApplied ? `<tr class="global-vat"><td colspan="3">TOTAL VAT11%</td><td class="amount">${money(globalVatAmount, viewCurrency)}</td><td></td></tr>` : ''}${pph23Amount > 0 ? `<tr class="pph23"><td colspan="3">TOTAL TAX 23</td><td class="amount">-${money(pph23Amount, viewCurrency)}</td><td></td></tr>` : ''}${discountRow}${globalVatApplied || pph23Amount > 0 || totalAppliedDiscount > 0 ? `<tr class="net-total"><td colspan="3">GRAND TOTAL</td><td class="amount">${money(total, viewCurrency)}</td><td></td></tr>` : ''}`;
     const vessel = vessels.find((item) => item.id === activeJob.vesselId);
     const bank = viewCurrency === 'USD'
       ? '<div class="bank"><div>Please kindly remit to our Bank Account</div><div>Bank Account Detail of PT. Lentera Global Maritim asf:</div><br><b>BANK MANDIRI (Persero) Tbk</b><br>Address:<br>BANK MANDIRI TEBET SUPOMO<br>Jl. Prof. Dr.Supomo SH No 43, Tebet, RT.04/RW.03<br>Tebet barat , Kec. Tebet, Kota Jakarta Selatan,<br>Daerah Khusus Ibukota Jakarta 12810<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number (USD) : 120-00-5575599-0</b><br><b>Swift Code Bank : BMRIIDJAXXX</b></div><div class="signature"><div class="signature-main">Sincerely,<br>PT. Lentera Global Maritim</div><div class="signature-role">Finance</div></div>'
@@ -1192,9 +1160,12 @@ export const FDAView: React.FC<FDAViewProps> = ({
       const vatRow = !globalVatApplied && items.some((item) => item.vatApplied) ? `<tr class="vat"><td colspan="3">VAT 11%</td><td class="amount">${money(vat, currency)}</td><td></td></tr>` : '';
       return `<tr class="section"><td colspan="5">${escape(formatCategoryCost(String(category)))}</td></tr>${itemRows}<tr class="total"><td colspan="3">TOTAL</td><td class="amount">${money(total, currency)}</td><td></td></tr>${vatRow}<tr class="subtotal"><td colspan="3">SUB TOTAL ${categoryIndex + 1}</td><td class="amount">${money(subtotal, currency)}</td><td></td></tr>`;
     }).join('');
-    const total = totalEPDAAfterGlobalVat;
+    const total = fdaGrandTotal;
     const totalBeforeGlobalVat = totalEPDASubtotal;
-    const globalVatRows = `${globalVatApplied ? `<tr class="global-vat"><td colspan="3">TOTAL VAT11%</td><td class="amount">${money(globalVatAmount, viewCurrency)}</td><td></td></tr>` : ''}${pph23Amount > 0 ? `<tr class="pph23"><td colspan="3">TOTAL TAX 23</td><td class="amount">-${money(pph23Amount, viewCurrency)}</td><td></td></tr>` : ''}${globalVatApplied || pph23Amount > 0 ? `<tr class="net-total"><td colspan="3">GRAND TOTAL</td><td class="amount">${money(total, viewCurrency)}</td><td></td></tr>` : ''}`;
+    const discountRow = totalAppliedDiscount > 0
+      ? `<tr class="discount"><td colspan="3">DISCOUNT</td><td class="amount">-${money(totalAppliedDiscount, viewCurrency)}</td><td></td></tr>`
+      : '';
+    const globalVatRows = `${globalVatApplied ? `<tr class="global-vat"><td colspan="3">TOTAL VAT11%</td><td class="amount">${money(globalVatAmount, viewCurrency)}</td><td></td></tr>` : ''}${pph23Amount > 0 ? `<tr class="pph23"><td colspan="3">TOTAL TAX 23</td><td class="amount">-${money(pph23Amount, viewCurrency)}</td><td></td></tr>` : ''}${discountRow}${globalVatApplied || pph23Amount > 0 || totalAppliedDiscount > 0 ? `<tr class="net-total"><td colspan="3">GRAND TOTAL</td><td class="amount">${money(total, viewCurrency)}</td><td></td></tr>` : ''}`;
     const vessel = vessels.find((item) => item.id === activeJob.vesselId);
     return `<!doctype html><html><head><meta charset="utf-8"><title>${fdaNo}</title><style>@page{size:A4;margin:10mm}body{font-family:Arial,sans-serif;color:#172033;font-size:10px}.brand{text-align:center;margin-bottom:8px}.brand-wrap{display:inline-flex;align-items:center;gap:12px;text-align:left}.logo{width:78px;height:58px;object-fit:contain}.brand-name{font-size:20px;font-weight:700;color:#3562a8}.tagline{font-size:11px;color:#3562a8;margin-top:3px}.divider{border-bottom:2px solid #315db2;margin:6px 0 10px}.title-block{margin:0 0 8px}.title-block h2{margin:0;background:#214f84;color:#fff;text-align:center;padding:5px;font-size:12px}.meta{display:grid;grid-template-columns:1fr 1fr;gap:2px 28px;margin-bottom:9px}.meta-col{display:flex;flex-direction:column;gap:2px}.meta-row{display:grid;grid-template-columns:105px 8px minmax(0,1fr);line-height:1.25}.right .meta-row{grid-template-columns:82px 8px minmax(0,1fr)}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #9ca3af;padding:4px 5px}th{background:#dbe8f2;text-align:center;font-size:9px}th:nth-child(1),td:nth-child(1){width:5%;text-align:center}th:nth-child(2),td:nth-child(2){width:42%;text-align:left}th:nth-child(3),td:nth-child(3){width:8%;text-align:center}th:nth-child(4),td:nth-child(4){width:17%;text-align:right;white-space:nowrap}th:nth-child(5),td:nth-child(5){width:28%;text-align:left}.section td{background:#808080;color:#fff;font-weight:700;text-align:left;text-transform:uppercase}.subtotal{background:#dbe8f2;font-weight:700}.grand,.net-total{background:#dbe8f2;color:#f00;font-weight:800}.amount{text-align:right;white-space:nowrap}.bank{display:inline-block;width:42%;margin-top:16px;border:1px solid #777;padding:8px;font-size:8px;line-height:1.3;vertical-align:top}.signature{display:inline-block;width:42%;margin:52px 0 0 12%;text-align:center;vertical-align:top;font-size:9px;padding-top:8px}.footer{margin-top:16px;text-align:center;font-size:9px;line-height:1.35;font-weight:600}.footer span{color:#e11d48;text-decoration:underline}</style></head><body><div class="brand"><div class="brand-wrap"><img class="logo" src="${getPublicLogoUrl()}"><div><div class="brand-name">PT Lentera Global Maritim</div><div class="tagline">Seamless Agent, Global Reach</div></div></div></div><h2>FINAL DISBURSEMENT ACCOUNT</h2><div class="meta"><div class="meta-col"><div class="meta-row"><b>No FDA</b><span>:</span><span>${escape(fdaNo)}</span></div><div class="meta-row"><b>Date Inquiry</b><span>:</span><span>${escape(activeJob.inquiry?.date || '-')}</span></div><div class="meta-row"><b>Principal</b><span>:</span><span>${escape(activeJob.customerName)}</span></div><div class="meta-row"><b>GRT</b><span>:</span><span>${vessel?.grt?.toLocaleString('id-ID') || '-'}</span></div><div class="meta-row"><b>Port</b><span>:</span><span>${escape(activeJob.portName)}</span></div><div class="meta-row"><b>ETA</b><span>:</span><span>${escape(activeJob.eta || '-')}</span></div></div><div class="meta-col right"><div class="meta-row"><b>Vessel</b><span>:</span><span>${escape(activeJob.vesselName)}</span></div><div class="meta-row"><b>Estimated Day</b><span>:</span><span>${activeJob.inquiry?.estimatedDays || '-'}</span></div><div class="meta-row"><b>Flag</b><span>:</span><span>${escape(vessel?.flag || '-')}</span></div><div class="meta-row"><b>Cargo Details</b><span>:</span><span>${escape(activeJob.inquiry?.cargoDetails || '-')}</span></div><div class="meta-row"><b>IMO</b><span>:</span><span>${escape(vessel?.imoNumber || '-')}</span></div></div></div><table><thead><tr><th>NO.</th><th>DESCRIPTION</th><th>CURRENCY</th><th>AMOUNT</th><th>REMARKS</th></tr></thead><tbody>${rows}<tr class="grand"><td colspan="3">${fdaSubTotalLabel}</td><td class="amount">${money(totalBeforeGlobalVat, viewCurrency)}</td><td></td></tr>${globalVatRows}</tbody></table><div class="bank">Please kindly remit to our Bank Account<br>Bank Account Detail of PT. Lentera Global Maritim asf:<br><br><b>BANK NEGARA INDONESIA (Persero) Tbk</b><br>Address: BNI Bidakara<br>Jl. Gatot Subroto Kav 71-73, RT.12/RW.5, Tebet Timur,<br>Kec. Tebet, Kota Jakarta Selatan, DKI Jakarta 12820<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number : 2824-1212-69</b><br><b>Swift Code Bank : BNIIDNAXXX</b></div><div class="signature">Sincerely,<br>PT. Lentera Global Maritim<br><br><br>Finance</div><div class="footer">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span>email : maritim@lentera-global.com / web : www.lentera-global.com</span></div></body></html>`;
   };
@@ -1255,7 +1226,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
         .section td { font-size: 12px !important; }
         .bank { width: 52% !important; margin-top: 30px !important; padding: 4px !important; font-size: 13px !important; line-height: 1.2 !important; }
         .signature { width: 43% !important; margin: 30px 0 0 3% !important; font-size: 9px !important; }
-        .office-footer { position: absolute !important; left: 50% !important; bottom: 15mm !important; transform: translateX(-50%) !important; width: 100% !important; margin: 0 !important; font-size: 9px !important; line-height: 1.1 !important; }
+        .office-footer { position: static !important; transform: none !important; width: 100% !important; margin: 16px auto 0 !important; font-size: 9px !important; line-height: 1.1 !important; }
         .brand { margin-bottom: 4px !important; }
         .meta { margin-bottom: 5px !important; }
         .title-block { margin-bottom: 5px !important; }
@@ -1266,7 +1237,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
         .meta-col.right { justify-self: stretch !important; width: 100% !important; max-width: 100% !important; min-width: 0 !important; }
         .brand { margin-top: 0 !important; }
         .a4-page-frame { position: absolute; top: 10mm; left: 10mm; width: 190mm; height: 277mm; box-sizing: border-box; border: 0.3mm solid #1f2937; pointer-events: none; z-index: 9; }
-        .office-footer { position: absolute !important; left: 50% !important; bottom: 15mm !important; transform: translateX(-50%) !important; width: 100% !important; margin: 0 !important; }
+        .office-footer { position: static !important; left: auto !important; right: auto !important; bottom: auto !important; inset: auto !important; box-sizing: border-box !important; width: 100% !important; max-width: 700px !important; margin: 8mm auto 0 !important; }
       }
       @media print {
         html, body { width: auto !important; height: auto !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; overflow: visible; background: #fff; }
@@ -1278,11 +1249,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
         tbody tr { page-break-inside: avoid !important; break-inside: avoid !important; }
         .meta-col.right { justify-self: stretch !important; width: 100% !important; max-width: 100% !important; min-width: 0 !important; }
         .brand { margin-top: 0 !important; }
-        .a4-page-frame { position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: auto !important; width: auto !important; height: 277mm !important; box-sizing: border-box; border-left: 0.5mm solid #1f2937; border-right: 0.5mm solid #1f2937; pointer-events: none; z-index: 9999; }
-        .a4-frame-line { position: fixed !important; left: 0 !important; right: 0 !important; height: 0 !important; border-top: 0.5mm solid #1f2937 !important; pointer-events: none !important; z-index: 2147483647 !important; }
-        .a4-frame-line-top { top: 0 !important; }
-        .a4-frame-line-bottom { top: 276.5mm !important; }
-        .office-footer { position: fixed !important; left: 2mm !important; right: 2mm !important; bottom: 2mm !important; transform: none !important; display: block !important; width: auto !important; max-width: none !important; margin: 0 !important; text-align: center !important; }
+        table td.amount, table td.amount * { text-align: right !important; }
       }
     </style></head>`);
   const addCargoQuantityAfterIMO = (html: string) => html.replace(
@@ -1312,6 +1279,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       .footer, .office-footer { font-size: 9px !important; }
       table tr.global-vat td.amount,
       table tr.net-total td.amount { text-align: right !important; }
+      table td.amount, table td.amount * { text-align: right !important; }
       table thead th:first-child, table tbody tr.item-row td:first-child {
         text-align: center !important;
         vertical-align: middle !important;
@@ -1319,14 +1287,13 @@ export const FDAView: React.FC<FDAViewProps> = ({
     }
     @page { size: A4 portrait; margin: 10mm; }
     @media print {
-      .a4-frame-line { display: block !important; }
-      .office-footer { position: fixed !important; left: 2mm !important; right: 2mm !important; bottom: 2mm !important; inset-block-start: auto !important; transform: none !important; display: block !important; width: auto !important; max-width: none !important; margin: 0 !important; text-align: center !important; page-break-inside: avoid !important; break-inside: avoid !important; }
+      .a4-frame-line { display: none !important; }
     }
     @media screen {
       .a4-frame-line { display: none !important; }
       .office-footer { position: static !important; inset: auto !important; transform: none !important; display: block !important; width: 100% !important; max-width: 700px !important; margin: 16px auto 0 !important; text-align: center !important; page-break-inside: avoid !important; break-inside: avoid !important; }
     }
-  </style></head>`);
+  </style>${officePrintPageStyles}</head>`);
 
   const addFDAReceiptSummary = (html: string) => {
     const summaryRows = `<tr class="advance"><td colspan="3">Advance Payment</td><td class="amount">-${formatAccountingNumber(advanceReceived, viewCurrency)}</td><td></td></tr><tr class="balance"><td colspan="3">Balance Due</td><td class="amount">${formatAccountingNumber(balanceDue, viewCurrency)}</td><td></td></tr>`;
@@ -1368,7 +1335,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       setPdfUploadMeta(nextPdf);
       db.updateJob(activeJob.jobId, {
         fda: {
-          ...activeJob.fda,
+          ...(db.getJob(activeJob.jobId)?.fda || activeJob.fda),
           pdfFileName: file.name,
           pdfDataUrl: dataUrl,
         },
@@ -1404,8 +1371,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
     });
     const globalVatRows = globalVatApplied ? [['', '', 'TOTAL VAT11%', globalVatAmount, '']] : [];
     const pph23Row = pph23Amount > 0 ? [['', '', 'TOTAL TAX 23', -pph23Amount, '']] : [];
-    const grandTotalRow = globalVatApplied || pph23Amount > 0 ? [['', '', 'GRAND TOTAL', totalEPDAAfterGlobalVat, '']] : [];
-    const text = [['NO','DESCRIPTION','TARIFF','AMOUNT','REMARKS'],...rows,['','','TOTAL AMOUNT',totalEPDASubtotal,''],...globalVatRows,...pph23Row,...grandTotalRow].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join('\t')).join('\n');
+    const discountRow = totalAppliedDiscount > 0 ? [['', '', 'DISCOUNT', -totalAppliedDiscount, '']] : [];
+    const grandTotalRow = globalVatApplied || pph23Amount > 0 || totalAppliedDiscount > 0 ? [['', '', 'GRAND TOTAL', fdaGrandTotal, '']] : [];
+    const text = [['NO','DESCRIPTION','TARIFF','AMOUNT','REMARKS'],...rows,['','','TOTAL AMOUNT',totalEPDASubtotal,''],...globalVatRows,...pph23Row,...discountRow,...grandTotalRow].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join('\t')).join('\n');
     const blob=new Blob([text],{type:'application/vnd.ms-excel;charset=utf-8'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`${fdaNo.replaceAll('/','-')}.xls`; a.click(); URL.revokeObjectURL(url);
   };
 
@@ -1419,7 +1387,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
       setTimeout(() => setMsg(null), 4000);
       return;
     }
-    const rawTotalActualBilled = totalEPDAAfterGlobalVat;
+    const rawTotalActualBilled = fdaGrandTotal;
     const invoicePrecision = viewCurrency === 'IDR' ? 1 : 100;
     const totalActualBilled = Math.round((rawTotalActualBilled + Number.EPSILON) * invoicePrecision) / invoicePrecision;
     const exchangeRate = effectiveExchangeRate;
@@ -1439,7 +1407,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
     const submitted = db.submitFDAForManager(activeJob.jobId, {
       fda: { ...activeJob.fda, fdaNo: fdaNoGenerated, date: today, currency: viewCurrency, exchangeRateUSDToIDR: exchangeRate,
-        pph23Applied, globalVatApplied,
+        pph23Applied, globalVatApplied, discountAmount: appliedDiscount,
         finalBilledToPrincipal: totalActualBilled,
         fdaApproved: false, notes: 'FDA dikirim untuk approval Manager Ops.' },
       ap: currentAPItems, ar: arFromInvoice,
@@ -1669,7 +1637,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
               },
               {
                 label: 'TOTAL COST',
-                value: new Intl.NumberFormat('id-ID', {
+                value: new Intl.NumberFormat('en-US', {
                   style: 'currency',
                   currency: 'IDR',
                   maximumFractionDigits: 0,
@@ -1835,7 +1803,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                   type="button"
                   disabled={isFDAReadOnly}
                   onClick={() => handleViewCurrencyChange('IDR')}
-                  className={`h-12 px-5 rounded-lg text-base font-bold ${viewCurrency === 'IDR' ? 'bg-emerald-600 text-white' : 'text-slate-500'} disabled:cursor-not-allowed disabled:opacity-50`}
+                  className={`account-currency-button h-12 px-5 rounded-lg text-base font-bold ${viewCurrency === 'IDR' ? 'bg-emerald-600 text-white' : 'text-slate-500'} disabled:cursor-not-allowed disabled:opacity-50`}
                 >
                   IDR (Rp)
                 </button>
@@ -1843,21 +1811,20 @@ export const FDAView: React.FC<FDAViewProps> = ({
                   type="button"
                   disabled={isFDAReadOnly}
                   onClick={() => handleViewCurrencyChange('USD')}
-                  className={`h-12 px-5 rounded-lg text-base font-bold ${viewCurrency === 'USD' ? 'bg-emerald-600 text-white' : 'text-slate-500'} disabled:cursor-not-allowed disabled:opacity-50`}
+                  className={`account-currency-button h-12 px-5 rounded-lg text-base font-bold ${viewCurrency === 'USD' ? 'bg-emerald-600 text-white' : 'text-slate-500'} disabled:cursor-not-allowed disabled:opacity-50`}
                 >
                   USD ($)
                 </button>
               </div>
               <label className="account-toolbar-panel account-rate-control flex h-16 items-center gap-2 rounded-xl border px-5 text-base">
                 Kurs USD
-                <input
-                  type="number"
+                <FormattedNumberInput
                   min={1}
-                  step={1}
+                  maximumFractionDigits={4}
                   value={exchangeRateInput}
                   readOnly={isFDAReadOnly}
-                  onChange={(e) => handleExchangeRateChange(e.target.value)}
-                  onBlur={(e) => handleExchangeRateChange(e.currentTarget.value)}
+                  onValueChange={handleExchangeRateChange}
+                  onBlur={() => handleExchangeRateChange(exchangeRateInput)}
                   className="account-rate-input h-9 w-28 rounded-lg border px-3 text-right text-base"
                 />
               </label>
@@ -1875,7 +1842,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                 <button
                   type="button"
                   onClick={handleFinalizeFDA}
-                  className="h-[54px] px-6 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-base font-bold flex items-center gap-2"
+                  className="account-submit-button h-[54px] px-6 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-base font-bold flex items-center gap-2"
                 >
                   <Send className="w-6 h-6" />
                   Kirim ke Manager untuk Approval
@@ -2013,7 +1980,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
               </label>
             </div>
             <div className="mb-1 px-2 text-right text-[9px] normal-case tracking-normal text-cyan-300">
-              Ekuivalen kurs: 1 USD = Rp {new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(effectiveExchangeRate)}
+              Ekuivalen kurs: 1 USD = Rp {new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(effectiveExchangeRate)}
             </div>
             <div className="fda-results-card pda-results-card overflow-x-auto rounded-lg">
               <table className="w-full min-w-[900px] table-fixed text-left text-xs border-separate border-spacing-0">
@@ -2067,7 +2034,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                               <div className="flex items-center justify-end gap-2">
                                 {editingResultAmountId === it.id ? (
                                   <>
-                                    <input autoFocus inputMode="decimal" value={resultAmountDraft.amount} onChange={(event) => setResultAmountDraft({ ...resultAmountDraft, amount: event.target.value })} aria-label={`Amount ${it.description}`} className="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1 text-right text-xs font-normal text-white" />
+                                    <FormattedNumberInput autoFocus value={resultAmountDraft.amount} onValueChange={(amount) => setResultAmountDraft({ ...resultAmountDraft, amount })} aria-label={`Amount ${it.description}`} className="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1 text-right text-xs font-normal text-white" />
                                     <button type="button" onClick={() => saveResultAmount(it)} className="rounded p-1 text-emerald-300 hover:bg-emerald-500/20" title="Simpan perubahan item" aria-label={`Simpan perubahan ${it.description}`}><Check className="h-4 w-4" /></button>
                                     <button type="button" onClick={cancelEditResultAmount} className="rounded p-1 text-slate-400 hover:bg-slate-700" title="Batal edit" aria-label="Batal edit amount"><X className="h-4 w-4" /></button>
                                   </>
@@ -2081,7 +2048,10 @@ export const FDAView: React.FC<FDAViewProps> = ({
                             <td className="border-l border-slate-800 p-3.5 text-slate-300">
                               <div className="flex items-center justify-between gap-3">
                                 {editingResultAmountId === it.id
-                                  ? <input value={resultAmountDraft.remarks} onChange={(event) => setResultAmountDraft({ ...resultAmountDraft, remarks: event.target.value })} aria-label={`Remark ${it.description}`} className="w-full rounded border border-slate-600 bg-slate-950 px-2 py-1 font-normal text-white" />
+                                  ? <div className="w-full space-y-2">
+                                      <input value={resultAmountDraft.remarks} onChange={(event) => setResultAmountDraft({ ...resultAmountDraft, remarks: event.target.value })} aria-label={`Remark ${it.description}`} className="w-full rounded border border-slate-600 bg-slate-950 px-2 py-1 font-normal text-white" />
+                                      <label className="flex items-center gap-1.5 text-[10px] text-slate-300"><input type="checkbox" checked={resultAmountDraft.vatApplied} onChange={(event) => setResultAmountDraft({ ...resultAmountDraft, vatApplied: event.target.checked })} /> VAT 11%</label>
+                                    </div>
                                   : <span>{it.remarks}</span>}
                                 <div className="flex items-center gap-1">
                                   {!isFDAReadOnly && activeJob.managerApproval?.status === 'APPROVED' && editingResultAmountId !== it.id && <button type="button" onClick={() => startEditResultAmount(it)} className="rounded-md p-1.5 text-cyan-300 hover:bg-cyan-500/20" title="Edit item" aria-label={`Edit ${it.description}`}><Pencil className="h-3.5 w-3.5" /></button>}
@@ -2151,10 +2121,17 @@ export const FDAView: React.FC<FDAViewProps> = ({
                       <td className="border-l border-slate-800" />
                     </tr>
                   )}
-                  {(globalVatApplied || pph23Amount > 0) && fdaResultRows.length > 0 && (
+                  {totalAppliedDiscount > 0 && (
+                    <tr className="bg-slate-950/70 font-bold">
+                      <td colSpan={3} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-rose-300">DISCOUNT</td>
+                      <td className="border-l border-slate-800 p-2.5 text-right text-xs font-mono font-bold text-rose-300">-{formatAccountingNumber(totalAppliedDiscount, viewCurrency)}</td>
+                      <td className="border-l border-slate-800" />
+                    </tr>
+                  )}
+                  {(globalVatApplied || pph23Amount > 0 || totalAppliedDiscount > 0) && (fdaResultRows.length > 0 || totalQuotedEPDA > 0) && (
                     <tr className="bg-slate-950/80">
                       <td colSpan={3} className="border-l border-slate-800 p-3 text-right font-bold uppercase text-slate-200">GRAND TOTAL</td>
-                      <td className="border-l border-slate-800 p-3 text-right text-xs font-mono font-bold text-white">{formatAccountingNumber(totalEPDAAfterGlobalVat, viewCurrency)}</td>
+                      <td className="border-l border-slate-800 p-3 text-right text-xs font-mono font-bold text-white">{formatAccountingNumber(fdaGrandTotal, viewCurrency)}</td>
                       <td className="border-l border-slate-800" />
                     </tr>
                   )}
@@ -2252,7 +2229,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                 <div><label className="mb-1 block text-slate-600">Category Cost</label><select value={newActual.category} onChange={(e) => setNewActual({ ...newActual, category: e.target.value })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="PORT_SERVICE">PORT SERVICE</option><option value="PORT_EXPENSES">PORT EXPENSES</option><option value="CLEARANCE">CLEARANCE IN/OUT</option><option value="GENERAL_EXPENSES">GENERAL EXPENSES</option><option value="CREW_EXPENSES">CREW EXPENSES</option><option value="OWNER_MATTER">OWNER MATTER</option><option value="AGENCY_FEE">AGENCY FEE</option></select></div>
                 <div><label className="mb-1 block text-slate-600">Type</label><select value={newActual.tariffType} onChange={(e) => setNewActual({ ...newActual, tariffType: e.target.value as 'FIXED' | 'VARIABLE' | 'QTY_CARGO' })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none"><option value="FIXED">Fixed</option><option value="VARIABLE">Variabel</option><option value="QTY_CARGO">QTY_CARGO</option></select></div>
                 <div><label className="mb-1 block text-slate-600">QTY</label><input type="number" min="1" value={actualQuantity} onChange={(e) => setActualQuantity(Math.max(1, Number(e.target.value) || 1))} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>
-                <div><label className="mb-1 block text-slate-600">Tarif ({viewCurrency})</label><input type="text" inputMode="decimal" placeholder="0.0000" value={manualTariffText} onChange={(e) => { const text = e.target.value; setManualTariffText(text); setNewActual({ ...newActual, amountBuy: parseTariffInput(text) }); }} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>
+                <div><label className="mb-1 block text-slate-600">Tarif ({viewCurrency})</label><FormattedNumberInput maximumFractionDigits={8} placeholder="0.0000" value={manualTariffText} onValueChange={(text) => { setManualTariffText(text); setNewActual({ ...newActual, amountBuy: parseTariffInput(text) }); }} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none" /></div>
                 <div><label className="mb-1 block text-slate-600">Amount ({viewCurrency})</label><input readOnly value={formatAccountingNumber(actualAmount, viewCurrency)} className="w-full cursor-not-allowed rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-right text-slate-500" /></div>
                 <div className="lg:col-span-6"><label className="mb-1 block text-slate-600">Remark</label><input value={newActual.notes} onChange={(e) => setNewActual({ ...newActual, notes: e.target.value })} placeholder="Keterangan tambahan" className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none" /></div>
                 <div className="lg:col-span-6 flex flex-wrap items-center gap-x-5 gap-y-2"><label className="inline-flex items-center gap-2 text-slate-700"><input type="checkbox" checked={newActual.vatApplied} onChange={(e) => setNewActual({ ...newActual, vatApplied: e.target.checked })} /> VAT 11%</label></div>
@@ -2264,6 +2241,20 @@ export const FDAView: React.FC<FDAViewProps> = ({
                 ? 'Otomatis: FIXED = Tarif x QTY; VARIABLE = GRT x Tarif x QTY; QTY_CARGO = Quantity Cargo x Tarif x QTY.'
                 : 'Manual: FIXED = Tarif x QTY; VARIABLE = GRT x Tarif x QTY; QTY_CARGO = Quantity Cargo x Tarif x QTY.'}
             </div>
+            <div className="mt-4 max-w-md rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <label className="mb-1 block text-xs font-bold text-slate-700">Discount ({viewCurrency})</label>
+              <FormattedNumberInput
+                min="0"
+                max={fdaGrandTotalBeforeDiscount}
+                maximumFractionDigits={viewCurrency === 'IDR' ? 0 : 2}
+                disabled={isFDAReadOnly}
+                value={discountAmount || ''}
+                emptyOnZero
+                onValueChange={updateFDADiscount}
+                className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-right text-slate-700 disabled:bg-slate-100"
+              />
+              <p className="mt-1 text-[10px] text-slate-500">Nominal dikurangi setelah VAT/PPh, tepat sebelum Grand Total. Maksimal sebesar total sebelum diskon.</p>
+            </div>
             </fieldset>
           </div>
         </div>
@@ -2272,65 +2263,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
       {subTab === 'FDA_AMOUNT' && (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
           <h3 className="mb-4 text-[15px] font-bold uppercase tracking-wide text-emerald-800">
-            Advance Received
+            Advance Received · History
           </h3>
-          <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2 xl:grid-cols-4">
-            <div>
-              <label className="mb-1 block text-slate-600">Advance Received</label>
-              <div className="rounded-lg border border-slate-300 bg-white p-2.5 font-semibold text-slate-700">
-                Advance Payment
-              </div>
-            </div>
-            <div>
-              <label className="mb-1 block text-slate-600">Date Advance Payment</label>
-              <DateInput
-                value={advancePaymentDate}
-                disabled={isFDAReadOnly || isSavingAdvancePayment}
-                onChange={setAdvancePaymentDate}
-                ariaLabel="tanggal uang muka"
-                inputClassName="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 disabled:cursor-not-allowed disabled:bg-slate-100"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-slate-600">Amount ({viewCurrency})</label>
-              <input
-                type="number"
-                min="0"
-                step={viewCurrency === 'IDR' ? '1' : '0.01'}
-                value={advancePaymentAmount}
-                disabled={isFDAReadOnly || isSavingAdvancePayment}
-                onChange={(event) => setAdvancePaymentAmount(event.target.value)}
-                placeholder="0"
-                className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-right text-slate-700 disabled:cursor-not-allowed disabled:bg-slate-100"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-slate-600">Remark</label>
-              <input
-                type="text"
-                value={advancePaymentRemark}
-                disabled={isFDAReadOnly || isSavingAdvancePayment}
-                onChange={(event) => setAdvancePaymentRemark(event.target.value)}
-                placeholder="Keterangan pembayaran"
-                className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 placeholder:text-slate-400 disabled:cursor-not-allowed disabled:bg-slate-100"
-              />
-            </div>
-          </div>
-          {advancePaymentError && (
-            <p className="mt-3 text-xs font-semibold text-rose-600">{advancePaymentError}</p>
-          )}
-          <div className="mt-4 flex justify-end">
-            <button
-              type="button"
-              onClick={handleAddAdvancePayment}
-              disabled={isFDAReadOnly || isSavingAdvancePayment}
-              className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Plus className="h-4 w-4" />
-              {isSavingAdvancePayment ? 'MENYIMPAN...' : 'TAMBAH DATA'}
-            </button>
-          </div>
-          <div className="mt-5 overflow-x-auto">
+          <div className="overflow-x-auto">
             <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-700">History Payment</h4>
             {financeReceivableError && <p role="alert" className="mb-2 text-xs font-semibold text-rose-600">{financeReceivableError}</p>}
             {(advancePaymentHistory.length > 0 || financeReceivableEntries.length > 0) && (
@@ -2401,13 +2336,12 @@ export const FDAView: React.FC<FDAViewProps> = ({
                           </div>
                           <div>
                             <label className="mb-1 block text-slate-600">Amount ({receipt.currency})</label>
-                            <input
-                              type="number"
+                            <FormattedNumberInput
                               min="0"
-                              step={receipt.currency === 'IDR' ? '1' : '0.01'}
+                              maximumFractionDigits={receipt.currency === 'IDR' ? 0 : 2}
                               value={advanceReceiptEditAmount}
                               disabled={isSavingAdvanceReceiptEdit}
-                              onChange={(event) => setAdvanceReceiptEditAmount(event.target.value)}
+                              onValueChange={setAdvanceReceiptEditAmount}
                               className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-right text-slate-700 disabled:bg-slate-100"
                             />
                           </div>
@@ -2460,6 +2394,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
                   </React.Fragment>
                 ))}
               </div>
+            )}
+            {advancePaymentHistory.length === 0 && financeReceivableEntries.length === 0 && !financeReceivableError && (
+              <p className="text-xs text-slate-500">Belum ada riwayat Advance Payment.</p>
             )}
           </div>
         </div>

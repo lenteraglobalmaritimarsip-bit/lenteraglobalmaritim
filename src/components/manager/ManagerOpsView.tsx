@@ -173,7 +173,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
   const totalPrincipalBilledIDR = managerFinancialJobs.reduce((sum, job) => {
     const billed = job.fda?.finalBilledToPrincipal
       || job.principalInvoice?.totalAmountUSD
-      || job.quotation?.epda?.totalAmount
+      || Math.max(0, (job.quotation?.epda?.totalAmount || 0) - (job.quotation?.epda?.discountAmount || 0))
       || 0;
     const currency = job.fda?.currency || job.currency || 'IDR';
     const rate = job.fda?.exchangeRateUSDToIDR || job.exchangeRateUSDToIDR || 15800;
@@ -198,16 +198,17 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
     { label: 'System Users', value: String(users.length), detail: 'Akun aktif dalam portal', tone: 'cyan' },
     { label: 'Sales Pipeline', value: String(jobCalls.filter((j) => j.quotation.epda.status === 'APPROVED').length), detail: 'Quote yang siap diproses', tone: 'amber' },
     { label: 'FDA Approved', value: String(approvedFDAJobs.length), detail: 'Final disbursement account', tone: 'emerald' },
-    { label: 'Finance Outstanding', value: new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(totalOutstandingIDR), detail: 'Belum diterima dari principal', tone: 'rose' },
+    { label: 'Finance Outstanding', value: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'IDR', currencyDisplay: 'narrowSymbol', maximumFractionDigits: 0 }).format(totalOutstandingIDR), detail: 'Belum diterima dari principal', tone: 'rose' },
   ];
 
   const formatUSD = (val: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
 
   const formatEPDAAmount = (val: number, currency: 'IDR' | 'USD' = 'USD') =>
-    new Intl.NumberFormat(currency === 'IDR' ? 'id-ID' : 'en-US', {
+    new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency,
+      currencyDisplay: currency === 'IDR' ? 'narrowSymbol' : 'symbol',
       maximumFractionDigits: currency === 'IDR' ? 0 : 2,
     }).format(val);
   const getEpdaGrandTotal = (job: JobCall) => {
@@ -529,11 +530,11 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                 </div>
                 <div className="flex items-center justify-between rounded-xl bg-slate-950 border border-slate-800 p-3">
                   <span className="text-slate-400">Principal billed</span>
-                  <span className="font-mono font-bold text-cyan-300">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(totalPrincipalBilledIDR)}</span>
+                  <span className="font-mono font-bold text-cyan-300">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'IDR', currencyDisplay: 'narrowSymbol', maximumFractionDigits: 0 }).format(totalPrincipalBilledIDR)}</span>
                 </div>
                 <div className="flex items-center justify-between rounded-xl bg-slate-950 border border-slate-800 p-3">
                   <span className="text-slate-400">Cash-in / received</span>
-                  <span className="font-mono font-bold text-emerald-300">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(totalReceivedIDR)}</span>
+                  <span className="font-mono font-bold text-emerald-300">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'IDR', currencyDisplay: 'narrowSymbol', maximumFractionDigits: 0 }).format(totalReceivedIDR)}</span>
                 </div>
               </div>
             </div>

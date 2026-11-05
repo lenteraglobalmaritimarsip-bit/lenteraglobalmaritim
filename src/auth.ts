@@ -11,6 +11,8 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   MANAGER_OPS: 'Manager Operations',
   FDA: 'FDA & Disbursement',
   FINANCE: 'Finance & Accounting',
+  ACCOUNTING: 'Accounting',
+  DIRECTOR: 'Direktur',
 };
 
 export function initials(name: string): string {

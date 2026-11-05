@@ -2,6 +2,7 @@ import { PaymentVoucher } from '../types';
 import { db } from '../db/storage';
 import { formatDateDisplay } from './date';
 import { getPublicLogoUrl } from './logo';
+import { getPaymentVoucherPphLabel } from './paymentVoucherTax';
 
 const money = (value: number, currency: PaymentVoucher['currency'] = 'IDR') => currency === 'USD'
   ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value || 0)
@@ -23,11 +24,12 @@ export interface PrintableVoucher {
   paidAt?: string;
   signerName?: string;
   includeFinancePrintDetails?: boolean;
+  omitCustomerColumn?: boolean;
   vendorName: string;
   paidTo: string;
   bankName: string;
   accountNumber: string;
-  items: Pick<PaymentVoucher['items'][number], 'jobNumber' | 'documentType' | 'documentNumber' | 'customerName' | 'itemService' | 'amount' | 'vatAmount' | 'total' | 'pph23Amount' | 'paidAmount'>[];
+  items: Pick<PaymentVoucher['items'][number], 'jobNumber' | 'documentType' | 'documentNumber' | 'customerName' | 'itemService' | 'amount' | 'vatAmount' | 'total' | 'pphRate' | 'pph23Applied' | 'pph23Amount' | 'paidAmount'>[];
 }
 
 // Returns an error message, or null when the print window opened.
@@ -46,14 +48,19 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
   const jobNumbers = [...new Set(voucher.items.map((item) => item.jobNumber.trim()).filter(Boolean))].join(', ');
   const infoJob = jobInfo === 'JOB_VESSEL' ? 'JOB Vessel' : 'Operasional';
   const partyLabel = jobInfo === 'JOB_VESSEL' ? 'Vessel name' : 'Customer';
+  const includeCustomerColumn = !voucher.omitCustomerColumn;
   const sum = (pick: (item: PrintableVoucher['items'][number]) => number) => voucher.items.reduce((total, item) => total + (pick(item) || 0), 0);
   const totalBeforePph = sum((item) => item.total);
-  const totalPph23 = sum((item) => item.pph23Amount);
-  const totalPayment = totalBeforePph - totalPph23;
+  const totalPph = sum((item) => item.pph23Amount);
+  const pphRates = [...new Set(voucher.items.map((item) => item.pphRate ?? (item.pph23Applied ? 0.02 : 0)).filter((rate) => rate > 0))];
+  const totalPayment = totalBeforePph - totalPph;
   const financeUsers = db.getState().users.filter((user) => user.role === 'FINANCE' && user.status !== 'INACTIVE');
   const checker = voucher.paidBy || financeUsers.find((user) => user.name === voucher.checkerName)?.name || financeUsers[0]?.name || '';
   const logoUrl = getPublicLogoUrl();
-  const bodyRows = voucher.items.map((row, index) => `<tr><td class="c">${index + 1}</td><td>${escapeHtml(row.jobNumber)}</td>${jobInfo === 'JOB_VESSEL' ? `<td>${escapeHtml(row.documentType && row.documentNumber ? `${row.documentType}: ${row.documentNumber}` : '-')}</td>` : ''}<td>${escapeHtml(row.customerName)}</td><td>${escapeHtml(row.itemService)}</td><td class="r">${money(row.amount, currency)}</td><td class="r">${money(row.vatAmount, currency)}</td><td class="r">${money(row.total, currency)}</td><td class="r">${money(row.pph23Amount, currency)}</td><td class="r b">${money(row.paidAmount, currency)}</td></tr>`).join('');
+  const bodyRows = voucher.items.map((row, index) => {
+    const pphRate = row.pphRate ?? (row.pph23Applied ? 0.02 : 0);
+    return `<tr><td class="c">${index + 1}</td><td>${escapeHtml(row.jobNumber)}</td>${jobInfo === 'JOB_VESSEL' ? `<td>${escapeHtml(row.documentType && row.documentNumber ? `${row.documentType}: ${row.documentNumber}` : '-')}</td>` : ''}${includeCustomerColumn ? `<td>${escapeHtml(row.customerName)}</td>` : ''}<td>${escapeHtml(row.itemService)}</td><td class="r">${money(row.amount, currency)}</td><td class="r">${money(row.vatAmount, currency)}</td><td class="r">${money(row.total, currency)}</td><td class="r">${pphRate ? `${escapeHtml(getPaymentVoucherPphLabel(pphRate))}<br />` : ''}${money(row.pph23Amount, currency)}</td><td class="r b">${money(row.paidAmount, currency)}</td></tr>`;
+  }).join('');
   const metaField = (label: string, value: string) => label
     ? `<td class="k">${label}</td><td class="separator">:</td><td>${value}</td>`
     : '<td></td><td></td><td></td>';
@@ -111,11 +118,14 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
     <div class="brand-row"><div class="brand-wrap"><img class="logo" src="${logoUrl}" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div>
     <h2>REQUEST PAYMENT VOUCHER</h2>
     <table class="meta">${metaRows}</table>
-    <table class="items"><thead><tr><th>No</th><th>JOB Number</th>${jobInfo === 'JOB_VESSEL' ? '<th>FDA / FPDA Number</th>' : ''}<th>${partyLabel}</th><th>Item Service</th><th>Amount (${currency})</th><th>Vat (${currency})</th><th>Total (${currency})</th><th>PPH 23 (2%) (${currency})</th><th>Paid Amount (${currency})</th></tr></thead>
+    <table class="items"><thead><tr><th>No</th><th>JOB Number</th>${jobInfo === 'JOB_VESSEL' ? '<th>FDA / FPDA Number</th>' : ''}${includeCustomerColumn ? `<th>${partyLabel}</th>` : ''}<th>Item Service</th><th>Amount (${currency})</th><th>VAT 11% (${currency})</th><th>Total (${currency})</th><th>Potongan PPh (${currency})</th><th>Paid Amount (${currency})</th></tr></thead>
     <tbody>${bodyRows}</tbody></table>
     <table class="summary">
       <tr><td class="k">Total (${currency})</td><td class="r">${money(totalBeforePph, currency)}</td></tr>
-      <tr class="pph"><td class="k">PPh 23 (${currency})</td><td class="r">${totalPph23 ? '-' : ''}${money(totalPph23, currency)}</td></tr>
+      ${pphRates.map((rate) => {
+        const amount = sum((item) => (item.pphRate ?? (item.pph23Applied ? 0.02 : 0)) === rate ? item.pph23Amount : 0);
+        return `<tr class="pph"><td class="k">${escapeHtml(getPaymentVoucherPphLabel(rate))} (${currency})</td><td class="r">-${money(amount, currency)}</td></tr>`;
+      }).join('')}
       <tr class="grand"><td>Total Payment (${currency})</td><td class="r">${money(totalPayment, currency)}</td></tr>
     </table>
     ${voucher.includeFinancePrintDetails ? `<div class="footer">Cetakan ini asli dikeluarkan PT. Lentera Global Maritim | ${printedDate} | ${printedTime}</div>` : ''}

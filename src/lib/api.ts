@@ -1,5 +1,5 @@
 import { AuthAccount } from '../auth';
-import { AccountsReceivableEntry, BankAccount, FdaReceivableEntry, ReceivableInvoiceOption, ReceivableInvoiceType, ReceivablePaymentType, ReceivableSubjectData } from '../types';
+import { AccountsReceivableEntry, AccountingAsset, AccountingBalanceSheetResponse, AccountingInboxItem, AccountingMonthlyProfitLossResponse, AccountingPostedJournalRow, AccountingProfitLossResponse, BankAccount, Branch, ChartOfAccount, FdaReceivableEntry, FinanceJournalLine, ReceivableInvoiceOption, ReceivableInvoiceType, ReceivablePaymentType, ReceivableSubjectData } from '../types';
 
 const apiEnabled = import.meta.env.VITE_API_AUTH_ENABLED === 'true';
 let csrfToken = '';
@@ -67,9 +67,11 @@ export async function loadUsdIdrRateForDate(date: string): Promise<{ rate: numbe
 }
 
 function toAccount(user: Record<string, unknown>): AuthAccount {
+  const rawBranchId = String(user.branch_id || user.branchId || '');
   return {
     ...user,
     branch: String(user.branch_name || user.branch || ''),
+    branchId: /^\d+$/.test(rawBranchId) ? rawBranchId.padStart(3, '0') : rawBranchId,
     username: String(user.username || ''),
   } as AuthAccount;
 }
@@ -161,6 +163,7 @@ export interface PdaDraft {
     vatApplied: boolean;
     pph23Applied?: boolean;
     globalVatApplied?: boolean;
+    discountAmount?: number;
     continuedPdaItems?: ContinuedPdaItemReference[];
   };
   revision: number;
@@ -288,6 +291,14 @@ export async function loadAccountsReceivableHistory(): Promise<AccountsReceivabl
   return result.entries;
 }
 
+export async function loadAccountingFinanceReceivableHistory(branchId = ''): Promise<AccountsReceivableEntry[]> {
+  if (!apiEnabled) throw new Error('History Keuangan memerlukan koneksi API aktif.');
+  const query = new URLSearchParams({ action: 'accounting-history' });
+  if (branchId) query.set('branchId', branchId);
+  const result = await request<{ entries: AccountsReceivableEntry[] }>(`receivables.php?${query.toString()}`);
+  return result.entries;
+}
+
 export async function loadFdaReceivableEntries(jobId?: string): Promise<FdaReceivableEntry[]> {
   if (!apiEnabled) throw new Error('Riwayat penerimaan Finance memerlukan koneksi API aktif.');
   const params = new URLSearchParams({ action: 'fda-advance-history' });
@@ -311,10 +322,150 @@ export async function createAccountsReceivableEntry(entry: {
   exchangeRateUSDToIDR: number;
   attachmentName: string;
   attachmentDataUrl: string;
-}): Promise<void> {
+}): Promise<string> {
   if (!apiEnabled) throw new Error('Accounts Receivable memerlukan koneksi API aktif.');
-  await request<{ ok: boolean }>('receivables.php', {
+  const result = await request<{ ok: boolean; receiptNumber: string }>('receivables.php', {
     method: 'POST',
     body: JSON.stringify(entry),
+  });
+  return result.receiptNumber;
+}
+
+export async function loadAccountingInbox(): Promise<{ items: AccountingInboxItem[]; accounts: ChartOfAccount[] }> {
+  if (!apiEnabled) throw new Error('Accounting memerlukan koneksi API aktif.');
+  return request<{ items: AccountingInboxItem[]; accounts: ChartOfAccount[] }>('accounting.php?action=inbox');
+}
+
+export async function saveAccountingJournal(input: {
+  sourceType: AccountingInboxItem['sourceType'];
+  sourceKey: string;
+  entryDate: string;
+  description: string;
+  lines: FinanceJournalLine[];
+}, post: boolean): Promise<{ journalId: string; journalNumber: string | null; status: 'DRAFT' | 'POSTED' }> {
+  if (!apiEnabled) throw new Error('Accounting memerlukan koneksi API aktif.');
+  return request<{ journalId: string; journalNumber: string | null; status: 'DRAFT' | 'POSTED' }>(
+    `accounting.php?action=${post ? 'post' : 'draft'}`,
+    { method: 'POST', body: JSON.stringify(input) },
+  );
+}
+
+export async function loadAccountingPostedJournalReport(startDate: string, endDate: string, scope: 'ALL' | 'HISTORICAL' | 'BRANCH' = 'ALL', branchId = ''): Promise<AccountingPostedJournalRow[]> {
+  if (!apiEnabled) throw new Error('Accounting memerlukan koneksi API aktif.');
+  const query = new URLSearchParams({ action: 'posted-report', scope });
+  if (startDate) query.set('startDate', startDate);
+  if (endDate) query.set('endDate', endDate);
+  if (branchId) query.set('branchId', branchId);
+  const result = await request<{ rows: AccountingPostedJournalRow[] }>(`accounting.php?${query.toString()}`);
+  return result.rows;
+}
+
+export async function loadAccountingChartOfAccounts(): Promise<ChartOfAccount[]> {
+  if (!apiEnabled) throw new Error('Accounting memerlukan koneksi API aktif.');
+  const result = await request<{ accounts: ChartOfAccount[] }>('accounting.php?action=chart-of-accounts');
+  return result.accounts;
+}
+
+export async function updateAccountingPostedJournal(input: {
+  journalId: string;
+  journalDate: string;
+  lines: Array<{
+    id: string;
+    coaId: string;
+    memo: string;
+    direction: 'DEBIT' | 'CREDIT';
+    amount: number;
+    overrides: {
+      arApNumber: string;
+      appliedDate: string;
+      shipment: string;
+      customer: string;
+      jobVessel: string;
+      refNoFda: string;
+      bl: string;
+      currency: string;
+      exchangeRate: number;
+      item: string;
+      vendor: string;
+    };
+  }>;
+}): Promise<void> {
+  if (!apiEnabled) throw new Error('Accounting memerlukan koneksi API aktif.');
+  await request<{ ok: boolean }>('accounting.php?action=edit-posted', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function loadAccountingBalanceSheet(asOf: string, scope: 'ALL' | 'HISTORICAL' | 'BRANCH' = 'ALL', branchId = ''): Promise<AccountingBalanceSheetResponse> {
+  if (!apiEnabled) throw new Error('Neraca memerlukan koneksi API aktif.');
+  const query = new URLSearchParams({ action: 'balance-sheet', asOf, scope });
+  if (branchId) query.set('branchId', branchId);
+  return request<AccountingBalanceSheetResponse>(`accounting.php?${query.toString()}`);
+}
+
+export async function loadAccountingProfitLoss(startDate: string, endDate: string, scope: 'ALL' | 'HISTORICAL' | 'BRANCH' = 'ALL', branchId = ''): Promise<AccountingProfitLossResponse> {
+  if (!apiEnabled) throw new Error('Laba Rugi memerlukan koneksi API aktif.');
+  const query = new URLSearchParams({ action: 'profit-loss', startDate, endDate, scope });
+  if (branchId) query.set('branchId', branchId);
+  return request<AccountingProfitLossResponse>(`accounting.php?${query.toString()}`);
+}
+
+export async function loadAccountingMonthlyProfitLoss(year: number, scope: 'ALL' | 'HISTORICAL' | 'BRANCH' = 'ALL', branchId = ''): Promise<AccountingMonthlyProfitLossResponse> {
+  if (!apiEnabled) throw new Error('Rincian Laba memerlukan koneksi API aktif.');
+  const query = new URLSearchParams({ action: 'profit-loss-monthly', year: String(year), scope });
+  if (branchId) query.set('branchId', branchId);
+  return request<AccountingMonthlyProfitLossResponse>(`accounting.php?${query.toString()}`);
+}
+
+export async function loadAccountingAssets(): Promise<{
+  assets: AccountingAsset[];
+  branches: Branch[];
+  accounts: ChartOfAccount[];
+}> {
+  if (!apiEnabled) throw new Error('Accounting Assets memerlukan koneksi API aktif.');
+  return request<{ assets: AccountingAsset[]; branches: Branch[]; accounts: ChartOfAccount[] }>('accounting_assets.php?action=list');
+}
+
+export async function createAccountingAsset(input: {
+  assetCode: string;
+  assetName: string;
+  category: string;
+  acquisitionDate: string;
+  acquisitionCost: number;
+  usefulLifeMonths: number;
+  residualValue: number;
+  location: string;
+  branchId: string;
+  status: AccountingAsset['status'];
+  coaAssetId: string;
+  coaDepreciationId: string;
+}): Promise<{ id: string }> {
+  if (!apiEnabled) throw new Error('Accounting Assets memerlukan koneksi API aktif.');
+  return request<{ id: string }>('accounting_assets.php?action=create', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateAccountingAsset(assetId: string, input: {
+  assetCode: string;
+  assetName: string;
+  category: string;
+  acquisitionDate: string;
+  acquisitionCost: number;
+  usefulLifeMonths: number;
+  residualValue: number;
+  location: string;
+  branchId: string;
+  status: AccountingAsset['status'];
+  coaAssetId: string;
+  coaDepreciationId: string;
+}): Promise<{ id: string }> {
+  if (!apiEnabled) throw new Error('Accounting Assets memerlukan koneksi API aktif.');
+  const query = new URLSearchParams({ action: 'update', assetId });
+  return request<{ id: string }>(`accounting_assets.php?${query.toString()}`, {
+    method: 'POST',
+    body: JSON.stringify(input),
   });
 }

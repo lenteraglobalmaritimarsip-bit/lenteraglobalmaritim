@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2, Save, Printer } from 'lucide-react';
-import { Currency, JobCall, PaymentVoucher, PaymentVoucherItem, VendorPartner } from '../../types';
+import { Plus, Trash2, Save, Printer, Pencil, Send } from 'lucide-react';
+import { Currency, JobCall, PaymentVoucher, PaymentVoucherItem, User, VendorPartner } from '../../types';
 import { db } from '../../db/storage';
 import { dataApi } from '../../lib/dataApi';
 import { listFpdaNumbers, loadUsdIdrRateForDate } from '../../lib/api';
 import { parseTariffNumber } from '../../utils/tariff';
 import { printPaymentVoucher } from '../../utils/voucherPrint';
+import { getPaymentVoucherPphRate, PAYMENT_VOUCHER_VAT_RATE } from '../../utils/paymentVoucherTax';
 import { DateInput } from '../shared/DateInput';
 
 interface PaymentVoucherViewProps {
@@ -17,6 +18,8 @@ interface PaymentVoucherViewProps {
   voucher?: PaymentVoucher;
   onCancelEdit?: () => void;
   operationalOnly?: boolean;
+  jobVesselOnly?: boolean;
+  approverUsers?: User[];
 }
 
 type JobInfo = PaymentVoucher['jobInfo'];
@@ -28,13 +31,23 @@ interface VoucherRow {
   documentNumber?: string;
   customerName: string;
   itemService: string;
+  category: string;
+  tariffType: 'FIXED' | 'VARIABLE' | 'QTY_CARGO';
+  price: number;
+  quantity: number;
+  unit: string;
+  remarks: string;
   amount: number;
   vatApplied: boolean;
-  pph23Applied: boolean;
+  pphRate: number;
 }
 
-const VAT_RATE = 0.11;
-const PPH23_RATE = 0.02;
+const PPH_RATES = [
+  { value: 0, label: 'Tidak ada' },
+  { value: 0.02, label: 'PPh 2%' },
+  { value: 0.025, label: 'PPh 2,5%' },
+  { value: 0.1, label: 'PPh 10%' },
+];
 
 const todayIso = () => {
   const now = new Date();
@@ -48,9 +61,15 @@ const newRow = (): VoucherRow => ({
   documentNumber: '',
   customerName: '',
   itemService: '',
+  category: '',
+  tariffType: 'FIXED',
+  price: 0,
+  quantity: 1,
+  unit: '',
+  remarks: '',
   amount: 0,
   vatApplied: false,
-  pph23Applied: false,
+  pphRate: 0,
 });
 
 const money = (value: number, currency: Currency = 'IDR') => currency === 'USD'
@@ -58,9 +77,9 @@ const money = (value: number, currency: Currency = 'IDR') => currency === 'USD'
   : new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
 
 const calculate = (row: VoucherRow) => {
-  const vatAmount = row.vatApplied ? row.amount * VAT_RATE : 0;
+  const vatAmount = row.vatApplied ? row.amount * PAYMENT_VOUCHER_VAT_RATE : 0;
   const total = row.amount + vatAmount;
-  const pph23Amount = row.pph23Applied ? row.amount * PPH23_RATE : 0;
+  const pph23Amount = row.amount * row.pphRate;
   return { vatAmount, total, pph23Amount, paidAmount: total - pph23Amount };
 };
 
@@ -75,10 +94,17 @@ interface VoucherDraft {
   requestedPaymentDate: string;
   jobInfo: JobInfo;
   vendorId: string;
+  manualVendorName?: string;
+  manualPaidTo?: string;
+  manualBankName?: string;
+  manualAccountNumber?: string;
   rows: VoucherRow[];
+  entryRow?: VoucherRow;
+  editingRowId?: string | null;
+  approvalTargetUserId?: string;
 }
 
-export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls, vendorPartners, requestBy, requestByUserId, onDataSaved, voucher: editingVoucher, onCancelEdit, operationalOnly = false }) => {
+export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls, vendorPartners, requestBy, requestByUserId, onDataSaved, voucher: editingVoucher, onCancelEdit, operationalOnly = false, jobVesselOnly = false, approverUsers = [] }) => {
   const [requestDate, setRequestDate] = useState(() => editingVoucher ? String(editingVoucher.requestDate).slice(0, 10) : todayIso());
   const [currency, setCurrency] = useState<Currency>(editingVoucher?.currency || 'IDR');
   const [exchangeRate, setExchangeRate] = useState<number | null>(editingVoucher?.exchangeRateUSDToIDR ?? null);
@@ -86,11 +112,18 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
   const [isLoadingExchangeRate, setIsLoadingExchangeRate] = useState(false);
   const [exchangeRateError, setExchangeRateError] = useState('');
   const [requestedPaymentDate, setRequestedPaymentDate] = useState(() => editingVoucher?.requestedPaymentDate || String(editingVoucher?.requestDate || todayIso()).slice(0, 10));
-  const [jobInfo, setJobInfo] = useState<JobInfo>(operationalOnly ? 'OPERASIONAL' : editingVoucher?.jobInfo || 'OPERASIONAL');
+  const [jobInfo, setJobInfo] = useState<JobInfo>(operationalOnly ? 'OPERASIONAL' : jobVesselOnly ? 'JOB_VESSEL' : editingVoucher?.jobInfo || 'OPERASIONAL');
   const [vendorId, setVendorId] = useState(editingVoucher?.vendorPartnerId || '');
+  const [approvalTargetUserId, setApprovalTargetUserId] = useState(editingVoucher?.approvalTargetUserId || '');
+  const [manualVendor, setManualVendor] = useState({
+    vendorName: editingVoucher?.vendorName || '',
+    paidTo: editingVoucher?.paidTo || '',
+    bankName: editingVoucher?.bankName || '',
+    accountNumber: editingVoucher?.accountNumber || '',
+  });
   const [draftRestored, setDraftRestored] = useState(false);
   const [draftLoaded, setDraftLoaded] = useState(!!editingVoucher);
-  const [rows, setRows] = useState<VoucherRow[]>(() => editingVoucher && editingVoucher.items.length > 0
+  const [rows, setRows] = useState<VoucherRow[]>(() => editingVoucher
     ? editingVoucher.items.map((item) => ({
         id: item.id,
         jobNumber: item.jobNumber,
@@ -100,11 +133,19 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
           ? jobCalls.find((job) => job.jobId === item.jobNumber)?.vesselName || item.customerName
           : item.customerName,
         itemService: item.itemService,
+        category: item.category || '',
+        tariffType: item.tariffType || 'FIXED',
+        price: item.price ?? item.amount,
+        quantity: item.quantity ?? 1,
+        unit: item.unit || '',
+        remarks: item.remarks || '',
         amount: item.amount,
         vatApplied: !!item.vatApplied,
-        pph23Applied: !!item.pph23Applied,
+        pphRate: getPaymentVoucherPphRate(item),
       }))
-    : [newRow()]);
+    : []);
+  const [entryRow, setEntryRow] = useState<VoucherRow>(newRow);
+  const [editingRowId, setEditingRowId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [savedTick, setSavedTick] = useState(0);
@@ -142,25 +183,35 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
     ? editingVoucher.items.find((item) => item.jobNumber)?.jobNumber || nextOperationalJobNumber
     : nextOperationalJobNumber;
   const vendor = vendorPartners.find((item) => item.id === vendorId);
+  const vendorDetails = {
+    vendorName: vendor?.vendorName || manualVendor.vendorName.trim(),
+    paidTo: vendor?.paidName || manualVendor.paidTo.trim(),
+    bankName: vendor?.bankName || manualVendor.bankName.trim(),
+    accountNumber: vendor?.accountNumber || manualVendor.accountNumber.trim(),
+  };
 
-  const updateRow = (id: string, patch: Partial<VoucherRow>) =>
-    setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  const updateEntryRow = (patch: Partial<VoucherRow>) =>
+    setEntryRow((current) => {
+      const updated = { ...current, ...patch };
+      if ('price' in patch || 'quantity' in patch) {
+        updated.amount = Math.round((updated.price * updated.quantity + Number.EPSILON) * 100) / 100;
+      } else if ('amount' in patch) {
+        updated.amount = Math.round((updated.amount + Number.EPSILON) * 100) / 100;
+        updated.price = updated.quantity ? updated.amount / updated.quantity : updated.amount;
+      }
+      return updated;
+    });
 
   const changeJobInfo = (value: JobInfo) => {
     setJobInfo(value);
-    setRows((current) => current.map((row) => ({
-      ...row,
-      jobNumber: value === 'OPERASIONAL' ? operationalJobNumber : '',
-      documentType: undefined,
-      documentNumber: '',
-      customerName: '',
-      itemService: '',
-    })));
+    setRows([]);
+    setEntryRow({ ...newRow(), jobNumber: value === 'OPERASIONAL' ? operationalJobNumber : '' });
+    setEditingRowId(null);
   };
 
-  const selectJob = (rowId: string, jobNumber: string) => {
+  const selectJob = (jobNumber: string) => {
     const job = activeJobs.find((item) => item.jobId === jobNumber);
-    updateRow(rowId, {
+    updateEntryRow({
       jobNumber,
       documentType: undefined,
       documentNumber: '',
@@ -169,6 +220,40 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
         : '',
       itemService: '',
     });
+  };
+
+  const clearEntryRow = () => {
+    setEntryRow(newRow());
+    setEditingRowId(null);
+  };
+
+  const addEntryRow = () => {
+    setError('');
+    const jobNumber = jobInfo === 'OPERASIONAL' ? operationalJobNumber : entryRow.jobNumber;
+    if ((jobInfo === 'JOB_VESSEL' && !jobNumber.trim()) || (!operationalOnly && !entryRow.customerName.trim()) || !entryRow.itemService.trim() || entryRow.amount <= 0) {
+      setError(operationalOnly
+        ? 'Lengkapi Description dan Amount (> 0) sebelum menambahkan item.'
+        : 'Lengkapi JOB, Vessel Name, Description, dan Amount (> 0) sebelum menambahkan item.');
+      return;
+    }
+    const completedRow = { ...entryRow, jobNumber, price: entryRow.quantity ? entryRow.amount / entryRow.quantity : entryRow.amount };
+    if (editingRowId) {
+      setRows((current) => current.map((row) => row.id === editingRowId ? completedRow : row));
+    } else {
+      setRows((current) => [...current, completedRow]);
+    }
+    clearEntryRow();
+  };
+
+  const editEntryRow = (row: VoucherRow) => {
+    setEntryRow({ ...row });
+    setEditingRowId(row.id);
+    setError('');
+  };
+
+  const removeEntryRow = (rowId: string) => {
+    setRows((current) => current.filter((row) => row.id !== rowId));
+    if (editingRowId === rowId) clearEntryRow();
   };
 
   const optionLabel = (value: string, item: VendorPartner, key: 'bankName' | 'paidName' | 'accountNumber') => {
@@ -237,20 +322,44 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
     let cancelled = false;
     void dataApi.getUserData<VoucherDraft>('voucher_draft')
       .then((draft) => {
-        if (cancelled || !draft || !Array.isArray(draft.rows) || draft.rows.length === 0) return;
+        if (cancelled || !draft || !Array.isArray(draft.rows)) return;
+        if (jobVesselOnly && draft.jobInfo !== 'JOB_VESSEL') return;
+        const hasSavedManualVendor = !!(draft.manualVendorName || draft.manualPaidTo || draft.manualBankName || draft.manualAccountNumber);
+        if (draft.rows.length === 0 && !draft.entryRow && !draft.vendorId && !hasSavedManualVendor) return;
         setRequestDate(draft.requestDate || todayIso());
         setCurrency(draft.currency || 'IDR');
         setExchangeRate(draft.exchangeRateUSDToIDR ?? null);
         setExchangeRateDate(draft.exchangeRateDate || '');
         setRequestedPaymentDate(draft.requestedPaymentDate || draft.requestDate || todayIso());
-        setJobInfo(operationalOnly ? 'OPERASIONAL' : draft.jobInfo || 'OPERASIONAL');
+        setJobInfo(operationalOnly ? 'OPERASIONAL' : jobVesselOnly ? 'JOB_VESSEL' : draft.jobInfo || 'OPERASIONAL');
         setVendorId(draft.vendorId || '');
-        setRows(draft.rows.map((row) => ({
+        setApprovalTargetUserId(draft.approvalTargetUserId || '');
+        setManualVendor({
+          vendorName: draft.manualVendorName || '',
+          paidTo: draft.manualPaidTo || '',
+          bankName: draft.manualBankName || '',
+          accountNumber: draft.manualAccountNumber || '',
+        });
+        const restoreRow = (row: VoucherRow) => ({
+          ...newRow(),
           ...row,
+          category: row.category || '',
+          tariffType: row.tariffType || 'FIXED',
+          price: row.price ?? row.amount ?? 0,
+          quantity: row.quantity ?? 1,
+          unit: row.unit || '',
+          remarks: row.remarks || '',
           customerName: draft.jobInfo === 'JOB_VESSEL'
             ? jobCalls.find((job) => job.jobId === row.jobNumber)?.vesselName || row.customerName
             : row.customerName,
-        })));
+        });
+        const restoredRows = draft.rows.map(restoreRow);
+        const lastRow = restoredRows[restoredRows.length - 1];
+        const lastRowIsBlank = !!lastRow && !lastRow.jobNumber && !lastRow.customerName && !lastRow.itemService && !lastRow.category && !lastRow.price && !lastRow.amount && !lastRow.unit && !lastRow.remarks;
+        const savedEntryRow = draft.entryRow ? restoreRow(draft.entryRow) : (lastRowIsBlank ? lastRow : newRow());
+        setRows(draft.entryRow ? restoredRows : lastRowIsBlank ? restoredRows.slice(0, -1) : restoredRows);
+        setEntryRow(savedEntryRow);
+        setEditingRowId(draft.editingRowId || null);
         setDraftRestored(true);
       })
       .catch((error) => console.error('Gagal memuat draft voucher:', error))
@@ -260,12 +369,14 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
 
   useEffect(() => {
     if (editingVoucher || !draftLoaded) return;
-    const isBlank = rows.length === 0 || (!vendorId && rows.every((row) => !row.jobNumber && !row.customerName && !row.itemService && !row.amount));
+    const hasEntryData = !!(entryRow.jobNumber || entryRow.documentNumber || entryRow.itemService || entryRow.amount || entryRow.customerName || entryRow.vatApplied || entryRow.pphRate);
+    const hasManualVendor = !!(manualVendor.vendorName.trim() || manualVendor.paidTo.trim() || manualVendor.bankName.trim() || manualVendor.accountNumber.trim());
+    const isBlank = rows.length === 0 && !vendorId && !hasManualVendor && !hasEntryData;
     const saveDraft = isBlank
       ? dataApi.deleteUserData('voucher_draft')
-      : dataApi.saveUserData('voucher_draft', { requestDate, currency, exchangeRateUSDToIDR: exchangeRate, exchangeRateDate, requestedPaymentDate, jobInfo, vendorId, rows } satisfies VoucherDraft);
+      : dataApi.saveUserData('voucher_draft', { requestDate, currency, exchangeRateUSDToIDR: exchangeRate, exchangeRateDate, requestedPaymentDate, jobInfo, vendorId, approvalTargetUserId, manualVendorName: manualVendor.vendorName, manualPaidTo: manualVendor.paidTo, manualBankName: manualVendor.bankName, manualAccountNumber: manualVendor.accountNumber, rows, entryRow, editingRowId } satisfies VoucherDraft);
     void saveDraft.catch((error) => console.error('Gagal menyimpan draft voucher:', error));
-  }, [editingVoucher, draftLoaded, requestDate, currency, exchangeRate, exchangeRateDate, requestedPaymentDate, jobInfo, vendorId, rows]);
+  }, [editingVoucher, draftLoaded, requestDate, currency, exchangeRate, exchangeRateDate, requestedPaymentDate, jobInfo, vendorId, approvalTargetUserId, manualVendor, rows, entryRow, editingRowId]);
 
   const resetForm = () => {
     if (!editingVoucher) void dataApi.deleteUserData('voucher_draft').catch((error) => console.error('Gagal menghapus draft voucher:', error));
@@ -276,15 +387,18 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
     setExchangeRateDate('');
     setExchangeRateError('');
     setRequestedPaymentDate(todayIso());
-    setJobInfo('OPERASIONAL');
+    setJobInfo(jobVesselOnly ? 'JOB_VESSEL' : 'OPERASIONAL');
     setVendorId('');
-    setRows([newRow()]);
+    setApprovalTargetUserId('');
+    setManualVendor({ vendorName: '', paidTo: '', bankName: '', accountNumber: '' });
+    setRows([]);
+    clearEntryRow();
   };
 
   const handlePrint = () => {
     setError('');
-    if (!vendor) {
-      setError('Pilih vendor sebelum mencetak voucher.');
+    if (!vendorDetails.vendorName || !vendorDetails.paidTo || !vendorDetails.bankName || !vendorDetails.accountNumber) {
+      setError('Lengkapi Vendor Name, Paid To, Bank, dan A/c Number sebelum mencetak voucher.');
       return;
     }
     const printError = printPaymentVoucher({
@@ -299,11 +413,12 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
       checkerName: requestBy,
       signerName: editingVoucher?.reviewedBy,
       paidBy: editingVoucher?.paidBy,
-      vendorName: vendor.vendorName,
-      paidTo: vendor.paidName,
-      bankName: vendor.bankName,
-      accountNumber: vendor.accountNumber,
-      items: rows.map((row) => ({ jobNumber: jobInfo === 'OPERASIONAL' ? operationalJobNumber : row.jobNumber, documentType: row.documentType, documentNumber: row.documentNumber, customerName: row.customerName, itemService: row.itemService, amount: row.amount, ...calculate(row) })),
+      vendorName: vendorDetails.vendorName,
+      paidTo: vendorDetails.paidTo,
+      bankName: vendorDetails.bankName,
+      accountNumber: vendorDetails.accountNumber,
+      omitCustomerColumn: operationalOnly,
+      items: rows.map((row) => ({ jobNumber: jobInfo === 'OPERASIONAL' ? operationalJobNumber : row.jobNumber, documentType: row.documentType, documentNumber: row.documentNumber, customerName: row.customerName, itemService: row.itemService, amount: row.amount, pphRate: row.pphRate, ...calculate(row) })),
     });
     if (printError) setError(printError);
   };
@@ -312,8 +427,14 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
     event.preventDefault();
     setError('');
     setMessage('');
-    if (!vendor) {
-      setError('Pilih vendor dari master data Vendor Partners.');
+    const approvalTarget = approverUsers.find((user) => user.id === approvalTargetUserId);
+    if (operationalOnly && !editingVoucher
+      && (!approvalTarget || (approvalTarget.role !== 'MANAGER_OPS' && approvalTarget.role !== 'DIRECTOR'))) {
+      setError('Pilih user tujuan approval sebelum mengirim voucher.');
+      return;
+    }
+    if (!vendorDetails.vendorName || !vendorDetails.paidTo || !vendorDetails.bankName || !vendorDetails.accountNumber) {
+      setError('Lengkapi Vendor Name, Paid To, Bank, dan A/c Number. Pilih vendor master atau isi data secara manual.');
       return;
     }
     if (currency === 'USD' && (!exchangeRate || !Number.isFinite(exchangeRate) || exchangeRate <= 0 || isLoadingExchangeRate)) {
@@ -324,11 +445,21 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
       setError('Tambahkan minimal satu item sebelum menyimpan payment voucher.');
       return;
     }
-    const invalidRow = rows.findIndex((row) => (jobInfo === 'JOB_VESSEL' && !row.jobNumber.trim()) || !row.customerName.trim() || !row.itemService.trim() || row.amount <= 0);
+    if (entryRow.jobNumber.trim() || entryRow.documentNumber?.trim() || entryRow.itemService.trim() || entryRow.amount > 0 || entryRow.customerName.trim() || entryRow.vatApplied || entryRow.pphRate > 0) {
+      setError('Tambahkan atau batalkan item yang sedang diisi sebelum menyimpan payment voucher.');
+      return;
+    }
+    const invalidRow = rows.findIndex((row) => {
+      const legacyCategoryMissing = editingVoucher?.items.some((item) => item.id === row.id && !item.category);
+      return (jobInfo === 'JOB_VESSEL' && !row.jobNumber.trim())
+        || (!operationalOnly && !row.customerName.trim())
+        || !row.itemService.trim()
+        || row.amount <= 0;
+    });
     if (invalidRow >= 0) {
-      const partyLabel = jobInfo === 'JOB_VESSEL' ? 'Vessel name' : 'Customer';
+      const partyLabel = operationalOnly ? '' : jobInfo === 'JOB_VESSEL' ? 'Vessel name, ' : 'Customer, ';
       const jobNumberRequirement = jobInfo === 'JOB_VESSEL' ? 'JOB Number, ' : '';
-      setError(`Baris ${invalidRow + 1}: ${jobNumberRequirement}${partyLabel}, Item Service, dan Amount (> 0) wajib diisi.`);
+      setError(`Baris ${invalidRow + 1}: ${jobNumberRequirement}${partyLabel}Description, dan Amount (> 0) wajib diisi.`);
       return;
     }
     const items: PaymentVoucherItem[] = rows.map((row) => ({
@@ -338,9 +469,16 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
       documentNumber: jobInfo === 'JOB_VESSEL' ? row.documentNumber : undefined,
       customerName: row.customerName.trim(),
       itemService: row.itemService.trim(),
+      category: row.category,
+      tariffType: row.tariffType,
+      price: row.price,
+      quantity: row.quantity,
+      unit: row.unit.trim(),
+      remarks: row.remarks.trim(),
       amount: row.amount,
       vatApplied: row.vatApplied,
-      pph23Applied: row.pph23Applied,
+      pph23Applied: row.pphRate > 0,
+      pphRate: row.pphRate,
       ...(() => {
         const result = calculate(row);
         return { vatAmount: result.vatAmount, total: result.total, pph23Amount: result.pph23Amount, paidAmount: result.paidAmount };
@@ -355,11 +493,11 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
           exchangeRateDate: currency === 'USD' ? exchangeRateDate : '',
           requestedPaymentDate,
           jobInfo,
-          vendorPartnerId: vendor.id,
-          vendorName: vendor.vendorName,
-          paidTo: vendor.paidName,
-          bankName: vendor.bankName,
-          accountNumber: vendor.accountNumber,
+          vendorPartnerId: vendor?.id || '',
+          vendorName: vendorDetails.vendorName,
+          paidTo: vendorDetails.paidTo,
+          bankName: vendorDetails.bankName,
+          accountNumber: vendorDetails.accountNumber,
           items,
           totalPaidAmount: items.reduce((sum, item) => sum + item.paidAmount, 0),
         });
@@ -375,15 +513,20 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
         jobInfo,
         requestBy,
         requestByUserId,
-        vendorPartnerId: vendor.id,
-        vendorName: vendor.vendorName,
-        paidTo: vendor.paidName,
-        bankName: vendor.bankName,
-        accountNumber: vendor.accountNumber,
+        approvalTargetRole: approvalTarget?.role === 'DIRECTOR'
+          ? 'DIRECTOR'
+          : approvalTarget?.role === 'MANAGER_OPS' ? 'MANAGER_OPS' : undefined,
+        approvalTargetUserId: approvalTarget?.id,
+        approvalTargetName: approvalTarget?.name,
+        vendorPartnerId: vendor?.id || '',
+        vendorName: vendorDetails.vendorName,
+        paidTo: vendorDetails.paidTo,
+        bankName: vendorDetails.bankName,
+        accountNumber: vendorDetails.accountNumber,
         items,
         totalPaidAmount: items.reduce((sum, item) => sum + item.paidAmount, 0),
       });
-      setMessage(`Payment Voucher ${saved.requestNumber} berhasil disimpan dan dikirim ke Manager untuk persetujuan.`);
+      setMessage(`Payment Voucher ${saved.requestNumber} berhasil dikirim kepada ${approvalTarget?.name || 'Manager'} untuk persetujuan.`);
       setSavedTick((tick) => tick + 1);
       resetForm();
       onDataSaved?.();
@@ -417,7 +560,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
           {currency === 'USD' && (
             <div className="block text-xs">
               <label htmlFor="voucher-usd-idr-rate" className="font-semibold text-slate-500">Kurs USD/IDR · Request Date</label>
-              <input id="voucher-usd-idr-rate" readOnly value={exchangeRate ? new Intl.NumberFormat('id-ID', { maximumFractionDigits: 4 }).format(exchangeRate) : ''} placeholder={isLoadingExchangeRate ? 'Memuat kurs...' : 'Kurs belum tersedia'} className={`${readonlyClass} mt-1`} />
+              <input id="voucher-usd-idr-rate" readOnly value={exchangeRate ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 4 }).format(exchangeRate) : ''} placeholder={isLoadingExchangeRate ? 'Memuat kurs...' : 'Kurs belum tersedia'} className={`${readonlyClass} mt-1`} />
               <span className="mt-1 block text-[10px] font-normal text-slate-500">{exchangeRateDate ? `Tanggal kurs: ${exchangeRateDate}` : ''}</span>
               {exchangeRateError && <span role="alert" className="mt-1 block text-[10px] font-normal text-rose-600">{exchangeRateError}</span>}
             </div>
@@ -430,6 +573,8 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
             <span className="font-semibold text-slate-500">Info JOB</span>
             {operationalOnly ? (
               <input readOnly value="Operasional" className={`${readonlyClass} mt-1`} />
+            ) : jobVesselOnly ? (
+              <input readOnly value="JOB Vessel" className={`${readonlyClass} mt-1`} />
             ) : (
               <select value={jobInfo} onChange={(e) => changeJobInfo(e.target.value as JobInfo)} className={`${inputClass} mt-1`}>
                 <option value="OPERASIONAL">Operasional</option>
@@ -443,31 +588,23 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
           </label>
           <label className="block">
             <span className="font-semibold text-slate-500">Vendor Name</span>
-            <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} className={`${inputClass} mt-1`}>
-              <option value="">Pilih vendor</option>
+            <select value={vendorId} onChange={(e) => { setVendorId(e.target.value); setManualVendor({ vendorName: '', paidTo: '', bankName: '', accountNumber: '' }); }} className={`${inputClass} mt-1`}>
+              <option value="">Input manual / tidak memilih vendor</option>
               {vendorPartners.map((item) => <option key={item.id} value={item.id}>{item.vendorName}</option>)}
             </select>
+            {!vendor && <input value={manualVendor.vendorName} onChange={(event) => setManualVendor((current) => ({ ...current, vendorName: event.target.value }))} className={`${inputClass} mt-2`} placeholder="Ketik nama vendor" aria-label="Nama vendor manual" />}
           </label>
           <label className="block">
             <span className="font-semibold text-slate-500">Paid To</span>
-            <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} className={`${inputClass} mt-1`}>
-              <option value="">Pilih penerima</option>
-              {vendorPartners.map((item) => <option key={item.id} value={item.id}>{optionLabel(item.paidName, item, 'paidName') || item.vendorName}</option>)}
-            </select>
+            {vendor ? <input readOnly value={vendor.paidName} className={`${readonlyClass} mt-1`} /> : <input value={manualVendor.paidTo} onChange={(event) => setManualVendor((current) => ({ ...current, paidTo: event.target.value }))} className={`${inputClass} mt-1`} placeholder="Nama penerima" />}
           </label>
           <label className="block">
             <span className="font-semibold text-slate-500">Bank</span>
-            <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} className={`${inputClass} mt-1`}>
-              <option value="">Pilih bank</option>
-              {vendorPartners.map((item) => <option key={item.id} value={item.id}>{optionLabel(item.bankName, item, 'bankName') || item.vendorName}</option>)}
-            </select>
+            {vendor ? <input readOnly value={vendor.bankName} className={`${readonlyClass} mt-1`} /> : <input value={manualVendor.bankName} onChange={(event) => setManualVendor((current) => ({ ...current, bankName: event.target.value }))} className={`${inputClass} mt-1`} placeholder="Nama bank" />}
           </label>
           <label className="block">
             <span className="font-semibold text-slate-500">A/c Number</span>
-            <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} className={`${inputClass} mt-1 font-mono`}>
-              <option value="">Pilih nomor rekening</option>
-              {vendorPartners.map((item) => <option key={item.id} value={item.id}>{optionLabel(item.accountNumber, item, 'accountNumber') || item.vendorName}</option>)}
-            </select>
+            {vendor ? <input readOnly value={vendor.accountNumber} className={`${readonlyClass} mt-1 font-mono`} /> : <input value={manualVendor.accountNumber} onChange={(event) => setManualVendor((current) => ({ ...current, accountNumber: event.target.value }))} className={`${inputClass} mt-1 font-mono`} placeholder="Nomor rekening" />}
           </label>
         </div>
         {vendorPartners.length === 0 && (
@@ -481,131 +618,115 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-200 p-4">
           <h2 className="text-sm font-black text-slate-900">Detail Voucher</h2>
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={() => setRows((current) => [...current, newRow()])} className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-100 px-3 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-200">
-              <Plus className="h-3.5 w-3.5" /> Tambah Item
-            </button>
-            <button type="button" onClick={handlePrint} className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-100">
-              <Printer className="h-3.5 w-3.5" /> Cetak / PDF
-            </button>
-          </div>
+          <button type="button" onClick={handlePrint} className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-100">
+            <Printer className="h-3.5 w-3.5" /> Cetak / PDF
+          </button>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1560px] text-left text-xs">
-            <thead className="border-b border-slate-200 bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500">
+          <table className={`w-full ${operationalOnly ? 'min-w-[820px]' : 'min-w-[1050px]'} text-left text-[11px]`}>
+            <thead className="border-b border-slate-200 bg-slate-50 text-[9px] uppercase tracking-wider text-slate-500">
               <tr>
-                <th className="p-3">No</th>
-                <th className="p-3">JOB Number</th>
-                <th className="p-3">No FDA / FPDA</th>
-                <th className="p-3">{jobInfo === 'JOB_VESSEL' ? 'Vessel name' : 'Customer'}</th>
-                <th className="p-3">Item Service</th>
-                <th className="p-3 text-right">Amount ({currency})</th>
-                <th className="p-3 text-right">Vat (11%) · {currency}</th>
-                <th className="p-3 text-right">Total ({currency})</th>
-                <th className="p-3 text-right">PPH 23 (2%) · {currency}</th>
-                <th className="p-3 text-right">Paid Amount ({currency})</th>
-                <th className="p-3" />
+                <th className="p-2.5">No</th><th className="p-2.5">JOB Number</th>
+                {!operationalOnly && <><th className="p-2.5">NO FDA</th><th className="p-2.5">Vessel Name</th></>}
+                <th className="p-2.5">Description</th><th className="p-2.5 text-right">Amount ({currency})</th>
+                <th className="p-2.5 text-right">VAT</th><th className="p-2.5 text-right">TOTAL</th>
+                <th className="p-2.5 text-right">PPH</th><th className="p-2.5 text-right">Paid Amount</th><th className="p-2.5" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {rows.map((row, index) => {
                 const result = calculate(row);
+                const job = jobCalls.find((item) => item.jobId === row.jobNumber);
                 return (
-                  <tr key={row.id} className="align-top">
-                    <td className="p-3 font-mono text-slate-500">{index + 1}</td>
-                    <td className="w-44 p-3">
-                      {jobInfo === 'JOB_VESSEL' ? (
-                        <select value={row.jobNumber} onChange={(e) => selectJob(row.id, e.target.value)} className={inputClass}>
-                          <option value="">Pilih JOB</option>
-                          {activeJobs.map((job) => <option key={job.jobId} value={job.jobId}>{job.jobId}</option>)}
-                        </select>
-                      ) : (
-                        <input readOnly value={operationalJobNumber} className={readonlyClass} />
-                      )}
+                  <tr key={row.id} className="text-slate-700">
+                    <td className="p-2.5 font-mono">{index + 1}</td>
+                    <td className="p-2.5">{row.jobNumber || '-'}</td>
+                    {!operationalOnly && <>
+                      <td className="p-2.5">{row.documentNumber || job?.fda?.fdaNo || '-'}</td>
+                      <td className="p-2.5">{job?.vesselName || row.customerName || '-'}</td>
+                    </>}
+                    <td className="p-2.5 font-semibold">{row.itemService}</td>
+                    <td className="p-2.5 text-right font-mono font-semibold">{money(row.amount, currency)}</td>
+                    <td className="p-2.5 text-right font-mono">{money(result.vatAmount, currency)}</td>
+                    <td className="p-2.5 text-right font-mono">{money(result.total, currency)}</td>
+                    <td className="p-2.5 text-right font-mono align-middle">
+                      <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
+                        <span>{money(result.pph23Amount, currency)}</span>
+                        {row.pphRate > 0 && <span className="text-[9px] text-slate-500">{PPH_RATES.find((rate) => rate.value === row.pphRate)?.label.replace('PPh ', '')}</span>}
+                      </div>
                     </td>
-                    <td className="w-64 p-3">
-                      {(() => {
-                        const options = getDocumentOptions(row.jobNumber);
-                        const currentValue = getDocumentOptionValue(row.documentType, row.documentNumber);
-                        const hasCurrentOption = options.some((option) => getDocumentOptionValue(option.type, option.number) === currentValue);
-                        return (
-                          <select
-                            value={currentValue}
-                            disabled={options.length === 0 && !currentValue}
-                            onChange={(event) => {
-                              const [documentType, ...numberParts] = event.target.value.split('|');
-                              updateRow(row.id, {
-                                documentType: documentType === 'FDA' || documentType === 'FPDA' ? documentType : undefined,
-                                documentNumber: numberParts.join('|'),
-                              });
-                            }}
-                            className={inputClass}
-                            aria-label={`Pilih nomor FDA / FPDA ${row.jobNumber || index + 1}`}
-                          >
-                            <option value="">Pilih No FDA / FPDA</option>
-                            {!hasCurrentOption && currentValue && (
-                              <option value={currentValue}>{row.documentType}: {row.documentNumber}</option>
-                            )}
-                            {options.map((option) => (
-                              <option key={`${option.type}:${option.number}`} value={getDocumentOptionValue(option.type, option.number)}>
-                                {option.type}: {option.number}
-                              </option>
-                            ))}
-                          </select>
-                        );
-                      })()}
-                    </td>
-                    <td className="w-52 p-3">
-                      {jobInfo === 'JOB_VESSEL' ? (
-                        <input readOnly value={row.customerName} className={readonlyClass} placeholder="Otomatis dari JOB" />
-                      ) : (
-                        <input value={row.customerName} onChange={(e) => updateRow(row.id, { customerName: e.target.value })} className={inputClass} placeholder="Customer" />
-                      )}
-                    </td>
-                    <td className="w-60 p-3">
-                      <input value={row.itemService} onChange={(e) => updateRow(row.id, { itemService: e.target.value })} className={inputClass} placeholder="Input item service" />
-                    </td>
-                    <td className="w-36 p-3">
-                      <input
-                        inputMode="decimal"
-                        value={row.amount ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(row.amount) : ''}
-                        onChange={(e) => updateRow(row.id, { amount: parseTariffNumber(e.target.value) })}
-                        className={`${inputClass} text-right font-mono`}
-                        placeholder="0"
-                      />
-                    </td>
-                    <td className="p-3 text-right">
-                      <label className="flex items-center justify-end gap-1.5"><input type="checkbox" checked={row.vatApplied} onChange={(e) => updateRow(row.id, { vatApplied: e.target.checked })} /><span className="font-mono">{money(result.vatAmount, currency)}</span></label>
-                    </td>
-                    <td className="p-3 text-right font-mono font-bold text-slate-800">{money(result.total, currency)}</td>
-                    <td className="p-3 text-right">
-                      <label className="flex items-center justify-end gap-1.5"><input type="checkbox" checked={row.pph23Applied} onChange={(e) => updateRow(row.id, { pph23Applied: e.target.checked })} /><span className="font-mono">{money(result.pph23Amount, currency)}</span></label>
-                    </td>
-                    <td className="p-3 text-right font-mono font-black text-slate-900">{money(result.paidAmount, currency)}</td>
-                    <td className="p-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => setRows((current) => current.filter((item) => item.id !== row.id))}
-                        className="rounded border border-slate-200 bg-white p-1.5 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
-                        title="Hapus item"
-                        aria-label={`Hapus item ${index + 1}`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                    <td className="p-2.5 text-right font-mono font-bold">{money(result.paidAmount, currency)}</td>
+                    <td className="p-2.5">
+                      <div className="flex items-center gap-1">
+                        <button type="button" onClick={() => editEntryRow(row)} title={`Edit item ${index + 1}`} aria-label={`Edit item ${index + 1}`} className="rounded border border-slate-200 p-1 text-slate-500 hover:bg-sky-50 hover:text-sky-700"><Pencil className="h-3.5 w-3.5" /></button>
+                        <button type="button" onClick={() => removeEntryRow(row.id)} title={`Hapus item ${index + 1}`} aria-label={`Hapus item ${index + 1}`} className="rounded border border-slate-200 p-1 text-slate-500 hover:bg-rose-50 hover:text-rose-600"><Trash2 className="h-3.5 w-3.5" /></button>
+                      </div>
                     </td>
                   </tr>
                 );
               })}
+              {rows.length === 0 && <tr><td colSpan={operationalOnly ? 9 : 11} className="p-6 text-center text-xs text-slate-400">Belum ada item. Isi form di bawah lalu pilih Tambah Item.</td></tr>}
             </tbody>
-            <tfoot>
-              <tr className="border-t border-slate-200 bg-slate-50">
-                <td colSpan={8} className="p-3 text-right text-[11px] font-bold uppercase text-slate-500">Total Paid Amount</td>
-                <td className="p-3 text-right font-mono font-black text-slate-900">{money(grandTotal, currency)}</td>
-                <td />
-              </tr>
-            </tfoot>
           </table>
+        </div>
+        <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-4 py-3 text-[11px] font-bold uppercase text-slate-500">
+          <span>Total Paid Amount</span>
+          <span className="font-mono text-slate-900">{money(grandTotal, currency)}</span>
+        </div>
+
+        <div className="border-t border-slate-200 p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h3 className="text-xs font-black uppercase tracking-wide text-slate-700">{editingRowId ? 'Edit Detail Item' : 'Tambah Item Detail Voucher'}</h3>
+            {editingRowId && <button type="button" onClick={clearEntryRow} className="text-[11px] font-semibold text-slate-500 hover:text-slate-800">Batal edit</button>}
+          </div>
+          <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+            <label className="block">
+              <span className="mb-1 block font-semibold text-slate-500">JOB Number</span>
+              {jobInfo === 'JOB_VESSEL' ? <select value={entryRow.jobNumber} onChange={(event) => selectJob(event.target.value)} className={inputClass}><option value="">Pilih JOB</option>{activeJobs.map((job) => <option key={job.jobId} value={job.jobId}>{job.jobId}</option>)}</select> : <input readOnly value={operationalJobNumber} className={readonlyClass} />}
+            </label>
+            {!operationalOnly && <label className="block">
+              <span className="mb-1 block font-semibold text-slate-500">No FDA / FPDA</span>
+              {(() => {
+                const options = getDocumentOptions(entryRow.jobNumber);
+                const currentValue = getDocumentOptionValue(entryRow.documentType, entryRow.documentNumber);
+                const hasCurrentOption = options.some((option) => getDocumentOptionValue(option.type, option.number) === currentValue);
+                return <select value={currentValue} disabled={options.length === 0 && !currentValue} onChange={(event) => { const [documentType, ...numberParts] = event.target.value.split('|'); updateEntryRow({ documentType: documentType === 'FDA' || documentType === 'FPDA' ? documentType : undefined, documentNumber: numberParts.join('|') }); }} className={inputClass} aria-label="Pilih nomor FDA / FPDA"><option value="">Pilih No FDA / FPDA</option>{!hasCurrentOption && currentValue && <option value={currentValue}>{entryRow.documentType}: {entryRow.documentNumber}</option>}{options.map((option) => <option key={`${option.type}:${option.number}`} value={getDocumentOptionValue(option.type, option.number)}>{option.type}: {option.number}</option>)}</select>;
+              })()}
+            </label>}
+            {!operationalOnly && <label className="block">
+              <span className="mb-1 block font-semibold text-slate-500">{jobInfo === 'JOB_VESSEL' ? 'Vessel name' : 'Customer'}</span>
+              {jobInfo === 'JOB_VESSEL' ? <input readOnly value={entryRow.customerName} className={readonlyClass} placeholder="Pilih JOB" /> : <input value={entryRow.customerName} onChange={(event) => updateEntryRow({ customerName: event.target.value })} className={inputClass} placeholder="Customer" />}
+            </label>}
+            <label className="block lg:col-span-2">
+              <span className="mb-1 block font-semibold text-slate-500">Item Service</span>
+              <input value={entryRow.itemService} onChange={(event) => updateEntryRow({ itemService: event.target.value })} className={inputClass} placeholder="Nama service / kebutuhan" />
+            </label>
+            <label className="block">
+              <span className="mb-1 block font-semibold text-slate-500">Amount ({currency})</span>
+              <input inputMode="decimal" value={entryRow.amount ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(entryRow.amount) : ''} onChange={(event) => updateEntryRow({ amount: parseTariffNumber(event.target.value) })} className={`${inputClass} text-right font-mono`} placeholder="0" />
+            </label>
+            <label className="flex items-end gap-2 pb-2 text-slate-700"><input type="checkbox" checked={entryRow.vatApplied} onChange={(event) => updateEntryRow({ vatApplied: event.target.checked })} /> VAT 11%</label>
+            <label className="block">
+              <span className="mb-1 block font-semibold text-slate-500">Tarif PPh</span>
+              <select value={entryRow.pphRate} onChange={(event) => updateEntryRow({ pphRate: Number(event.target.value) })} className={inputClass}>{PPH_RATES.map((rate) => <option key={rate.value} value={rate.value}>{rate.label}</option>)}</select>
+            </label>
+            <div className="rounded-lg border border-emerald-100 bg-emerald-50/70 p-3 sm:col-span-2 lg:col-span-4 xl:col-span-6">
+              <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-emerald-800">Pratinjau Perhitungan</div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[11px] sm:grid-cols-3 xl:grid-cols-6">
+                <div><span className="block text-slate-500">Amount</span><span className="font-mono font-semibold text-slate-800">{money(entryRow.amount, currency)}</span></div>
+                <div><span className="block text-slate-500">VAT 11%</span><span className="font-mono font-semibold text-slate-800">{money(calculate(entryRow).vatAmount, currency)}</span></div>
+                <div><span className="block text-slate-500">Total</span><span className="font-mono font-semibold text-slate-800">{money(calculate(entryRow).total, currency)}</span></div>
+                <div><span className="block text-slate-500">PPH {entryRow.pphRate > 0 ? `(${PPH_RATES.find((rate) => rate.value === entryRow.pphRate)?.label.replace('PPh ', '')})` : ''}</span><span className="font-mono font-semibold text-rose-700">{money(calculate(entryRow).pph23Amount, currency)}</span></div>
+                <div className="sm:col-span-2 xl:col-span-2"><span className="block text-slate-500">Paid Amount</span><span className="font-mono font-black text-slate-900">{money(calculate(entryRow).paidAmount, currency)}</span></div>
+              </div>
+            </div>
+          </div>
+          <div className="mt-3 flex justify-end">
+            <button type="button" onClick={addEntryRow} className="flex items-center gap-1.5 rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-2 text-[11px] font-bold text-white hover:bg-emerald-500">
+              <Plus className="h-3.5 w-3.5" /> {editingRowId ? 'Simpan Item' : 'Tambah Item'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -618,15 +739,48 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
         </div>
       )}
 
+      {operationalOnly && !editingVoucher && (
+        <section className="rounded-2xl border border-sky-200 bg-white p-5 shadow-sm">
+          <div className="mb-4">
+            <h2 className="text-sm font-black text-slate-900">Sign to approval</h2>
+            <p className="mt-1 text-xs text-slate-500">Pilih user yang akan menerima permintaan persetujuan voucher.</p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+            <label className="block text-xs">
+              <span className="font-semibold text-slate-500">Tujuan permintaan approval</span>
+              <select required value={approvalTargetUserId} onChange={(event) => setApprovalTargetUserId(event.target.value)} className={`${inputClass} mt-1`}>
+                <option value="">Pilih user approver</option>
+                <optgroup label="User Manager Branch">
+                  {approverUsers.filter((user) => user.role === 'MANAGER_OPS').map((user) => (
+                    <option key={user.id} value={user.id}>User {user.username || user.id} - {user.name}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="User Dirops">
+                  {approverUsers.filter((user) => user.role === 'DIRECTOR').map((user) => (
+                    <option key={user.id} value={user.id}>User {user.username || user.id} - {user.name}</option>
+                  ))}
+                </optgroup>
+              </select>
+              {approverUsers.length === 0 && <span role="status" className="mt-1 block text-[11px] text-rose-600">Tidak ada user Manager Branch atau Dirops aktif yang dapat dipilih.</span>}
+            </label>
+            <button type="submit" disabled={approverUsers.length === 0} className="flex items-center justify-center gap-2 rounded-xl border border-emerald-600 bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50">
+              <Send className="h-4 w-4" /> Kirim Voucher
+            </button>
+          </div>
+        </section>
+      )}
+
       <div className="flex justify-end gap-2">
         {editingVoucher && (
           <button type="button" onClick={onCancelEdit} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100">
             Batal
           </button>
         )}
-        <button type="submit" className="flex items-center gap-2 rounded-xl border border-slate-300 bg-slate-200 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-300">
-          <Save className="h-4 w-4" /> {editingVoucher ? 'Simpan Perubahan' : 'Simpan Voucher'}
-        </button>
+        {(!operationalOnly || editingVoucher) && (
+          <button type="submit" className="flex items-center gap-2 rounded-xl border border-emerald-600 bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500">
+            {editingVoucher ? <Save className="h-4 w-4" /> : <Send className="h-4 w-4" />} {editingVoucher ? 'Simpan Perubahan' : 'Kirim Voucher'}
+          </button>
+        )}
       </div>
     </form>
   );

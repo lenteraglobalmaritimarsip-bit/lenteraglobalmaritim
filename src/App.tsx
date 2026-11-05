@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './db/storage';
-import { DatabaseState, UserRole, ActiveTab, JobCall, PaymentVoucher } from './types';
+import { DatabaseState, UserRole, ActiveTab, JobCall, PaymentVoucher, User } from './types';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
 import { ActiveVesselCallsView } from './components/vessel/ActiveVesselCallsView';
@@ -14,6 +14,7 @@ import { CrewPDAView } from './components/sales/CrewPDAView';
 import { JobsEntryView } from './components/sales/JobsEntryView';
 import { ManagerOpsView } from './components/manager/ManagerOpsView';
 import { ManagementVesselView } from './components/manager/ManagementVesselView';
+import { JobInvoiceMonitoringView } from './components/manager/JobInvoiceMonitoringView';
 import { FDAView } from './components/fda/FDAView';
 import { PaymentVoucherView } from './components/fda/PaymentVoucherView';
 import { VoucherApprovalView } from './components/manager/VoucherApprovalView';
@@ -25,13 +26,25 @@ import { AccountsPayableView } from './components/finance/AccountsPayableView';
 import { FinancialHistoryView } from './components/finance/FinancialHistoryView';
 import { FinanceRecapView } from './components/finance/FinanceRecapView';
 import { CashBalanceView } from './components/finance/CashBalanceView';
+import { AccountingWorkspace } from './components/accounting/AccountingWorkspace';
+import { AccountingAssetsView } from './components/accounting/AccountingAssetsView';
+import { AccountingPostedJournalReport } from './components/accounting/AccountingPostedJournalReport';
+import { AccountingFinanceHistory } from './components/accounting/AccountingFinanceHistory';
+import { AccountingBalanceSheetView, AccountingProfitDetailView, AccountingProfitLossView } from './components/accounting/AccountingFinancialReports';
+import { AccountingDashboard } from './components/accounting/AccountingDashboard';
+import { DirectorActivityLogView } from './components/director/DirectorActivityLogView';
 import { AuthAccount } from './auth';
 import { LoginView } from './components/auth/LoginView';
 import { apiAuth } from './lib/api';
+import { getBranchByValue } from './branches';
 
 const syncCurrentUserFromMaster = (account: AuthAccount | null): AuthAccount | null => {
   if (!account) return null;
-  if (apiAuth.enabled) return { ...account, branch: account.branch || 'Head Office' };
+  if (apiAuth.enabled) return {
+    ...account,
+    branch: account.branch || '',
+    branchId: account.branchId || getBranchByValue(account.branch)?.id,
+  };
 
   const dbUser = db.getState().users.find((user) => user.id === account.id || user.username === account.username || user.name === account.name);
 
@@ -42,6 +55,7 @@ const syncCurrentUserFromMaster = (account: AuthAccount | null): AuthAccount | n
     ...(dbUser || {}),
     username: dbUser.username || account.username,
     branch: dbUser.branch || account.branch || 'Head Office',
+    branchId: dbUser.branchId || getBranchByValue(dbUser.branch || account.branch)?.id,
     role: dbUser.role || account.role || 'ADMIN',
     department: dbUser.department || account.department,
     position: dbUser.position || account.position,
@@ -55,6 +69,10 @@ const getDefaultTabForRole = (role: UserRole): ActiveTab => {
   switch (role) {
     case 'FINANCE':
       return 'FINANCE_DASHBOARD';
+    case 'ACCOUNTING':
+      return 'ACCOUNTING_DASHBOARD';
+    case 'DIRECTOR':
+      return 'DIRECTOR_DASHBOARD';
     case 'ADMIN':
     case 'SALES':
     case 'MANAGER_OPS':
@@ -65,6 +83,8 @@ const getDefaultTabForRole = (role: UserRole): ActiveTab => {
 };
 
 let resetJobsPromise: Promise<void> | null = null;
+
+const branchKey = (branch?: string) => (branch || '').trim().toLocaleLowerCase();
 
 export default function App() {
   const [data, setData] = useState<DatabaseState>(db.getState());
@@ -136,7 +156,7 @@ export default function App() {
     setCurrentUser(freshAccount);
     setCurrentRole(freshAccount.role);
     setViewSessionKey((key) => key + 1);
-    db.setActor({ id: freshAccount.id, name: freshAccount.name, role: freshAccount.role, branch: freshAccount.branch });
+    db.setActor({ id: freshAccount.id, name: freshAccount.name, role: freshAccount.role, branch: freshAccount.branch, branchId: freshAccount.branchId });
     db.setRole(freshAccount.role);
     setLoginToast(`Selamat datang, ${freshAccount.name}!`);
     setActiveTab(getDefaultTabForRole(freshAccount.role));
@@ -173,7 +193,7 @@ export default function App() {
           const freshAccount = syncCurrentUserFromMaster(account);
           setCurrentUser(freshAccount);
           setCurrentRole(freshAccount.role);
-          db.setActor({ id: freshAccount.id, name: freshAccount.name, role: freshAccount.role, branch: freshAccount.branch });
+          db.setActor({ id: freshAccount.id, name: freshAccount.name, role: freshAccount.role, branch: freshAccount.branch, branchId: freshAccount.branchId });
           setActiveTab(getDefaultTabForRole(freshAccount.role));
         }
       })
@@ -210,7 +230,7 @@ export default function App() {
     }
     setDatabaseReady(false);
     setDatabaseError(null);
-    if (currentUser) db.setActor({ id: currentUser.id, name: currentUser.name, role: currentUser.role, branch: currentUser.branch });
+    if (currentUser) db.setActor({ id: currentUser.id, name: currentUser.name, role: currentUser.role, branch: currentUser.branch, branchId: currentUser.branchId });
     let unsubscribe = () => {};
     void (async () => {
       try {
@@ -251,22 +271,49 @@ export default function App() {
     if (matchingUser) {
       const refreshed = syncCurrentUserFromMaster({ ...matchingUser, username: matchingUser.username || '' });
       setCurrentUser(refreshed);
-      if (refreshed) db.setActor({ id: refreshed.id, name: refreshed.name, role: refreshed.role, branch: refreshed.branch });
+      if (refreshed) db.setActor({ id: refreshed.id, name: refreshed.name, role: refreshed.role, branch: refreshed.branch, branchId: refreshed.branchId });
     }
     setActiveTab(getDefaultTabForRole(newRole));
   };
 
+  const currentBranchKey = branchKey(currentUser?.branch);
+  const jobBranch = (job: JobCall) => job.inquiry?.createdByBranch
+    || data.users.find((user) => user.id === job.inquiry?.createdByUserId)?.branch
+    || '';
+  const currentBranchId = currentUser?.branchId || data.branches.find((branch) => branchKey(branch.code) === currentBranchKey)?.id;
+  const branchJobCalls = data.jobCalls.filter((job) =>
+    currentBranchId && job.inquiry?.createdByBranchId
+      ? job.inquiry.createdByBranchId === currentBranchId
+      : branchKey(jobBranch(job)) === currentBranchKey,
+  );
   const roleVisibleJobCalls = currentUser?.role === 'SALES'
-    ? data.jobCalls.filter((job) => {
-        const directBranch = job.inquiry?.createdByBranch;
-        const currentBranch = (currentUser.branch || 'Head Office').trim().toLowerCase();
-
-        if (!directBranch) return true;
-        return directBranch.trim().toLowerCase() === currentBranch;
-      })
+    ? branchJobCalls
     : currentUser?.role === 'FDA'
-      ? data.jobCalls.filter((job) => job.managerApproval?.status === 'APPROVED')
-      : data.jobCalls;
+      ? branchJobCalls.filter((job) => job.managerApproval?.status === 'APPROVED')
+      : currentUser?.role === 'MANAGER_OPS' || currentUser?.role === 'FINANCE'
+        ? branchJobCalls
+        : data.jobCalls;
+  const branchPaymentVouchers = (data.paymentVouchers || []).filter((voucher) => {
+    const voucherBranch = voucher.branchName || data.users.find((user) => user.id === voucher.requestByUserId)?.branch;
+    return currentBranchId && voucher.branchId
+      ? voucher.branchId === currentBranchId
+      : branchKey(voucherBranch) === currentBranchKey;
+  });
+  const financeVoucherApprovers = data.users.filter((user: User) =>
+    user.status === 'ACTIVE' && (
+      user.role === 'DIRECTOR' ||
+      (user.role === 'MANAGER_OPS' && (
+        currentBranchId && user.branchId
+          ? user.branchId === currentBranchId
+          : branchKey(user.branch) === currentBranchKey
+      ))
+    ),
+  );
+  const branchBankAccounts = (data.bankAccounts || []).filter((account) =>
+    currentBranchId && account.branchId
+      ? account.branchId === currentBranchId
+      : branchKey(account.branchName) === currentBranchKey,
+  );
 
   const currentJob: JobCall =
     roleVisibleJobCalls.find((j) => j.jobId === selectedJobId) ||
@@ -335,7 +382,10 @@ export default function App() {
 
         {/* Content Area */}
         <main className="maritim-main">
-          <div className="maritim-content" key={viewSessionKey}>
+          <div
+            className={`maritim-content${currentRole === 'MANAGER_OPS' || currentRole === 'DIRECTOR' ? ' manager-director-workspace' : ''}`}
+            key={viewSessionKey}
+          >
             {/* 1. ADMIN DASHBOARD */}
             {currentRole === 'ADMIN' && activeTab === 'DASHBOARD' && (
               <AdminDashboardView data={data} onNavigate={setActiveTab} />
@@ -350,9 +400,11 @@ export default function App() {
               activeTab === 'EXPENSES_ITEM' ||
               activeTab === 'VENDOR_PARTNERS' ||
               activeTab === 'BANK_ACCOUNT' ||
+              activeTab === 'CHART_OF_ACCOUNTS' ||
               activeTab === 'CASH_BALANCE_ADJUSTMENTS') && (
               <AdminMasterDataView
                 initialTab={activeTab}
+                branches={data.branches}
                 users={data.users}
                 customers={data.customers}
                 vessels={data.vessels}
@@ -415,6 +467,7 @@ export default function App() {
                 onOpenPDA={() => setActiveTab('PDA_CREW_DETAIL')}
                 enablePagination
                 showStatusColumn
+                showEtdColumn
                 showPdaButton
                 pdaReferenceSource="EPDA"
               />
@@ -499,6 +552,7 @@ export default function App() {
                 vendorPartners={data.vendorPartners || []}
                 requestBy={currentUser?.name || ''}
                 requestByUserId={currentUser?.id}
+                jobVesselOnly
               />
             )}
 
@@ -516,7 +570,12 @@ export default function App() {
             )}
 
             {currentRole === 'MANAGER_OPS' && activeTab === 'MANAGER_VOUCHER_APPROVAL' && (
-              <VoucherApprovalView paymentVouchers={data.paymentVouchers || []} reviewer={currentUser?.name || ''} />
+              <VoucherApprovalView
+                paymentVouchers={branchPaymentVouchers}
+                reviewer={currentUser?.name || ''}
+                reviewerUserId={currentUser?.id || ''}
+                reviewerRole="MANAGER_OPS"
+              />
             )}
 
             {currentRole === 'MANAGER_OPS' && activeTab === 'MANAGEMENT_VESSEL' && (
@@ -525,6 +584,10 @@ export default function App() {
                 users={data.users}
                 paymentVouchers={data.paymentVouchers || []}
               />
+            )}
+
+            {currentRole === 'MANAGER_OPS' && activeTab === 'MANAGER_JOB_INVOICE_MONITORING' && (
+              <JobInvoiceMonitoringView jobCalls={data.jobCalls} audience="MANAGER_OPS" />
             )}
 
             {/* 3. MANAGER OPS VIEWS */}
@@ -590,24 +653,102 @@ export default function App() {
               </div>
             )}
 
+            {currentRole === 'ACCOUNTING' && activeTab === 'ACCOUNTING_DASHBOARD' && (
+              <AccountingDashboard onNavigate={setActiveTab} />
+            )}
+
+            {currentRole === 'ACCOUNTING' && activeTab === 'ACCOUNTING_WORKSPACE' && (
+              <AccountingWorkspace />
+            )}
+
+            {currentRole === 'ACCOUNTING' && activeTab === 'ACCOUNTING_ASSETS' && (
+              <AccountingAssetsView />
+            )}
+
+            {currentRole === 'ACCOUNTING' && activeTab === 'ACCOUNTING_POSTED_JOURNAL_REPORT' && (
+              <AccountingPostedJournalReport />
+            )}
+
+            {currentRole === 'ACCOUNTING' && activeTab === 'ACCOUNTING_FINANCE_HISTORY' && (
+              <AccountingFinanceHistory
+                branches={data.branches.filter((branch) => branch.isActive)}
+                jobCalls={data.jobCalls}
+                paymentVouchers={data.paymentVouchers || []}
+                bankAccounts={data.bankAccounts || []}
+              />
+            )}
+
+            {currentRole === 'ACCOUNTING' && activeTab === 'ACCOUNTING_BALANCE_SHEET' && <AccountingBalanceSheetView />}
+
+            {currentRole === 'ACCOUNTING' && activeTab === 'ACCOUNTING_PROFIT_LOSS' && <AccountingProfitLossView />}
+
+            {currentRole === 'ACCOUNTING' && activeTab === 'ACCOUNTING_PROFIT_DETAIL' && <AccountingProfitDetailView />}
+
+            {currentRole === 'DIRECTOR' && activeTab === 'DIRECTOR_DASHBOARD' && (
+              <AccountingDashboard audience="DIRECTOR" onNavigate={(tab) => {
+                const directorTabs: Partial<Record<ActiveTab, ActiveTab>> = {
+                  ACCOUNTING_PROFIT_LOSS: 'DIRECTOR_PROFIT_LOSS',
+                  ACCOUNTING_BALANCE_SHEET: 'DIRECTOR_BALANCE_SHEET',
+                  ACCOUNTING_ASSETS: 'DIRECTOR_ASSETS',
+                };
+                setActiveTab(directorTabs[tab] || 'DIRECTOR_DASHBOARD');
+              }} />
+            )}
+
+            {currentRole === 'DIRECTOR' && activeTab === 'DIRECTOR_ASSETS' && (
+              <AccountingAssetsView readOnly />
+            )}
+
+            {currentRole === 'DIRECTOR' && activeTab === 'DIRECTOR_BALANCE_SHEET' && <AccountingBalanceSheetView />}
+
+            {currentRole === 'DIRECTOR' && activeTab === 'DIRECTOR_PROFIT_LOSS' && <AccountingProfitLossView />}
+
+            {currentRole === 'DIRECTOR' && activeTab === 'DIRECTOR_PROFIT_DETAIL' && <AccountingProfitDetailView />}
+
+            {currentRole === 'DIRECTOR' && activeTab === 'DIRECTOR_VOUCHER_APPROVAL' && (
+              <VoucherApprovalView
+                paymentVouchers={data.paymentVouchers || []}
+                reviewer={currentUser?.name || ''}
+                reviewerUserId={currentUser?.id || ''}
+                reviewerRole="DIRECTOR"
+              />
+            )}
+
+            {currentRole === 'DIRECTOR' && activeTab === 'DIRECTOR_JOB_INVOICE_MONITORING' && (
+              <JobInvoiceMonitoringView jobCalls={data.jobCalls} audience="DIRECTOR" />
+            )}
+
+            {currentRole === 'DIRECTOR' && activeTab === 'DIRECTOR_VESSEL_CALLS' && (
+              <ActiveVesselCallsView
+                key={viewSessionKey}
+                jobCalls={data.jobCalls}
+                vessels={data.vessels}
+                onSelectJob={setSelectedJobId}
+              />
+            )}
+
+            {currentRole === 'DIRECTOR' && activeTab === 'DIRECTOR_ACTIVITY_LOG' && (
+              <DirectorActivityLogView auditLogs={data.auditLogs} users={data.users} />
+            )}
+
             {/* 5. FINANCE VIEWS */}
             {currentRole === 'FINANCE' && (activeTab === 'FINANCE_ACCOUNTS_PAYABLE' || activeTab === 'FINANCE_ACCOUNTS_PAYABLE_INPUT') && (
               <AccountsPayableView
                 mode="INPUT"
-                paymentVouchers={data.paymentVouchers || []}
+                paymentVouchers={branchPaymentVouchers}
                 payer={currentUser?.name || ''}
-                bankAccounts={data.bankAccounts || []}
-                jobCalls={data.jobCalls || []}
+                bankAccounts={branchBankAccounts}
+                jobCalls={roleVisibleJobCalls}
               />
             )}
 
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_ACCOUNTS_PAYABLE_HISTORY' && (
               <AccountsPayableView
                 mode="HISTORY"
-                paymentVouchers={data.paymentVouchers || []}
+                paymentVouchers={branchPaymentVouchers}
                 payer={currentUser?.name || ''}
-                bankAccounts={data.bankAccounts || []}
-                jobCalls={data.jobCalls || []}
+                bankAccounts={branchBankAccounts}
+                jobCalls={roleVisibleJobCalls}
               />
             )}
 
@@ -617,6 +758,7 @@ export default function App() {
                 vendorPartners={data.vendorPartners || []}
                 requestBy={currentUser?.name || ''}
                 requestByUserId={currentUser?.id}
+                approverUsers={financeVoucherApprovers}
                 onDataSaved={() => notifySaved('FINANCE_CREATE_VOUCHER')}
                 operationalOnly
               />
@@ -636,19 +778,25 @@ export default function App() {
             )}
 
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_RECAP' && (
-              <FinanceRecapView paymentVouchers={data.paymentVouchers || []} jobCalls={data.jobCalls || []} />
+              <FinanceRecapView
+                paymentVouchers={branchPaymentVouchers}
+                jobCalls={roleVisibleJobCalls}
+                bankAccounts={branchBankAccounts}
+                branchName={currentUser.branch}
+              />
             )}
 
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_CASH_BALANCE' && (
               <CashBalanceView
-                bankAccounts={data.bankAccounts || []}
-                paymentVouchers={data.paymentVouchers || []}
+                bankAccounts={branchBankAccounts}
+                paymentVouchers={branchPaymentVouchers}
                 cashBalanceAdjustments={data.cashBalanceAdjustments || []}
+                branchName={currentUser.branch}
               />
             )}
 
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_HISTORY_REPORT' && (
-              <FinancialHistoryView paymentVouchers={data.paymentVouchers || []} jobCalls={data.jobCalls || []} />
+              <FinancialHistoryView paymentVouchers={branchPaymentVouchers} jobCalls={roleVisibleJobCalls} />
             )}
 
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_RECEIVABLE_INPUT' && (
@@ -679,7 +827,7 @@ export default function App() {
                     ? 'AR'
                     : 'REPORTS'
                 }
-                jobCalls={data.jobCalls}
+                jobCalls={roleVisibleJobCalls}
                 vessels={data.vessels}
                 fixTariffs={data.fixTariffs}
                 expensesItems={data.expensesItems}

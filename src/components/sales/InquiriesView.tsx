@@ -797,7 +797,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 items-start w-full">
                 <div className="text-slate-500 text-[10px] leading-4 w-full">
                   <label className="block mb-1 font-semibold">GRT (Gross Tonnage)</label>
-                  <input readOnly value={selectedVessel?.grt?.toLocaleString() || '-'} className="w-full h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-white font-mono" />
+                  <input readOnly value={selectedVessel?.grt?.toLocaleString('en-US') || '-'} className="w-full h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-white font-mono" />
                   <div className="mt-2">
                     <label className="block mb-1 font-semibold">Cargo Quantity</label>
                     <input type="number" min="0" step="1" required value={form.cargoQuantity} onChange={(e) => { const value = e.target.value; setQuantityError(''); setForm({ ...form, cargoQuantity: value === '' ? '' : Number(value) }); }} className="w-full h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-white font-mono" aria-invalid={!!quantityError} />
@@ -810,11 +810,11 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                 </div>
                 <label className="block text-slate-500 text-[10px] leading-4">
                   <span className="block mb-1 font-semibold">NRT (Net Tonnage)</span>
-                  <input readOnly value={selectedVessel?.nrt?.toLocaleString() || '-'} className="mt-1 w-full h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-white font-mono" />
+                  <input readOnly value={selectedVessel?.nrt?.toLocaleString('en-US') || '-'} className="mt-1 w-full h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-white font-mono" />
                 </label>
                 <label className="block text-slate-500 text-[10px] leading-4">
                   <span className="block mb-1 font-semibold">DWT (Dead Weight)</span>
-                  <input readOnly value={selectedVessel?.dwt?.toLocaleString() || '-'} className="mt-1 w-full h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-white font-mono" />
+                  <input readOnly value={selectedVessel?.dwt?.toLocaleString('en-US') || '-'} className="mt-1 w-full h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-white font-mono" />
                 </label>
                 <label className="block text-slate-500 text-[10px] leading-4">
                   <span className="block mb-1 font-semibold">LOA (meter)</span>

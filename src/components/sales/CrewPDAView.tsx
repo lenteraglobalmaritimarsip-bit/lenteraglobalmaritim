@@ -4,7 +4,9 @@ import { JobCall, Vessel, formatPurposeOfCall } from '../../types';
 import { formatDateDisplay, formatInquiryDate } from '../../utils/date';
 import { getPublicLogoUrl } from '../../utils/logo';
 import { DateTimeInput } from '../shared/DateTimeInput';
+import { FormattedNumberInput } from '../shared/FormattedNumberInput';
 import { ContinuedPdaItemReference, loadPdaServiceItemHistory, openPdaDraft, PdaDocumentType, PdaDraft, savePdaDraft, submitPdaDraft } from '../../lib/api';
+import { officePrintPageStyles } from '../../utils/officePrintPageStyles';
 
 interface CrewPDAViewProps {
   job?: JobCall;
@@ -44,7 +46,7 @@ const groupPdaItems = (items: PdaEntryItem[]) =>
 
 const roundPdaAmount = (amount: number) => Math.round((amount + Number.EPSILON) * 100) / 100;
 
-const calculatePdaTotals = (items: PdaEntryItem[], pph23Applied: boolean, globalVatApplied: boolean) => {
+const calculatePdaTotals = (items: PdaEntryItem[], pph23Applied: boolean, globalVatApplied: boolean, discountAmount = 0) => {
   const categoryTotals = groupPdaItems(items).map((group) => {
     const amount = group.items.reduce((sum, item) => sum + item.quantity * item.price, 0);
     const vat = globalVatApplied ? 0 : group.items.reduce((sum, item) => (
@@ -59,6 +61,8 @@ const calculatePdaTotals = (items: PdaEntryItem[], pph23Applied: boolean, global
   const itemVat = roundPdaAmount(categoryTotals.reduce((sum, group) => sum + group.vat, 0));
   const pph23Amount = roundPdaAmount(categoryTotals.reduce((sum, group) => sum + group.pph23, 0));
   const globalVatAmount = globalVatApplied ? roundPdaAmount(subtotal * 0.11) : 0;
+  const grandTotalBeforeDiscount = roundPdaAmount(subtotal + itemVat - pph23Amount + globalVatAmount);
+  const appliedDiscount = Math.min(Math.max(0, Number(discountAmount) || 0), grandTotalBeforeDiscount);
 
   return {
     categoryTotals,
@@ -66,7 +70,9 @@ const calculatePdaTotals = (items: PdaEntryItem[], pph23Applied: boolean, global
     itemVat,
     pph23Amount,
     globalVatAmount,
-    grandTotal: roundPdaAmount(subtotal + itemVat - pph23Amount + globalVatAmount),
+    discountAmount: appliedDiscount,
+    grandTotalBeforeDiscount,
+    grandTotal: roundPdaAmount(grandTotalBeforeDiscount - appliedDiscount),
   };
 };
 
@@ -76,6 +82,8 @@ const escapeHtml = (value: string | number) => String(value)
   .replaceAll('>', '&gt;')
   .replaceAll('"', '&quot;')
   .replaceAll("'", '&#039;');
+
+const sanitizePrintFileName = (value: string) => value.replace(/[\\/:*?"<>|]/g, '-');
 
 const formatAmount = (amount: number, currency: string) =>
   new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -103,6 +111,7 @@ export const createPdaPreviewHtml = (
   pph23Applied = false,
   globalVatApplied = false,
   printDetails: { createdAt?: string; eta?: string; etd?: string; etaRemarks?: string; etdRemarks?: string } = {},
+  discountAmount = 0,
 ) => {
   const documentLabel = pdaType === 'FDA' ? 'FPDA' : 'PDA Crew';
   const fpda = pdaType === 'FDA';
@@ -110,7 +119,7 @@ export const createPdaPreviewHtml = (
   const etdDisplay = formatPdaScheduleOrRemark(printDetails.etd, printDetails.etdRemarks);
   const groupedItems = groupPdaItems(items);
   const taxesEnabled = pdaType === 'FDA';
-  const totals = calculatePdaTotals(items, taxesEnabled && pph23Applied, taxesEnabled && globalVatApplied);
+  const totals = calculatePdaTotals(items, taxesEnabled && pph23Applied, taxesEnabled && globalVatApplied, discountAmount);
   const rows = groupedItems.map((group, groupIndex) => {
     const categoryTotal = totals.categoryTotals[groupIndex];
     const itemRows = group.items.map((item, index) => {
@@ -138,6 +147,9 @@ export const createPdaPreviewHtml = (
   const totalSubRow = taxesEnabled && groupedItems.length
     ? `<tr class="subtotal"><td colspan="5">TOTAL AMOUNT</td><td class="amount">${escapeHtml(formatAmountValue(totals.subtotal + totals.itemVat))}</td><td></td></tr>`
     : '';
+  const discountRow = totals.discountAmount > 0
+    ? `<tr class="subtotal"><td colspan="5">DISCOUNT</td><td class="amount">-${escapeHtml(formatAmountValue(totals.discountAmount))}</td><td></td></tr>`
+    : '';
   const grandTotalLabel = taxesEnabled
     ? 'GRAND TOTAL'
     : groupedItems.length
@@ -151,8 +163,7 @@ export const createPdaPreviewHtml = (
     : '';
   const officeFooter = '<div class="office-footer">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span>email : maritim@lentera-global.com / web : www.lentera-global.com</span></div>';
 
-  const printDocumentLabel = fpda ? 'FDA' : 'EPDA';
-  const printFileName = `${printDocumentLabel} - ${pdaNo}`.replace(/[\\/:*?"<>|]/g, '-');
+  const printFileName = sanitizePrintFileName(pdaNo);
   return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(printFileName)}</title>
   <style>
     @page{size:A4 portrait;margin:10mm}
@@ -175,9 +186,9 @@ export const createPdaPreviewHtml = (
     .number{text-align:center}.amount{text-align:right;white-space:nowrap}
     .category td{background:#214f84;color:#fff;font-weight:700;text-transform:uppercase;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .total{font-weight:700}.total td:first-child,.subtotal td:first-child{text-align:right}.subtotal{background:#dbe8f2;font-weight:700}
-    .bank{display:inline-block;width:42%;margin-top:16px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}
+    .bank{display:inline-block;width:52%;margin-top:16px;border:1px solid #777;padding:5px;text-align:left;font-size:13px;line-height:1.2;vertical-align:top}
     .signature{display:inline-block;width:42%;margin:16px 0 0 12%;text-align:center;vertical-align:top;font-size:9px;line-height:1.35}.signature-main{display:block}.signature-role{display:block;margin-top:120px;padding-top:8px}
-    .office-footer{position:static;width:100%;max-width:700px;margin:16px auto 0;text-align:center;font-size:9px;line-height:1.45;font-weight:600;color:#111;break-inside:avoid;page-break-inside:avoid}
+    .office-footer{position:static;box-sizing:border-box;width:100%;max-width:700px;margin:16px auto 0;text-align:center;font-size:9px;line-height:1.45;font-weight:600;color:#111;break-inside:avoid;page-break-inside:avoid}
     .office-footer span{color:#dc2626;text-decoration:underline}
     @page{size:A4 portrait;margin:10mm}
     @media screen{
@@ -190,13 +201,10 @@ export const createPdaPreviewHtml = (
       .a4-frame-line{display:block}
       html,body{width:auto;height:auto;min-height:0;margin:0;padding:0;overflow:visible;background:#fff}
       body{position:static;max-width:none;padding:0 3mm;box-sizing:border-box}
-      .a4-page-frame{position:fixed;top:0;left:0;right:0;bottom:auto;width:auto;height:277mm;box-sizing:border-box;border-left:0.5mm solid #1f2937;border-right:0.5mm solid #1f2937;pointer-events:none;z-index:9999}
-      .a4-frame-line{position:fixed;left:0;right:0;height:0;border-top:0.5mm solid #1f2937;pointer-events:none;z-index:2147483647}
-      .a4-frame-line-top{top:0}
-      .a4-frame-line-bottom{top:276.5mm}
-      .office-footer{position:fixed;left:2mm;right:2mm;bottom:2mm;transform:none;width:auto;max-width:none;margin:0;break-inside:avoid;page-break-inside:avoid}
+      .bank,.signature{break-inside:avoid;page-break-inside:avoid}
+      table td.amount,table td.amount *{text-align:right!important}
     }
-  </style></head><body><div class="a4-page-frame" aria-hidden="true"></div><i class="a4-frame-line a4-frame-line-top" aria-hidden="true"></i><i class="a4-frame-line a4-frame-line-bottom" aria-hidden="true"></i>
+  </style>${officePrintPageStyles}</head><body><div class="a4-page-frame" aria-hidden="true"></div><i class="a4-frame-line a4-frame-line-top" aria-hidden="true"></i><i class="a4-frame-line a4-frame-line-bottom" aria-hidden="true"></i>
     <div class="brand-row"><div class="brand-wrap"><img class="logo" src="${getPublicLogoUrl()}" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div>
     <h2>${fpda ? 'FINAL DISBURSEMENT ACCOUNT' : 'ESTIMATE PORT DISBURSEMENT OF ACCOUNT'}</h2>
     <section class="meta">
@@ -215,7 +223,7 @@ export const createPdaPreviewHtml = (
     </section>
     <table><thead><tr><th>No</th><th>Description</th><th>Qty</th><th>Unit</th><th>Price (${escapeHtml(currency)})</th><th>Amount (${escapeHtml(currency)})</th><th>Remarks</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="7" style="text-align:center">Belum ada item PDA</td></tr>'}
-      ${totalSubRow}${globalVatRows}${pph23Row}<tr class="grand-total"><td colspan="5" style="text-align:right">${grandTotalLabel}</td><td class="amount">${escapeHtml(formatAmountValue(totals.grandTotal))}</td><td></td></tr></tbody>
+      ${totalSubRow}${globalVatRows}${pph23Row}${discountRow}<tr class="grand-total"><td colspan="5" style="text-align:right">${grandTotalLabel}</td><td class="amount">${escapeHtml(formatAmountValue(totals.grandTotal))}</td><td></td></tr></tbody>
     </table>
     ${bankFooter}${financeSignature}${officeFooter}
   </body></html>`;
@@ -259,6 +267,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
     vatApplied: false,
     pph23Applied: false,
     globalVatApplied: false,
+    discountAmount: 0,
     continuedPdaItems: [],
   });
   const [showPreview, setShowPreview] = useState(false);
@@ -292,8 +301,9 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
       items,
       documentPdaType === 'FDA' && Boolean(newItem.pph23Applied),
       documentPdaType === 'FDA' && Boolean(newItem.globalVatApplied),
+      Number(newItem.discountAmount) || 0,
     ),
-    [documentPdaType, items, newItem.globalVatApplied, newItem.pph23Applied],
+    [documentPdaType, items, newItem.discountAmount, newItem.globalVatApplied, newItem.pph23Applied],
   );
   const total = pdaTotals.grandTotal;
   const entryAmount = (Number(newItem.price) || 0) * (Number(newItem.quantity) || 0);
@@ -547,15 +557,19 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
     const printWindow = printFrameRef.current?.contentWindow;
     if (!printWindow) return;
     const originalTitle = document.title;
-    document.title = pdaNo.replaceAll('/', '-');
+    const printFileName = sanitizePrintFileName(pdaNo);
+    document.title = printFileName;
+    printWindow.document.title = printFileName;
+    printWindow.addEventListener('afterprint', () => {
+      document.title = originalTitle;
+    }, { once: true });
     printWindow.focus();
     printWindow.print();
-    document.title = originalTitle;
   };
 
   const previewHtml = useMemo(
-    () => job ? createPdaPreviewHtml(job, items, currency, pdaNo, documentPdaType, newItem.pph23Applied, newItem.globalVatApplied, { createdAt: draftCreatedAt, eta, etd, etaRemarks, etdRemarks }) : '',
-    [job, items, currency, pdaNo, documentPdaType, newItem.pph23Applied, newItem.globalVatApplied, draftCreatedAt, eta, etd, etaRemarks, etdRemarks],
+    () => job ? createPdaPreviewHtml(job, items, currency, pdaNo, documentPdaType, newItem.pph23Applied, newItem.globalVatApplied, { createdAt: draftCreatedAt, eta, etd, etaRemarks, etdRemarks }, newItem.discountAmount) : '',
+    [job, items, currency, pdaNo, documentPdaType, newItem.pph23Applied, newItem.globalVatApplied, newItem.discountAmount, draftCreatedAt, eta, etd, etaRemarks, etdRemarks],
   );
 
   if (!job) {
@@ -582,7 +596,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
     ['Estimated Days', `${job.inquiry.estimatedDays || 0} hari`],
     ['Cargo Details', job.inquiry.cargoDetails || '-'],
     ['Vessel Type', vesselMaster?.vesselType || '-'],
-    ['Gross / Net / DWT', `${vesselMaster?.grt?.toLocaleString() || '-'} / ${vesselMaster?.nrt?.toLocaleString() || '-'} / ${vesselMaster?.dwt?.toLocaleString() || '-'}`],
+    ['Gross / Net / DWT', `${vesselMaster?.grt?.toLocaleString('en-US') || '-'} / ${vesselMaster?.nrt?.toLocaleString('en-US') || '-'} / ${vesselMaster?.dwt?.toLocaleString('en-US') || '-'}`],
   ];
   const pdaGroups = groupPdaItems(items);
   const grandTotalLabel = pdaGroups.length
@@ -613,12 +627,12 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <div className="account-toolbar-panel account-currency-switch flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-950 p-1.5">
-            <button type="button" disabled={!canEditPda} onClick={() => setCurrency('IDR')} className={`h-10 rounded-lg px-4 text-sm font-bold disabled:cursor-wait disabled:opacity-50 ${currency === 'IDR' ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}>IDR (Rp)</button>
-            <button type="button" disabled={!canEditPda} onClick={() => setCurrency('USD')} className={`h-10 rounded-lg px-4 text-sm font-bold disabled:cursor-wait disabled:opacity-50 ${currency === 'USD' ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}>USD ($)</button>
+            <button type="button" disabled={!canEditPda} onClick={() => setCurrency('IDR')} className={`account-currency-button h-10 rounded-lg px-4 text-sm font-bold disabled:cursor-wait disabled:opacity-50 ${currency === 'IDR' ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}>IDR (Rp)</button>
+            <button type="button" disabled={!canEditPda} onClick={() => setCurrency('USD')} className={`account-currency-button h-10 rounded-lg px-4 text-sm font-bold disabled:cursor-wait disabled:opacity-50 ${currency === 'USD' ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}>USD ($)</button>
           </div>
           <label className="account-toolbar-panel account-rate-control flex h-12 items-center gap-2 rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-slate-300">
             Kurs USD
-            <input type="number" min={0} step={1} disabled={!canEditPda} value={exchangeRate} onChange={(event) => setExchangeRate(Number(event.target.value) || 0)} className="account-rate-input h-8 w-24 rounded-lg border border-slate-700 bg-slate-900 px-2 text-right text-sm text-white disabled:opacity-50" />
+            <FormattedNumberInput min={0} maximumFractionDigits={4} disabled={!canEditPda} value={exchangeRate} onValueChange={(value) => setExchangeRate(Number(value) || 0)} className="account-rate-input h-8 w-24 rounded-lg border border-slate-700 bg-slate-900 px-2 text-right text-sm text-white disabled:opacity-50" />
           </label>
           {job?.voidedAt ? (
             <span className="inline-flex items-center gap-1.5 rounded-xl border border-rose-300 bg-rose-50 px-3.5 py-2 text-xs font-bold text-rose-800"><X className="h-4 w-4" />JOB Call Dibatalkan</span>
@@ -627,7 +641,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
           ) : approvalStatus === 'APPROVED' ? (
             <span className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-100 px-3.5 py-2 text-xs font-bold text-blue-700"><CheckCircle2 className="h-4 w-4" />DISETUJUI MANAGER OPS</span>
           ) : (
-            <button type="button" title={submitButtonTitle || undefined} disabled={!canEditPda || draftStatus === 'saving' || !!editingItemId || items.length === 0} onClick={() => void handleSubmitPda()} className="flex h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="button" title={submitButtonTitle || undefined} disabled={!canEditPda || draftStatus === 'saving' || !!editingItemId || items.length === 0} onClick={() => void handleSubmitPda()} className="account-submit-button flex h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
               <Send className="h-5 w-5" /> {isSubmittingPda ? 'Mengirim...' : approvalStatus === 'REVISION_REQUIRED' ? 'Kirim Ulang ke Manager OPS' : 'Kirim ke Manager OPS'}
             </button>
           )}
@@ -712,7 +726,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
           </div>
         )}
         <div className="mb-1 pr-[3%] text-right text-[9px] normal-case tracking-normal text-cyan-300">
-          Ekuivalen kurs: {exchangeRate > 0 ? `1 USD = Rp ${new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(exchangeRate)}` : 'belum diisi'}
+          Ekuivalen kurs: {exchangeRate > 0 ? `1 USD = Rp ${new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(exchangeRate)}` : 'belum diisi'}
         </div>
         <div className="pda-results-card mb-4 overflow-x-auto rounded-lg border border-slate-700">
           <table className="w-full min-w-[1080px] text-left text-xs">
@@ -754,7 +768,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
                         </td>
                         <td className="border-l border-slate-800 px-3 py-1.5 text-right">
                           {editingItemId === item.id && itemEditDraft
-                            ? <input type="number" min="0" step="0.01" value={itemEditDraft.price} onChange={(event) => setItemEditDraft({ ...itemEditDraft, price: Number(event.target.value) || 0 })} className="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1.5 text-right text-white" />
+                            ? <FormattedNumberInput min="0" value={itemEditDraft.price} onValueChange={(value) => setItemEditDraft({ ...itemEditDraft, price: Number(value) || 0 })} className="w-32 rounded border border-slate-600 bg-slate-950 px-2 py-1.5 text-right text-white" />
                             : formatAmountValue(item.price)}
                         </td>
                         <td className="border-l border-slate-800 px-3 py-1.5 text-right font-mono font-bold text-white">{formatAmountValue((editingItemId === item.id && itemEditDraft ? itemEditDraft.quantity : item.quantity) * (editingItemId === item.id && itemEditDraft ? itemEditDraft.price : item.price))}</td>
@@ -799,6 +813,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
               )}
               {documentPdaType === 'FDA' && pdaTotals.pph23Amount > 0 && <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-rose-300">TOTAL TAX 23</td><td className="border-l border-slate-800 p-2.5 text-right font-mono text-xs font-bold text-rose-300">-{formatAmountValue(pdaTotals.pph23Amount)}</td><td colSpan={2} className="border-l border-slate-800" /></tr>}
               {!items.length && <tr><td colSpan={8} className="p-8 text-center text-slate-500">Belum ada item. Klik Tambah Item untuk mulai entry.</td></tr>}
+              {pdaTotals.discountAmount > 0 && <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-rose-300">DISCOUNT</td><td className="border-l border-slate-800 p-2.5 text-right font-mono text-xs font-bold text-rose-300">-{formatAmountValue(pdaTotals.discountAmount)}</td><td colSpan={2} className="border-l border-slate-800" /></tr>}
               <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-3.5 text-right font-bold uppercase tracking-wider text-slate-200">{grandTotalLabel}</td><td className="border-l border-slate-800 p-3.5 text-right font-mono text-xs font-bold text-white">{formatAmountValue(total)}</td><td colSpan={2} className="border-l border-slate-800" /></tr>
             </tbody>
           </table>
@@ -879,7 +894,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
               </div>
               <div>
                 <label className="mb-1 block text-slate-600">Price</label>
-                <input type="number" min="0" step="0.01" disabled={!canEditPda} value={newItem.price || ''} onChange={(event) => setNewItem({ ...newItem, price: Number(event.target.value) || 0 })} className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none disabled:opacity-50" />
+                <FormattedNumberInput min="0" disabled={!canEditPda} value={newItem.price || ''} onValueChange={(value) => setNewItem({ ...newItem, price: Number(value) || 0 })} emptyOnZero className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-700 focus:border-emerald-500 focus:outline-none disabled:opacity-50" />
               </div>
               <div>
                 <label className="mb-1 block text-slate-600">QTY</label>
@@ -904,6 +919,23 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, onBack, 
               </div>
             </div>
             <div className="mt-3 text-[10px] text-slate-500">Amount dihitung dari Price x QTY.</div>
+            <div className="mt-4 max-w-md rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <label className="mb-1 block text-xs font-bold text-slate-700">Discount ({currency})</label>
+              <FormattedNumberInput
+                min="0"
+                max={pdaTotals.grandTotalBeforeDiscount}
+                maximumFractionDigits={currency === 'IDR' ? 0 : 2}
+                disabled={!canEditPda}
+                value={newItem.discountAmount || ''}
+                emptyOnZero
+                onValueChange={(value) => setNewItem((current) => ({
+                  ...current,
+                  discountAmount: Math.min(Math.max(0, Number(value) || 0), pdaTotals.grandTotalBeforeDiscount),
+                }))}
+                className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-right text-slate-700 disabled:bg-slate-100"
+              />
+              <p className="mt-1 text-[10px] text-slate-500">Nominal dikurangi setelah pajak/PPh, tepat sebelum Grand Total. Maksimal sebesar total sebelum diskon.</p>
+            </div>
           </form>
         </div>
       </section>

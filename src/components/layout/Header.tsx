@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Bell, Layers, Search, ShieldCheck,
+  Bell, BookOpen, Layers, Search, ShieldCheck,
   Briefcase, FileCheck2, DollarSign, UserCircle2, Menu
 } from 'lucide-react';
 import { UserRole, JobCall, PaymentVoucher, ActiveTab, FdaReceivableEntry } from '../../types';
@@ -134,6 +134,8 @@ export const Header: React.FC<HeaderProps> = ({
     MANAGER_OPS: { label:'MANAGER OPS', desc:'Approval & Operations', icon:Layers },
     FDA: { label:'FDA', desc:'Final Amount & Disbursement', icon:FileCheck2 },
     FINANCE: { label:'FINANCE', desc:'Invoice, AP/AR & Closing', icon:DollarSign },
+    ACCOUNTING: { label:'ACCOUNTING', desc:'Jurnal COA & Laporan Lintas Branch', icon:BookOpen },
+    DIRECTOR: { label:'DIREKTUR', desc:'Executive Dashboard & Monitoring', icon:BookOpen },
   };
   const RoleIcon = roleMeta[currentRole].icon;
 
@@ -195,7 +197,7 @@ export const Header: React.FC<HeaderProps> = ({
       fdaReceivableNotifications.forEach((entry) => {
         const job = jobCalls.find((item) => item.jobId === entry.jobId);
         const amounts = [
-          entry.idrAmount > 0 ? `${new Intl.NumberFormat('id-ID').format(entry.idrAmount)} IDR` : '',
+          entry.idrAmount > 0 ? `${new Intl.NumberFormat('en-US').format(entry.idrAmount)} IDR` : '',
           entry.usdAmount > 0 ? `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(entry.usdAmount)} USD` : '',
         ].filter(Boolean).join(' / ');
         push({
@@ -285,28 +287,37 @@ export const Header: React.FC<HeaderProps> = ({
       const status = voucher.status || 'PENDING_MANAGER';
       const request = `${voucher.requestNumber} · ${voucher.vendorName}`;
 
-      if (currentRole === 'MANAGER_OPS' && status === 'PENDING_MANAGER') {
+      const assignedToCurrentUser = voucher.approvalTargetUserId
+        ? voucher.approvalTargetUserId === currentUser.id && voucher.approvalTargetRole === currentRole
+        : currentRole === 'MANAGER_OPS';
+      if ((currentRole === 'MANAGER_OPS' || currentRole === 'DIRECTOR') && assignedToCurrentUser && status === 'PENDING_MANAGER') {
         push({
           id:`voucher-review-${voucher.id}-${voucher.createdAt}`,
           title:'Payment Voucher menunggu approval',
-          message:`${request} diajukan oleh ${voucher.requestBy || 'FDA'} dan menunggu persetujuan.`,
-          tab:'MANAGER_VOUCHER_APPROVAL',
+          message:`${request} diajukan oleh ${voucher.requestBy || 'Finance'} dan menunggu persetujuan Anda.`,
+          tab:currentRole === 'DIRECTOR' ? 'DIRECTOR_VOUCHER_APPROVAL' : 'MANAGER_VOUCHER_APPROVAL',
           kind:'APPROVAL',
         });
       }
 
-      if (currentRole === 'FDA' && voucher.requestBy === currentUser.name && (status === 'APPROVED' || status === 'REJECTED' || status === 'PAID')) {
+      const isVoucherRequester = voucher.requestByUserId
+        ? voucher.requestByUserId === currentUser.id
+        : voucher.requestBy.trim().toLocaleLowerCase() === currentUser.name.trim().toLocaleLowerCase();
+      if ((currentRole === 'FDA' || currentRole === 'FINANCE') && isVoucherRequester && (status === 'APPROVED' || status === 'REJECTED' || status === 'PAID')) {
         const rejected = status === 'REJECTED';
         const paid = status === 'PAID';
+        const historyTab = currentRole === 'FDA' ? 'FDA_PAYMENT_HISTORY' : 'FINANCE_PAYMENT_HISTORY';
         push({
           id:`voucher-${status.toLowerCase()}-${voucher.id}-${paid ? voucher.paidAt || voucher.createdAt : voucher.reviewedAt || voucher.createdAt}`,
           title:rejected ? 'Payment Voucher perlu revisi' : paid ? 'Payment Voucher telah dibayar' : 'Payment Voucher disetujui',
           message:rejected
-            ? `${request} ditolak Manager OPS. Catatan: ${voucher.managerNote || 'Silakan periksa dan ajukan kembali.'}`
+            ? `${request} ditolak oleh ${voucher.reviewedBy || voucher.approvalTargetName || 'approver'}. Catatan: ${voucher.managerNote || 'Silakan periksa dan ajukan kembali.'}`
             : paid
               ? `${request} telah dibayar Finance.`
-              : `${request} disetujui Manager OPS dan diteruskan ke Finance untuk pembayaran.`,
-          tab:rejected ? 'FDA_EDIT_VOUCHER' : 'FDA_PAYMENT_HISTORY',
+              : `${request} disetujui oleh ${voucher.reviewedBy || voucher.approvalTargetName || 'approver'} dan diteruskan ke Finance untuk pembayaran.`,
+          tab:rejected
+            ? currentRole === 'FDA' ? 'FDA_EDIT_VOUCHER' : 'FINANCE_EDIT_VOUCHER'
+            : paid ? historyTab : currentRole === 'FINANCE' ? 'FINANCE_ACCOUNTS_PAYABLE' : historyTab,
           kind:rejected ? 'WARNING' : paid ? 'INFO' : 'APPROVAL',
         });
       }

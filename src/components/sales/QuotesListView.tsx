@@ -16,13 +16,14 @@ interface QuotesListViewProps {
   actionLabel?: string;
   enablePagination?: boolean;
   showStatusColumn?: boolean;
+  showEtdColumn?: boolean;
   statusColumnType?: 'quote' | 'fda';
   showPdaButton?: boolean;
   pdaActionLabel?: string;
   pdaReferenceSource?: 'EPDA' | 'FDA';
 }
 
-export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessels, onSelectJob, onOpenEPDA, onOpenPDA, title = 'Quotes EPDA', description = 'Daftar quotation EPDA berdasarkan register vessel call.', moduleLabel = 'Sales and Operator - Quotes Module', actionLabel = 'Buat EPDA', enablePagination = false, showStatusColumn = false, statusColumnType = 'quote', showPdaButton = false, pdaActionLabel = 'Buat PDA', pdaReferenceSource = 'EPDA' }) => {
+export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessels, onSelectJob, onOpenEPDA, onOpenPDA, title = 'Quotes EPDA', description = 'Daftar quotation EPDA berdasarkan register vessel call.', moduleLabel = 'Sales and Operator - Quotes Module', actionLabel = 'Buat EPDA', enablePagination = false, showStatusColumn = false, showEtdColumn = false, statusColumnType = 'quote', showPdaButton = false, pdaActionLabel = 'Buat PDA', pdaReferenceSource = 'EPDA' }) => {
   const [search, setSearch] = useState('');
   const [inquiryDateRange, setInquiryDateRange] = useState<InquiryDateRange>({ from: '', to: '' });
   const [quotePage, setQuotePage] = useState(1);
@@ -122,9 +123,10 @@ export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessel
             <th className={`${showPdaButton ? 'w-[12%]' : showStatusColumn ? 'w-[14%]' : 'w-[15%]'} p-2`}>Customer / Principal</th>
             <th className={`${showPdaButton ? 'w-[8%]' : showStatusColumn ? 'w-[10%]' : 'w-[11%]'} p-2`}>Vessel</th>
             <th className={`${showPdaButton ? 'w-[8%]' : showStatusColumn ? 'w-[9%]' : 'w-[10%]'} p-2`}>Port</th>
-            <th className={`${showPdaButton ? 'w-[8%]' : showStatusColumn ? 'w-[9%]' : 'w-[10%]'} p-2`}>ETA</th>
+            <th className={`${showPdaButton && showEtdColumn ? 'w-[6%]' : showPdaButton ? 'w-[8%]' : showStatusColumn ? 'w-[9%]' : 'w-[10%]'} p-2`}>ETA</th>
+            {showEtdColumn && <th className="w-[6%] p-2">ETD</th>}
             {showStatusColumn && <th className={`${showPdaButton ? 'w-[9%]' : 'w-[11%]'} p-2`}>Status</th>}
-            <th className={`${showPdaButton ? 'w-[21%]' : showStatusColumn ? 'w-[13%]' : 'w-[17%]'} p-2 text-center`}>Detail</th>
+            <th className={`${showPdaButton && showEtdColumn ? 'w-[17%]' : showPdaButton ? 'w-[21%]' : showStatusColumn ? 'w-[13%]' : 'w-[17%]'} p-2 text-center`}>Detail</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-800">
@@ -146,6 +148,9 @@ export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessel
                 <td className="break-words p-2 text-slate-300">{job.quotation?.epda?.eta
                   ? formatDateDisplay(job.quotation.epda.eta, true)
                   : job.quotation?.epda?.etaRemarks || '-'}</td>
+                {showEtdColumn && <td className="break-words p-2 text-slate-300">{job.quotation?.epda?.etd
+                  ? formatDateDisplay(job.quotation.epda.etd, true)
+                  : job.quotation?.epda?.etdRemarks || '-'}</td>}
                 {showStatusColumn && (() => {
                   const status = getQuoteStatus(job);
                   return (
@@ -185,7 +190,7 @@ export const QuotesListView: React.FC<QuotesListViewProps> = ({ jobCalls, vessel
               </tr>
             );
           })}
-          {!filteredQuotes.length && <tr><td colSpan={showStatusColumn ? 11 : 10} className="p-8 text-center text-slate-500">Tidak ada quotation sesuai pencarian.</td></tr>}
+          {!filteredQuotes.length && <tr><td colSpan={(showStatusColumn ? 11 : 10) + (showEtdColumn ? 1 : 0)} className="p-8 text-center text-slate-500">Tidak ada quotation sesuai pencarian.</td></tr>}
         </tbody>
       </table>
     </div>

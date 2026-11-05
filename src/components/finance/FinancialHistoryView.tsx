@@ -5,6 +5,7 @@ import { listFpdaNumbers } from '../../lib/api';
 import { JobCall, PaymentVoucher } from '../../types';
 import { formatDateDisplay } from '../../utils/date';
 import { getPaymentVoucherPaymentEvents } from '../../utils/paymentVoucherHistory';
+import { getPaymentVoucherPphLabel, getPaymentVoucherPphRate } from '../../utils/paymentVoucherTax';
 
 interface FinancialHistoryViewProps {
   paymentVouchers: PaymentVoucher[];
@@ -132,25 +133,25 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
   const handleDownload = async () => {
     const workbook = new ExcelJS.Workbook();
     const summary = workbook.addWorksheet('Laporan Keuangan');
-    summary.addRow(['No', 'Voucher Number', 'Request Number', 'Date Request', 'Date Paid', 'Info JOB', 'Vendor Name', 'Paid To', 'Bank', 'A/C Number', 'Request By', 'Amount', 'PPN (VAT)', 'Total', 'PPH 23', 'Paid Amount']);
+    summary.addRow(['No', 'Voucher Number', 'Request Number', 'Date Request', 'Date Paid', 'Info JOB', 'Vendor Name', 'Paid To', 'Bank', 'A/C Number', 'Request By', 'Amount', 'PPN (VAT)', 'Total', 'Potongan PPh', 'Paid Amount', 'Approv By']);
     rows.forEach(({ voucher, sums }, index) => {
       summary.addRow([
         index + 1, voucher.voucherNumber || '-', voucher.requestNumber, String(voucher.requestDate).slice(0, 10), voucher.paidAt ? String(voucher.paidAt).slice(0, 10) : '-',
         voucher.jobInfo === 'JOB_VESSEL' ? 'JOB Vessel' : 'Operasional',
         voucher.vendorName, voucher.paidTo, voucher.bankName, voucher.accountNumber, voucher.requestBy,
-        sums.amount, sums.vat, sums.total, sums.pph23, sums.paid,
+        sums.amount, sums.vat, sums.total, sums.pph23, sums.paid, voucher.reviewedBy || '-',
       ]);
     });
-    summary.addRow(['', '', '', '', '', '', '', '', '', '', 'TOTAL', grand.amount, grand.vat, grand.total, grand.pph23, grand.paid]);
+    summary.addRow(['', '', '', '', '', '', '', '', '', '', 'TOTAL', grand.amount, grand.vat, grand.total, grand.pph23, grand.paid, '']);
 
     const detail = workbook.addWorksheet('Detail Item');
-    detail.addRow(['Voucher Number', 'Request Number', 'Date Request', 'Date Paid', 'Vendor Name', 'JOB Number', 'FDA Number', 'FPDA Number', 'Customer', 'Item Service', 'Amount', 'PPN (VAT)', 'Total', 'PPH 23', 'Paid Amount']);
+    detail.addRow(['Voucher Number', 'Request Number', 'Date Request', 'Date Paid', 'Vendor Name', 'JOB Number', 'FDA Number', 'FPDA Number', 'Customer', 'Item Service', 'Amount', 'PPN (VAT)', 'Total', 'Tarif PPh', 'Potongan PPh', 'Paid Amount']);
     rows.forEach(({ voucher }) => {
       (voucher.items || []).forEach((item) => {
         detail.addRow([
           voucher.voucherNumber || '-', voucher.requestNumber, String(voucher.requestDate).slice(0, 10), voucher.paidAt ? String(voucher.paidAt).slice(0, 10) : '-', voucher.vendorName,
           item.jobNumber, jobCalls.find((job) => job.jobId === item.jobNumber)?.fda?.fdaNo || '-', fpdaNumbers[item.jobNumber] || '-', item.customerName, item.itemService,
-          item.amount, item.vatAmount, item.total, item.pph23Amount, item.paidAmount,
+          item.amount, item.vatAmount, item.total, getPaymentVoucherPphRate(item) ? getPaymentVoucherPphLabel(getPaymentVoucherPphRate(item)) : 'Tidak ada', item.pph23Amount, item.paidAmount,
         ]);
       });
     });
@@ -160,9 +161,9 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
       sheet.columns.forEach((column) => { column.width = 18; });
     });
     summary.lastRow!.font = { bold: true };
-    summary.getColumn(12).numFmt = summary.getColumn(13).numFmt = summary.getColumn(14).numFmt =
-      summary.getColumn(15).numFmt = summary.getColumn(16).numFmt = '#,##0.00';
-    [11, 12, 13, 14, 15].forEach((col) => { detail.getColumn(col).numFmt = '#,##0.00'; });
+    summary.getColumn(11).numFmt = summary.getColumn(12).numFmt = summary.getColumn(13).numFmt =
+      summary.getColumn(14).numFmt = summary.getColumn(15).numFmt = '#,##0.00';
+    [11, 12, 13, 15, 16].forEach((col) => { detail.getColumn(col).numFmt = '#,##0.00'; });
 
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -187,7 +188,7 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
           <div>
             <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Finance</div>
             <h1 className="mt-1 text-xl font-black text-slate-900 lg:text-2xl">History Laporan Keuangan</h1>
-            <p className="text-xs text-slate-500">Rincian PPN dan PPH 23 per pengajuan pembayaran.</p>
+            <p className="text-xs text-slate-500">Rincian PPN dan potongan PPh per pengajuan pembayaran.</p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <label className="relative grid gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
@@ -293,7 +294,7 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
           </button>
         </div>
         <div ref={tableScrollRef} onScroll={updateScrollButtons} className="finance-history-scroll overflow-x-auto">
-        <table className="w-full min-w-[1450px] text-left">
+        <table className="w-full min-w-[1580px] text-left">
           <thead className="border-b border-slate-200 bg-slate-50">
             <tr>
               <th className={th}>No</th>
@@ -306,13 +307,14 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
               <th className={`${th} text-right`}>Amount</th>
               <th className={`${th} text-right`}>PPN</th>
               <th className={`${th} text-right`}>Total</th>
-              <th className={`${th} text-right`}>PPH 23</th>
+              <th className={`${th} text-right`}>Potongan PPh</th>
               <th className={`${th} text-right`}>Paid Amount</th>
+              <th className={th}>Approv By</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {rows.length === 0 && (
-              <tr><td colSpan={12} className="px-3 py-10 text-center text-xs text-slate-400">Belum ada transaksi dibayar pada rentang tanggal ini.</td></tr>
+              <tr><td colSpan={13} className="px-3 py-10 text-center text-xs text-slate-400">Belum ada transaksi dibayar pada rentang tanggal ini.</td></tr>
             )}
             {paginatedRows.map(({ voucher, sums }, index) => (
               <tr key={voucher.id} className="hover:bg-slate-50">
@@ -334,6 +336,7 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
                 <td className={num}>{money(sums.total)}</td>
                 <td className={num}>{money(sums.pph23)}</td>
                 <td className={`${num} font-black text-slate-900`}>{money(sums.paid)}</td>
+                <td className="px-3 py-2 text-xs text-slate-700">{voucher.reviewedBy || '-'}</td>
               </tr>
             ))}
           </tbody>
@@ -346,6 +349,7 @@ export const FinancialHistoryView: React.FC<FinancialHistoryViewProps> = ({ paym
                 <td className={`${num} font-bold`}>{money(grand.total)}</td>
                 <td className={`${num} font-bold`}>{money(grand.pph23)}</td>
                 <td className={`${num} font-black text-slate-900`}>{money(grand.paid)}</td>
+                <td className="px-3 py-2" />
               </tr>
             </tfoot>
           )}

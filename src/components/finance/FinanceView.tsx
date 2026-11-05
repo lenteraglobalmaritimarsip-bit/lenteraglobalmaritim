@@ -25,6 +25,7 @@ import { db } from '../../db/storage';
 import { formatCostCategoryLabel, getCostCategoryRank, normalizeCostCategory } from '../../utils/costCategories';
 import { convertPrincipalReceiptAmount, getPrincipalReceiptSummary } from '../../utils/principalInvoice';
 import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateRangePicker';
+import { FormattedNumberInput } from '../shared/FormattedNumberInput';
 import { ApprovedSalesPdaTotal, listApprovedFdaPdaTotals } from '../../lib/api';
 
 interface FinanceViewProps {
@@ -108,7 +109,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
 
   const formatIDR = (val: number) =>
-    new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val);
+    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'IDR', currencyDisplay: 'narrowSymbol', maximumFractionDigits: 0 }).format(val);
 
   const jobCurrency: Currency = activeJob?.fda?.currency
     || activeJob?.quotation?.epda?.currency
@@ -134,7 +135,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     return from === 'USD' && to === 'IDR' ? amount * exchangeRate : amount / exchangeRate;
   };
   const formatCurrency = (amount: number, currency: Currency) => currency === 'IDR' ? formatIDR(amount) : formatUSD(amount);
-  const formatCurrencyNumber = (amount: number, currency: Currency) => new Intl.NumberFormat(currency === 'IDR' ? 'id-ID' : 'en-US', {
+  const formatCurrencyNumber = (amount: number, currency: Currency) => new Intl.NumberFormat('en-US', {
     minimumFractionDigits: currency === 'IDR' ? 0 : 2,
     maximumFractionDigits: currency === 'IDR' ? 0 : 2,
   }).format(amount);
@@ -186,7 +187,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     const currency = (job.fda?.currency || job.currency || 'IDR') as Currency;
     const baseBilled = job.fda?.finalBilledToPrincipal
       || job.principalInvoice?.totalAmountUSD
-      || job.quotation?.epda?.totalAmount
+      || Math.max(0, (job.quotation?.epda?.totalAmount || 0) - (job.quotation?.epda?.discountAmount || 0))
       || (job.ar || []).reduce((sum, item) => sum + convertCurrencyPrecisely(
         Number(item.requestedAmount || 0),
         (item.currency || currency) as Currency,
@@ -708,7 +709,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       ? `<tr><td colspan="2" class="right">Advance Payment FDA</td><td class="amount">-${escapeHtml(formatCurrencyNumber(invoiceAdvancePayment, jobCurrency))}</td></tr><tr class="total"><td colspan="2" class="right">SISA TAGIHAN SETELAH ADVANCE</td><td class="amount">${escapeHtml(formatCurrencyNumber(invoiceBalanceAfterAdvance, jobCurrency))}</td></tr>`
       : '';
     const equivalentRow = jobCurrency === 'USD'
-      ? `<tr class="total"><td colspan="2" class="right">Equivalen IDR (Kurs ${escapeHtml(new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(getJobExchangeRate(activeJob)))}):</td><td class="amount">${escapeHtml(formatIDR(invoiceAmount * getJobExchangeRate(activeJob)))}</td></tr>`
+      ? `<tr class="total"><td colspan="2" class="right">Equivalen IDR (Kurs ${escapeHtml(new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(getJobExchangeRate(activeJob)))}):</td><td class="amount">${escapeHtml(formatIDR(invoiceAmount * getJobExchangeRate(activeJob)))}</td></tr>`
       : '';
 
     const printBankInfo = jobCurrency === 'USD'
@@ -1420,7 +1421,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   {jobCurrency === 'USD' && (
                     <tr>
                       <td colSpan={2} className="p-3 text-right text-slate-400 uppercase">
-                        Equivalen IDR (Kurs {new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(getJobExchangeRate(activeJob))}):
+                        Equivalen IDR (Kurs {new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(getJobExchangeRate(activeJob))}):
                       </td>
                       <td className="p-3 text-right font-mono text-slate-300">
                         {formatIDR(invoiceAmount * getJobExchangeRate(activeJob))}
@@ -1518,15 +1519,13 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                 </select>
               </label>
               <label className="text-xs text-slate-400">Nominal Masuk ({receiptCurrency}) *
-                <input
-                  type="number"
+                <FormattedNumberInput
                   required
                   min={receiptCurrency === 'IDR' ? '1' : '0.01'}
-                  step={receiptCurrency === 'IDR' ? '1' : '0.01'}
                   value={receiptAmount}
-                  onChange={(event) => { setReceiptAmount(event.target.value); setReceiptAmountError(''); }}
+                  maximumFractionDigits={receiptCurrency === 'IDR' ? 0 : 2}
+                  onValueChange={(value) => { setReceiptAmount(value); setReceiptAmountError(''); }}
                   placeholder={receiptCurrency === 'IDR' ? '0' : '0.00'}
-                  inputMode="decimal"
                   className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
                 />
                 <span className="mt-1 block text-[10px] text-slate-500">
@@ -1535,10 +1534,10 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
               </label>
               {receiptCurrency !== jobCurrency ? (
                 <label className="text-xs text-slate-400">Kurs Realisasi (IDR / USD) *
-                  <input type="number" required min="1" step="0.01" value={receiptExchangeRate} onChange={(event) => setReceiptExchangeRate(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
+                  <FormattedNumberInput required min="1" value={receiptExchangeRate} onValueChange={setReceiptExchangeRate} maximumFractionDigits={4} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
                 </label>
               ) : <div className="text-xs text-slate-400">Kurs Invoice
-                <div className="mt-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-300">{jobCurrency === 'USD' ? `Rp ${new Intl.NumberFormat('id-ID').format(getJobExchangeRate(activeJob))} / USD` : 'Tidak diperlukan'}</div>
+                <div className="mt-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-300">{jobCurrency === 'USD' ? `Rp ${new Intl.NumberFormat('en-US').format(getJobExchangeRate(activeJob))} / USD` : 'Tidak diperlukan'}</div>
               </div>}
               <label className="text-xs text-slate-400">Remark Bank *
                 <input required value={receiptBankRemark} onChange={(event) => setReceiptBankRemark(event.target.value)} placeholder="Contoh: Transfer BCA dari Principal" className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
@@ -1554,7 +1553,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
               <div className="md:col-span-2 xl:col-span-7 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs">
                 <span className="text-slate-300">Dibukukan ke invoice: <b className="text-emerald-300">{formatJobCurrency(Math.min(receiptAmountInInvoiceCurrency, jobAROutstanding))}</b></span>
                 {estimatedRefundInPaymentCurrency > 0 && <span className="text-rose-300">Lebih bayar, refund pending: <b>{formatCurrency(estimatedRefundInPaymentCurrency, receiptCurrency)}</b></span>}
-                {receiptCurrency !== jobCurrency && <span className="text-slate-400">Kurs realisasi: Rp {new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(receiptExchangeRateValue)} / USD</span>}
+                {receiptCurrency !== jobCurrency && <span className="text-slate-400">Kurs realisasi: Rp {new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(receiptExchangeRateValue)} / USD</span>}
               </div>
               <div className="md:col-span-2 xl:col-span-7 flex items-center justify-between gap-3">
                 <div>
@@ -1589,7 +1588,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                       <input type="date" required value={refundCompletionDate} onChange={(event) => setRefundCompletionDate(event.target.value)} className="mt-1 w-full rounded-lg border border-rose-300/30 bg-slate-900 px-3 py-2 text-sm text-white" />
                     </label>
                     {receipt.currency !== jobCurrency && <label className="text-xs text-rose-100">Kurs Refund (IDR / USD) *
-                      <input type="number" required min="1" step="0.01" value={refundExchangeRate} onChange={(event) => setRefundExchangeRate(event.target.value)} className="mt-1 w-full rounded-lg border border-rose-300/30 bg-slate-900 px-3 py-2 text-sm text-white" />
+                      <FormattedNumberInput required min="1" value={refundExchangeRate} onValueChange={setRefundExchangeRate} maximumFractionDigits={4} className="mt-1 w-full rounded-lg border border-rose-300/30 bg-slate-900 px-3 py-2 text-sm text-white" />
                     </label>}
                     <label className="text-xs text-rose-100">Referensi Bank Refund *
                       <input required value={refundBankReference} onChange={(event) => setRefundBankReference(event.target.value)} className="mt-1 w-full rounded-lg border border-rose-300/30 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="Nomor referensi transfer" />
@@ -1625,7 +1624,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                         <td className="p-3 text-slate-300">{formatDateDisplay(receipt.receivedDate)}</td>
                         <td className="p-3 text-slate-300">{receipt.paymentType === 'ADVANCE_PAYMENT' ? 'Advance Payment' : 'Invoice'}</td>
                         <td className="p-3 text-right font-mono font-bold text-emerald-300">{jobCurrency === receipt.currency ? formatJobCurrency(receipt.amount) : `${receipt.currency} ${receipt.amount.toLocaleString('en-US')}`}</td>
-                        <td className="p-3 text-right font-mono text-slate-400">{receipt.exchangeRateUSDToIDR ? new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(receipt.exchangeRateUSDToIDR) : '-'}</td>
+                        <td className="p-3 text-right font-mono text-slate-400">{receipt.exchangeRateUSDToIDR ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(receipt.exchangeRateUSDToIDR) : '-'}</td>
                         <td className="p-3 text-slate-300">{receipt.bankRemark}</td>
                         <td className="p-3 text-xs">
                           {receipt.refundStatus && receipt.refundStatus !== 'NONE'
@@ -1823,8 +1822,8 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                 </div>
               </div>
 
-              <div className="mb-4 flex flex-col gap-3 rounded-xl border border-slate-700 bg-slate-900 p-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="relative w-full flex-1 sm:max-w-[760px]">
+              <div className="mb-4 flex flex-col gap-3 rounded-xl border border-slate-700 bg-slate-900 p-3 lg:flex-row lg:items-end">
+                <div className="relative min-w-0 w-full flex-1">
                   <SearchIcon className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                   <input
                     value={closingSearch}
@@ -1833,11 +1832,11 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                     className="w-full rounded-lg border border-slate-800 bg-slate-950 py-2 pl-9 pr-3 text-xs text-slate-200 placeholder:text-slate-500 focus:border-cyan-500 focus:outline-none"
                   />
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex w-full flex-wrap items-end gap-2 lg:w-auto lg:flex-nowrap">
                   <InquiryDateRangePicker
                     value={closingDateRange}
                     onChange={setClosingDateRange}
-                    className="w-full sm:w-auto"
+                    className="w-full lg:w-auto"
                   />
                   <div className="whitespace-nowrap rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200">
                     Total: <span className="text-cyan-300">{filteredClosingJobs.length}</span>

@@ -1,12 +1,15 @@
 import React, { useMemo, useState } from 'react';
 import { Check, ChevronDown, ChevronRight, X } from 'lucide-react';
-import { PaymentVoucher } from '../../types';
+import { PaymentVoucher, UserRole } from '../../types';
 import { db } from '../../db/storage';
 import { formatDateDisplay } from '../../utils/date';
+import { getPaymentVoucherPphLabel, getPaymentVoucherPphRate } from '../../utils/paymentVoucherTax';
 
 interface VoucherApprovalViewProps {
   paymentVouchers: PaymentVoucher[];
   reviewer: string;
+  reviewerUserId: string;
+  reviewerRole: Extract<UserRole, 'MANAGER_OPS' | 'DIRECTOR'>;
 }
 
 type Filter = 'PENDING_MANAGER' | 'ALL';
@@ -25,20 +28,26 @@ export const voucherStatusBadge = (status?: PaymentVoucher['status']) => {
   }
 };
 
-export const VoucherApprovalView: React.FC<VoucherApprovalViewProps> = ({ paymentVouchers, reviewer }) => {
+export const VoucherApprovalView: React.FC<VoucherApprovalViewProps> = ({ paymentVouchers, reviewer, reviewerUserId, reviewerRole }) => {
   const [filter, setFilter] = useState<Filter>('PENDING_MANAGER');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
 
+  const eligibleVouchers = useMemo(
+    () => paymentVouchers.filter((voucher) => voucher.approvalTargetUserId
+      ? voucher.approvalTargetUserId === reviewerUserId && voucher.approvalTargetRole === reviewerRole
+      : reviewerRole === 'MANAGER_OPS'),
+    [paymentVouchers, reviewerUserId, reviewerRole],
+  );
   const vouchers = useMemo(
-    () => [...paymentVouchers]
+    () => [...eligibleVouchers]
       .filter((voucher) => filter === 'ALL' || (voucher.status || 'PENDING_MANAGER') === 'PENDING_MANAGER')
       .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
-    [paymentVouchers, filter],
+    [eligibleVouchers, filter],
   );
-  const pendingCount = paymentVouchers.filter((voucher) => (voucher.status || 'PENDING_MANAGER') === 'PENDING_MANAGER').length;
+  const pendingCount = eligibleVouchers.filter((voucher) => (voucher.status || 'PENDING_MANAGER') === 'PENDING_MANAGER').length;
 
   const approve = async (voucher: PaymentVoucher) => {
     setError('');
@@ -65,9 +74,9 @@ export const VoucherApprovalView: React.FC<VoucherApprovalViewProps> = ({ paymen
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Operations Manager</div>
+            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{reviewerRole === 'DIRECTOR' ? 'Director Office' : 'Operations Manager'}</div>
             <h1 className="mt-1 text-xl font-black text-slate-900 lg:text-2xl">Voucher Approval</h1>
-            <p className="text-xs text-slate-500">Setujui pengajuan Payment Voucher dari FDA. Yang disetujui diteruskan ke Finance; yang ditolak kembali ke FDA untuk diedit.</p>
+            <p className="text-xs text-slate-500">{reviewerRole === 'DIRECTOR' ? 'Setujui atau tolak voucher yang ditujukan kepada user Dirops.' : 'Setujui atau tolak voucher yang ditujukan kepada user Manager Branch. Yang disetujui diteruskan ke Finance; yang ditolak kembali ke pengaju.'}</p>
           </div>
           <div className="flex gap-2">
             <button type="button" onClick={() => setFilter('PENDING_MANAGER')} className={`rounded-xl border px-3 py-2 text-xs font-bold ${filter === 'PENDING_MANAGER' ? 'border-slate-300 bg-slate-200 text-slate-800' : 'border-slate-200 bg-white text-slate-700'}`}>
@@ -163,7 +172,7 @@ export const VoucherApprovalView: React.FC<VoucherApprovalViewProps> = ({ paymen
                             <tr>
                               <th className="p-2">No</th><th className="p-2">JOB Number</th>{voucher.jobInfo === 'JOB_VESSEL' && <th className="p-2">FDA / FPDA Number</th>}<th className="p-2">{voucher.jobInfo === 'JOB_VESSEL' ? 'Vessel name' : 'Customer'}</th><th className="p-2">Item Service</th>
                               <th className="p-2 text-right">Amount</th><th className="p-2 text-right">Vat</th><th className="p-2 text-right">Total</th>
-                              <th className="p-2 text-right">PPH 23</th><th className="p-2 text-right">Paid Amount</th>
+                              <th className="p-2 text-right">Potongan PPh</th><th className="p-2 text-right">Paid Amount</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-200">
@@ -177,7 +186,7 @@ export const VoucherApprovalView: React.FC<VoucherApprovalViewProps> = ({ paymen
                                 <td className="p-2 text-right font-mono">{money(item.amount)}</td>
                                 <td className="p-2 text-right font-mono">{money(item.vatAmount)}</td>
                                 <td className="p-2 text-right font-mono">{money(item.total)}</td>
-                                <td className="p-2 text-right font-mono">{money(item.pph23Amount)}</td>
+                                <td className="p-2 text-right font-mono">{getPaymentVoucherPphRate(item) > 0 && <span className="block text-[10px] text-rose-600">{getPaymentVoucherPphLabel(getPaymentVoucherPphRate(item))}</span>}{money(item.pph23Amount)}</td>
                                 <td className="p-2 text-right font-mono font-bold">{money(item.paidAmount)}</td>
                               </tr>
                             ))}

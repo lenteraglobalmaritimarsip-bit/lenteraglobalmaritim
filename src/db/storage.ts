@@ -8,12 +8,14 @@ import {
   ExpensesItem,
   VendorPartner,
   BankAccount,
+  ChartOfAccount,
   CashBalanceAdjustment,
   PaymentVoucher,
   JobCall,
   Currency,
   UserRole,
   AuditLog,
+  Branch,
 } from '../types';
 import {
   INITIAL_USERS,
@@ -27,11 +29,13 @@ import {
 } from './initialData';
 import { apiAuth } from '../lib/api';
 import { dataApi } from '../lib/dataApi';
+import { getBranchByValue, INITIAL_BRANCHES } from '../branches';
 
 import { todayISO } from '../utils/date';
 import { convertPrincipalReceiptAmount, getPrincipalReceiptSummary, syncPrincipalInvoiceSettlement } from '../utils/principalInvoice';
 
 export interface DatabaseState {
+  branches: Branch[];
   users: User[];
   customers: Customer[];
   vessels: Vessel[];
@@ -41,6 +45,7 @@ export interface DatabaseState {
   expensesItems: ExpensesItem[];
   vendorPartners: VendorPartner[];
   bankAccounts: BankAccount[];
+  chartOfAccounts: ChartOfAccount[];
   cashBalanceAdjustments: CashBalanceAdjustment[];
   paymentVouchers: PaymentVoucher[];
   jobCalls: JobCall[];
@@ -93,7 +98,7 @@ const migrateJobData = (jobCalls: JobCall[]): { jobCalls: JobCall[]; migrated: b
         ? job.fda.date
         : `${legacyFdaNumber[1]}-01-01`;
       const [year, month] = fdaDate.split('-');
-      const branchCode = normalizeBranchCode(job.inquiry?.createdByBranch || 'JKT');
+      const branchCode = branchCodeFor(job.inquiry?.createdByBranch || 'JKT');
       let sequence = Number(legacyFdaNumber[2]);
       let fdaNo = `${String(sequence).padStart(4, '0')}/FDA-LGM-${branchCode}/${month}/${year}`;
       while (usedFdaNumbers.has(fdaNo)) {
@@ -118,14 +123,20 @@ const migrateJobData = (jobCalls: JobCall[]): { jobCalls: JobCall[]; migrated: b
 const normalizeBranchName = (branch?: string): string => (branch || '').trim().toLowerCase();
 const sameBranch = (left?: string, right?: string): boolean => normalizeBranchName(left) === normalizeBranchName(right);
 const normalizeBranchCode = (branch: string): string => branch.trim().toUpperCase().replace(/[^A-Z0-9]/g, '') || 'JKT';
+const branchCodeFor = (branch: string, branches: Branch[] = INITIAL_BRANCHES): string =>
+  getBranchByValue(branch, branches)?.code || normalizeBranchCode(branch);
 const nextFixTariffSequence = (tariffs: FixTariff[]): number => tariffs.reduce((highest, tariff) => {
   const match = /^TAR-(\d+)$/i.exec(tariff.id);
+  return match ? Math.max(highest, Number(match[1])) : highest;
+}, 0) + 1;
+const nextMasterSequence = (records: Array<{ id: string }>, prefix: string): number => records.reduce((highest, record) => {
+  const match = new RegExp(`^${prefix}-(\\d+)$`, 'i').exec(record.id);
   return match ? Math.max(highest, Number(match[1])) : highest;
 }, 0) + 1;
 
 const nextFormNumber = (jobCalls: JobCall[], type: 'EPDA' | 'FDA', branch: string, date: string): string => {
   const [year, month] = date.split('-');
-  const branchCode = normalizeBranchCode(branch);
+  const branchCode = branchCodeFor(branch);
   const documentType = type;
   const prefix = `${documentType}-LGM-${branchCode}`;
   const maxSequence = jobCalls.reduce((max, job) => {
@@ -136,6 +147,15 @@ const nextFormNumber = (jobCalls: JobCall[], type: 'EPDA' | 'FDA', branch: strin
   }, 0);
 
   return `${String(maxSequence + 1).padStart(4, '0')}/${prefix}/${month}/${year}`;
+};
+
+const jobNumberSequence = (jobId: string, branchCode: string, year: number): number => {
+  const match = /^VC-([A-Z0-9]+)-(\d{4})-(\d+)$/i.exec(jobId);
+  if (match && match[1].toUpperCase() === branchCode && Number(match[2]) === year) return Number(match[3]);
+  const legacyMatch = /^VC-(\d{4})-(\d+)$/i.exec(jobId);
+  return branchCode === 'JKT' && legacyMatch && Number(legacyMatch[1]) === year
+    ? Number(legacyMatch[2])
+    : 0;
 };
 
 export const isJobClosed = (job?: Partial<JobCall> | null): boolean => {
@@ -154,7 +174,7 @@ class DatabaseService {
   private apiSyncError: unknown = null;
   private apiRevision = '';
   private stateVersion = 0;
-  private actor: { id?: string; name: string; role: UserRole; branch?: string } = { name: 'System', role: 'ADMIN' };
+  private actor: { id?: string; name: string; role: UserRole; branch?: string; branchId?: string } = { name: 'System', role: 'ADMIN' };
 
   constructor() {
     this.state = this.getDefaultState();
@@ -162,6 +182,7 @@ class DatabaseService {
 
   private getDefaultState(): DatabaseState {
     return {
+      branches: INITIAL_BRANCHES,
       users: INITIAL_USERS,
       customers: INITIAL_CUSTOMERS,
       vessels: INITIAL_VESSELS,
@@ -171,6 +192,7 @@ class DatabaseService {
       expensesItems: INITIAL_EXPENSES_ITEMS,
       vendorPartners: [],
       bankAccounts: [],
+      chartOfAccounts: [],
       cashBalanceAdjustments: [],
       paymentVouchers: [],
       jobCalls: withoutRemovedJobCalls(LOCAL_INITIAL_JOB_CALLS),
@@ -189,21 +211,23 @@ class DatabaseService {
       this.state = {
         ...defaults,
         ...remote.state,
+        branches: remote.state.branches?.length ? remote.state.branches : INITIAL_BRANCHES,
         users: remote.state.users,
         jobCalls: remote.state.jobCalls,
         auditLogs: remote.state.auditLogs,
         currentRole: this.actor.role,
       };
-      this.apiRevision = await dataApi.save(this.state, this.apiRevision);
+      this.apiRevision = (await dataApi.save(this.state, this.apiRevision)).revision;
     } else {
       const migration = migrateJobData(remote.state.jobCalls);
       this.state = {
         ...remote.state,
+        branches: remote.state.branches?.length ? remote.state.branches : INITIAL_BRANCHES,
         jobCalls: migration.jobCalls,
         currentRole: this.actor.role,
       };
       if (migration.migrated) {
-        this.apiRevision = await dataApi.save(this.state, this.apiRevision);
+        this.apiRevision = (await dataApi.save(this.state, this.apiRevision)).revision;
       }
     }
     this.notify();
@@ -225,12 +249,13 @@ class DatabaseService {
     const migration = migrateJobData(remote.state.jobCalls);
     this.state = {
       ...remote.state,
+      branches: remote.state.branches?.length ? remote.state.branches : INITIAL_BRANCHES,
       jobCalls: migration.jobCalls,
       currentRole: this.actor.role,
     };
     this.apiRevision = remote.revision;
     if (migration.migrated) {
-      this.apiRevision = await dataApi.save(this.state, this.apiRevision);
+      this.apiRevision = (await dataApi.save(this.state, this.apiRevision)).revision;
     }
     this.notify();
   }
@@ -252,12 +277,16 @@ class DatabaseService {
     this.state.auditLogs = [...permanentJobNumberLogs, ...recentLogs];
   }
 
-  public setActor(actor: { id?: string; name: string; role: UserRole; branch?: string }): void {
+  public setActor(actor: { id?: string; name: string; role: UserRole; branch?: string; branchId?: string }): void {
     this.actor = actor;
   }
 
   public getActorBranch(): string {
     return this.actor.branch?.trim() || 'Head Office';
+  }
+
+  public getActorBranchId(): string {
+    return this.actor.branchId || getBranchByValue(this.actor.branch, this.state.branches)?.id || '';
   }
 
   private assertUniquePortCode(code: string, excludedPortId?: string): string {
@@ -279,8 +308,19 @@ class DatabaseService {
     this.apiSaveQueue = this.apiSaveQueue
       .then(async () => {
         if (!this.apiRevision) throw new Error('Revisi database XAMPP tidak tersedia.');
-        this.apiRevision = await dataApi.save(snapshot, this.apiRevision);
+        const result = await dataApi.save(snapshot, this.apiRevision);
+        this.apiRevision = result.revision;
+        let journalNumbersChanged = false;
+        if (Object.keys(result.journalNumbers).length > 0) {
+          this.state.paymentVouchers = this.state.paymentVouchers.map((voucher) => {
+            const journalNumber = result.journalNumbers[voucher.id];
+            if (!journalNumber || voucher.journalNumber === journalNumber) return voucher;
+            journalNumbersChanged = true;
+            return { ...voucher, journalNumber };
+          });
+        }
         this.apiSyncError = null;
+        if (journalNumbersChanged) this.notify();
       })
       .catch((error: unknown) => {
         this.apiSyncError = error;
@@ -387,6 +427,7 @@ class DatabaseService {
     const retainedAdjustments = this.state.cashBalanceAdjustments || [];
     const adjustmentAccountIds = new Set(retainedAdjustments.map((adjustment) => adjustment.bankAccountId));
     this.state = {
+      branches: this.state.branches,
       users: INITIAL_USERS,
       customers: INITIAL_CUSTOMERS,
       vessels: INITIAL_VESSELS,
@@ -396,6 +437,7 @@ class DatabaseService {
       expensesItems: INITIAL_EXPENSES_ITEMS,
       vendorPartners: [],
       bankAccounts: (this.state.bankAccounts || []).filter((account) => adjustmentAccountIds.has(account.id)),
+      chartOfAccounts: this.state.chartOfAccounts || [],
       cashBalanceAdjustments: retainedAdjustments,
       paymentVouchers: [],
       jobCalls: withoutRemovedJobCalls(LOCAL_INITIAL_JOB_CALLS),
@@ -446,26 +488,45 @@ class DatabaseService {
 
   // Users
   public async addUser(user: Omit<User, 'id'>): Promise<User> {
-    const id = `USR-${String(this.state.users.length + 1).padStart(3, '0')}`;
-    const newUser: User = { ...user, id };
+    const isHeadOfficeRole = user.role === 'ACCOUNTING' || user.role === 'DIRECTOR';
+    const branch = isHeadOfficeRole
+      ? undefined
+      : getBranchByValue(user.branchId || user.branch, this.state.branches);
+    if (!isHeadOfficeRole && !branch) throw new Error('Pilih branch aktif dari master branch.');
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
+    const id = `USR-${String(nextMasterSequence(this.state.users, 'USR')).padStart(3, '0')}`;
+    const newUser: User = {
+      ...user,
+      branch: branch?.code || '',
+      ...(branch ? { branchId: branch.id } : { branchId: undefined }),
+      id,
+    };
     this.state.users = [...this.state.users, newUser];
     this.audit('CREATE', 'USER', `Created user ${newUser.name}`, newUser.id);
-    await this.saveToStorage();
+    await this.persistMasterMutation(previousState);
     return newUser;
   }
 
   public async updateUser(id: string, updates: Partial<User>): Promise<void> {
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     const currentUser = this.state.users.find((user) => user.id === id);
+    const headOfficeUser = ['ACCOUNTING', 'DIRECTOR'].includes(updates.role || currentUser?.role || '');
+    const branch = headOfficeUser
+      ? undefined
+      : getBranchByValue(updates.branchId || updates.branch || currentUser?.branchId || currentUser?.branch, this.state.branches);
+    const normalizedUpdates = headOfficeUser
+      ? { ...updates, branch: '', branchId: undefined }
+      : branch ? { ...updates, branch: branch.code, branchId: branch.id } : updates;
     this.state.users = this.state.users.map((u) =>
-      u.id === id ? { ...u, ...updates } : u
+      u.id === id ? { ...u, ...normalizedUpdates } : u
     );
-    const statusChanged = currentUser && updates.status && currentUser.status !== updates.status;
-    const action = statusChanged ? (updates.status === 'ACTIVE' ? 'ACTIVATE' : 'DEACTIVATE') : 'UPDATE';
+    const statusChanged = currentUser && normalizedUpdates.status && currentUser.status !== normalizedUpdates.status;
+    const action = statusChanged ? (normalizedUpdates.status === 'ACTIVE' ? 'ACTIVATE' : 'DEACTIVATE') : 'UPDATE';
     const description = statusChanged
-      ? `Admin ${updates.status === 'ACTIVE' ? 'mengaktifkan' : 'menonaktifkan'} akun ${currentUser.name}.`
+      ? `Admin ${normalizedUpdates.status === 'ACTIVE' ? 'mengaktifkan' : 'menonaktifkan'} akun ${currentUser.name}.`
       : `Updated user ${id}`;
     this.audit(action, 'USER', description, id);
-    await this.saveToStorage();
+    await this.persistMasterMutation(previousState);
   }
 
   public async deleteUser(id: string): Promise<void> {
@@ -477,19 +538,21 @@ class DatabaseService {
 
   // Customers
   public async addCustomer(customer: Omit<Customer, 'id'>): Promise<Customer> {
-    const id = `CUST-${String(this.state.customers.length + 1).padStart(3, '0')}`;
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
+    const id = `CUST-${String(nextMasterSequence(this.state.customers, 'CUST')).padStart(3, '0')}`;
     const newCust: Customer = { ...customer, id };
     this.state.customers = [...this.state.customers, newCust];
     this.audit('CREATE', 'CUSTOMER', `Created customer ${newCust.companyName}`, newCust.id);
-    await this.saveToStorage();
+    await this.persistMasterMutation(previousState);
     return newCust;
   }
 
   public async updateCustomer(id: string, updates: Partial<Customer>): Promise<void> {
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.customers = this.state.customers.map((c) =>
       c.id === id ? { ...c, ...updates } : c
     );
-    await this.saveToStorage();
+    await this.persistMasterMutation(previousState);
   }
 
   public async deleteCustomer(id: string): Promise<void> {
@@ -498,21 +561,44 @@ class DatabaseService {
     await this.persistMasterMutation(previousState);
   }
 
+  public async addChartOfAccount(account: Omit<ChartOfAccount, 'id'>): Promise<ChartOfAccount> {
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
+    const id = `COA-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+    const newAccount: ChartOfAccount = { ...account, id };
+    this.state.chartOfAccounts = [...this.state.chartOfAccounts, newAccount];
+    this.audit('CREATE', 'CHART_OF_ACCOUNT', `Created COA ${newAccount.code} - ${newAccount.accountDesc}`, id);
+    await this.persistMasterMutation(previousState);
+    return newAccount;
+  }
+
+  public async updateChartOfAccount(id: string, updates: Partial<Omit<ChartOfAccount, 'id'>>): Promise<void> {
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
+    const account = this.state.chartOfAccounts.find((item) => item.id === id);
+    if (!account) throw new Error('COA tidak ditemukan.');
+    this.state.chartOfAccounts = this.state.chartOfAccounts.map((item) =>
+      item.id === id ? { ...item, ...updates } : item
+    );
+    this.audit('UPDATE', 'CHART_OF_ACCOUNT', `Updated COA ${account.code} - ${account.accountDesc}`, id);
+    await this.persistMasterMutation(previousState);
+  }
+
   // Vessels
   public async addVessel(vessel: Omit<Vessel, 'id'>): Promise<Vessel> {
-    const id = `VES-${String(this.state.vessels.length + 1).padStart(3, '0')}`;
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
+    const id = `VES-${String(nextMasterSequence(this.state.vessels, 'VES')).padStart(3, '0')}`;
     const newVessel: Vessel = { ...vessel, id };
     this.state.vessels = [...this.state.vessels, newVessel];
     this.audit('CREATE', 'VESSEL', `Created vessel ${newVessel.name}`, newVessel.id);
-    await this.saveToStorage();
+    await this.persistMasterMutation(previousState);
     return newVessel;
   }
 
   public async updateVessel(id: string, updates: Partial<Vessel>): Promise<void> {
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.vessels = this.state.vessels.map((v) =>
       v.id === id ? { ...v, ...updates } : v
     );
-    await this.saveToStorage();
+    await this.persistMasterMutation(previousState);
   }
 
   public async deleteVessel(id: string): Promise<void> {
@@ -525,7 +611,7 @@ class DatabaseService {
   public async addPort(port: Omit<Port, 'id'>): Promise<Port> {
     const code = this.assertUniquePortCode(port.code);
     const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
-    const id = `PRT-${String(this.state.ports.length + 1).padStart(3, '0')}`;
+    const id = `PRT-${String(nextMasterSequence(this.state.ports, 'PRT')).padStart(3, '0')}`;
     const newPort: Port = { ...port, code, id };
     this.state.ports = [...this.state.ports, newPort];
     this.audit('CREATE', 'PORT', `Created port ${newPort.name}`, newPort.id);
@@ -556,20 +642,22 @@ class DatabaseService {
   }
 
   // Zones
-  public addZone(zone: Omit<Zone, 'id'>): Zone {
-    const id = `ZON-${String(this.state.zones.length + 1).padStart(3, '0')}`;
+  public async addZone(zone: Omit<Zone, 'id'>): Promise<Zone> {
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
+    const id = `ZON-${String(nextMasterSequence(this.state.zones, 'ZON')).padStart(3, '0')}`;
     const newZone: Zone = { ...zone, id };
     this.state.zones = [...this.state.zones, newZone];
     this.audit('CREATE', 'ZONE', `Created zone ${newZone.zoneName}`, newZone.id);
-    this.saveToStorage();
+    await this.persistMasterMutation(previousState);
     return newZone;
   }
 
-  public updateZone(id: string, updates: Partial<Zone>): void {
+  public async updateZone(id: string, updates: Partial<Zone>): Promise<void> {
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.zones = this.state.zones.map((z) =>
       z.id === id ? { ...z, ...updates } : z
     );
-    this.saveToStorage();
+    await this.persistMasterMutation(previousState);
   }
 
   public async deleteZone(id: string): Promise<void> {
@@ -580,6 +668,7 @@ class DatabaseService {
 
   // Fix Tariff
   public async addFixTariff(tariff: Omit<FixTariff, 'id'>): Promise<FixTariff> {
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     const usedIds = new Set(this.state.fixTariffs.map((item) => item.id));
     let sequence = nextFixTariffSequence(this.state.fixTariffs);
     let id = `TAR-${String(sequence).padStart(4, '0')}`;
@@ -590,7 +679,7 @@ class DatabaseService {
     const newTariff: FixTariff = { ...tariff, id };
     this.state.fixTariffs = [...this.state.fixTariffs, newTariff];
     this.audit('CREATE', 'FIX_TARIFF', `Created tariff ${newTariff.id}`, newTariff.id);
-    await this.saveToStorage();
+    await this.persistMasterMutation(previousState);
     return newTariff;
   }
 
@@ -701,19 +790,21 @@ class DatabaseService {
 
   // Vendor Partners
   public async addVendorPartner(item: Omit<VendorPartner, 'id'>): Promise<VendorPartner> {
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     const list = this.state.vendorPartners || [];
     const maxNumber = list.reduce((max, v) => Math.max(max, Number(v.id.replace(/\D/g, '')) || 0), 0);
     const newItem: VendorPartner = { ...item, id: `VND-${String(maxNumber + 1).padStart(3, '0')}` };
     this.state.vendorPartners = [...list, newItem];
     this.audit('CREATE', 'VENDOR_PARTNER', `Created vendor partner ${newItem.vendorName}`, newItem.id);
-    await this.saveToStorage();
+    await this.persistMasterMutation(previousState);
     return newItem;
   }
 
   public async updateVendorPartner(id: string, updates: Partial<VendorPartner>): Promise<void> {
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.vendorPartners = (this.state.vendorPartners || []).map((v) => (v.id === id ? { ...v, ...updates, id } : v));
     this.audit('UPDATE', 'VENDOR_PARTNER', `Updated vendor partner ${updates.vendorName || id}`, id);
-    await this.saveToStorage();
+    await this.persistMasterMutation(previousState);
   }
 
   public async deleteVendorPartner(id: string): Promise<void> {
@@ -728,24 +819,39 @@ class DatabaseService {
 
   // Bank Accounts
   public async addBankAccount(item: Omit<BankAccount, 'id'>): Promise<BankAccount> {
+    const branch = getBranchByValue(item.branchId || item.branchName, this.state.branches);
+    if (!branch) throw new Error('Pilih branch aktif dari master branch.');
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     const list = this.state.bankAccounts || [];
     const maxNumber = list.reduce((max, v) => Math.max(max, Number(v.id.replace(/\D/g, '')) || 0), 0);
-    const newItem: BankAccount = { ...item, id: `BANK-${String(maxNumber + 1).padStart(3, '0')}` };
+    const newItem: BankAccount = { ...item, branchName: branch.code, branchId: branch.id, id: `BANK-${String(maxNumber + 1).padStart(3, '0')}` };
     this.state.bankAccounts = [...list, newItem];
     this.audit('CREATE', 'BANK_ACCOUNT', `Created bank account ${newItem.bankName}`, newItem.id);
-    await this.saveToStorage();
+    await this.persistMasterMutation(previousState);
     return newItem;
   }
 
   public async updateBankAccount(id: string, updates: Partial<BankAccount>): Promise<void> {
-    this.state.bankAccounts = (this.state.bankAccounts || []).map((account) => (account.id === id ? { ...account, ...updates, id } : account));
+    const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
+    const current = (this.state.bankAccounts || []).find((account) => account.id === id);
+    const branch = getBranchByValue(updates.branchId || updates.branchName || current?.branchId || current?.branchName, this.state.branches);
+    if (!branch) throw new Error('Pilih branch aktif dari master branch.');
+    this.state.bankAccounts = (this.state.bankAccounts || []).map((account) => (account.id === id
+      ? { ...account, ...updates, branchName: branch.code, branchId: branch.id, id }
+      : account));
     this.audit('UPDATE', 'BANK_ACCOUNT', `Updated bank account ${updates.bankName || id}`, id);
-    await this.saveToStorage();
+    await this.persistMasterMutation(previousState);
   }
 
   public async deleteBankAccount(id: string): Promise<void> {
     if ((this.state.cashBalanceAdjustments || []).some((adjustment) => adjustment.bankAccountId === id)) {
       throw new Error('Rekening tidak dapat dihapus karena memiliki riwayat penyesuaian saldo kas.');
+    }
+    if ((this.state.paymentVouchers || []).some((voucher) =>
+      voucher.paidFromBankAccountId === id
+      || (voucher.paymentHistory || []).some((payment) => payment.paidFromBankAccountId === id),
+    )) {
+      throw new Error('Rekening tidak dapat dihapus karena memiliki riwayat pembayaran.');
     }
     const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     this.state.bankAccounts = (this.state.bankAccounts || []).filter((account) => account.id !== id);
@@ -780,6 +886,8 @@ class DatabaseService {
     const adjustment: CashBalanceAdjustment = {
       id: `CBA-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       bankAccountId: account.id,
+      branchName: account.branchName || '',
+      branchId: account.branchId || getBranchByValue(account.branchName, this.state.branches)?.id,
       bankName: account.bankName,
       accountNumber: account.accountNumber,
       currency: account.currency,
@@ -800,34 +908,48 @@ class DatabaseService {
   }
 
   // Payment Vouchers
-  public getNextPaymentVoucherNumber(requestDate: string): string {
+  public getNextPaymentVoucherNumber(requestDate: string, branch = this.getActorBranch()): string {
     const date = new Date(requestDate);
     const valid = Number.isNaN(date.getTime()) ? new Date() : date;
     const suffix = `${String(valid.getMonth() + 1).padStart(2, '0')}${String(valid.getFullYear()).slice(-2)}`;
     const yearSuffix = suffix.slice(-2);
+    const branchCode = branchCodeFor(branch, this.state.branches);
     const maxSequence = (this.state.paymentVouchers || []).reduce((max, v) => {
-      const match = /^OPS-(\d+)-(\d{2})(\d{2})$/.exec(v.requestNumber);
-      return match && match[3] === yearSuffix ? Math.max(max, Number(match[1])) : max;
+      const match = /^OPS([A-Z0-9]+)-(\d+)-(\d{2})(\d{2})$/.exec(v.requestNumber)
+        || /^OPS-(\d+)-(\d{2})(\d{2})$/.exec(v.requestNumber);
+      if (!match) return max;
+      const legacyJkt = match.length === 4 && branchCode === 'JKT';
+      const sequence = legacyJkt ? match[1] : match[2];
+      const numberYear = legacyJkt ? match[3] : match[4];
+      const matchesBranch = legacyJkt || match[1] === branchCode;
+      return matchesBranch && numberYear === yearSuffix ? Math.max(max, Number(sequence)) : max;
     }, 0);
-    return `OPS-${String(maxSequence + 1).padStart(4, '0')}-${suffix}`;
+    return `OPS${branchCode}-${String(maxSequence + 1).padStart(4, '0')}-${suffix}`;
   }
 
-  public getNextFinanceVoucherNumber(paymentDate: string): string {
+  public getNextFinanceVoucherNumber(paymentDate: string, branch = this.getActorBranch()): string {
     const date = new Date(`${paymentDate}T00:00:00`);
     const valid = Number.isNaN(date.getTime()) ? new Date() : date;
     const suffix = `${String(valid.getMonth() + 1).padStart(2, '0')}${String(valid.getFullYear()).slice(-2)}`;
     const yearSuffix = suffix.slice(-2);
+    const branchCode = branchCodeFor(branch, this.state.branches);
     const maxSequence = (this.state.paymentVouchers || []).reduce((max, voucher) => {
       const usedNumbers = [
         voucher.voucherNumber || '',
         ...(voucher.paymentHistory || []).map((payment) => payment.voucherNumber),
       ];
       return usedNumbers.reduce((voucherMax, number) => {
-        const match = /^PVJKT-(\d+)-(\d{2})(\d{2})$/.exec(number);
-        return match && match[3] === yearSuffix ? Math.max(voucherMax, Number(match[1])) : voucherMax;
+        const match = /^PV([A-Z0-9]+)-(\d+)-(\d{2})(\d{2})$/.exec(number)
+          || /^PVJKT-(\d+)-(\d{2})(\d{2})$/.exec(number);
+        if (!match) return voucherMax;
+        const legacyJkt = match.length === 4;
+        const matchesBranch = legacyJkt ? branchCode === 'JKT' : match[1] === branchCode;
+        const sequence = legacyJkt ? match[1] : match[2];
+        const numberYear = legacyJkt ? match[3] : match[4];
+        return matchesBranch && numberYear === yearSuffix ? Math.max(voucherMax, Number(sequence)) : voucherMax;
       }, max);
     }, 0);
-    return `PVJKT-${String(maxSequence + 1).padStart(4, '0')}-${suffix}`;
+    return `PV${branchCode}-${String(maxSequence + 1).padStart(4, '0')}-${suffix}`;
   }
 
   public getNextOperationalJobNumber(requestDate: string): string {
@@ -848,8 +970,17 @@ class DatabaseService {
   public async addPaymentVoucher(voucher: Omit<PaymentVoucher, 'id' | 'requestNumber' | 'createdAt'>): Promise<PaymentVoucher> {
     const previousVouchers = this.state.paymentVouchers;
     const previousAuditLogs = this.state.auditLogs;
-    const requestNumber = this.getNextPaymentVoucherNumber(voucher.requestDate);
-    const newVoucher: PaymentVoucher = { ...voucher, status: 'PENDING_MANAGER', id: `PV-${Date.now()}`, requestNumber, createdAt: new Date().toISOString() };
+    const branchName = this.getActorBranch();
+    const requestNumber = this.getNextPaymentVoucherNumber(voucher.requestDate, branchName);
+    const newVoucher: PaymentVoucher = {
+      ...voucher,
+      branchName,
+      branchId: this.getActorBranchId(),
+      status: 'PENDING_MANAGER',
+      id: `PV-${Date.now()}`,
+      requestNumber,
+      createdAt: new Date().toISOString(),
+    };
     this.state.paymentVouchers = [newVoucher, ...(this.state.paymentVouchers || [])];
     this.audit('CREATE', 'PAYMENT_VOUCHER', `Created payment voucher ${requestNumber}`, newVoucher.id);
     await this.persistPaymentVoucherMutation(previousVouchers, previousAuditLogs);
@@ -873,6 +1004,11 @@ class DatabaseService {
     const existing = (this.state.paymentVouchers || []).find((v) => v.id === id);
     if (!existing) throw new Error('Payment Voucher tidak ditemukan.');
     if ((existing.status || 'PENDING_MANAGER') !== 'PENDING_MANAGER') throw new Error('Voucher ini tidak sedang menunggu persetujuan.');
+    if (existing.approvalTargetUserId
+      ? existing.approvalTargetUserId !== this.actor.id || existing.approvalTargetRole !== this.actor.role
+      : this.actor.role !== 'MANAGER_OPS') {
+      throw new Error('Voucher ini hanya dapat diproses oleh user approver yang dituju.');
+    }
     if (decision === 'REJECTED' && !note.trim()) throw new Error('Alasan penolakan wajib diisi.');
     const previousVouchers = this.state.paymentVouchers;
     const previousAuditLogs = this.state.auditLogs;
@@ -887,7 +1023,7 @@ class DatabaseService {
     id: string,
     payer: string,
     paymentDate?: string,
-    paymentDetails: { surcharge?: number; otherExpenses?: number; description?: string; totalAmount?: number; paidFromBankAccountId?: string; paymentProofDataUrl?: string } = {},
+    paymentDetails: { surcharge?: number; surchargeCoaId?: string; otherExpenses?: number; otherExpensesCoaId?: string; description?: string; totalAmount?: number; paidFromBankAccountId?: string; paymentProofDataUrl?: string; paymentJournalLines?: PaymentVoucher['paymentJournalLines']; items?: PaymentVoucher['items'] } = {},
   ): Promise<void> {
     const existing = (this.state.paymentVouchers || []).find((v) => v.id === id);
     if (!existing) throw new Error('Payment Voucher tidak ditemukan.');
@@ -912,7 +1048,7 @@ class DatabaseService {
     const previousAuditLogs = this.state.auditLogs;
     const paidOn = paymentDate || todayISO();
     const paidAt = new Date(`${paidOn}T12:00:00`).toISOString();
-    const voucherNumber = existing.voucherNumber || this.getNextFinanceVoucherNumber(paidOn);
+    const voucherNumber = existing.voucherNumber || this.getNextFinanceVoucherNumber(paidOn, existing.branchName || this.getActorBranch());
     const surcharge = Number(paymentDetails.surcharge) || 0;
     const otherExpenses = Number(paymentDetails.otherExpenses) || 0;
     const totalAmount = Number(paymentDetails.totalAmount) || existing.totalPaidAmount + surcharge + otherExpenses;
@@ -925,10 +1061,14 @@ class DatabaseService {
           paidBy: payer,
           paidAt,
           paymentSurcharge: surcharge,
+          paymentSurchargeCoaId: paymentDetails.surchargeCoaId || '',
           paymentOtherExpenses: otherExpenses,
+          paymentOtherExpensesCoaId: paymentDetails.otherExpensesCoaId || '',
           paymentDescription: description,
           paymentTotalAmount: totalAmount,
           paidFromBankAccountId: paymentDetails.paidFromBankAccountId || existing.paidFromBankAccountId,
+          paymentJournalLines: paymentDetails.paymentJournalLines || [],
+          ...(paymentDetails.items ? { items: paymentDetails.items } : {}),
           ...(paymentDetails.paymentProofDataUrl ? { paymentProofDataUrl: paymentDetails.paymentProofDataUrl } : {}),
         }
       : v));
@@ -1181,6 +1321,7 @@ class DatabaseService {
     const actorBranch = this.actor.role === 'SALES'
       ? (this.actor.branch || 'Head Office')
       : (jobData.inquiry?.createdByBranch || getCurrentBranchName());
+    const branchCode = branchCodeFor(actorBranch, this.state.branches);
     const previousJobCalls = [...this.state.jobCalls];
     const previousSelectedJobId = this.state.selectedJobId;
     const previousAuditLogs = this.state.auditLogs;
@@ -1194,24 +1335,20 @@ class DatabaseService {
       ...activeJobIds,
       ...(this.state.reservedJobIds || []).filter((jobId) => !deletedJobIds.has(jobId)),
     ]);
-    const yearPrefix = `VC-${year}-`;
     const maxSequence = [
       ...activeJobIds,
       ...(this.state.reservedJobIds || []).filter((jobId) => !deletedJobIds.has(jobId)),
     ].reduce((max, jobId) => {
-      if (!jobId.startsWith(yearPrefix)) return max;
-      const sequence = Number(jobId.slice(yearPrefix.length));
+      const sequence = jobNumberSequence(jobId, branchCode, year);
       return Number.isInteger(sequence) && sequence > max ? sequence : max;
     }, 0);
     let nextSeq = maxSequence + 1;
-    let generatedJobId = `VC-${year}-${String(nextSeq).padStart(4, '0')}`;
+    let generatedJobId = `VC-${branchCode}-${year}-${String(nextSeq).padStart(4, '0')}`;
     const reusableJobId = this.state.auditLogs
       .filter((log) =>
         log.entity === 'VESSEL_CALL' &&
         log.action === 'DELETE' &&
-        !!log.entityId &&
-        log.entityId.startsWith(yearPrefix) &&
-        Number.isInteger(Number(log.entityId.slice(yearPrefix.length))) &&
+        jobNumberSequence(log.entityId || '', branchCode, year) > 0 &&
         !activeJobIds.has(log.entityId),
       )
       .sort((first, second) => second.timestamp.localeCompare(first.timestamp))
@@ -1219,14 +1356,14 @@ class DatabaseService {
     if (reusableJobId) generatedJobId = reusableJobId;
     while (existingJobIds.has(generatedJobId)) {
       nextSeq += 1;
-      generatedJobId = `VC-${year}-${String(nextSeq).padStart(4, '0')}`;
+      generatedJobId = `VC-${branchCode}-${year}-${String(nextSeq).padStart(4, '0')}`;
     }
     const requestedJobId = jobData.jobId?.trim();
     const newJobId = requestedJobId && !existingJobIds.has(requestedJobId) ? requestedJobId : generatedJobId;
     const documentSequence = reusableJobId
-      ? Number(reusableJobId.slice(yearPrefix.length))
+      ? jobNumberSequence(reusableJobId, branchCode, year)
       : nextSeq;
-    const documentNumberJobId = `VC-${year}-${String(documentSequence).padStart(4, '0')}`;
+    const documentNumberJobId = `VC-${branchCode}-${year}-${String(documentSequence).padStart(4, '0')}`;
     const epdaNo = nextFormNumber(previousJobCalls, 'EPDA', actorBranch, documentDate);
     const fdaNo = nextFormNumber(previousJobCalls, 'FDA', actorBranch, documentDate);
 
@@ -1250,7 +1387,7 @@ class DatabaseService {
 
       inquiry: {
         ...(jobData.inquiry || {}),
-        inquiryNo: `INQ-${year}-${String(documentSequence).padStart(4, '0')}`,
+        inquiryNo: `INQ-${branchCode}-${year}-${String(documentSequence).padStart(4, '0')}`,
         date: jobData.inquiry?.date || documentDate,
         eta: jobData.inquiry?.eta ?? jobData.eta ?? '',
         etd: jobData.inquiry?.etd ?? jobData.etd ?? '',
@@ -1260,6 +1397,7 @@ class DatabaseService {
         status: jobData.inquiry?.status || 'RECEIVED',
         createdBy: jobData.inquiry?.createdBy || 'Sarah Wijaya (SALES)',
         createdByBranch: actorBranch,
+        createdByBranchId: this.actor.branchId || getBranchByValue(actorBranch, this.state.branches)?.id,
       },
 
       quotation: jobData.quotation || {
@@ -1340,7 +1478,7 @@ class DatabaseService {
     const snapshot = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     const saveOperation = this.apiSaveQueue.then(async () => {
       if (!this.apiRevision) throw new Error('Revisi database XAMPP tidak tersedia.');
-      this.apiRevision = await dataApi.save(snapshot, this.apiRevision);
+      this.apiRevision = (await dataApi.save(snapshot, this.apiRevision)).revision;
       this.apiSyncError = null;
     });
     this.apiSaveQueue = saveOperation.catch((error: unknown) => {
@@ -1452,7 +1590,7 @@ class DatabaseService {
       ? approvedFpda.total
       : job.fda.finalBilledToPrincipal
         || job.principalInvoice?.totalAmountUSD
-        || job.quotation?.epda?.totalAmount
+        || Math.max(0, (job.quotation?.epda?.totalAmount || 0) - (job.quotation?.epda?.discountAmount || 0))
         || 0;
     const invoicePrecision = invoiceCurrency === 'IDR' ? 1 : 100;
     const invoiceTotal = Math.round((rawInvoiceTotal + Number.EPSILON) * invoicePrecision) / invoicePrecision;

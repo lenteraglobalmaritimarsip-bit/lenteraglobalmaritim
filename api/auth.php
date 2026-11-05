@@ -29,16 +29,16 @@ try {
         $body = requestJson();
         $identifier = trim((string) ($body['username'] ?? ''));
         $password = (string) ($body['password'] ?? '');
-        if ($identifier === '') jsonResponse(['error' => 'Username atau email wajib diisi'], 400);
+        if ($identifier === '') jsonResponse(['error' => 'Username wajib diisi'], 400);
         if ($password === '') jsonResponse(['error' => 'Password wajib diisi'], 400);
 
         $pdo = db();
         $pdo->beginTransaction();
         $query = db()->prepare(
-            'SELECT id, name, email, username, password_hash, role, department, branch_name, position, phone, status, failed_login_attempts
-             FROM users WHERE username = :username OR email = :email LIMIT 1 FOR UPDATE'
+            'SELECT id, name, email, username, password_hash, role, department, branch_name, branch_id, position, phone, status, failed_login_attempts
+             FROM users WHERE username = :username LIMIT 1 FOR UPDATE'
         );
-        $query->execute(['username' => $identifier, 'email' => $identifier]);
+        $query->execute(['username' => $identifier]);
         $user = $query->fetch();
 
         if (!$user) {

@@ -2,7 +2,44 @@
 
 declare(strict_types=1);
 
-require __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/repository.php';
+
+function allocateReceivableVoucherNumber(PDO $pdo, int $branchId, string $incomeDate): string
+{
+    if (!preg_match('/^(\d{4})-(\d{2})-\d{2}$/', $incomeDate, $dateParts)) {
+        throw new RuntimeException('Tanggal penerimaan tidak valid untuk membuat nomor bukti.');
+    }
+    $yearMonth = $dateParts[1] . $dateParts[2];
+    $branchQuery = $pdo->prepare('SELECT code FROM branches WHERE id = :id AND is_active = 1 LIMIT 1');
+    $branchQuery->execute(['id' => $branchId]);
+    $branchCode = strtoupper(trim((string) $branchQuery->fetchColumn()));
+    if (!preg_match('/^[A-Z0-9]{2,10}$/', $branchCode)) {
+        throw new RuntimeException('Branch penerimaan belum memiliki kode branch aktif.');
+    }
+
+    $insert = $pdo->prepare(
+        'INSERT IGNORE INTO receivable_voucher_sequences (branch_code, period_key, last_number) '
+        . 'VALUES (:branch_code, :year_month, 0)'
+    );
+    $insert->execute(['branch_code' => $branchCode, 'year_month' => $yearMonth]);
+    $select = $pdo->prepare(
+        'SELECT last_number FROM receivable_voucher_sequences '
+        . 'WHERE branch_code = :branch_code AND period_key = :period_key FOR UPDATE'
+    );
+    $select->execute(['branch_code' => $branchCode, 'period_key' => $yearMonth]);
+    $nextNumber = (int) $select->fetchColumn() + 1;
+    $update = $pdo->prepare(
+        'UPDATE receivable_voucher_sequences SET last_number = :last_number '
+        . 'WHERE branch_code = :branch_code AND period_key = :period_key'
+    );
+    $update->execute([
+        'last_number' => $nextNumber,
+        'branch_code' => $branchCode,
+        'period_key' => $yearMonth,
+    ]);
+    $monthYear = $dateParts[2] . substr($dateParts[1], 2, 2);
+    return sprintf('RV%s-%04d-%s', $branchCode, $nextNumber, $monthYear);
+}
 
 try {
     $user = requireAuthenticatedUser();
@@ -15,7 +52,8 @@ try {
         if (($user['role'] ?? '') === 'FDA') {
             if ($action !== 'fda-advance-history') jsonResponse(['error' => 'FDA hanya dapat melihat riwayat penerimaan job pada branch-nya'], 403);
             $branchName = trim((string) ($user['branch_name'] ?? ''));
-            if ($branchName === '') jsonResponse(['error' => 'Branch aktif user FDA belum valid'], 422);
+            $branchId = trim((string) ($user['branch_id'] ?? ''));
+            if ($branchId === '') jsonResponse(['error' => 'Branch aktif user FDA belum valid'], 422);
             $jobId = trim((string) ($_GET['jobId'] ?? ''));
             $historyColumns = array_column($pdo->query('SHOW COLUMNS FROM accounts_receivable_entries')->fetchAll(), 'Field');
             $exchangeRateSelect = in_array('exchange_rate_usd_to_idr', $historyColumns, true)
@@ -31,8 +69,8 @@ try {
                 . 'LEFT JOIN fda_records f ON f.job_id = ar.job_id '
                 . "LEFT JOIN pda_documents pd ON pd.job_id = ar.job_id AND pd.pda_no = ar.invoice_no AND pd.pda_type = 'FDA' "
                 . "WHERE ar.subject_data = 'PRINCIPAL' AND ar.job_id IS NOT NULL "
-                . 'AND LOWER(TRIM(i.created_by_branch)) = LOWER(TRIM(:branch_name))';
-            $params = ['branch_name' => $branchName];
+                . 'AND i.created_by_branch_id = :branch_id';
+            $params = ['branch_id' => $branchId];
             if ($jobId !== '') {
                 $sql .= ' AND ar.job_id = :job_id';
                 $params['job_id'] = $jobId;
@@ -59,14 +97,36 @@ try {
             ], $query->fetchAll());
             jsonResponse(['entries' => $entries]);
         }
-        if (($user['role'] ?? '') !== 'FINANCE') jsonResponse(['error' => 'Only Finance can access Accounts Receivable'], 403);
+        $accountingHistory = $action === 'accounting-history' && ($user['role'] ?? '') === 'ACCOUNTING';
+        if (!$accountingHistory && ($user['role'] ?? '') !== 'FINANCE') jsonResponse(['error' => 'Only Finance can access Accounts Receivable'], 403);
+        $branchName = trim((string) ($user['branch_name'] ?? ''));
+        $branchId = $accountingHistory
+            ? trim((string) ($_GET['branchId'] ?? ''))
+            : trim((string) ($user['branch_id'] ?? ''));
+        if (!$accountingHistory && $branchId === '') jsonResponse(['error' => 'Branch aktif Finance belum valid'], 422);
+        if ($accountingHistory && $branchId !== '') {
+            if (!ctype_digit($branchId)) jsonResponse(['error' => 'Branch laporan tidak valid'], 422);
+            $branchQuery = $pdo->prepare('SELECT id FROM branches WHERE id = :id AND is_active = 1 LIMIT 1');
+            $branchQuery->execute(['id' => $branchId]);
+            if (!$branchQuery->fetchColumn()) jsonResponse(['error' => 'Branch laporan tidak ditemukan atau tidak aktif'], 422);
+        }
+        $financeColumns = array_column($pdo->query('SHOW COLUMNS FROM accounts_receivable_entries')->fetchAll(), 'Field');
+        $bankColumns = array_column($pdo->query('SHOW COLUMNS FROM bank_accounts')->fetchAll(), 'Field');
+        if (!in_array('branch_id', $financeColumns, true) || !in_array('branch_id', $bankColumns, true)) {
+            jsonResponse(['error' => 'Terapkan migrasi branch finance dan branch master terlebih dahulu'], 503);
+        }
+        if (!in_array('currency', $bankColumns, true)) {
+            jsonResponse(['error' => 'Terapkan migrasi mata uang rekening bank terlebih dahulu'], 503);
+        }
         if ($action === 'attachment') {
             $attachmentId = trim((string) ($_GET['id'] ?? ''));
             if ($attachmentId === '') jsonResponse(['error' => 'Attachment ID is required'], 400);
             $attachmentQuery = $pdo->prepare(
-                'SELECT attachment_name, attachment_data_url FROM accounts_receivable_entries WHERE id = :id LIMIT 1'
+                'SELECT ar.attachment_name, ar.attachment_data_url FROM accounts_receivable_entries ar '
+                . 'LEFT JOIN bank_accounts ba ON ba.id = ar.bank_account_id '
+                . "WHERE ar.id = :id AND COALESCE(ar.branch_id, ba.branch_id) = :branch_id LIMIT 1"
             );
-            $attachmentQuery->execute(['id' => $attachmentId]);
+            $attachmentQuery->execute(['id' => $attachmentId, 'branch_id' => $branchId]);
             $attachment = $attachmentQuery->fetch();
             if (!$attachment) jsonResponse(['error' => 'Attachment not found'], 404);
             if (!preg_match('/^data:image\/(jpeg|png);base64,([A-Za-z0-9+\/]+={0,2})$/D', (string) $attachment['attachment_data_url'], $attachmentMatch)) {
@@ -87,25 +147,40 @@ try {
             echo $attachmentBytes;
             exit;
         }
-        if ($action === 'history') {
+        if ($action === 'history' || $accountingHistory) {
             $historyColumns = array_column($pdo->query('SHOW COLUMNS FROM accounts_receivable_entries')->fetchAll(), 'Field');
+            $coaSelect = in_array('coa_id', $historyColumns, true) ? 'ar.coa_id' : "''";
+            $receiptNumberSelect = in_array('receipt_number', $historyColumns, true) ? 'ar.receipt_number' : "''";
+            $journalLinesSelect = in_array('journal_lines', $historyColumns, true) ? 'ar.journal_lines' : 'NULL';
+            $journalNumberSelect = in_array('journal_number', $historyColumns, true) ? 'ar.journal_number' : "''";
             $exchangeRateSelect = in_array('exchange_rate_usd_to_idr', $historyColumns, true)
                 ? 'ar.exchange_rate_usd_to_idr'
                 : "CASE WHEN ar.invoice_type = 'FPDA' THEN COALESCE(NULLIF(pd.exchange_rate, 0), vc.exchange_rate_usd_to_idr, 0) "
                     . 'ELSE COALESCE(f.exchange_rate_usd_to_idr, vc.exchange_rate_usd_to_idr, 0) END';
-            $rows = $pdo->query(
-                'SELECT ar.id, ar.subject_data, ar.job_id, ar.invoice_type, ar.invoice_no, ar.income_date, ar.principal_name, ar.vessel_name, '
-                .                 'ar.payment_type, ar.pph23_amount_idr, ar.remark, ar.bank_account_id, ar.bank_name, ar.account_name, ar.account_number, '
+            $branchCondition = $branchId !== '' ? 'WHERE COALESCE(ar.branch_id, ba.branch_id) = :branch_id ' : '';
+            $historyQuery = $pdo->prepare(
+                'SELECT ar.id, ' . $receiptNumberSelect . ' AS receipt_number, ' . $journalNumberSelect . ' AS journal_number, COALESCE(NULLIF(ar.branch_name, \'\'), ba.branch_name, \'\') AS branch_name, COALESCE(ar.branch_id, ba.branch_id) AS branch_id, ar.subject_data, ar.job_id, ar.invoice_type, ar.invoice_no, ar.income_date, ar.principal_name, ar.vessel_name, '
+                . 'ar.payment_type, ar.pph23_amount_idr, ' . $coaSelect . ' AS coa_id, ' . $journalLinesSelect . ' AS journal_lines, ar.remark, ar.bank_account_id, ar.bank_name, ar.account_name, ar.account_number, '
                 . 'ar.idr_amount, ar.usd_amount, ' . $exchangeRateSelect . ' AS exchange_rate_usd_to_idr, '
                 . 'ar.attachment_name, ar.created_by_name, ar.created_at '
                 . 'FROM accounts_receivable_entries ar '
+                . 'LEFT JOIN bank_accounts ba ON ba.id = ar.bank_account_id '
                 . 'LEFT JOIN vessel_calls vc ON vc.job_id = ar.job_id '
                 . 'LEFT JOIN fda_records f ON f.job_id = ar.job_id '
                 . "LEFT JOIN pda_documents pd ON pd.job_id = ar.job_id AND pd.pda_no = ar.invoice_no AND pd.pda_type = 'FDA' "
+                . $branchCondition
                 . 'ORDER BY ar.income_date DESC, ar.created_at DESC'
-            )->fetchAll();
-            $entries = array_map(static fn (array $row): array => [
+            );
+            $historyQuery->execute($branchId !== '' ? ['branch_id' => $branchId] : []);
+            $rows = $historyQuery->fetchAll();
+            $entries = array_map(static function (array $row): array {
+                $journalLines = json_decode((string) ($row['journal_lines'] ?? ''), true);
+                return [
                 'id' => $row['id'],
+                'receiptNumber' => $row['receipt_number'] ?? '',
+                'journalNumber' => $row['journal_number'] ?? '',
+                'branchName' => $row['branch_name'] ?? '',
+                'branchId' => isset($row['branch_id']) ? str_pad((string) $row['branch_id'], 3, '0', STR_PAD_LEFT) : '',
                 'subjectData' => $row['subject_data'],
                 'jobId' => $row['job_id'],
                 'invoiceType' => $row['invoice_type'],
@@ -115,6 +190,8 @@ try {
                 'principalName' => $row['principal_name'],
                 'vesselName' => $row['vessel_name'],
                 'pph23AmountIDR' => (float) $row['pph23_amount_idr'],
+                'coaId' => $row['coa_id'] ?? '',
+                'journalLines' => is_array($journalLines) ? $journalLines : [],
                 'remark' => $row['remark'],
                 'bankAccountId' => $row['bank_account_id'] ?? '',
                 'bankName' => $row['bank_name'],
@@ -126,35 +203,42 @@ try {
                 'attachmentName' => $row['attachment_name'],
                 'createdBy' => $row['created_by_name'],
                 'createdAt' => $row['created_at'],
-            ], $rows);
+                ];
+            }, $rows);
             jsonResponse(['entries' => $entries]);
         }
         if ($action !== 'options') jsonResponse(['error' => 'Unknown Accounts Receivable action'], 404);
 
-        $invoiceOptions = $pdo->query(
+        $invoiceQuery = $pdo->prepare(
             "SELECT vc.job_id AS job_id, 'FDA' AS invoice_type, f.fda_no AS invoice_no, "
             . 'c.company_name AS principal_name, v.name AS vessel_name, '
             . 'COALESCE(f.currency, vc.currency) AS currency, '
             . 'COALESCE(f.exchange_rate_usd_to_idr, vc.exchange_rate_usd_to_idr, 0) AS exchange_rate, '
             . 'CASE WHEN f.fda_approved = 1 OR f.approval_status = \'APPROVED\' THEN 1 ELSE 0 END AS fda_approved '
             . 'FROM vessel_calls vc '
+            . 'INNER JOIN inquiries i ON i.job_id = vc.job_id '
             . 'INNER JOIN customers c ON c.id = vc.customer_id '
             . 'INNER JOIN vessels v ON v.id = vc.vessel_id '
             . 'INNER JOIN fda_records f ON f.job_id = vc.job_id '
             . 'LEFT JOIN closing_records cr ON cr.job_id = vc.job_id '
-            . "WHERE f.fda_no <> '' AND vc.status <> 'CLOSED' AND vc.current_stage <> 'CLOSED' AND COALESCE(cr.is_closed, 0) = 0 "
+            . "WHERE f.fda_no <> '' AND i.created_by_branch_id = :sales_branch_id AND vc.status <> 'CLOSED' AND vc.current_stage <> 'CLOSED' AND COALESCE(cr.is_closed, 0) = 0 "
             . 'UNION ALL '
             . "SELECT vc.job_id AS job_id, 'FPDA' AS invoice_type, pd.pda_no AS invoice_no, "
             . 'c.company_name AS principal_name, v.name AS vessel_name, pd.currency, pd.exchange_rate, 0 AS fda_approved '
             . 'FROM vessel_calls vc '
+            . 'INNER JOIN inquiries i ON i.job_id = vc.job_id '
             . 'INNER JOIN customers c ON c.id = vc.customer_id '
             . 'INNER JOIN vessels v ON v.id = vc.vessel_id '
             . "INNER JOIN pda_documents pd ON pd.job_id = vc.job_id AND pd.pda_type = 'FDA' "
             . 'LEFT JOIN closing_records cr ON cr.job_id = vc.job_id '
-            . "WHERE pd.pda_no <> '' AND vc.status <> 'CLOSED' AND vc.current_stage <> 'CLOSED' AND COALESCE(cr.is_closed, 0) = 0 "
+            . "WHERE pd.pda_no <> '' AND i.created_by_branch_id = :fda_branch_id AND vc.status <> 'CLOSED' AND vc.current_stage <> 'CLOSED' AND COALESCE(cr.is_closed, 0) = 0 "
             . 'ORDER BY principal_name, vessel_name, job_id, invoice_type, invoice_no'
-        )->fetchAll();
-        $banks = $pdo->query('SELECT id, bank_name, branch, account_name, account_number FROM bank_accounts ORDER BY bank_name, account_name')->fetchAll();
+        );
+        $invoiceQuery->execute(['sales_branch_id' => $branchId, 'fda_branch_id' => $branchId]);
+        $invoiceOptions = $invoiceQuery->fetchAll();
+        $bankQuery = $pdo->prepare('SELECT id, bank_name, branch, branch_name, branch_id, account_name, account_number, currency FROM bank_accounts WHERE branch_id = :branch_id ORDER BY bank_name, account_name');
+        $bankQuery->execute(['branch_id' => $branchId]);
+        $banks = $bankQuery->fetchAll();
         jsonResponse([
             'invoiceOptions' => array_map(static fn (array $row): array => [
                 'jobId' => $row['job_id'],
@@ -170,13 +254,25 @@ try {
                 'id' => $row['id'],
                 'bankName' => $row['bank_name'],
                 'branch' => $row['branch'] ?? '',
+                'branchName' => $row['branch_name'] ?? '',
+                'branchId' => isset($row['branch_id']) ? str_pad((string) $row['branch_id'], 3, '0', STR_PAD_LEFT) : '',
                 'accountName' => $row['account_name'],
                 'accountNumber' => $row['account_number'],
+                'currency' => $row['currency'],
+                'coaId' => $row['coa_id'] ?? '',
             ], $banks),
         ]);
     }
 
     if (($user['role'] ?? '') !== 'FINANCE') jsonResponse(['error' => 'Only Finance can create Accounts Receivable entries'], 403);
+    $branchName = trim((string) ($user['branch_name'] ?? ''));
+    $branchId = trim((string) ($user['branch_id'] ?? ''));
+    if ($branchId === '') jsonResponse(['error' => 'Branch aktif Finance belum valid'], 422);
+    $financeColumns = array_column($pdo->query('SHOW COLUMNS FROM accounts_receivable_entries')->fetchAll(), 'Field');
+    $bankColumns = array_column($pdo->query('SHOW COLUMNS FROM bank_accounts')->fetchAll(), 'Field');
+    if (!in_array('branch_id', $financeColumns, true) || !in_array('branch_id', $bankColumns, true)) {
+        jsonResponse(['error' => 'Terapkan migrasi branch finance dan branch master terlebih dahulu'], 503);
+    }
     requireMethod('POST');
     requireCsrfToken();
     $body = requestJson();
@@ -235,21 +331,21 @@ try {
         if ($invoiceType === 'FDA') {
             $invoiceQuery = $pdo->prepare(
                 "SELECT vc.job_id, f.fda_no AS invoice_no, c.company_name AS principal_name, v.name AS vessel_name, COALESCE(f.exchange_rate_usd_to_idr, vc.exchange_rate_usd_to_idr, 0) AS exchange_rate, CASE WHEN f.fda_approved = 1 OR f.approval_status = 'APPROVED' THEN 1 ELSE 0 END AS fda_approved "
-                . 'FROM vessel_calls vc INNER JOIN fda_records f ON f.job_id = vc.job_id '
+                . 'FROM vessel_calls vc INNER JOIN inquiries i ON i.job_id = vc.job_id INNER JOIN fda_records f ON f.job_id = vc.job_id '
                 . 'INNER JOIN customers c ON c.id = vc.customer_id INNER JOIN vessels v ON v.id = vc.vessel_id '
                 . 'LEFT JOIN closing_records cr ON cr.job_id = vc.job_id '
-                . "WHERE vc.job_id = :job_id AND f.fda_no = :invoice_no AND vc.status <> 'CLOSED' AND vc.current_stage <> 'CLOSED' AND COALESCE(cr.is_closed, 0) = 0 LIMIT 1"
+                . "WHERE vc.job_id = :job_id AND f.fda_no = :invoice_no AND i.created_by_branch_id = :branch_id AND vc.status <> 'CLOSED' AND vc.current_stage <> 'CLOSED' AND COALESCE(cr.is_closed, 0) = 0 LIMIT 1"
             );
         } else {
             $invoiceQuery = $pdo->prepare(
                 "SELECT vc.job_id, pd.pda_no AS invoice_no, c.company_name AS principal_name, v.name AS vessel_name, pd.exchange_rate AS exchange_rate "
-                . 'FROM vessel_calls vc INNER JOIN pda_documents pd ON pd.job_id = vc.job_id AND pd.pda_type = \'FDA\' '
+                . 'FROM vessel_calls vc INNER JOIN inquiries i ON i.job_id = vc.job_id INNER JOIN pda_documents pd ON pd.job_id = vc.job_id AND pd.pda_type = \'FDA\' '
                 . 'INNER JOIN customers c ON c.id = vc.customer_id INNER JOIN vessels v ON v.id = vc.vessel_id '
                 . 'LEFT JOIN closing_records cr ON cr.job_id = vc.job_id '
-                . "WHERE vc.job_id = :job_id AND pd.pda_no = :invoice_no AND vc.status <> 'CLOSED' AND vc.current_stage <> 'CLOSED' AND COALESCE(cr.is_closed, 0) = 0 LIMIT 1"
+                . "WHERE vc.job_id = :job_id AND pd.pda_no = :invoice_no AND i.created_by_branch_id = :branch_id AND vc.status <> 'CLOSED' AND vc.current_stage <> 'CLOSED' AND COALESCE(cr.is_closed, 0) = 0 LIMIT 1"
             );
         }
-        $invoiceQuery->execute(['job_id' => $jobId, 'invoice_no' => $invoiceNo]);
+        $invoiceQuery->execute(['job_id' => $jobId, 'invoice_no' => $invoiceNo, 'branch_id' => $branchId]);
         $invoice = $invoiceQuery->fetch();
         if (!$invoice) jsonResponse(['error' => 'Invoice FDA/FPDA tidak ditemukan atau Job sudah ditutup'], 409);
         $exchangeRate = (float) ($invoice['exchange_rate'] ?? 0);
@@ -265,13 +361,17 @@ try {
         $invoiceNo = null;
     }
 
-    $bankQuery = $pdo->prepare('SELECT bank_name, account_name, account_number FROM bank_accounts WHERE id = :id LIMIT 1');
+    $bankQuery = $pdo->prepare('SELECT bank_name, account_name, account_number, branch_name, branch_id FROM bank_accounts WHERE id = :id LIMIT 1');
     $bankQuery->execute(['id' => $bankAccountId]);
     $bank = $bankQuery->fetch();
     if (!$bank) jsonResponse(['error' => 'Akun bank tujuan tidak ditemukan'], 409);
-
+    if (trim((string) $bank['branch_id']) !== $branchId) {
+        jsonResponse(['error' => 'Rekening bank hanya dapat digunakan oleh branch pemiliknya'], 403);
+    }
     $insertValues = [
         'id' => 'AR-' . bin2hex(random_bytes(16)),
+        'branch_name' => $branchName,
+        'branch_id' => $branchId,
         'subject_data' => $subjectData,
         'job_id' => $jobId,
         'invoice_type' => $invoiceType,
@@ -294,19 +394,35 @@ try {
         'created_by_name' => $user['name'] ?? $user['username'] ?? 'Finance',
     ];
     $receivableColumns = array_column($pdo->query('SHOW COLUMNS FROM accounts_receivable_entries')->fetchAll(), 'Field');
+    if (!in_array('branch_name', $receivableColumns, true) || !in_array('branch_id', $receivableColumns, true)) {
+        jsonResponse(['error' => 'Terapkan migrasi branch Finance dan branch master sebelum mencatat penerimaan'], 503);
+    }
+    if (!in_array('receipt_number', $receivableColumns, true) || tableColumns($pdo, 'receivable_voucher_sequences') === null) {
+        jsonResponse(['error' => 'Terapkan database/migrations/20261030_add_receivable_voucher_numbers.sql sebelum mencatat penerimaan.'], 503);
+    }
     if ($usdAmount > 0 && !in_array('exchange_rate_usd_to_idr', $receivableColumns, true)) {
         jsonResponse(['error' => 'Jalankan migrasi kurs Accounts Receivable sebelum mencatat penerimaan USD'], 503);
     }
     if (in_array('exchange_rate_usd_to_idr', $receivableColumns, true)) {
         $insertValues['exchange_rate_usd_to_idr'] = $exchangeRate;
     }
-    $insertColumns = array_keys($insertValues);
-    $insert = $pdo->prepare(
-        'INSERT INTO accounts_receivable_entries (`' . implode('`, `', $insertColumns) . '`) '
-        . 'VALUES (:' . implode(', :', $insertColumns) . ')'
-    );
-    $insert->execute($insertValues);
-    jsonResponse(['ok' => true]);
+    $pdo->beginTransaction();
+    try {
+        $receiptNumber = allocateReceivableVoucherNumber($pdo, (int) $branchId, $incomeDate);
+        $insertValues['receipt_number'] = $receiptNumber;
+        $insertValues = array_intersect_key($insertValues, array_flip($receivableColumns));
+        $insertColumns = array_keys($insertValues);
+        $insert = $pdo->prepare(
+            'INSERT INTO accounts_receivable_entries (`' . implode('`, `', $insertColumns) . '`) '
+            . 'VALUES (:' . implode(', :', $insertColumns) . ')'
+        );
+        $insert->execute($insertValues);
+        $pdo->commit();
+    } catch (Throwable $error) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $error;
+    }
+    jsonResponse(['ok' => true, 'receiptNumber' => $receiptNumber]);
 } catch (PDOException $error) {
     error_log('MaritimPort receivables database error: ' . $error->getMessage());
     jsonResponse(['error' => 'Accounts Receivable database operation failed'], 500);

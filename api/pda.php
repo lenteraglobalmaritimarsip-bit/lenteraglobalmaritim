@@ -42,6 +42,16 @@ function pdaRequireManager(array $user): void
     if (($user['role'] ?? '') !== 'MANAGER_OPS') jsonResponse(['error' => 'Only Manager OPS can review PDA'], 403);
 }
 
+function pdaManagerBranch(array $user): string
+{
+    pdaRequireManager($user);
+    $branchCode = pdaBranchCode(trim((string) ($user['branch_name'] ?? '')));
+    if ($branchCode === '' || strlen($branchCode) > 100) {
+        jsonResponse(['error' => 'Branch aktif user Manager OPS belum valid'], 422);
+    }
+    return $branchCode;
+}
+
 function pdaJob(PDO $connection, string $jobId, string $branchCode, string $pdaType = 'SALES'): array
 {
     $query = $connection->prepare(
@@ -56,6 +66,9 @@ function pdaJob(PDO $connection, string $jobId, string $branchCode, string $pdaT
     $jobBranchCode = pdaBranchCode((string) ($job['created_by_branch'] ?? ''));
     if ($pdaType === 'SALES' && $jobBranchCode !== '' && $jobBranchCode !== $branchCode) {
         jsonResponse(['error' => 'PDA hanya dapat dibuat oleh branch pembuat job'], 403);
+    }
+    if ($pdaType === 'FDA' && $jobBranchCode !== '' && $jobBranchCode !== $branchCode) {
+        jsonResponse(['error' => 'FPDA hanya dapat dibuat oleh branch pembuat job'], 403);
     }
     if ($pdaType === 'FDA' && $job['manager_status'] !== 'APPROVED') {
         jsonResponse(['error' => 'PDA FDA hanya dapat dibuat setelah job disetujui Manager OPS'], 403);
@@ -176,7 +189,13 @@ function validatePdaItemDraft(mixed $item): array
     }
     $pph23Applied = $item['pph23Applied'] ?? false;
     $globalVatApplied = $item['globalVatApplied'] ?? false;
-    if (!is_bool($pph23Applied) || !is_bool($globalVatApplied)) {
+    $discountAmount = $item['discountAmount'] ?? 0;
+    if (!is_bool($pph23Applied)
+        || !is_bool($globalVatApplied)
+        || !is_numeric($discountAmount)
+        || !is_finite((float) $discountAmount)
+        || (float) $discountAmount < 0
+    ) {
         jsonResponse(['error' => 'Pilihan pajak draft PDA tidak valid'], 400);
     }
     $continuedPdaItems = $item['continuedPdaItems'] ?? [];
@@ -204,6 +223,7 @@ function validatePdaItemDraft(mixed $item): array
         'vatApplied' => $item['vatApplied'],
         'pph23Applied' => $pph23Applied,
         'globalVatApplied' => $globalVatApplied,
+        'discountAmount' => (float) $discountAmount,
         'continuedPdaItems' => array_values($continuedPdaItems),
     ];
 }
@@ -267,10 +287,12 @@ function readPdaDraft(PDO $connection, array $document): array
         'vatApplied' => false,
         'pph23Applied' => false,
         'globalVatApplied' => false,
+        'discountAmount' => 0,
     ];
     $itemDraft['continuedPdaItems'] ??= [];
     $itemDraft['pph23Applied'] ??= false;
     $itemDraft['globalVatApplied'] ??= false;
+    $itemDraft['discountAmount'] ??= 0;
 
     return [
         'jobId' => $document['job_id'],
@@ -389,8 +411,9 @@ try {
 
     if ($action === 'pending') {
         requireMethod('GET');
-        pdaRequireManager($user);
-        $query = $connection->query("SELECT * FROM pda_documents WHERE approval_status = 'SUBMITTED' ORDER BY submitted_at, pda_type, pda_no");
+        $branchCode = pdaManagerBranch($user);
+        $query = $connection->prepare("SELECT * FROM pda_documents WHERE approval_status = 'SUBMITTED' AND branch_code = :branch_code ORDER BY submitted_at, pda_type, pda_no");
+        $query->execute(['branch_code' => $branchCode]);
         $drafts = array_map(static fn (array $document): array => readPdaDraft($connection, $document), $query->fetchAll());
         jsonResponse(['drafts' => $drafts]);
     }
@@ -412,7 +435,7 @@ try {
     if ($action === 'review') {
         requireMethod('POST');
         requireCsrfToken();
-        pdaRequireManager($user);
+        $managerBranchCode = pdaManagerBranch($user);
         $body = requestJson();
         $jobId = trim((string) ($body['jobId'] ?? ''));
         $pdaType = pdaDocumentType($body['pdaType'] ?? 'SALES');
@@ -425,13 +448,18 @@ try {
         }
 
         $connection->beginTransaction();
-        $query = $connection->prepare('SELECT approval_status FROM pda_documents WHERE job_id = :job_id AND pda_type = :pda_type LIMIT 1 FOR UPDATE');
+        $query = $connection->prepare('SELECT approval_status, branch_code FROM pda_documents WHERE job_id = :job_id AND pda_type = :pda_type LIMIT 1 FOR UPDATE');
         $query->execute(['job_id' => $jobId, 'pda_type' => $pdaType]);
-        $status = $query->fetchColumn();
-        if ($status === false) {
+        $document = $query->fetch();
+        if (!$document) {
             $connection->rollBack();
             jsonResponse(['error' => 'PDA tidak ditemukan'], 404);
         }
+        if (!hash_equals((string) $document['branch_code'], $managerBranchCode)) {
+            $connection->rollBack();
+            jsonResponse(['error' => 'PDA hanya dapat disetujui Manager pada branch pemiliknya'], 403);
+        }
+        $status = $document['approval_status'];
         if ($status !== 'SUBMITTED') {
             $connection->rollBack();
             jsonResponse(['error' => 'PDA tidak sedang menunggu persetujuan'], 409);
@@ -456,7 +484,12 @@ try {
         requireMethod('GET');
         $role = $user['role'] ?? '';
         if (!in_array($role, ['FDA', 'MANAGER_OPS', 'FINANCE'], true)) jsonResponse(['error' => 'Role tidak dapat melihat total FPDA'], 403);
-        $branchCode = $role === 'FDA' ? pdaUserBranch($user, 'FDA') : '';
+        $branchCode = $role === 'FDA'
+            ? pdaUserBranch($user, 'FDA')
+            : ($role === 'MANAGER_OPS'
+                ? pdaManagerBranch($user)
+                : pdaBranchCode(trim((string) ($user['branch_name'] ?? ''))));
+        if ($branchCode === '') jsonResponse(['error' => 'Branch aktif Finance belum valid'], 422);
         $branchFilter = $branchCode !== '' ? ' AND pd.branch_code = :branch_code' : '';
         $query = $connection->prepare(
             "SELECT pd.job_id, pd.pda_no, pd.currency, pd.exchange_rate, pd.item_draft, "
@@ -479,6 +512,7 @@ try {
                     'exchangeRate' => (float) $row['exchange_rate'],
                     'pph23Applied' => !empty($itemDraft['pph23Applied']),
                     'globalVatApplied' => !empty($itemDraft['globalVatApplied']),
+                    'discountAmount' => max(0.0, (float) ($itemDraft['discountAmount'] ?? 0)),
                     'categories' => [],
                 ];
             }
@@ -507,12 +541,13 @@ try {
             $globalVat = $document['globalVatApplied']
                 ? floor((($subtotal + $itemVat) * 0.11 + 1e-10) * 100 + 0.5) / 100
                 : 0.0;
+            $grossTotal = $subtotal + $itemVat - $pph23 + $globalVat;
             $totals[] = [
                 'jobId' => $document['jobId'],
                 'pdaNo' => $document['pdaNo'],
                 'currency' => $document['currency'],
                 'exchangeRate' => $document['exchangeRate'],
-                'total' => $subtotal + $itemVat - $pph23 + $globalVat,
+                'total' => max(0.0, $grossTotal - min($document['discountAmount'], $grossTotal)),
             ];
         }
         jsonResponse(['totals' => $totals]);
@@ -522,10 +557,10 @@ try {
         requireMethod('GET');
         $role = $user['role'] ?? '';
         if (!in_array($role, ['SALES', 'MANAGER_OPS'], true)) jsonResponse(['error' => 'Role tidak dapat melihat total PDA Sales'], 403);
-        $branchCode = $role === 'SALES' ? pdaUserBranch($user, 'SALES') : '';
+        $branchCode = $role === 'SALES' ? pdaUserBranch($user, 'SALES') : pdaManagerBranch($user);
         $branchFilter = $branchCode !== '' ? ' AND pd.branch_code = :branch_code' : '';
         $query = $connection->prepare(
-            "SELECT pd.job_id, pd.currency, pd.exchange_rate, "
+            "SELECT pd.job_id, pd.currency, pd.exchange_rate, MAX(pd.item_draft) AS item_draft, "
             . "SUM(pi.quantity * pi.price * (1 + CASE WHEN pi.vat_applied = 1 THEN 0.11 ELSE 0 END)) AS total "
             . "FROM pda_documents pd "
             . "INNER JOIN manager_approvals ma ON ma.job_id = pd.job_id AND ma.status = 'APPROVED' "
@@ -534,19 +569,26 @@ try {
             . "GROUP BY pd.job_id, pd.currency, pd.exchange_rate ORDER BY pd.job_id"
         );
         $query->execute($branchCode !== '' ? ['branch_code' => $branchCode] : []);
-        $totals = array_map(static fn (array $row): array => [
-            'jobId' => $row['job_id'],
-            'currency' => $row['currency'],
-            'exchangeRate' => (float) $row['exchange_rate'],
-            'total' => (float) $row['total'],
-        ], $query->fetchAll());
+        $totals = array_map(static function (array $row): array {
+            $itemDraft = json_decode((string) $row['item_draft'], true) ?: [];
+            $total = (float) $row['total'];
+            $discount = max(0.0, (float) ($itemDraft['discountAmount'] ?? 0));
+            return [
+                'jobId' => $row['job_id'],
+                'currency' => $row['currency'],
+                'exchangeRate' => (float) $row['exchange_rate'],
+                'total' => max(0.0, $total - min($discount, $total)),
+            ];
+        }, $query->fetchAll());
         jsonResponse(['totals' => $totals]);
     }
 
     if ($action === 'approved') {
         requireMethod('GET');
         if (!in_array($user['role'] ?? '', ['SALES', 'FDA'], true)) jsonResponse(['error' => 'Role tidak dapat melihat PDA approved'], 403);
-        $branchCode = ($user['role'] ?? '') === 'SALES' ? pdaUserBranch($user, 'SALES') : '';
+        $branchCode = ($user['role'] ?? '') === 'SALES'
+            ? pdaUserBranch($user, 'SALES')
+            : pdaUserBranch($user, 'FDA');
         $sql = "SELECT job_id FROM pda_documents WHERE pda_type = 'SALES' AND approval_status = 'APPROVED'";
         if ($branchCode !== '') $sql .= ' AND branch_code = :branch_code';
         $sql .= ' ORDER BY pda_no';
@@ -560,12 +602,13 @@ try {
         if (($user['role'] ?? '') !== 'FDA') jsonResponse(['error' => 'Only FDA can view approved Sales PDA'], 403);
         $jobId = trim((string) ($_GET['jobId'] ?? ''));
         if ($jobId === '' || strlen($jobId) > 50) jsonResponse(['error' => 'Job ID tidak valid'], 400);
+        $branchCode = pdaUserBranch($user, 'FDA');
         $query = $connection->prepare(
             "SELECT pd.* FROM pda_documents pd "
             . "INNER JOIN manager_approvals ma ON ma.job_id = pd.job_id AND ma.status = 'APPROVED' "
-            . "WHERE pd.job_id = :job_id AND pd.pda_type = 'SALES' AND pd.approval_status = 'APPROVED' LIMIT 1"
+            . "WHERE pd.job_id = :job_id AND pd.pda_type = 'SALES' AND pd.approval_status = 'APPROVED' AND pd.branch_code = :branch_code LIMIT 1"
         );
-        $query->execute(['job_id' => $jobId]);
+        $query->execute(['job_id' => $jobId, 'branch_code' => $branchCode]);
         $document = $query->fetch();
         if (!$document) jsonResponse(['error' => 'PDA Sales approved tidak ditemukan'], 404);
         jsonResponse(['draft' => readPdaDraft($connection, $document)]);
@@ -573,15 +616,16 @@ try {
 
     if ($action === 'manager-view') {
         requireMethod('GET');
-        if (($user['role'] ?? '') !== 'MANAGER_OPS') jsonResponse(['error' => 'Only Manager OPS can view PDA documents'], 403);
+        $branchCode = pdaManagerBranch($user);
         $jobId = trim((string) ($_GET['jobId'] ?? ''));
         $pdaType = pdaDocumentType($_GET['pdaType'] ?? 'SALES');
         if ($jobId === '' || strlen($jobId) > 50) jsonResponse(['error' => 'Job ID tidak valid'], 400);
         $sql = "SELECT * FROM pda_documents WHERE job_id = :job_id AND pda_type = :pda_type"
             . " AND approval_status IN ('SUBMITTED', 'APPROVED')"
+            . ' AND branch_code = :branch_code'
             . ' AND EXISTS (SELECT 1 FROM pda_items pi WHERE pi.job_id = pda_documents.job_id AND pi.pda_type = pda_documents.pda_type)';
         $query = $connection->prepare($sql . ' LIMIT 1');
-        $query->execute(['job_id' => $jobId, 'pda_type' => $pdaType]);
+        $query->execute(['job_id' => $jobId, 'pda_type' => $pdaType, 'branch_code' => $branchCode]);
         $document = $query->fetch();
         jsonResponse(['draft' => $document ? readPdaDraft($connection, $document) : null]);
     }

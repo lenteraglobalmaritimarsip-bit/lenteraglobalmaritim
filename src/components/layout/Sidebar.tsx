@@ -3,7 +3,7 @@ import {
   Users, Building2, Ship, MapPin, Coins, Receipt, LayoutDashboard,
   FileQuestion, FileSpreadsheet, FolderKanban, CheckSquare, ArrowDownToLine,
   ArrowUpFromLine, FileText, ChevronRight, ChevronDown, CircleDollarSign, CreditCard,
-  ClipboardCheck, Calculator, Handshake, Wallet
+  ClipboardCheck, Calculator, Handshake, Wallet, BookOpen
 } from 'lucide-react';
 import { UserRole, ActiveTab } from '../../types';
 import { formatDateLong } from '../../utils/date';
@@ -23,7 +23,6 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
   const [accountsReceivableOpen,setAccountsReceivableOpen]=useState(false);
   const [accountsPayableOpen,setAccountsPayableOpen]=useState(false);
   const [financePaymentOpen,setFinancePaymentOpen]=useState(false);
-
   const item=(x:NavItem) => {
     const Icon = x.icon;
     return (
@@ -37,13 +36,17 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
     currentRole==='ADMIN'?'ADMINISTRATION':
     currentRole==='SALES'?'SALES WORKSPACE':
     currentRole==='MANAGER_OPS'?'OPERATIONS MANAGER':
-    currentRole==='FDA'?'FDA & DISBURSEMENT':'FINANCE & ACCOUNTS';
+    currentRole==='FDA'?'FDA & DISBURSEMENT':
+    currentRole==='ACCOUNTING'?'ACCOUNTING CENTER':
+    currentRole==='DIRECTOR'?'DIRECTOR OFFICE':'FINANCE & ACCOUNTS';
 
   const roleDesc =
     currentRole==='ADMIN'?'Master data, users & system control':
     currentRole==='SALES'?'Inquiry, quotation & vessel jobs':
     currentRole==='MANAGER_OPS'?'Approval, monitoring & control':
     currentRole==='FDA'?'FDA final, biaya aktual & disbursement':
+    currentRole==='ACCOUNTING'?'Jurnal COA seluruh branch':
+    currentRole==='DIRECTOR'?'Dashboard, laporan & monitoring seluruh branch':
     'Invoice, AP/AR & job closing';
 
   return (
@@ -69,6 +72,7 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
             {item({label:'Expenses Item',tab:'EXPENSES_ITEM',icon:Receipt})}
             {item({label:'Vendor Patners',tab:'VENDOR_PARTNERS',icon:Handshake})}
             {item({label:'Bank Account',tab:'BANK_ACCOUNT',icon:Building2})}
+            {item({label:'Chart of Accounts',tab:'CHART_OF_ACCOUNTS',icon:BookOpen})}
             {item({label:'Penyesuaian Saldo Kas',tab:'CASH_BALANCE_ADJUSTMENTS',icon:Wallet})}
           </div>
           {item({label:'Monitoring Vessel Calls',tab:'ACTIVE_VESSEL_CALLS',icon:Ship})}
@@ -87,6 +91,7 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
           {item({label:'Approval Center',tab:'APPROVAL',icon:CheckSquare})}
           {item({label:'Voucher Approval',tab:'MANAGER_VOUCHER_APPROVAL',icon:ClipboardCheck})}
           {item({label:'Management Vessel',tab:'MANAGEMENT_VESSEL',icon:Ship})}
+          {item({label:'Monitoring JOB Invoice',tab:'MANAGER_JOB_INVOICE_MONITORING',icon:Receipt})}
           {item({label:'Monitoring Vessel Calls',tab:'ACTIVE_VESSEL_CALLS',icon:Ship})}
         </>}
 
@@ -134,6 +139,32 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
           {item({label:'JOB Invoice',tab:'JOB_INVOICE_OPEN',icon:FileText})}
           {item({label:'JOB Closing',tab:'CLOSING',icon:CheckSquare})}
           {item({label:'Monitoring Vessel Calls',tab:'ACTIVE_VESSEL_CALLS',icon:Ship})}
+        </>}
+
+        {currentRole==='ACCOUNTING' && <>
+          {item({label:'Dashboard Keuangan',tab:'ACCOUNTING_DASHBOARD',icon:LayoutDashboard})}
+          {item({label:'Inbox & Jurnal COA',tab:'ACCOUNTING_WORKSPACE',icon:BookOpen})}
+          {item({label:'Manajemen Aset',tab:'ACCOUNTING_ASSETS',icon:Building2})}
+          {item({label:'Hasil Posted Jurnal',tab:'ACCOUNTING_POSTED_JOURNAL_REPORT',icon:FileSpreadsheet})}
+          {item({label:'History Keuangan',tab:'ACCOUNTING_FINANCE_HISTORY',icon:FileText})}
+          {item({label:'Neraca',tab:'ACCOUNTING_BALANCE_SHEET',icon:Calculator})}
+          <div className="maritim-nav-group-title"><FileSpreadsheet/><span>Laba Rugi</span></div>
+          <div className="maritim-subnav maritim-subnav-static">
+            {item({label:'Laba Rugi',tab:'ACCOUNTING_PROFIT_LOSS',icon:FileSpreadsheet})}
+            {item({label:'Rincian Laba',tab:'ACCOUNTING_PROFIT_DETAIL',icon:FileSpreadsheet})}
+          </div>
+        </>}
+
+        {currentRole==='DIRECTOR' && <>
+          {item({label:'Dashboard Keuangan',tab:'DIRECTOR_DASHBOARD',icon:LayoutDashboard})}
+          {item({label:'Manajemen Aset',tab:'DIRECTOR_ASSETS',icon:Building2})}
+          {item({label:'Neraca',tab:'DIRECTOR_BALANCE_SHEET',icon:Calculator})}
+          {item({label:'Laba Rugi',tab:'DIRECTOR_PROFIT_LOSS',icon:FileSpreadsheet})}
+          {item({label:'Rincian Laba',tab:'DIRECTOR_PROFIT_DETAIL',icon:FileSpreadsheet})}
+          {item({label:'Voucher Approval',tab:'DIRECTOR_VOUCHER_APPROVAL',icon:ClipboardCheck})}
+          {item({label:'Monitoring JOB Invoice',tab:'DIRECTOR_JOB_INVOICE_MONITORING',icon:Receipt})}
+          {item({label:'Monitoring Vessel Call',tab:'DIRECTOR_VESSEL_CALLS',icon:Ship})}
+          {item({label:'Log Aktivitas',tab:'DIRECTOR_ACTIVITY_LOG',icon:ClipboardCheck})}
         </>}
 
       </nav>

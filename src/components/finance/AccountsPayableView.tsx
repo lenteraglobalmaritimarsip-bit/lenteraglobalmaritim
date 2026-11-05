@@ -8,7 +8,9 @@ import { printPaymentVoucher } from '../../utils/voucherPrint';
 import { formatDateDisplay } from '../../utils/date';
 import { getPublicLogoUrl } from '../../utils/logo';
 import { getPaymentVoucherPaymentEvents } from '../../utils/paymentVoucherHistory';
+import { getPaymentVoucherPphLabel, getPaymentVoucherPphRate } from '../../utils/paymentVoucherTax';
 import { DateInput } from '../shared/DateInput';
+import { FormattedNumberInput } from '../shared/FormattedNumberInput';
 
 interface AccountsPayableViewProps {
   mode?: 'INPUT' | 'HISTORY';
@@ -52,6 +54,7 @@ const escapeHtml = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;'
 
 export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode = 'INPUT', paymentVouchers, payer, bankAccounts = [], jobCalls }) => {
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -59,6 +62,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
   const [draftLoaded, setDraftLoaded] = useState(false);
   const hydratedPaymentVoucherIdRef = useRef<string | null>(null);
   const paymentDraftSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const paymentDraftSaveTimeoutRef = useRef<number | null>(null);
   const [paymentFormVoucherId, setPaymentFormVoucherId] = useState<string | null>(null);
   const [paymentDate, setPaymentDate] = useState<string>(todayIso());
   const paymentDatePickerRef = useRef<HTMLInputElement | null>(null);
@@ -139,7 +143,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
     setOtherExpenses('');
     setPaymentDescription(defaultPaymentDescription(paymentFormVoucher));
     setSelectedBankId(compatibleBankAccounts[0]?.id || '');
-  }, [paymentFormVoucherId, paymentFormVoucher, draftLoaded, initialPaymentDraft, bankAccounts]);
+  }, [paymentFormVoucherId, paymentFormVoucher, draftLoaded, initialPaymentDraft, compatibleBankAccounts]);
 
   useEffect(() => {
     if (!paymentFormVoucherId || !draftLoaded || !paymentFormVoucher) return;
@@ -152,6 +156,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
     if (!draftLoaded || !paymentFormVoucherId || paymentFormVoucher?.status !== 'APPROVED') return;
     const draft = { voucherId: paymentFormVoucherId, paymentDate, manualSurcharge, otherExpenses, paymentDescription, selectedBankId } satisfies PaymentFormDraft;
     const timeoutId = window.setTimeout(() => {
+      paymentDraftSaveTimeoutRef.current = null;
       paymentDraftSaveQueueRef.current = paymentDraftSaveQueueRef.current
         .then(() => dataApi.saveUserData('finance_payment_draft', draft))
         .then(() => setInitialPaymentDraft(draft))
@@ -159,7 +164,11 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
           console.error('Gagal menyimpan draft form pembayaran:', error);
         });
     }, 300);
-    return () => window.clearTimeout(timeoutId);
+    paymentDraftSaveTimeoutRef.current = timeoutId;
+    return () => {
+      window.clearTimeout(timeoutId);
+      if (paymentDraftSaveTimeoutRef.current === timeoutId) paymentDraftSaveTimeoutRef.current = null;
+    };
   }, [draftLoaded, paymentFormVoucherId, paymentFormVoucher, paymentDate, manualSurcharge, otherExpenses, paymentDescription, selectedBankId]);
 
   useEffect(() => {
@@ -181,7 +190,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
   const formatPaymentAmount = (amount: number) => `${money(amount)} ${paymentCurrency}`;
   const paymentRate = Number(paymentFormVoucher?.exchangeRateUSDToIDR);
   const formattedPaymentRate = paymentRate > 0
-    ? new Intl.NumberFormat('id-ID', { maximumFractionDigits: 4 }).format(paymentRate)
+    ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 4 }).format(paymentRate)
     : 'kurs tidak tersedia pada data pengajuan';
   const paymentExchangeRateNote = paymentCurrency === 'USD'
     ? `Menggunakan kurs yang berlaku saat pengajuan: 1 USD = IDR ${formattedPaymentRate}${paymentFormVoucher?.exchangeRateDate ? ` (tanggal kurs: ${paymentFormVoucher.exchangeRateDate})` : ''}.`
@@ -202,7 +211,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
   }, [manualSurcharge, otherExpenses, paymentFormVoucher]);
 
   const voucherNumber = useMemo(() => {
-    return paymentFormVoucher?.voucherNumber || db.getNextFinanceVoucherNumber(paymentDate);
+    return paymentFormVoucher?.voucherNumber || db.getNextFinanceVoucherNumber(paymentDate, paymentFormVoucher?.branchName || db.getActorBranch());
   }, [paymentDate, paymentFormVoucher]);
 
   const handlePay = async (voucher: PaymentVoucher) => {
@@ -211,6 +220,43 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
     try {
       await db.refreshRemote();
       await db.payPaymentVoucher(voucher.id, payer, todayIso());
+    } catch (payError) {
+      setError(payError instanceof Error ? payError.message : 'Gagal memproses pembayaran.');
+    }
+  };
+
+  const postPayment = async () => {
+    if (!paymentFormVoucher || isUploadingPaymentProof) return;
+    if (!selectedBank) {
+      setError(`Pembayaran diblokir: pilih rekening dengan mata uang ${paymentCurrency}.`);
+      return;
+    }
+    if (!window.confirm(`Tandai voucher ${paymentFormVoucher.requestNumber} sebagai sudah dibayar?`)) return;
+    setError('');
+    setMessage('');
+    try {
+      await db.refreshRemote();
+      await db.payPaymentVoucher(paymentFormVoucher.id, payer, paymentDate, {
+        surcharge: itemTotals.surcharge,
+        otherExpenses: itemTotals.otherExpenses,
+        description: paymentDescription,
+        totalAmount: itemTotals.totalPayment,
+        paidFromBankAccountId: selectedBank.id,
+        ...(paymentFormProof ? { paymentProofDataUrl: paymentFormProof.dataUrl } : {}),
+      });
+      setInitialPaymentDraft(null);
+      setPaymentFormVoucherId(null);
+      setMessage('Pembayaran berhasil diproses.');
+      if (paymentDraftSaveTimeoutRef.current !== null) {
+        window.clearTimeout(paymentDraftSaveTimeoutRef.current);
+        paymentDraftSaveTimeoutRef.current = null;
+      }
+      await paymentDraftSaveQueueRef.current;
+      try {
+        await dataApi.deleteUserData('finance_payment_draft');
+      } catch (draftCleanupError) {
+        setError(`Pembayaran berhasil diposting, tetapi draft belum terhapus: ${draftCleanupError instanceof Error ? draftCleanupError.message : 'gagal menghapus draft.'}`);
+      }
     } catch (payError) {
       setError(payError instanceof Error ? payError.message : 'Gagal memproses pembayaran.');
     }
@@ -359,7 +405,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
     const printCurrency = printVoucher.currency || 'IDR';
     const printRate = Number(printVoucher.exchangeRateUSDToIDR);
     const formattedPrintRate = printRate > 0
-      ? new Intl.NumberFormat('id-ID', { maximumFractionDigits: 4 }).format(printRate)
+      ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 4 }).format(printRate)
       : 'kurs tidak tersedia pada data pengajuan';
     const printExchangeRateNote = printCurrency === 'USD'
       ? `Menggunakan kurs yang berlaku saat pengajuan: 1 USD = IDR ${formattedPrintRate}${printVoucher.exchangeRateDate ? ` (tanggal kurs: ${printVoucher.exchangeRateDate})` : ''}.`
@@ -376,7 +422,14 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
           + surcharge + additionalExpenses
           - printVoucher.items.reduce((sum, item) => sum + Number(item.pph23Amount || 0), 0),
     };
-    const printVoucherNumber = printVoucher.voucherNumber || db.getNextFinanceVoucherNumber(printDate);
+    const pphRateTotals = [0.02, 0.025, 0.1].map((rate) => ({
+      rate,
+      amount: printVoucher.items.reduce(
+        (sum, item) => sum + (getPaymentVoucherPphRate(item) === rate ? Number(item.pph23Amount || 0) : 0),
+        0,
+      ),
+    })).filter((entry) => entry.amount > 0);
+    const printVoucherNumber = printVoucher.voucherNumber || db.getNextFinanceVoucherNumber(printDate, printVoucher.branchName || db.getActorBranch());
     const printWindow = window.open('', '_blank', 'width=1100,height=800');
     if (!printWindow) {
       setError('Popup diblokir; buka kembali dan lanjutkan dengan form ini.');
@@ -393,7 +446,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
         <td class="amount">${formatPrintAmount(item.amount)}</td>
         <td class="amount">${formatPrintAmount(item.vatAmount)}</td>
         <td class="amount">${formatPrintAmount(item.total)}</td>
-        <td class="amount">${formatPrintAmount(item.pph23Amount)}</td>
+        <td class="amount">${getPaymentVoucherPphRate(item) ? `${escapeHtml(getPaymentVoucherPphLabel(getPaymentVoucherPphRate(item)))}<br />` : ''}${formatPrintAmount(item.pph23Amount)}</td>
         <td class="amount">${formatPrintAmount(item.paidAmount)}</td>
       </tr>
     `).join('');
@@ -428,10 +481,11 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
             .items td { font-size: 8.5px; }
             .pph { color: #dc2626; font-weight: 700; }
             .items th:nth-child(1), .items td:nth-child(1) { width: 3%; }
-            .items th:nth-child(2), .items td:nth-child(2) { width: 9%; }
-            .items th:nth-child(3), .items td:nth-child(3) { width: 14%; }
-            .items th:nth-child(4), .items td:nth-child(4) { width: 20%; }
-            .items th:nth-child(n+5), .items td:nth-child(n+5) { width: 9%; }
+            .items th:nth-child(2), .items td:nth-child(2) { width: 8%; }
+            .items th:nth-child(3), .items td:nth-child(3) { width: 12%; }
+            .items th:nth-child(4), .items td:nth-child(4) { width: 15%; }
+            .items th:nth-child(5), .items td:nth-child(5) { width: 8%; }
+            .items th:nth-child(n+6), .items td:nth-child(n+6) { width: 8%; }
             .center { text-align: center; }.amount { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
             .muted { color: #64748b; font-size: 8px; }
             .lower { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 10px; margin-top: 15px; align-items: start; }
@@ -475,7 +529,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
           ${printExchangeRateNote ? `<div class="description"><b>Catatan kurs:</b> ${escapeHtml(printExchangeRateNote)}</div>` : ''}
           <div class="description"><b>Description:</b> ${escapeHtml(description)}</div>
           <div class="section-title">Rincian Pembayaran</div>
-          <table class="items"><thead><tr><th>No</th><th>JOB Number</th><th>${printVoucher.jobInfo === 'JOB_VESSEL' ? 'Vessel Name' : 'Customer'}</th><th>Item Service</th><th>Amount (${escapeHtml(printCurrency)})</th><th>VAT (11%) (${escapeHtml(printCurrency)})</th><th>Total (${escapeHtml(printCurrency)})</th><th>PPH 23 (2%) (${escapeHtml(printCurrency)})</th><th>Paid Amount (${escapeHtml(printCurrency)})</th></tr></thead><tbody>${items}</tbody></table>
+          <table class="items"><thead><tr><th>No</th><th>JOB Number</th><th>${printVoucher.jobInfo === 'JOB_VESSEL' ? 'Vessel Name' : 'Customer'}</th><th>Item Service</th><th>Amount (${escapeHtml(printCurrency)})</th><th>VAT 11% (${escapeHtml(printCurrency)})</th><th>Total (${escapeHtml(printCurrency)})</th><th>Potongan PPh (${escapeHtml(printCurrency)})</th><th>Paid Amount (${escapeHtml(printCurrency)})</th></tr></thead><tbody>${items}</tbody></table>
           <div class="lower">
             <section class="bank"><div class="bank-title"><svg class="bank-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9 9-6 9 6"/><path d="M4 10h16M5 10v9m4-9v9m6-9v9m4-9v9M3 21h18M2 19h20"/></svg><span>Remitting Bank</span></div>
               <div class="bank-line"><b>Bank</b><i>:</i><span>${escapeHtml(senderBank?.bankName || '-')}</span></div>
@@ -487,7 +541,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
               <tr><td>Total (${escapeHtml(printCurrency)})</td><td>${formatPrintAmount(totals.total)}</td></tr>
               <tr><td>Surcharge (${escapeHtml(printCurrency)})</td><td>${formatPrintAmount(totals.surcharge)}</td></tr>
               <tr><td>Other Expenses (${escapeHtml(printCurrency)})</td><td>${formatPrintAmount(totals.otherExpenses)}</td></tr>
-              <tr class="pph"><td>PPH 23 (${escapeHtml(printCurrency)})</td><td>${formatPrintAmount(totals.pph23)}</td></tr>
+              ${pphRateTotals.map(({ rate, amount }) => `<tr class="pph"><td>${escapeHtml(getPaymentVoucherPphLabel(rate))} (${escapeHtml(printCurrency)})</td><td>-${formatPrintAmount(amount)}</td></tr>`).join('')}
               <tr class="grand"><td>Total Payment (${escapeHtml(printCurrency)})</td><td>${formatPrintAmount(totals.totalPayment)}</td></tr>
             </tbody></table>
           </div>
@@ -652,7 +706,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                       <th className="p-3 text-right">Amount ({paymentCurrency})</th>
                       <th className="p-3 text-right">VAT ({paymentCurrency})</th>
                       <th className="p-3 text-right">Total ({paymentCurrency})</th>
-                      <th className="p-3 text-right">PPH 23 ({paymentCurrency})</th>
+                      <th className="p-3">Potongan PPh ({paymentCurrency})</th>
                       <th className="p-3 text-right">Paid ({paymentCurrency})</th>
                     </tr>
                   </thead>
@@ -673,7 +727,10 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                         <td className="p-3 text-right font-mono text-slate-700">{formatPaymentAmount(item.amount)}</td>
                         <td className="p-3 text-right font-mono text-slate-700">{formatPaymentAmount(item.vatAmount)}</td>
                         <td className="p-3 text-right font-mono text-slate-700">{formatPaymentAmount(item.total)}</td>
-                        <td className="p-3 text-right font-mono text-slate-700">{formatPaymentAmount(item.pph23Amount)}</td>
+                        <td className="p-3 text-right font-mono text-slate-700">
+                          {getPaymentVoucherPphRate(item) > 0 && <span className="block text-[10px] text-rose-600">{getPaymentVoucherPphLabel(getPaymentVoucherPphRate(item))}</span>}
+                          {formatPaymentAmount(item.pph23Amount)}
+                        </td>
                         <td className="p-3 text-right font-mono font-bold text-slate-900">{formatPaymentAmount(item.paidAmount)}</td>
                       </tr>
                     ))}
@@ -684,22 +741,22 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
               <div className="grid gap-3 border-t border-slate-200 bg-slate-50 p-4 md:grid-cols-2">
                 <label className="block text-[11px] font-semibold uppercase tracking-widest text-slate-500">
                   Manual surcharge ({paymentCurrency})
-                  <input
-                    type="number"
+                  <FormattedNumberInput
                     placeholder="Masukkan nominal"
                     value={manualSurcharge}
-                    onChange={(e) => setManualSurcharge(e.target.value)}
+                    onValueChange={setManualSurcharge}
+                    emptyOnZero
                     className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-violet-400"
                   />
                 </label>
 
                 <label className="block text-[11px] font-semibold uppercase tracking-widest text-slate-500">
                   Other Expenses ({paymentCurrency})
-                  <input
-                    type="number"
+                  <FormattedNumberInput
                     placeholder="Masukkan nominal"
                     value={otherExpenses}
-                    onChange={(e) => setOtherExpenses(e.target.value)}
+                    onValueChange={setOtherExpenses}
+                    emptyOnZero
                     className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-violet-400"
                   />
                 </label>
@@ -727,26 +784,22 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
 
               <div className="border-t border-slate-200 bg-white p-4">
                 <div className="ml-auto max-w-sm space-y-2 text-sm text-slate-700">
-                  <div className="flex items-center justify-between">
-                    <span>Total ({paymentCurrency})</span>
-                    <span className="font-mono font-semibold">{formatPaymentAmount(itemTotals.total)}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Surcharge ({paymentCurrency})</span>
-                    <span className="font-mono font-semibold">{formatPaymentAmount(itemTotals.surcharge)}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Other Expenses ({paymentCurrency})</span>
-                    <span className="font-mono font-semibold">{formatPaymentAmount(itemTotals.otherExpenses)}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-rose-600">
-                    <span>PPH 23 ({paymentCurrency})</span>
-                    <span className="font-mono font-semibold">{formatPaymentAmount(itemTotals.pph23)}</span>
-                  </div>
-                  <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-base font-black text-slate-900">
-                    <span>Total Payment ({paymentCurrency})</span>
-                    <span className="font-mono">{formatPaymentAmount(itemTotals.totalPayment)}</span>
-                  </div>
+                  <div className="flex items-center justify-between"><span>Total ({paymentCurrency})</span><span className="font-mono font-semibold">{formatPaymentAmount(itemTotals.total)}</span></div>
+                  <div className="flex items-center justify-between"><span>Surcharge ({paymentCurrency})</span><span className="font-mono font-semibold">{formatPaymentAmount(itemTotals.surcharge)}</span></div>
+                  <div className="flex items-center justify-between"><span>Other Expenses ({paymentCurrency})</span><span className="font-mono font-semibold">{formatPaymentAmount(itemTotals.otherExpenses)}</span></div>
+                  {[0.02, 0.025, 0.1].map((rate) => {
+                    const amount = paymentFormVoucher.items.reduce(
+                      (sum, item) => sum + (getPaymentVoucherPphRate(item) === rate ? Number(item.pph23Amount || 0) : 0),
+                      0,
+                    );
+                    return amount > 0 ? (
+                      <div key={rate} className="flex items-center justify-between text-rose-600">
+                        <span>{getPaymentVoucherPphLabel(rate)} ({paymentCurrency})</span>
+                        <span className="font-mono font-semibold">{formatPaymentAmount(-amount)}</span>
+                      </div>
+                    ) : null;
+                  })}
+                  <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-base font-black text-slate-900"><span>Total Payment ({paymentCurrency})</span><span className="font-mono">{formatPaymentAmount(itemTotals.totalPayment)}</span></div>
                 </div>
               </div>
             </div>
@@ -809,32 +862,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
               </button>
               <button
                 type="button"
-                onClick={async () => {
-                  if (!paymentFormVoucher) return;
-                  if (isUploadingPaymentProof) return;
-                  if (!selectedBank) {
-                    setError(`Pembayaran diblokir: pilih rekening dengan mata uang ${paymentCurrency}.`);
-                    return;
-                  }
-                  if (!window.confirm(`Tandai voucher ${paymentFormVoucher.requestNumber} sebagai sudah dibayar?`)) return;
-                  setError('');
-                  try {
-                    await db.refreshRemote();
-                    await db.payPaymentVoucher(paymentFormVoucher.id, payer, paymentDate, {
-                      surcharge: itemTotals.surcharge,
-                      otherExpenses: itemTotals.otherExpenses,
-                      description: paymentDescription,
-                      totalAmount: itemTotals.totalPayment,
-                      paidFromBankAccountId: selectedBank?.id,
-                      ...(paymentFormProof ? { paymentProofDataUrl: paymentFormProof.dataUrl } : {}),
-                    });
-                    await dataApi.deleteUserData('finance_payment_draft');
-                    setInitialPaymentDraft(null);
-                    setPaymentFormVoucherId(null);
-                  } catch (payError) {
-                    setError(payError instanceof Error ? payError.message : 'Gagal memproses pembayaran.');
-                  }
-                }}
+                onClick={() => { void postPayment(); }}
                 disabled={isUploadingPaymentProof || !selectedBank}
                 className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -866,6 +894,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
       </div>
 
       {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">{error}</div>}
+      {message && <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-700">{message}</div>}
 
       <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
         <div className="relative w-full max-w-md">
@@ -897,7 +926,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
-          <table className={`w-full text-left text-xs ${mode === 'INPUT' ? 'min-w-[1680px]' : 'min-w-[1500px]'}`}>
+          <table className={`w-full text-left text-xs ${mode === 'INPUT' ? 'min-w-[1760px]' : 'min-w-[1580px]'}`}>
             <thead className="border-b border-slate-200 bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="w-10 p-3.5" />
@@ -914,6 +943,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                 <th className="p-3.5">Bank / A/c Number</th>
                 <th className="p-3.5">Request By</th>
                 <th className="p-3.5 text-right">Paid Amount</th>
+                <th className="p-3.5">Approv By</th>
                 <th className="p-3.5">Status</th>
                 <th className="p-3.5 text-center">Aksi</th>
               </tr>
@@ -950,6 +980,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                       </td>
                       <td className="p-3.5 text-slate-700">{voucher.requestBy}</td>
                       <td className="p-3.5 text-right font-mono font-black text-slate-900">{money(voucher.totalPaidAmount)}</td>
+                      <td className="p-3.5 text-slate-700">{voucher.reviewedBy || '-'}</td>
                       <td className="p-3.5">
                         {voucher.status === 'PAID' ? (
                           <span className="rounded bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">Dibayar</span>
@@ -995,7 +1026,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                     {expanded && (
                       <tr className="bg-slate-50/60">
                         <td />
-                        <td colSpan={mode === 'HISTORY' ? 15 : 14} className="p-3.5">
+                        <td colSpan={mode === 'HISTORY' ? 16 : 15} className="p-3.5">
                         <table className="w-full text-left text-[11px]">
                             <thead className="text-[10px] uppercase text-slate-500">
                               <tr>
@@ -1007,7 +1038,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                                 <th className="p-2 text-right">Amount</th>
                                 <th className="p-2 text-right">Vat</th>
                                 <th className="p-2 text-right">Total</th>
-                                <th className="p-2 text-right">PPH 23 (1%)</th>
+                                <th className="p-2 text-right">Potongan PPh</th>
                                 <th className="p-2 text-right">Paid Amount</th>
                               </tr>
                             </thead>
@@ -1026,7 +1057,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                                   <td className="p-2 text-right font-mono">{money(item.amount)}</td>
                                   <td className="p-2 text-right font-mono">{money(item.vatAmount)}</td>
                                   <td className="p-2 text-right font-mono">{money(item.total)}</td>
-                                  <td className="p-2 text-right font-mono">{money(item.pph23Amount)}</td>
+                                  <td className="p-2 text-right font-mono">{getPaymentVoucherPphRate(item) > 0 && <span className="block text-[9px] text-rose-600">{getPaymentVoucherPphLabel(getPaymentVoucherPphRate(item))}</span>}{money(item.pph23Amount)}</td>
                                   <td className="p-2 text-right font-mono font-bold">{money(item.paidAmount)}</td>
                                 </tr>
                               ))}
@@ -1039,7 +1070,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                 );
               })}
               {vouchers.length === 0 && (
-                <tr><td colSpan={mode === 'HISTORY' ? 16 : 14} className="p-6 text-center text-slate-400">Belum ada data pengajuan pembayaran.</td></tr>
+                <tr><td colSpan={mode === 'HISTORY' ? 17 : 16} className="p-6 text-center text-slate-400">Belum ada data pengajuan pembayaran.</td></tr>
               )}
             </tbody>
           </table>

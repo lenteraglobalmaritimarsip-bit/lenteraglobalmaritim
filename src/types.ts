@@ -1,6 +1,13 @@
-export type UserRole = 'ADMIN' | 'SALES' | 'MANAGER_OPS' | 'FDA' | 'FINANCE';
+export type UserRole = 'ADMIN' | 'SALES' | 'MANAGER_OPS' | 'FDA' | 'FINANCE' | 'ACCOUNTING' | 'DIRECTOR';
 
 export type Currency = 'USD' | 'IDR';
+
+export interface Branch {
+  id: string;
+  code: string;
+  name: string;
+  isActive: boolean;
+}
 
 export interface AuditLog {
   id: string;
@@ -31,6 +38,7 @@ export interface User {
   role: UserRole;
   department: string;
   branch: string;
+  branchId?: string;
   status: 'ACTIVE' | 'INACTIVE';
   phone?: string;
   username?: string;
@@ -116,16 +124,215 @@ export interface VendorPartner {
 
 export interface BankAccount {
   id: string;
+  coaId?: string;
   bankName: string;
   branch?: string;
+  branchName?: string;
+  branchId?: string;
   accountName: string;
   accountNumber: string;
   currency?: Currency;
 }
 
+export interface ChartOfAccount {
+  id: string;
+  code: string;
+  accountDesc: string;
+  accountGroup: string;
+  isActive: boolean;
+}
+
+export interface FinanceJournalLine {
+  id: string;
+  coaId: string;
+  memo: string;
+  direction: 'DEBIT' | 'CREDIT';
+  amount: number;
+}
+
+export type AccountingSourceType = 'PAYABLE' | 'RECEIVABLE' | 'HISTORICAL';
+export type AccountingJournalStatus = 'PENDING' | 'DRAFT' | 'POSTED';
+
+export interface AccountingPayableSourceItem {
+  itemService: string;
+  jobNumber: string;
+  documentType: string;
+  documentNumber: string;
+  customerName: string;
+  amount: number;
+  vatAmount: number;
+  total: number;
+  pphRate?: number;
+  pph23Amount: number;
+  paidAmount: number;
+  currency: Currency;
+}
+
+export interface AccountingSourceDetails {
+  items?: AccountingPayableSourceItem[];
+  surcharge?: number;
+  otherExpenses?: number;
+  paymentDescription?: string;
+  paymentTotal?: number;
+  remittanceBankName?: string;
+  remittanceAccountName?: string;
+  remittanceAccountNumber?: string;
+  destinationAccountName?: string;
+  beneficiaryAccountName?: string;
+  beneficiaryBankName?: string;
+  beneficiaryAccountNumber?: string;
+  currency?: Currency;
+  subjectData?: 'OPERATIONAL' | 'PRINCIPAL';
+  jobId?: string;
+  paymentType?: string;
+  invoiceType?: string;
+  invoiceNo?: string;
+  principalName?: string;
+  vesselName?: string;
+  pph23AmountIDR?: number;
+  idrAmount?: number;
+  usdAmount?: number;
+  exchangeRateUSDToIDR?: number;
+  remark?: string;
+}
+
+export interface AccountingInboxItem {
+  sourceType: AccountingSourceType;
+  sourceKey: string;
+  sourceId: string;
+  branchId: string;
+  branchName: string;
+  date: string;
+  arApNumber: string;
+  referenceNo: string;
+  requestNo: string;
+  counterparty: string;
+  description: string;
+  bankName: string;
+  accountNumber: string;
+  bankCoaId?: string;
+  currency: Currency;
+  amount: number;
+  exchangeRate: number;
+  amountIdr: number;
+  sourceDetails?: AccountingSourceDetails;
+  accountingStatus: AccountingJournalStatus;
+  journalId?: string | null;
+  journalNumber?: string | null;
+  journalDate?: string | null;
+  journalDescription?: string | null;
+  journalLines: FinanceJournalLine[];
+  createdBy?: string | null;
+  createdAt?: string | null;
+  updatedBy?: string | null;
+  updatedAt?: string | null;
+  postedBy?: string | null;
+  postedAt?: string | null;
+}
+
+export interface AccountingAsset {
+  id: string;
+  assetCode: string;
+  assetName: string;
+  category: string | null;
+  acquisitionDate: string | null;
+  acquisitionCost: number;
+  usefulLifeMonths: number;
+  residualValue: number;
+  location: string | null;
+  branchId: string;
+  branchName: string;
+  status: 'Aktif' | 'Dijual' | 'Dihapuskan';
+  coaAssetId: string | null;
+  coaDepreciationId: string | null;
+  monthlyDepreciation: number;
+}
+
+export interface AccountingPostedJournalRow {
+  journalId: string;
+  journalLineId: string;
+  coaId: string;
+  branchCode?: string;
+  branchName?: string;
+  journalNumber: string;
+  journalDate: string;
+  arApNumber: string;
+  appliedDate: string;
+  shipment: string;
+  customer: string;
+  jobVessel: string;
+  refNoFda: string;
+  bl: string;
+  currency: string;
+  exchangeRate: number;
+  item: string;
+  vendor: string;
+  description: string;
+  coa: string;
+  accountName: string;
+  direction: 'D' | 'K';
+  amount: number;
+}
+
+export interface AccountingFinancialReportLine {
+  code: string;
+  accountName: string;
+  accountGroup: string;
+  amount: number;
+}
+
+export interface AccountingReportBranch {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface AccountingBalanceSheetResponse {
+  report: AccountingBalanceSheetReport;
+  branches: AccountingReportBranch[];
+}
+
+export interface AccountingProfitLossResponse {
+  report: AccountingProfitLossReport;
+  branches: AccountingReportBranch[];
+}
+
+export interface AccountingMonthlyProfitLossResponse {
+  reports: AccountingProfitLossReport[];
+  branches: AccountingReportBranch[];
+}
+
+export interface AccountingBalanceSheetReport {
+  asOf: string;
+  assets: AccountingFinancialReportLine[];
+  liabilities: AccountingFinancialReportLine[];
+  equity: AccountingFinancialReportLine[];
+  currentEarnings: number;
+  totalAssets: number;
+  totalLiabilities: number;
+  totalEquity: number;
+  difference: number;
+}
+
+export interface AccountingProfitLossReport {
+  startDate: string;
+  endDate: string;
+  revenue: AccountingFinancialReportLine[];
+  expenses: AccountingFinancialReportLine[];
+  otherIncome: AccountingFinancialReportLine[];
+  otherExpenses: AccountingFinancialReportLine[];
+  totalRevenue: number;
+  totalExpenses: number;
+  totalOtherIncome: number;
+  totalOtherExpenses: number;
+  netIncome: number;
+}
+
 export interface CashBalanceAdjustment {
   id: string;
   bankAccountId: string;
+  branchName?: string;
+  branchId?: string;
   bankName: string;
   accountNumber: string;
   currency: Currency;
@@ -143,11 +350,19 @@ export interface PaymentVoucherItem {
   documentNumber?: string;
   customerName: string;
   itemService: string;
+  category?: string;
+  tariffType?: 'FIXED' | 'VARIABLE' | 'QTY_CARGO';
+  price?: number;
+  quantity?: number;
+  unit?: string;
+  remarks?: string;
+  coaId?: string;
   amount: number;
   vatApplied: boolean;
   vatAmount: number;
   total: number;
   pph23Applied: boolean;
+  pphRate?: number;
   pph23Amount: number;
   paidAmount: number;
 }
@@ -156,21 +371,28 @@ export type PaymentVoucherStatus = 'PENDING_MANAGER' | 'APPROVED' | 'REJECTED' |
 
 export interface PaymentVoucherPaymentRecord {
   voucherNumber: string;
+  journalNumber?: string;
   paidBy: string;
   paidAt: string;
   paidFromBankAccountId?: string;
   bankName: string;
   accountNumber: string;
   paymentSurcharge?: number;
+  paymentSurchargeCoaId?: string;
   paymentOtherExpenses?: number;
+  paymentOtherExpensesCoaId?: string;
   paymentDescription?: string;
   paymentTotalAmount?: number;
   paymentProofDataUrl?: string;
+  paymentJournalLines?: FinanceJournalLine[];
 }
 
 export interface PaymentVoucher {
   id: string;
+  branchName?: string;
+  branchId?: string;
   voucherNumber?: string;
+  journalNumber?: string;
   requestNumber: string;
   requestDate: string;
   currency?: Currency;
@@ -189,16 +411,22 @@ export interface PaymentVoucher {
   items: PaymentVoucherItem[];
   totalPaidAmount: number;
   status?: PaymentVoucherStatus;
+  approvalTargetRole?: Extract<UserRole, 'MANAGER_OPS' | 'DIRECTOR'>;
+  approvalTargetUserId?: string;
+  approvalTargetName?: string;
   managerNote?: string;
   reviewedBy?: string;
   reviewedAt?: string;
   paidBy?: string;
   paidAt?: string;
   paymentSurcharge?: number;
+  paymentSurchargeCoaId?: string;
   paymentOtherExpenses?: number;
+  paymentOtherExpensesCoaId?: string;
   paymentDescription?: string;
   paymentTotalAmount?: number;
   paymentProofDataUrl?: string;
+  paymentJournalLines?: FinanceJournalLine[];
   paymentHistory?: PaymentVoucherPaymentRecord[];
   createdAt: string;
 }
@@ -352,6 +580,10 @@ export interface ReceivableInvoiceOption {
 
 export interface AccountsReceivableEntry {
   id: string;
+  receiptNumber?: string;
+  journalNumber?: string;
+  branchName?: string;
+  branchId?: string;
   subjectData: ReceivableSubjectData;
   jobId: string | null;
   invoiceType: ReceivableInvoiceType | null;
@@ -362,6 +594,8 @@ export interface AccountsReceivableEntry {
   principalName: string | null;
   vesselName: string | null;
   pph23AmountIDR: number;
+  coaId?: string;
+  journalLines?: FinanceJournalLine[];
   remark: string;
   bankAccountId: string;
   bankName: string;
@@ -435,7 +669,7 @@ export const formatPurposeOfCall = (value?: string) => value
   : '-';
 
 export interface JobCall {
-  jobId: string; // e.g. "VC-2026-0098"
+  jobId: string; // e.g. "VC-JKT-2026-0001"
   vesselId: string;
   vesselName: string;
   portId: string;
@@ -468,6 +702,7 @@ export interface JobCall {
     createdByName?: string;
     createdByUserId?: string;
     createdByBranch?: string;
+    createdByBranchId?: string;
   };
 
   // 2. Quotation
@@ -483,6 +718,7 @@ export interface JobCall {
       exchangeRateUSDToIDR?: number;
       pph23Applied?: boolean;
       globalVatApplied?: boolean;
+      discountAmount?: number;
       items: DisbursementItem[];
       totalAmount: number;
       status: 'DRAFT' | 'SUBMITTED' | 'APPROVED';
@@ -533,6 +769,7 @@ export interface JobCall {
     exchangeRateUSDToIDR?: number;
     pph23Applied?: boolean;
     globalVatApplied?: boolean;
+    discountAmount?: number;
     finalBilledToPrincipal: number;
     fdaApproved: boolean;
     advancePaymentAtApproval?: number;
@@ -585,6 +822,23 @@ export interface JobCall {
 
 export type ActiveTab =
   | 'DASHBOARD'
+  | 'ACCOUNTING_DASHBOARD'
+  | 'ACCOUNTING_WORKSPACE'
+  | 'ACCOUNTING_ASSETS'
+  | 'ACCOUNTING_POSTED_JOURNAL_REPORT'
+  | 'ACCOUNTING_FINANCE_HISTORY'
+  | 'ACCOUNTING_BALANCE_SHEET'
+  | 'ACCOUNTING_PROFIT_LOSS'
+  | 'ACCOUNTING_PROFIT_DETAIL'
+  | 'DIRECTOR_DASHBOARD'
+  | 'DIRECTOR_ASSETS'
+  | 'DIRECTOR_BALANCE_SHEET'
+  | 'DIRECTOR_PROFIT_LOSS'
+  | 'DIRECTOR_PROFIT_DETAIL'
+  | 'DIRECTOR_VOUCHER_APPROVAL'
+  | 'DIRECTOR_JOB_INVOICE_MONITORING'
+  | 'DIRECTOR_VESSEL_CALLS'
+  | 'DIRECTOR_ACTIVITY_LOG'
   | 'USERS'
   | 'CUSTOMERS'
   | 'VESSELS'
@@ -594,6 +848,7 @@ export type ActiveTab =
   | 'EXPENSES_ITEM'
   | 'VENDOR_PARTNERS'
   | 'BANK_ACCOUNT'
+  | 'CHART_OF_ACCOUNTS'
   | 'CASH_BALANCE_ADJUSTMENTS'
   | 'INQUIRIES'
   | 'QUOTES_EPDA'
@@ -608,6 +863,7 @@ export type ActiveTab =
   | 'FDA_EDIT_VOUCHER'
   | 'MANAGER_VOUCHER_APPROVAL'
   | 'MANAGEMENT_VESSEL'
+  | 'MANAGER_JOB_INVOICE_MONITORING'
   | 'JOBS_ENTRY'
   | 'ACTIVE_VESSEL_CALLS'
   | 'FDA_JOB_ID'
@@ -633,6 +889,7 @@ export type ActiveTab =
   | 'CLOSING';
 
 export interface DatabaseState {
+  branches: Branch[];
   users: User[];
   customers: Customer[];
   vessels: Vessel[];
@@ -642,6 +899,7 @@ export interface DatabaseState {
   expensesItems: ExpensesItem[];
   vendorPartners: VendorPartner[];
   bankAccounts: BankAccount[];
+  chartOfAccounts: ChartOfAccount[];
   cashBalanceAdjustments: CashBalanceAdjustment[];
   paymentVouchers: PaymentVoucher[];
   jobCalls: JobCall[];

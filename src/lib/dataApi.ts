@@ -1,7 +1,7 @@
 import { DatabaseState } from '../types';
 import { apiAuth } from './api';
 
-export type AppUserDataKey = 'voucher_draft' | 'finance_payment_draft' | 'notification_reads';
+export type AppUserDataKey = 'voucher_draft' | 'finance_payment_draft' | 'finance_receivable_draft' | 'notification_reads';
 
 export const dataApi = {
   async load(): Promise<{ state: DatabaseState; initialized: boolean; revision: string }> {
@@ -10,7 +10,7 @@ export const dataApi = {
     if (!response.ok) throw new Error(payload.error || `State request failed (${response.status})`);
     return payload as { state: DatabaseState; initialized: boolean; revision: string };
   },
-  async save(state: DatabaseState, revision: string): Promise<string> {
+  async save(state: DatabaseState, revision: string): Promise<{ revision: string; journalNumbers: Record<string, string> }> {
     const response = await fetch('/api/state.php', {
       method: 'PUT',
       credentials: 'include',
@@ -20,10 +20,10 @@ export const dataApi = {
       },
       body: JSON.stringify({ state, revision }),
     });
-    const payload = await response.json().catch(() => ({})) as { error?: string; details?: string; revision?: string };
+    const payload = await response.json().catch(() => ({})) as { error?: string; details?: string; revision?: string; journalNumbers?: Record<string, string> };
     if (!response.ok) throw new Error([payload.error, payload.details].filter(Boolean).join(': ') || `State save failed (${response.status})`);
     if (!payload.revision) throw new Error('State save response did not include a revision');
-    return payload.revision;
+    return { revision: payload.revision, journalNumbers: payload.journalNumbers || {} };
   },
   async getUserData<T>(key: AppUserDataKey): Promise<T | null> {
     const response = await fetch(`/api/user_data.php?key=${encodeURIComponent(key)}`, { credentials: 'include' });

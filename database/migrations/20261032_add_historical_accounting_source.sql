@@ -1,0 +1,2 @@
+ALTER TABLE accounting_journals
+  MODIFY COLUMN source_type ENUM('PAYABLE', 'RECEIVABLE', 'HISTORICAL') NOT NULL;

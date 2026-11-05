@@ -1,19 +1,26 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowDownToLine, ArrowUpFromLine, Calculator, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import ExcelJS from 'exceljs';
-import { AccountsReceivableEntry, Currency, JobCall, PaymentVoucher, PrincipalReceipt } from '../../types';
+import { AccountsReceivableEntry, BankAccount, Currency, JobCall, PaymentVoucher, PaymentVoucherItem, PrincipalReceipt } from '../../types';
 import { loadAccountsReceivableHistory } from '../../lib/api';
 import { formatDateDisplay, toLocalISODate } from '../../utils/date';
 import { DateInput } from '../shared/DateInput';
 import { getPaymentVoucherPaymentEvents } from '../../utils/paymentVoucherHistory';
+import { buildPaymentVoucherJournal } from '../../utils/paymentVoucherJournal';
+import { addChartOfAccountsWorksheet } from '../../utils/chartOfAccountsWorkbook';
+import { buildReceivableJournal } from '../../utils/receivableJournal';
+import { getPaymentVoucherPphRate } from '../../utils/paymentVoucherTax';
 
 interface FinanceRecapViewProps {
   paymentVouchers: PaymentVoucher[];
   jobCalls: JobCall[];
+  bankAccounts: BankAccount[];
+  branchName: string;
 }
 
 interface IncomeRow {
   id: string;
+  arApNumber: string;
   jobId: string;
   date: string;
   paymentType: PrincipalReceipt['paymentType'] | null;
@@ -36,17 +43,24 @@ interface IncomeRow {
 interface ExpenseRow {
   id: string;
   date: string;
+  arApNumber: string;
   voucherNo: string;
   requestNo: string;
   vendor: string;
   jobInfo: string;
   jobNumbers: string;
+  fdaNo: string;
   bank: string;
   accountNumber: string;
+  remittanceBank: string;
+  remittanceAccountNumber: string;
   paid: number;
   surcharge: number;
   other: number;
   total: number;
+  items: PaymentVoucherItem[];
+  vat: number;
+  pph23: number;
   currency: Currency;
   exchangeRate: number;
   exchangeRateDate: string;
@@ -112,6 +126,7 @@ const toIncomeRow = (entry: AccountsReceivableEntry): IncomeRow => {
   const exchangeRate = Number(entry.exchangeRateUSDToIDR) || 0;
   return {
     id: entry.id,
+    arApNumber: entry.receiptNumber || '-',
     jobId: entry.jobId || '',
     date: String(entry.incomeDate).slice(0, 10),
     paymentType: principalEntry ? entry.paymentType : null,
@@ -145,6 +160,7 @@ const toPrincipalReceiptRow = (job: JobCall, receipt: PrincipalReceipt): IncomeR
   );
   return {
     id: receipt.id,
+    arApNumber: '-',
     jobId: job.jobId,
     date: String(receipt.receivedDate).slice(0, 10),
     paymentType: receipt.paymentType,
@@ -165,28 +181,45 @@ const toPrincipalReceiptRow = (job: JobCall, receipt: PrincipalReceipt): IncomeR
   };
 };
 
-const toExpenseRow = (voucher: PaymentVoucher): ExpenseRow => {
+const toExpenseRow = (
+  voucher: PaymentVoucher,
+  jobsById: Map<string, JobCall>,
+  bankAccountsById: Map<string, BankAccount>,
+): ExpenseRow => {
   const currency = voucher.currency || 'IDR';
   const exchangeRate = Number(voucher.exchangeRateUSDToIDR) || 0;
   const surcharge = Number(voucher.paymentSurcharge) || 0;
   const other = Number(voucher.paymentOtherExpenses) || 0;
   const paid = Number(voucher.totalPaidAmount) || 0;
   const jobNumbers = [...new Set((voucher.items || []).map((item) => item.jobNumber).filter(Boolean))].join(', ');
+  const fdaNo = [...new Set((voucher.items || [])
+    .map((item) => jobsById.get(item.jobNumber)?.fda?.fdaNo)
+    .filter((number): number is string => Boolean(number)))].join(', ');
+  const remittanceAccount = voucher.paidFromBankAccountId
+    ? bankAccountsById.get(voucher.paidFromBankAccountId)
+    : undefined;
   const total = Number(voucher.paymentTotalAmount) || paid + surcharge + other;
   return {
     id: voucher.id,
     date: String(voucher.paidAt).slice(0, 10),
+    arApNumber: voucher.voucherNumber || '-',
     voucherNo: voucher.voucherNumber || '-',
     requestNo: voucher.requestNumber,
     vendor: voucher.vendorName || '-',
     jobInfo: voucher.jobInfo === 'JOB_VESSEL' ? 'JOB Vessel' : 'Operasional',
     jobNumbers: jobNumbers || '-',
+    fdaNo: fdaNo || '-',
     bank: voucher.bankName || '-',
     accountNumber: voucher.accountNumber || '-',
+    remittanceBank: remittanceAccount?.bankName || '-',
+    remittanceAccountNumber: remittanceAccount?.accountNumber || '-',
     paid,
     surcharge,
     other,
     total,
+    items: voucher.items || [],
+    vat: (voucher.items || []).reduce((sum, item) => sum + (Number(item.vatAmount) || 0), 0),
+    pph23: (voucher.items || []).reduce((sum, item) => sum + (Number(item.pph23Amount) || 0), 0),
     currency,
     exchangeRate,
     exchangeRateDate: voucher.exchangeRateDate || '',
@@ -210,17 +243,24 @@ const toPrincipalRefundExpenseRow = (job: JobCall, receipt: PrincipalReceipt): E
   return {
     id: `REFUND-${receipt.id}`,
     date: String(receipt.refundDate || '').slice(0, 10),
+    arApNumber: '-',
     voucherNo: receipt.refundBankReference || `REFUND-${receipt.id}`,
     requestNo: `REFUND-${receipt.id}`,
     vendor: job.customerName || 'Principal',
     jobInfo: 'JOB Vessel',
     jobNumbers: job.jobId,
+    fdaNo: job.fda?.fdaNo || '-',
     bank: 'Principal refund',
     accountNumber: '-',
+    remittanceBank: '-',
+    remittanceAccountNumber: '-',
     paid: refundAmount,
     surcharge: 0,
     other: 0,
     total: refundAmount,
+    items: [],
+    vat: 0,
+    pph23: 0,
     currency,
     exchangeRate: refundRate,
     exchangeRateDate: receipt.refundDate || receipt.receivedDate || '',
@@ -232,7 +272,7 @@ const toPrincipalRefundExpenseRow = (job: JobCall, receipt: PrincipalReceipt): E
 
 const sumBy = <T,>(rows: T[], pick: (row: T) => number) => rows.reduce((total, row) => total + pick(row), 0);
 
-export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouchers, jobCalls }) => {
+export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouchers, jobCalls, bankAccounts, branchName }) => {
   const [startDate, setStartDate] = useState(() => rangeForMonth(0).from);
   const [endDate, setEndDate] = useState(() => rangeForMonth(0).to);
   const [entries, setEntries] = useState<AccountsReceivableEntry[]>([]);
@@ -303,17 +343,19 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
 
   const expenseRows = useMemo(() => {
     if (invalidRange) return [];
+    const jobsById = new Map<string, JobCall>(jobCalls.map((job): [string, JobCall] => [job.jobId, job]));
+    const bankAccountsById = new Map<string, BankAccount>(bankAccounts.map((account): [string, BankAccount] => [account.id, account]));
     const voucherExpenses = paymentVouchers
       .flatMap(getPaymentVoucherPaymentEvents)
       .filter((voucher) => Boolean(voucher.paidAt))
-      .map(toExpenseRow);
+      .map((voucher) => toExpenseRow(voucher, jobsById, bankAccountsById));
     const refundExpenses = jobCalls.flatMap((job) => (job.principalReceipts || [])
       .filter((receipt) => receipt.refundStatus === 'PAID')
       .map((receipt) => toPrincipalRefundExpenseRow(job, receipt)));
     return [...voucherExpenses, ...refundExpenses]
       .filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date) && inRange(row.date))
       .sort((a, b) => a.date.localeCompare(b.date) || a.requestNo.localeCompare(b.requestNo));
-  }, [jobCalls, paymentVouchers, inRange, invalidRange]);
+  }, [bankAccounts, jobCalls, paymentVouchers, inRange, invalidRange]);
 
   const totals = useMemo(() => {
     const inIDR = sumBy<IncomeRow>(incomeRows, (row) => row.idr);
@@ -352,18 +394,27 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
   }, [incomeRows, expenseRows]);
 
   const ledger = useMemo(() => {
+    const jobsById = new Map<string, JobCall>(jobCalls.map((job): [string, JobCall] => [job.jobId, job]));
     const merged = [
       ...incomeRows.map((row) => ({
         key: `IN-${row.id}`, date: row.date, kind: 'IN' as const,
+        arApNumber: row.arApNumber,
         reference: row.subject === 'Principal' ? `${row.invoiceType} ${row.invoiceNo}`.trim() : 'Operasional',
-        party: row.principal, detail: row.vesselOrJob, bank: row.bank, note: row.remark, exchangeRate: row.exchangeRate,
+        party: row.principal, detail: row.vesselOrJob, fdaNo: jobsById.get(row.jobId)?.fda?.fdaNo || '-',
+        description: row.remark, items: [], vat: 0, pph23: row.pph23, bank: row.bank, accountNumber: '-',
+        remittanceBank: '-', remittanceAccountNumber: '-',
+        note: row.remark, exchangeRate: row.exchangeRate,
         inIDR: row.idrEquivalent, inUSD: row.usd, inRate: row.exchangeRate, outIDR: 0, outUSD: 0, outRate: 0, outIDREquivalent: null,
       })),
       ...expenseRows.map((row) => ({
         key: `OUT-${row.id}`, date: row.date, kind: 'OUT' as const,
-        reference: row.voucherNo !== '-' ? row.voucherNo : row.requestNo,
+        arApNumber: row.arApNumber,
+        reference: row.requestNo,
         party: row.vendor, detail: row.jobInfo === 'Operasional' ? 'Operasional' : row.jobNumbers,
-        bank: row.bank, note: `${row.currency}${row.description ? ` · ${row.description}` : ''}`, exchangeRate: row.exchangeRate,
+        fdaNo: row.fdaNo, description: row.description, items: row.items, vat: row.vat, pph23: row.pph23,
+        bank: row.bank, accountNumber: row.accountNumber,
+        remittanceBank: row.remittanceBank, remittanceAccountNumber: row.remittanceAccountNumber,
+        note: `${row.currency}${row.description ? ` · ${row.description}` : ''}`, exchangeRate: row.exchangeRate,
         inIDR: 0, inUSD: 0, inRate: 0,
         outIDR: row.currency === 'IDR' ? row.total : 0,
         outUSD: row.currency === 'USD' ? row.total : 0,
@@ -372,7 +423,7 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
       })),
     ];
     return merged.sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind));
-  }, [incomeRows, expenseRows]);
+  }, [incomeRows, expenseRows, jobCalls]);
 
   const pageCount = Math.max(1, Math.ceil(ledger.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
@@ -432,21 +483,21 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
 
       // --- Pengeluaran ---
       const expenseSheet = workbook.addWorksheet('Pengeluaran');
-      expenseSheet.addRow(['No', 'Tanggal Bayar', 'No Voucher', 'No Request', 'Vendor', 'Info JOB', 'Job Number', 'Bank Tujuan', 'No Rekening', 'Currency', 'Paid Amount', 'Surcharge', 'Biaya Lain', 'Total Dibayar', 'Kurs USD/IDR', 'Tanggal Kurs', 'Total IDR Ekuivalen', 'Keterangan', 'Dibayar Oleh']);
+      expenseSheet.addRow(['No', 'Tanggal Bayar', 'No Voucher', 'No Request', 'Vendor', 'Info JOB', 'Job Number', 'No FDA', 'Bank Tujuan', 'Rekening Tujuan', 'Bank Remitten', 'Rekening Remitten', 'Currency', 'Paid Amount', 'Surcharge', 'Biaya Lain', 'Total Dibayar', 'Kurs USD/IDR', 'Tanggal Kurs', 'Total IDR Ekuivalen', 'Keterangan', 'Dibayar Oleh']);
       expenseRows.forEach((row, index) => expenseSheet.addRow([
-        index + 1, toExcelDate(row.date), row.voucherNo, row.requestNo, row.vendor, row.jobInfo, row.jobNumbers,
-        row.bank, row.accountNumber, row.currency, row.paid, row.surcharge, row.other, row.total, row.exchangeRate || '', row.exchangeRateDate || '', row.totalInIDR, row.description, row.paidBy,
+        index + 1, toExcelDate(row.date), row.voucherNo, row.requestNo, row.vendor, row.jobInfo, row.jobNumbers, row.fdaNo,
+        row.bank, row.accountNumber, row.remittanceBank, row.remittanceAccountNumber, row.currency, row.paid, row.surcharge, row.other, row.total, row.exchangeRate || '', row.exchangeRateDate || '', row.totalInIDR, row.description, row.paidBy,
       ]));
       const expenseTotal = expenseSheet.addRow([
-        '', '', '', '', '', '', '', '', 'TOTAL', '', '', '', '', '', '', '',
-        sumCell('Q', expenseRows.length, totals.outIDR), '', '',
+        '', '', '', '', '', '', '', '', '', '', '', '', 'TOTAL', '', '', '', '',
+        '', '', sumCell('T', expenseRows.length, totals.outIDR), '', '',
       ]);
       expenseTotal.font = { bold: true };
-      styleHeader(expenseSheet, 1, 19);
+      styleHeader(expenseSheet, 1, 22);
       expenseSheet.getColumn(2).numFmt = dateFmt;
-      [11, 12, 13, 14, 15, 17].forEach((column) => { expenseSheet.getColumn(column).numFmt = money2; });
-      expenseSheet.getColumn(16).numFmt = dateFmt;
-      [6, 14, 18, 20, 28, 14, 22, 18, 20, 12, 16, 14, 14, 18, 16, 16, 20, 32, 20].forEach((width, index) => { expenseSheet.getColumn(index + 1).width = width; });
+      [14, 15, 16, 17, 18, 20].forEach((column) => { expenseSheet.getColumn(column).numFmt = money2; });
+      expenseSheet.getColumn(19).numFmt = dateFmt;
+      [6, 14, 18, 18, 22, 14, 22, 18, 20, 20, 20, 20, 12, 16, 14, 14, 18, 16, 16, 20, 32, 20].forEach((width, index) => { expenseSheet.getColumn(index + 1).width = width; });
 
       // --- Rekap Bulanan ---
       const monthSheet = workbook.addWorksheet('Rekap Bulanan');
@@ -470,28 +521,91 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
 
       const transactionSheet = workbook.addWorksheet('Rincian Transaksi');
       transactionSheet.addRow([
-        'No', 'Tanggal', 'Jenis', 'Referensi', 'Pihak', 'Vessel / Job', 'Bank',
-        'Masuk IDR Ekuiv.', 'Masuk USD', 'Kurs Masuk USD/IDR', 'Keluar IDR', 'Keluar USD',
-        'Kurs Keluar USD/IDR', 'Keluar IDR Ekuiv.',
+        'No', 'Tanggal', 'Jenis', 'No. AR/AP', 'Referensi', 'Pihak', 'Vessel / Job', 'No FDA',
+        'Item Service', 'Deskripsi', 'Amount', 'VAT', 'PPh 23', 'Ket PPH23', 'Bank Tujuan', 'Rekening Tujuan',
+        'Bank Remitten', 'Rekening Remitten', 'Masuk IDR Ekuiv.',
+        'Masuk USD', 'Kurs Masuk USD/IDR', 'Keluar IDR', 'Keluar USD', 'Kurs Keluar USD/IDR',
+        'Keluar IDR Ekuiv.',
       ]);
-      ledger.forEach((row, index) => transactionSheet.addRow([
-        index + 1, toExcelDate(row.date), row.kind === 'IN' ? 'Masuk' : 'Keluar', row.reference,
-        row.party, row.detail, row.bank, row.inIDR, row.inUSD, row.inRate || '', row.outIDR,
-        row.outUSD, row.outRate || '', row.outIDREquivalent,
-      ]));
+      const transactionDataRows = ledger.flatMap((row) => {
+        const detailItems = row.kind === 'OUT' && row.items.length > 0 ? row.items : [null];
+        const detailLines = detailItems.map((item) => {
+          const amount = Number(item?.amount) || 0;
+          const itemPaid = item
+            ? Number(item.paidAmount) || Math.max(0, Number(item.total || amount + Number(item.vatAmount || 0)) - Number(item.pph23Amount || 0))
+            : 0;
+          const outIDR = row.kind === 'OUT' && row.currency === 'IDR' ? itemPaid : 0;
+          const outUSD = row.kind === 'OUT' && row.currency === 'USD' ? itemPaid : 0;
+          return {
+            item,
+            itemService: item?.itemService || '-',
+            amount: item ? amount : '',
+            vat: item ? Number(item.vatAmount) || 0 : row.vat,
+            pph23: item ? Number(item.pph23Amount) || 0 : row.pph23,
+            pph23Rate: item ? getPaymentVoucherPphRate(item) : '',
+            inIDR: row.kind === 'IN' ? row.inIDR : 0,
+            inUSD: row.kind === 'IN' ? row.inUSD : 0,
+            inRate: row.kind === 'IN' ? row.inRate : 0,
+            outIDR: item ? outIDR : row.outIDR,
+            outUSD: item ? outUSD : row.outUSD,
+            outRate: item && row.currency === 'USD' ? row.outRate : row.outRate,
+            outIDREquivalent: item
+              ? row.currency === 'IDR' ? itemPaid : row.exchangeRate > 0 ? itemPaid * row.exchangeRate : null
+              : row.outIDREquivalent,
+          };
+        });
+        if (row.kind === 'OUT' && row.items.length > 0) {
+          if (row.surcharge > 0) detailLines.push({
+            item: null, itemService: 'Surcharge', amount: row.surcharge, vat: 0, pph23: 0, pph23Rate: '',
+            inIDR: 0, inUSD: 0, inRate: 0,
+            outIDR: row.currency === 'IDR' ? row.surcharge : 0,
+            outUSD: row.currency === 'USD' ? row.surcharge : 0,
+            outRate: row.currency === 'USD' ? row.outRate : 0,
+            outIDREquivalent: row.currency === 'IDR' ? row.surcharge : row.exchangeRate > 0 ? row.surcharge * row.exchangeRate : null,
+          });
+          if (row.other > 0) detailLines.push({
+            item: null, itemService: 'Biaya Lain', amount: row.other, vat: 0, pph23: 0, pph23Rate: '',
+            inIDR: 0, inUSD: 0, inRate: 0,
+            outIDR: row.currency === 'IDR' ? row.other : 0,
+            outUSD: row.currency === 'USD' ? row.other : 0,
+            outRate: row.currency === 'USD' ? row.outRate : 0,
+            outIDREquivalent: row.currency === 'IDR' ? row.other : row.exchangeRate > 0 ? row.other * row.exchangeRate : null,
+          });
+        }
+        return detailLines.map((line) => {
+          return transactionSheet.addRow([
+            transactionSheet.rowCount, toExcelDate(row.date), row.kind === 'IN' ? 'Masuk' : 'Keluar',
+            row.arApNumber, row.reference, row.party, row.detail, row.fdaNo, line.itemService,
+            row.description, line.amount, line.vat, line.pph23, line.pph23Rate, row.bank, row.accountNumber,
+            row.remittanceBank, row.remittanceAccountNumber,
+            line.inIDR || '', line.inUSD || '', line.inRate || '', line.outIDR || '',
+            line.outUSD || '', line.outRate || '', line.outIDREquivalent ?? '',
+          ]);
+        });
+      });
       const transactionTotal = transactionSheet.addRow([
-        '', '', '', '', '', '', 'TOTAL',
-        sumCell('H', ledger.length, totals.inIDR + totals.usdInIDR),
-        sumCell('I', ledger.length, totals.inUSD), '',
-        sumCell('K', ledger.length, sumBy<ExpenseRow>(expenseRows.filter((row) => row.currency === 'IDR'), (row) => row.total)),
-        sumCell('L', ledger.length, totals.outUSD), '',
-        sumCell('N', ledger.length, totals.outIDR),
+        '', '', '', '', '', '', '', '', '', 'TOTAL',
+        sumCell('K', transactionDataRows.length, sumBy<ExpenseRow>(expenseRows, (row) =>
+          sumBy(row.items, (item) => Number(item.amount) || 0) + row.surcharge + row.other)),
+        sumCell('L', transactionDataRows.length, sumBy<ExpenseRow>(expenseRows, (row) => row.vat)),
+        sumCell('M', transactionDataRows.length, totals.pph23 + sumBy<ExpenseRow>(expenseRows, (row) => row.pph23)),
+        '',
+        '',
+        '',
+        '',
+        '',
+        sumCell('S', transactionDataRows.length, totals.inIDR + totals.usdInIDR),
+        sumCell('T', transactionDataRows.length, totals.inUSD), '',
+        sumCell('V', transactionDataRows.length, sumBy<ExpenseRow>(expenseRows.filter((row) => row.currency === 'IDR'), (row) => row.total)),
+        sumCell('W', transactionDataRows.length, totals.outUSD), '',
+        sumCell('Y', transactionDataRows.length, totals.outIDR),
       ]);
       transactionTotal.font = { bold: true };
-      styleHeader(transactionSheet, 1, 14);
+      styleHeader(transactionSheet, 1, 25);
       transactionSheet.getColumn(2).numFmt = dateFmt;
-      [8, 9, 10, 11, 12, 13, 14].forEach((column) => { transactionSheet.getColumn(column).numFmt = money2; });
-      [6, 14, 14, 26, 28, 20, 24, 20, 16, 20, 18, 16, 20, 20].forEach((width, index) => { transactionSheet.getColumn(index + 1).width = width; });
+      [11, 12, 13, 19, 20, 21, 22, 23, 24, 25].forEach((column) => { transactionSheet.getColumn(column).numFmt = money2; });
+      transactionSheet.getColumn(14).numFmt = '0.##%';
+      [6, 14, 14, 22, 26, 28, 20, 20, 28, 32, 18, 16, 16, 16, 24, 22, 22, 22, 20, 16, 20, 18, 16, 20, 20].forEach((width, index) => { transactionSheet.getColumn(index + 1).width = width; });
 
       // --- Isi sheet Ringkasan ---
       summary.addRow(['REKAP KEUANGAN']);
@@ -508,8 +622,8 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
       ]);
       summary.addRow([
         'Total Pengeluaran',
-        expenseRows.length > 0 ? { formula: `SUM(Pengeluaran!Q2:Q${expenseLast})`, result: totals.outIDR } : 0,
-        ledger.length > 0 ? { formula: `SUM('Rincian Transaksi'!L2:L${ledger.length + 1})`, result: totals.outUSD } : 0,
+        expenseRows.length > 0 ? { formula: `SUM(Pengeluaran!T2:T${expenseLast})`, result: totals.outIDR } : 0,
+        ledger.length > 0 ? { formula: `SUM('Rincian Transaksi'!W2:W${transactionDataRows.length + 1})`, result: totals.outUSD } : 0,
       ]);
       summary.addRow(['Saldo Bersih', { formula: 'B6-B7', result: totals.netIDR }, { formula: 'C6-C7', result: totals.inUSD - totals.outUSD }]);
       summary.addRow(['PPh 23 dipotong (info, sudah termasuk dalam pemasukan)', incomeRows.length > 0 ? { formula: `SUM(Pemasukan!J2:J${incomeLast})`, result: totals.pph23 } : 0, '']);
@@ -554,7 +668,7 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Finance</div>
+            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Finance · {branchName}</div>
             <h1 className="mt-1 text-xl font-black text-slate-900 lg:text-2xl">Rekap Keuangan</h1>
             <p className="text-xs text-slate-500">Rekap pemasukan (Accounts Receivable) dan pengeluaran (Payment terbayar) pada periode yang dipilih.</p>
           </div>
@@ -682,11 +796,12 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
           <div className="text-[11px] text-slate-500">{ledger.length} baris · Excel memuat seluruh baris</div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1180px] text-left">
+          <table className="w-full min-w-[1280px] text-left">
             <thead className="bg-slate-50">
               <tr>
                 <th className={th}>Tanggal</th>
                 <th className={th}>Jenis</th>
+                <th className={th}>No. AR/AP</th>
                 <th className={th}>Referensi</th>
                 <th className={th}>Pihak</th>
                 <th className={th}>Vessel / Job</th>
@@ -701,13 +816,14 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
               </tr>
             </thead>
             <tbody>
-              {!isLoading && ledger.length === 0 && <tr><td colSpan={13} className="px-3 py-6 text-center text-xs text-slate-500">Tidak ada transaksi pada periode ini.</td></tr>}
+              {!isLoading && ledger.length === 0 && <tr><td colSpan={14} className="px-3 py-6 text-center text-xs text-slate-500">Tidak ada transaksi pada periode ini.</td></tr>}
               {pagedLedger.map((row) => (
                 <tr key={row.key} className="border-t border-slate-100">
                   <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-700">{formatDateDisplay(row.date)}</td>
                   <td className="px-3 py-2 text-xs font-bold">
                     <span className={row.kind === 'IN' ? 'text-emerald-700' : 'text-rose-700'}>{row.kind === 'IN' ? 'Masuk' : 'Keluar'}</span>
                   </td>
+                  <td className="whitespace-nowrap px-3 py-2 font-mono text-xs font-semibold text-slate-800">{row.arApNumber || '-'}</td>
                   <td className="px-3 py-2 text-xs text-slate-700">{row.reference || '-'}</td>
                   <td className="px-3 py-2 text-xs text-slate-700">{row.party}</td>
                   <td className="px-3 py-2 text-xs text-slate-700">{row.detail}</td>

@@ -10,6 +10,7 @@ interface CashBalanceViewProps {
   bankAccounts: BankAccount[];
   paymentVouchers: PaymentVoucher[];
   cashBalanceAdjustments: CashBalanceAdjustment[];
+  branchName: string;
 }
 
 interface FixedOpeningBalance {
@@ -37,8 +38,8 @@ const FIXED_OPENING_BALANCES: Record<string, FixedOpeningBalance> = {
 };
 
 const formatAmount = (amount: number, currency: Currency) => new Intl.NumberFormat(
-  currency === 'IDR' ? 'id-ID' : 'en-US',
-  { style: 'currency', currency, maximumFractionDigits: currency === 'IDR' ? 0 : 2 },
+  'en-US',
+  { style: 'currency', currency, currencyDisplay: currency === 'IDR' ? 'narrowSymbol' : 'symbol', maximumFractionDigits: currency === 'IDR' ? 0 : 2 },
 ).format(amount || 0);
 
 const paymentTotal = (voucher: PaymentVoucher) => Number(voucher.paymentTotalAmount)
@@ -80,11 +81,11 @@ const toExpenseTransaction = (voucher: PaymentVoucher): DailyTransaction => ({
 });
 
 const formatNumber = (amount: number, currency: Currency) => new Intl.NumberFormat(
-  currency === 'IDR' ? 'id-ID' : 'en-US',
+  'en-US',
   { minimumFractionDigits: currency === 'IDR' ? 0 : 2, maximumFractionDigits: currency === 'IDR' ? 0 : 2 },
 ).format(amount || 0);
 
-export const CashBalanceView: React.FC<CashBalanceViewProps> = ({ bankAccounts, paymentVouchers, cashBalanceAdjustments }) => {
+export const CashBalanceView: React.FC<CashBalanceViewProps> = ({ bankAccounts, paymentVouchers, cashBalanceAdjustments, branchName }) => {
   const [date, setDate] = useState(todayISO());
   const [receivableEntries, setReceivableEntries] = useState<AccountsReceivableEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -104,11 +105,16 @@ export const CashBalanceView: React.FC<CashBalanceViewProps> = ({ bankAccounts, 
   }, []);
 
   const balances = useMemo(() => {
-    const paymentEvents = paymentVouchers.flatMap(getPaymentVoucherPaymentEvents);
+    const paymentEvents = paymentVouchers
+      .filter((voucher) => !voucher.branchName || voucher.branchName.trim().toLocaleLowerCase() === branchName.trim().toLocaleLowerCase())
+      .flatMap(getPaymentVoucherPaymentEvents);
     return bankAccounts.map((account) => {
       const openingBalance = getFixedOpeningBalance(account);
       const currency = account.currency || openingBalance?.currency || 'IDR';
-      const accountEntries = receivableEntries.filter((entry) => entryBelongsToAccount(entry, account));
+      const accountEntries = receivableEntries.filter((entry) =>
+        entryBelongsToAccount(entry, account)
+        && (!entry.branchName || entry.branchName.trim().toLocaleLowerCase() === branchName.trim().toLocaleLowerCase()),
+      );
       const incomeTransactions = accountEntries
         .filter((entry) => transactionDate(entry.incomeDate) === date)
         .map(toIncomeTransaction);
@@ -168,6 +174,7 @@ export const CashBalanceView: React.FC<CashBalanceViewProps> = ({ bankAccounts, 
         <div>
           <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Finance</div>
           <h1 className="mt-1 text-xl font-black text-slate-900 lg:text-2xl">Saldo Kas</h1>
+          <p className="mt-1 text-xs text-slate-500">Branch: {branchName}</p>
           <p className="mt-1 text-xs text-slate-500">Penyesuaian saldo awal dari Admin berlaku mulai tanggal efektif. Rincian transaksi mengikuti tanggal yang dipilih.</p>
         </div>
         <label className="grid gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">

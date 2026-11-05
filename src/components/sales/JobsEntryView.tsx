@@ -75,7 +75,7 @@ export const JobsEntryView: React.FC<JobsEntryViewProps> = ({
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
           <input
             type="text"
-            placeholder="Cari Job ID (VC-2026-...), Kapal, Principal, Pelabuhan..."
+            placeholder="Cari Job ID (VC-JKT-2026-...), Kapal, Principal, Pelabuhan..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500"
@@ -167,7 +167,7 @@ export const JobsEntryView: React.FC<JobsEntryViewProps> = ({
                   <div className="mt-2 text-[11px] text-slate-400 flex items-center justify-between">
                     <span>Quotes EPDA:</span>
                     <strong className="text-white font-mono">
-                      {formatUSD(job.quotation.epda.totalAmount)}
+                      {formatUSD(Math.max(0, job.quotation.epda.totalAmount - (job.quotation.epda.discountAmount || 0)))}
                     </strong>
                   </div>
                 </div>
