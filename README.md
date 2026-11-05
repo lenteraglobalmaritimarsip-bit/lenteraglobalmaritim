@@ -130,3 +130,10 @@ The portal now opens in the SALES workspace with a light enterprise dashboard in
 Login memakai akun di tabel `users` (PHP session + CSRF). Akun admin pertama dibuat lewat `api/create_admin.php`
 (password acak 8 digit dicetak satu kali); akun role lain dibuat di **Admin > Users**. Tidak ada akun/password demo.
 User aktif tampil di header dan dapat logout.
+PROJECT INI SUDAHH LIVE DI HOSTINGER https://lenteraglobalmaritim.agency/
+
+## Login Info News
+Info News pada halaman login dikelola oleh role **Admin** melalui menu **Info News**. Data menggunakan tabel `news_items`; hanya item aktif yang berada dalam rentang tanggal tampil untuk pengguna yang belum login. Admin dapat mengatur teks, tautan, atau gambar, serta jadwal tampil.
+
+TAMBAH DATA VESSEL DI INQUIRY DAN MENGUPDATE DATABASE DAN MASTERDATA
+

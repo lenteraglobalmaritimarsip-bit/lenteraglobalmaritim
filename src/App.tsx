@@ -6,6 +6,7 @@ import { Sidebar } from './components/layout/Sidebar';
 import { ActiveVesselCallsView } from './components/vessel/ActiveVesselCallsView';
 import { AdminMasterDataView } from './components/admin/AdminMasterDataView';
 import { AdminDashboardView } from './components/admin/AdminDashboardView';
+import { AdminNewsView } from './components/admin/AdminNewsView';
 import { SalesDashboardView } from './components/sales/SalesDashboardView';
 import { InquiriesView } from './components/sales/InquiriesView';
 import { QuotesListView } from './components/sales/QuotesListView';
@@ -389,6 +390,10 @@ export default function App() {
             {/* 1. ADMIN DASHBOARD */}
             {currentRole === 'ADMIN' && activeTab === 'DASHBOARD' && (
               <AdminDashboardView data={data} onNavigate={setActiveTab} />
+            )}
+
+            {currentRole === 'ADMIN' && activeTab === 'NEWS' && (
+              <AdminNewsView onSaved={() => notifySaved('NEWS')} />
             )}
 
             {/* 1. ADMIN MASTER DATA VIEWS */}

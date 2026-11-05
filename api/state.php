@@ -655,9 +655,53 @@ function normalizedMasterItem(string $key, array $item): array
 
 function applyNonAdminMasterData(array &$state, array $before, string $role): void
 {
-    foreach (['users', 'customers', 'vessels', 'ports', 'zones'] as $key) {
+    foreach (['users', 'customers', 'ports', 'zones'] as $key) {
         $state[$key] = $before[$key];
     }
+    $existingVessels = [];
+    foreach ($before['vessels'] ?? [] as $vessel) {
+        $existingVessels[(string) ($vessel['id'] ?? '')] = $vessel;
+    }
+    $incomingVessels = is_array($state['vessels'] ?? null) ? $state['vessels'] : [];
+    $incomingVesselIds = [];
+    $newVessels = [];
+    foreach ($incomingVessels as $vessel) {
+        if (!is_array($vessel)) jsonResponse(['error' => 'Data vessel tidak valid'], 400);
+        $id = trim((string) ($vessel['id'] ?? ''));
+        if ($id === '') jsonResponse(['error' => 'Vessel ID is required'], 400);
+        if (isset($incomingVesselIds[$id])) jsonResponse(['error' => 'Vessel ID tidak boleh duplikat'], 400);
+        $incomingVesselIds[$id] = true;
+        if (isset($existingVessels[$id])) {
+            if (json_encode($existingVessels[$id]) !== json_encode($vessel)) {
+                jsonResponse(['error' => 'Hanya Admin yang dapat mengubah atau menghapus master Vessel'], 403);
+            }
+            continue;
+        }
+        if ($role !== 'SALES') jsonResponse(['error' => 'Hanya Sales yang dapat menambahkan master Vessel'], 403);
+        $name = trim((string) ($vessel['name'] ?? ''));
+        $vesselType = (string) ($vessel['vesselType'] ?? '');
+        $numberFields = ['grt', 'nrt', 'dwt', 'loa', 'beam', 'yearBuilt'];
+        $validNumbers = true;
+        foreach ($numberFields as $field) {
+            if (!is_numeric($vessel[$field] ?? null) || !is_finite((float) $vessel[$field]) || (float) $vessel[$field] < 0) {
+                $validNumbers = false;
+                break;
+            }
+        }
+        if (strlen($id) > 100 || $name === '' || strlen($name) > 200
+            || !in_array($vesselType, ['BULK CARRIER', 'CONTAINER', 'OIL TANKER', 'GENERAL CARGO', 'TUG & BARGE', 'LNG CARRIER'], true)
+            || strlen((string) ($vessel['imoNumber'] ?? '')) > 30
+            || strlen((string) ($vessel['callSign'] ?? '')) > 50
+            || strlen((string) ($vessel['flag'] ?? '')) > 100
+            || !$validNumbers) {
+            jsonResponse(['error' => 'Data master Vessel tidak lengkap atau tidak valid'], 400);
+        }
+        $newVessels[] = $vessel;
+    }
+    if (array_diff_key($existingVessels, $incomingVesselIds)) {
+        jsonResponse(['error' => 'Hanya Admin yang dapat mengubah atau menghapus master Vessel'], 403);
+    }
+    $state['vessels'] = array_merge($before['vessels'] ?? [], $newVessels);
     $state['vendorPartners'] = $before['vendorPartners'] ?? [];
     $state['bankAccounts'] = $before['bankAccounts'] ?? [];
     $state['cashBalanceAdjustments'] = $before['cashBalanceAdjustments'] ?? [];

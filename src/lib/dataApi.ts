@@ -1,9 +1,32 @@
-import { DatabaseState } from '../types';
+import { DatabaseState, NewsItem } from '../types';
 import { apiAuth } from './api';
 
 export type AppUserDataKey = 'voucher_draft' | 'finance_payment_draft' | 'finance_receivable_draft' | 'notification_reads';
 
 export const dataApi = {
+  async loadNews(manage = false): Promise<NewsItem[]> {
+    const response = await fetch(`/api/news.php${manage ? '?manage=1' : ''}`, {
+      cache: 'no-store',
+      credentials: 'include',
+    });
+    const payload = await response.json() as { items?: NewsItem[]; error?: string };
+    if (!response.ok) throw new Error(payload.error || `News request failed (${response.status})`);
+    if (!Array.isArray(payload.items)) throw new Error('News response is invalid');
+    return payload.items;
+  },
+  async saveNews(item: Omit<NewsItem, 'createdAt' | 'updatedAt'>): Promise<void> {
+    const response = await fetch('/api/news.php', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': apiAuth.getCsrfToken(),
+      },
+      body: JSON.stringify(item),
+    });
+    const payload = await response.json().catch(() => ({})) as { error?: string };
+    if (!response.ok) throw new Error(payload.error || `News save failed (${response.status})`);
+  },
   async load(): Promise<{ state: DatabaseState; initialized: boolean; revision: string }> {
     const response = await fetch('/api/state.php', { credentials: 'include' });
     const payload = await response.json();

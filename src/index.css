@@ -132,7 +132,11 @@ button{ cursor:pointer; }
 .admin-modal-form>div:last-child{position:sticky;bottom:0;background:inherit;padding-top:10px}
 @media(max-width:680px){.admin-modal-panel{max-height:calc(100vh - 2rem);padding:16px!important}.admin-modal-form{padding-right:0}}
 .inquiry-entry-modal label{color:#52637a!important}
+.inquiry-entry-modal label.text-slate-500{font-size:11px!important}
 .inquiry-entry-modal input,.inquiry-entry-modal select,.inquiry-entry-modal textarea{background:#f5f7fa!important;color:#26364d!important;border-color:#d1dae5!important;box-shadow:inset 0 1px 2px rgba(49,72,101,.04)}
+.inquiry-entry-modal input,.inquiry-entry-modal select,.inquiry-entry-modal textarea{font-size:13px!important}
+.inquiry-entry-modal .inquiry-required-field{background:#fff!important;color:#26364d!important;border-color:#cbd5e1!important}
+.inquiry-entry-modal .inquiry-required-field::placeholder{color:#64748b!important;opacity:1}
 .inquiry-entry-modal input::placeholder,.inquiry-entry-modal textarea::placeholder{color:#52637a!important;opacity:1}
 .inquiry-entry-modal select option{background:#f5f7fa;color:#26364d}
 .inquiry-entry-modal .border-slate-800{border-color:#dbe3ec!important}
@@ -852,6 +856,17 @@ button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid 
 .lgm-login-submit:disabled{opacity:.72;cursor:wait}
 .lgm-live-dot{animation:lgm-pulse 2s infinite}
 .lgm-login-error{animation:lgm-shake .35s}
+.lgm-login-news{margin:-8px 0 16px;padding:12px 13px;border:1px solid #cfe0ef;border-radius:12px;background:rgba(232,244,255,.82);color:#163b64}
+.lgm-login-news-heading{display:flex;align-items:center;gap:8px;margin-bottom:8px;color:#0b477e}
+.lgm-login-news-heading>span{width:24px;height:24px;display:grid;place-items:center;border-radius:7px;background:#d8ecff;color:#1683d7}
+.lgm-login-news-heading b{font-size:11px;font-weight:850}
+.lgm-login-news-item+.lgm-login-news-item{border-top:1px solid #d5e5f3;margin-top:9px;padding-top:9px}
+.lgm-login-news-item h3{margin:0;color:#173c65;font-size:10px;font-weight:850;line-height:1.45}
+.lgm-login-news-item p,.lgm-login-news-error{margin:5px 0 0;color:#526b83;font-size:9px;line-height:1.5}
+.lgm-login-news-item img{display:block;width:100%;max-height:150px;margin-top:8px;border-radius:7px;object-fit:contain}
+.lgm-login-news-item a{display:inline-flex;align-items:center;gap:4px;margin-top:7px;color:#0877d7;font-size:9px;font-weight:800;text-decoration:none}
+.lgm-login-news-item a:hover{text-decoration:underline}
+.lgm-login-news-error{color:#a33}
 
 /* EPDA/FDA enterprise form refinements */
 .epda-form-root,.fda-form-root{gap:1.25rem}

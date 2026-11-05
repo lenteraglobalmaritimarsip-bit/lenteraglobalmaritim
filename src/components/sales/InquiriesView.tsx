@@ -155,6 +155,22 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
   const [masterDataError, setMasterDataError] = useState('');
   const [createInquiryError, setCreateInquiryError] = useState('');
   const [isCreatingInquiry, setIsCreatingInquiry] = useState(false);
+  const [showVesselModal, setShowVesselModal] = useState(false);
+  const [isSavingVessel, setIsSavingVessel] = useState(false);
+  const [vesselFormError, setVesselFormError] = useState('');
+  const [newVessel, setNewVessel] = useState<Omit<Vessel, 'id'>>({
+    name: '',
+    imoNumber: '',
+    callSign: '',
+    flag: 'Panama',
+    vesselType: 'BULK CARRIER',
+    grt: 30000,
+    nrt: 15000,
+    dwt: 50000,
+    loa: 180,
+    beam: 30,
+    yearBuilt: 2020,
+  });
   const [approvedPdaJobIds, setApprovedPdaJobIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
@@ -387,6 +403,53 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
     setShowNewForm(false);
     setEditingJobId('');
     setCreateInquiryError('');
+  };
+
+  const closeVesselModal = () => {
+    if (isSavingVessel) return;
+    setShowVesselModal(false);
+    setVesselFormError('');
+  };
+
+  const handleSaveVessel = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (isSavingVessel) return;
+    const name = newVessel.name.trim();
+    if (!name) {
+      setVesselFormError('Nama kapal wajib diisi.');
+      return;
+    }
+    if ([newVessel.grt, newVessel.nrt, newVessel.dwt, newVessel.loa, newVessel.beam, newVessel.yearBuilt]
+      .some((value) => !Number.isFinite(value) || value < 0)) {
+      setVesselFormError('Data ukuran kapal tidak valid.');
+      return;
+    }
+    setIsSavingVessel(true);
+    setVesselFormError('');
+    try {
+      const vessel = await db.addVessel({ ...newVessel, name });
+      setForm((currentForm) => ({ ...currentForm, vesselId: vessel.id }));
+      setMasterDataError('');
+      setNewVessel({
+        name: '',
+        imoNumber: '',
+        callSign: '',
+        flag: 'Panama',
+        vesselType: 'BULK CARRIER',
+        grt: 30000,
+        nrt: 15000,
+        dwt: 50000,
+        loa: 180,
+        beam: 30,
+        yearBuilt: 2020,
+      });
+      setShowVesselModal(false);
+      onDataSaved?.();
+    } catch (error) {
+      setVesselFormError(error instanceof Error ? error.message : 'Data kapal gagal disimpan.');
+    } finally {
+      setIsSavingVessel(false);
+    }
   };
 
   return (
@@ -666,7 +729,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                 Nomor Job tidak berubah. Koreksi hanya dapat dilakukan sebelum approval.
               </div>
             )}
-            <form onSubmit={handleSaveInquiry} autoComplete="off" className="space-y-2 text-xs text-slate-700 overflow-hidden w-full max-w-full bg-slate-100 rounded-xl p-4">
+            <form onSubmit={handleSaveInquiry} autoComplete="off" className="inquiry-entry-modal space-y-2 text-[13px] text-slate-700 overflow-hidden w-full max-w-full bg-slate-100 rounded-xl p-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
                 <div className="w-full">
                   <label className="text-slate-500 block mb-1 font-semibold">Date Inquiry</label>
@@ -677,7 +740,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                       value={formatInquiryDate(form.inquiryDate)}
                       onClick={openInquiryDatePicker}
                       aria-label="Tanggal inquiry"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 pr-10 text-white font-mono"
+                      className="inquiry-required-field w-full bg-slate-950 border border-slate-800 rounded-lg p-2 pr-10 text-white font-mono"
                     />
                     <button type="button" onClick={openInquiryDatePicker} aria-label="Pilih tanggal inquiry" title="Pilih tanggal" className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-300 hover:bg-slate-800">
                       <Calendar size={16} />
@@ -702,6 +765,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                       label: `${customer.companyName} (${customer.type})`,
                     }))}
                     placeholder="Cari customer / principal / charterer..."
+                    className="inquiry-required-field text-[13px]"
                     onChange={(customerId) => {
                       setMasterDataError('');
                       setForm({ ...form, customerId });
@@ -731,19 +795,34 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
                 <div className="w-full">
                   <label className="text-slate-500 block mb-1 font-semibold">Pilih Kapal (Vessel Master)</label>
-                  <SearchableMasterSelect
-                    value={form.vesselId}
-                    options={vessels.map((vessel) => ({
-                      id: vessel.id,
-                      label: `${vessel.name} (${vessel.vesselType})`,
-                    }))}
-                    placeholder="Cari nama kapal..."
-                    className="font-mono"
-                    onChange={(vesselId) => {
-                      setMasterDataError('');
-                      setForm({ ...form, vesselId });
-                    }}
-                  />
+                  <div className="flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <SearchableMasterSelect
+                        value={form.vesselId}
+                        options={vessels.map((vessel) => ({
+                          id: vessel.id,
+                          label: `${vessel.name} (${vessel.vesselType})`,
+                        }))}
+                        placeholder="Cari nama kapal..."
+                        className="inquiry-required-field font-mono text-[13px]"
+                        onChange={(vesselId) => {
+                          setMasterDataError('');
+                          setForm({ ...form, vesselId });
+                        }}
+                      />
+                    </div>
+                    {currentUser.role === 'SALES' && (
+                      <button
+                        type="button"
+                        onClick={() => { setVesselFormError(''); setShowVesselModal(true); }}
+                        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-blue-600 bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:border-blue-700 hover:bg-blue-700"
+                      >
+                        <Plus className="h-4 w-4" />
+                        <span className="hidden sm:inline">Tambah Vessel</span>
+                        <span className="sm:hidden">Tambah</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <label className="text-slate-500 block mb-1 font-semibold">Pelabuhan Tujuan</label>
@@ -754,6 +833,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                       label: `${port.name} (${port.code})`,
                     }))}
                     placeholder="Cari nama atau kode pelabuhan..."
+                    className="inquiry-required-field text-[13px]"
                     onChange={(portId) => {
                       setMasterDataError('');
                       setForm({ ...form, portId });
@@ -800,7 +880,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                   <input readOnly value={selectedVessel?.grt?.toLocaleString('en-US') || '-'} className="w-full h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-white font-mono" />
                   <div className="mt-2">
                     <label className="block mb-1 font-semibold">Cargo Quantity</label>
-                    <input type="number" min="0" step="1" required value={form.cargoQuantity} onChange={(e) => { const value = e.target.value; setQuantityError(''); setForm({ ...form, cargoQuantity: value === '' ? '' : Number(value) }); }} className="w-full h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-white font-mono" aria-invalid={!!quantityError} />
+                    <input type="number" min="0" step="1" required value={form.cargoQuantity} onChange={(e) => { const value = e.target.value; setQuantityError(''); setForm({ ...form, cargoQuantity: value === '' ? '' : Number(value) }); }} className="inquiry-required-field w-full h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-white font-mono" aria-invalid={!!quantityError} />
                     {quantityError && <span className="block mt-1 text-[10px] text-rose-400">{quantityError}</span>}
                     <div className="flex items-center gap-2 mt-2 text-[10px] text-slate-300">
                       <label className="inline-flex items-center gap-1"><input type="radio" name="quantityUnit" value="MT" checked={form.quantityUnit === 'MT'} onChange={() => setForm({ ...form, quantityUnit: 'MT' })} /> MT</label>
@@ -897,7 +977,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                   placeholder="Contoh: Bongkar 45,000 MT Nikel Ore / Batubara di Dermaga..."
                   value={form.cargoDetails}
                   onChange={(e) => setForm({ ...form, cargoDetails: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
+                  className="inquiry-required-field w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
                 />
               </div>
 
@@ -916,14 +996,14 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                 <button
                   type="button"
                   onClick={closeInquiryForm}
-                  className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 font-semibold"
+                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
                   disabled={isCreatingInquiry}
-                  className="px-5 py-2 rounded-lg border border-slate-300 bg-slate-200 text-slate-700 font-semibold shadow-sm flex items-center gap-1.5"
+                  className="flex items-center gap-1.5 rounded-lg border border-blue-600 bg-blue-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:border-blue-700 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   {isCreatingInquiry ? 'Menyimpan...' : 'Simpan'}
@@ -932,6 +1012,72 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
               </div>
             </form>
         </section>
+      )}
+
+      {showVesselModal && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) closeVesselModal(); }}
+        >
+          <section role="dialog" aria-modal="true" aria-labelledby="sales-add-vessel-title" className="admin-add-modal admin-modal-panel w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <div className="mb-5 flex items-start justify-between gap-3 border-b border-slate-200 pb-4">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-widest text-blue-600">Master Vessel</div>
+                <h2 id="sales-add-vessel-title" className="mt-1 text-lg font-black text-slate-900">Tambah Data Vessel</h2>
+                <p className="mt-1 text-xs text-slate-500">Data akan tersimpan di Master Vessel dan langsung dipilih untuk Inquiry ini.</p>
+              </div>
+              <button type="button" onClick={closeVesselModal} aria-label="Tutup form vessel" disabled={isSavingVessel} className="rounded-lg bg-slate-100 p-2 text-slate-600 hover:bg-slate-200 disabled:opacity-50"><X className="h-5 w-5" /></button>
+            </div>
+
+            <form onSubmit={(event) => void handleSaveVessel(event)} className="admin-modal-form space-y-4 text-sm">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1.5 font-semibold text-slate-700">Vessel Name *
+                  <input required maxLength={200} value={newVessel.name} onChange={(event) => setNewVessel({ ...newVessel, name: event.target.value })} className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-800" />
+                </label>
+                <label className="grid gap-1.5 font-semibold text-slate-700">Vessel Type
+                  <select value={newVessel.vesselType} onChange={(event) => setNewVessel({ ...newVessel, vesselType: event.target.value as Vessel['vesselType'] })} className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-800">
+                    <option value="BULK CARRIER">BULK CARRIER</option>
+                    <option value="CONTAINER">CONTAINER</option>
+                    <option value="OIL TANKER">OIL TANKER</option>
+                    <option value="GENERAL CARGO">GENERAL CARGO</option>
+                    <option value="TUG & BARGE">TUG &amp; BARGE</option>
+                    <option value="LNG CARRIER">LNG CARRIER</option>
+                  </select>
+                </label>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <label className="grid gap-1.5 font-semibold text-slate-700">IMO Number
+                  <input maxLength={30} value={newVessel.imoNumber} onChange={(event) => setNewVessel({ ...newVessel, imoNumber: event.target.value })} className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-800" />
+                </label>
+                <label className="grid gap-1.5 font-semibold text-slate-700">Call Sign
+                  <input maxLength={50} value={newVessel.callSign} onChange={(event) => setNewVessel({ ...newVessel, callSign: event.target.value })} className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-800" />
+                </label>
+                <label className="grid gap-1.5 font-semibold text-slate-700">Flag
+                  <input maxLength={100} value={newVessel.flag} onChange={(event) => setNewVessel({ ...newVessel, flag: event.target.value })} className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-800" />
+                </label>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                {([
+                  ['GRT', 'grt'],
+                  ['NRT', 'nrt'],
+                  ['DWT', 'dwt'],
+                  ['LOA (meter)', 'loa'],
+                  ['Beam (meter)', 'beam'],
+                  ['Year Built', 'yearBuilt'],
+                ] as const).map(([label, field]) => (
+                  <label key={field} className="grid gap-1.5 font-semibold text-slate-700">{label}
+                    <input type="number" min="0" step={field === 'dwt' || field === 'yearBuilt' ? '1' : '0.01'} value={newVessel[field]} onChange={(event) => setNewVessel({ ...newVessel, [field]: Number(event.target.value) })} className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-800" />
+                  </label>
+                ))}
+              </div>
+              {vesselFormError && <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{vesselFormError}</div>}
+              <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
+                <button type="button" onClick={closeVesselModal} disabled={isSavingVessel} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50">Batal</button>
+                <button type="submit" disabled={isSavingVessel} className="rounded-lg border border-blue-600 bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:border-blue-700 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">{isSavingVessel ? 'Menyimpan...' : 'Simpan Vessel'}</button>
+              </div>
+            </form>
+          </section>
+        </div>
       )}
     </div>
   );

@@ -343,6 +343,23 @@ export interface CashBalanceAdjustment {
   createdAt: string;
 }
 
+export type NewsContentType = 'TEXT' | 'IMAGE' | 'LINK';
+
+export interface NewsItem {
+  id: string;
+  title: string;
+  body: string;
+  contentType: NewsContentType;
+  targetUrl: string | null;
+  imageMime: string | null;
+  imageDataBase64: string | null;
+  startsAt: string | null;
+  endsAt: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PaymentVoucherItem {
   id: string;
   jobNumber: string;
@@ -822,6 +839,7 @@ export interface JobCall {
 
 export type ActiveTab =
   | 'DASHBOARD'
+  | 'NEWS'
   | 'ACCOUNTING_DASHBOARD'
   | 'ACCOUNTING_WORKSPACE'
   | 'ACCOUNTING_ASSETS'

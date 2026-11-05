@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Building2, Database, FileCheck2, FolderKanban, MapPin, Settings2, Ship, Users, ArrowRight } from 'lucide-react';
+import { Activity, Building2, Database, FileCheck2, FolderKanban, MapPin, Newspaper, Ship, Users, ArrowRight } from 'lucide-react';
 import { DatabaseState, ActiveTab } from '../../types';
 import { formatDateDisplay } from '../../utils/date';
 
@@ -25,6 +25,7 @@ export const AdminDashboardView: React.FC<Props> = ({ data, onNavigate }) => {
 
   const quickMenus = [
     ['USERS', 'Users', 'Kelola user dan role akses', Users],
+    ['NEWS', 'Info News', 'Informasi pada halaman login', Newspaper],
     ['CUSTOMERS', 'Customers', 'Master data principal/customer', Building2],
     ['VESSELS', 'Vessels', 'Data kapal dan spesifikasi', Ship],
     ['PORTS', 'Ports', 'Port & operasi', MapPin],

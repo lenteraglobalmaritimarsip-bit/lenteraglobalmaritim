@@ -1,10 +1,22 @@
-import React, { useRef, useState } from 'react';
-import { ArrowRight, Eye, EyeOff, LockKeyhole, UserRound } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { ArrowRight, ExternalLink, Eye, EyeOff, LockKeyhole, Newspaper, UserRound } from 'lucide-react';
 import { AuthAccount } from '../../auth';
 import { apiAuth } from '../../lib/api';
+import { dataApi } from '../../lib/dataApi';
+import { NewsItem } from '../../types';
 import { formatDateLong } from '../../utils/date';
 
 interface LoginViewProps { onLogin: (account: AuthAccount) => void; }
+
+function safeNewsLink(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return ['http:', 'https:'].includes(url.protocol) ? url.href : null;
+  } catch {
+    return null;
+  }
+}
 
 export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
   const [username, setUsername] = useState('');
@@ -12,7 +24,19 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [news, setNews] = useState<NewsItem[]>([]);
+  const [newsError, setNewsError] = useState('');
   const loginInProgress = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    dataApi.loadNews()
+      .then((items) => { if (active) setNews(items); })
+      .catch((loadError: unknown) => {
+        if (active) setNewsError(loadError instanceof Error ? loadError.message : 'Info News gagal dimuat.');
+      });
+    return () => { active = false; };
+  }, []);
 
   const today = formatDateLong();
   const logoSrc = `${window.location.pathname.replace(/\/+$/, '')}/lgm-logo.png`;
@@ -109,6 +133,25 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
               <p>Silakan masuk menggunakan akun sesuai role pekerjaan Anda.</p>
             </div>
           </div>
+
+          {(news.length > 0 || newsError) && (
+            <section className="lgm-login-news" aria-label="Info News">
+              <div className="lgm-login-news-heading"><span><Newspaper size={15} /></span><b>Info News</b></div>
+              {newsError ? <p className="lgm-login-news-error">{newsError}</p> : news.map((item) => {
+                const safeLink = item.contentType === 'LINK' ? safeNewsLink(item.targetUrl) : null;
+                return (
+                  <article key={item.id} className="lgm-login-news-item">
+                    <h3>{item.title}</h3>
+                    {item.body && <p>{item.body}</p>}
+                    {item.contentType === 'IMAGE' && item.imageMime && item.imageDataBase64 && (
+                      <img src={`data:${item.imageMime};base64,${item.imageDataBase64}`} alt={item.title} />
+                    )}
+                    {safeLink && <a href={safeLink} target="_blank" rel="noopener noreferrer">Buka informasi <ExternalLink size={12} /></a>}
+                  </article>
+                );
+              })}
+            </section>
+          )}
 
           <form onSubmit={submit} onKeyDownCapture={handlePasswordEnter} onKeyUpCapture={handlePasswordEnter}>
             <label className="lgm-field">

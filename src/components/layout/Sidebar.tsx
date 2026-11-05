@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  Users, Building2, Ship, MapPin, Coins, Receipt, LayoutDashboard,
+  Users, Building2, Ship, MapPin, Coins, Receipt, LayoutDashboard, Newspaper,
   FileQuestion, FileSpreadsheet, FolderKanban, CheckSquare, ArrowDownToLine,
   ArrowUpFromLine, FileText, ChevronRight, ChevronDown, CircleDollarSign, CreditCard,
   ClipboardCheck, Calculator, Handshake, Wallet, BookOpen
@@ -62,6 +62,7 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
 
         {currentRole==='ADMIN' && <>
           {item({label:'Dashboard',tab:'DASHBOARD',icon:LayoutDashboard})}
+          {item({label:'Info News',tab:'NEWS',icon:Newspaper})}
           <div className="maritim-nav-group-title"><Building2/><span>Master Data</span></div>
           <div className="maritim-subnav maritim-subnav-static">
             {item({label:'Users',tab:'USERS',icon:Users})}
