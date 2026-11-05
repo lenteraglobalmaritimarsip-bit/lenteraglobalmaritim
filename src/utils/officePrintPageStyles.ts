@@ -115,7 +115,7 @@ export const officePrintPageStyles = `<style>
       table-layout: fixed !important;
     }
     .office-preview-content .bank {
-      transform: translateY(10mm) !important;
+      transform: none !important;
     }
     .office-preview-page > .office-footer {
       position: absolute !important;
@@ -214,7 +214,7 @@ export const officePrintPageStyles = `<style>
       color: #dc2626 !important;
     }
     .office-preview-content .bank {
-      transform: translateY(10mm) !important;
+      transform: none !important;
     }
   }
 </style><script>
@@ -299,7 +299,38 @@ export const officePrintPageStyles = `<style>
         });
       }
 
-      addPage();
+      function addPaymentFooter(footerNode) {
+        var previous = content.lastElementChild;
+        if (!previous || previous.tagName !== 'TABLE') {
+          content.appendChild(footerNode);
+          return;
+        }
+
+        content.appendChild(footerNode);
+        if (!isOverfull()) return;
+        content.removeChild(footerNode);
+
+        var sourceTable = originalNodes.find(function (node) {
+          return node.nodeType === 1 && node.tagName === 'TABLE';
+        });
+        var previousBody = previous.tBodies[0];
+        if (!sourceTable || !previousBody || previousBody.rows.length === 0) {
+          content.appendChild(footerNode);
+          return;
+        }
+
+        addPage();
+        var next = makeTablePage(sourceTable);
+        while (previousBody.rows.length > 1) {
+          next.tbody.insertBefore(previousBody.rows[previousBody.rows.length - 1], next.tbody.firstChild);
+          content.appendChild(footerNode);
+          if (!isOverfull()) return;
+          content.removeChild(footerNode);
+        }
+        content.appendChild(footerNode);
+      }
+
+        addPage();
       originalNodes.forEach(function (node) {
         if (node.nodeType === 3 && !node.textContent.trim()) return;
         if (node.nodeType === 1 && (
@@ -309,6 +340,11 @@ export const officePrintPageStyles = `<style>
         )) return;
         if (node.nodeType === 1 && node.tagName === 'TABLE') {
           addTable(node);
+          return;
+        }
+
+        if (node.nodeType === 1 && node.classList.contains('payment-footer')) {
+          addPaymentFooter(node);
           return;
         }
 

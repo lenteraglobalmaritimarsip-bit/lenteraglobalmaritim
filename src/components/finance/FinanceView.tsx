@@ -17,7 +17,6 @@ import {
   Plus,
   Search as SearchIcon,
   Trash2,
-  CalendarDays,
 } from 'lucide-react';
 import { ExpensesItem, FixTariff, JobCall, ActiveTab, BankAccount, Currency, Vessel } from '../../types';
 import { formatDateDisplay, isInquiryDateInRange, todayISO } from '../../utils/date';
@@ -40,8 +39,6 @@ interface FinanceViewProps {
   onNavigate: (tab: ActiveTab) => void;
 }
 
-const MAX_RECEIPT_ATTACHMENT_SIZE = 1024 * 1024;
-
 export const FinanceView: React.FC<FinanceViewProps> = ({
   initialTab = 'DASHBOARD',
   jobCalls,
@@ -63,39 +60,16 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   const [closingSearch, setClosingSearch] = useState('');
   const [closingDateRange, setClosingDateRange] = useState<InquiryDateRange>({ from: '', to: '' });
   const [closingDetailJobId, setClosingDetailJobId] = useState<string | null>(null);
-  const [receiptDate, setReceiptDate] = useState(todayISO());
-  const receiptDatePickerRef = useRef<HTMLInputElement | null>(null);
-  const [receiptType, setReceiptType] = useState<'ADVANCE_PAYMENT' | 'INVOICE'>('INVOICE');
-  const [receiptCurrency, setReceiptCurrency] = useState<Currency>(activeJob.fda?.currency || activeJob.currency || 'IDR');
-  const [receiptExchangeRate, setReceiptExchangeRate] = useState('');
   const [refundReceiptId, setRefundReceiptId] = useState<string | null>(null);
   const [refundCompletionDate, setRefundCompletionDate] = useState(todayISO());
   const [refundExchangeRate, setRefundExchangeRate] = useState('');
   const [refundBankReference, setRefundBankReference] = useState('');
   const [refundBankAccountId, setRefundBankAccountId] = useState('');
-  const [receiptAmount, setReceiptAmount] = useState('');
-  const [receiptAmountError, setReceiptAmountError] = useState('');
-  const [receiptBankRemark, setReceiptBankRemark] = useState('');
-  const [receiptBankAccountId, setReceiptBankAccountId] = useState('');
-  const [receiptAttachment, setReceiptAttachment] = useState<{ name: string; dataUrl: string } | null>(null);
+  const [receiptActionError, setReceiptActionError] = useState('');
   const [isSavingReceipt, setIsSavingReceipt] = useState(false);
-  const openReceiptDatePicker = () => {
-    const datePicker = receiptDatePickerRef.current as (HTMLInputElement & { showPicker?: () => void }) | null;
-    if (datePicker?.showPicker) datePicker.showPicker();
-    else datePicker?.click();
-  };
   useEffect(() => {
     setSubTab(initialTab);
   }, [initialTab]);
-  useEffect(() => {
-    setReceiptCurrency(activeJob.fda?.currency || activeJob.currency || 'IDR');
-    setReceiptExchangeRate(String(
-      activeJob.fda?.exchangeRateUSDToIDR
-      || activeJob.quotation?.epda?.exchangeRateUSDToIDR
-      || activeJob.exchangeRateUSDToIDR
-      || 15800,
-    ));
-  }, [activeJob.jobId, activeJob.currency, activeJob.fda?.currency, activeJob.fda?.exchangeRateUSDToIDR, activeJob.exchangeRateUSDToIDR, activeJob.quotation?.epda?.exchangeRateUSDToIDR]);
   useEffect(() => {
     let cancelled = false;
     void listApprovedFdaPdaTotals()
@@ -300,26 +274,6 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   const jobAROutstanding = normalizeOutstanding(jobARTotal - getJobReceiptsInCurrency(activeJob, jobCurrency), jobCurrency);
   const jobARReceived = jobTotalReceived;
   const jobPendingRefund = getPrincipalReceiptSummary(activeJob, jobCurrency).pendingRefund;
-  const receiptExchangeRateValue = Number(receiptExchangeRate) || getJobExchangeRate(activeJob);
-  const enteredReceiptAmount = Number(receiptAmount.replace(/,/g, '')) || 0;
-  const receiptAmountInInvoiceCurrency = convertPrincipalReceiptAmount(
-    activeJob,
-    enteredReceiptAmount,
-    receiptCurrency,
-    jobCurrency,
-    receiptExchangeRateValue,
-  );
-  const estimatedRefundInInvoiceCurrency = Math.max(0, receiptAmountInInvoiceCurrency - jobAROutstanding);
-  const estimatedRefundInPaymentCurrency = estimatedRefundInInvoiceCurrency > 0
-    ? convertPrincipalReceiptAmount(
-        activeJob,
-        estimatedRefundInInvoiceCurrency,
-        jobCurrency,
-        receiptCurrency,
-        receiptExchangeRateValue,
-      )
-    : 0;
-
   const toIDR = (amount: number, currency: 'USD' | 'IDR', exchangeRate: number) => {
     const value = currency === 'USD' ? amount * exchangeRate : amount;
     return Math.round(value);
@@ -359,93 +313,15 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   const pendingJobCount = financialOverviewJobs.filter((job) => !isClosedJob(job) && getJobPrincipalOutstandingIDR(job) > 0).length;
   const netOperatingProfit_USD = totalAR_USD - totalAP_USD;
 
-  const handleAddPrincipalReceipt = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (isSavingReceipt) return;
-    const enteredAmount = Number(receiptAmount);
-    const amount = receiptCurrency === 'IDR'
-      ? Math.round(enteredAmount)
-      : Math.round((enteredAmount + Number.EPSILON) * 100) / 100;
-    const normalizedRefundAmount = Math.min(
-      amount,
-      receiptCurrency === 'IDR'
-        ? Math.round(estimatedRefundInPaymentCurrency)
-        : Math.round((estimatedRefundInPaymentCurrency + Number.EPSILON) * 100) / 100,
-    );
-    const isWholeIDR = receiptCurrency !== 'IDR' || Number.isInteger(enteredAmount);
-    const requiresExchangeRate = receiptCurrency !== jobCurrency;
-    const receivingAccount = bankAccounts.find((account) => account.id === receiptBankAccountId);
-    if (!isFinanceReady(activeJob) || !receiptDate || !Number.isFinite(enteredAmount) || enteredAmount <= 0 || !Number.isFinite(amount) || amount <= 0 || !receiptBankRemark.trim() || !receivingAccount) {
-      setReceiptAmountError('Lengkapi tanggal, nominal, rekening penerima perusahaan, dan remark bank. Job harus memiliki FDA approved atau FPDA approved untuk crew-only.');
-      setMsg('Data penerimaan belum lengkap.');
-      setTimeout(() => setMsg(null), 4000);
-      return;
-    }
-    if (!isWholeIDR) {
-      setReceiptAmountError('Nominal IDR harus berupa angka bulat tanpa desimal.');
-      return;
-    }
-    if (requiresExchangeRate && (!Number.isFinite(Number(receiptExchangeRate)) || Number(receiptExchangeRate) <= 0)) {
-      setReceiptAmountError('Masukkan kurs realisasi USD/IDR yang tercantum pada bukti transaksi bank.');
-      return;
-    }
-    setReceiptAmountError('');
-
-    const receipt = {
-      id: `RECEIPT-${activeJob.jobId}-${Date.now()}`,
-      jobId: activeJob.jobId,
-      receivedDate: receiptDate,
-      amount,
-      currency: receiptCurrency,
-      exchangeRateUSDToIDR: receiptExchangeRateValue,
-      paymentType: receiptType,
-      receivedBankAccountId: receivingAccount.id,
-      receivedBankName: receivingAccount.bankName,
-      receivedAccountName: receivingAccount.accountName,
-      receivedAccountNumber: receivingAccount.accountNumber,
-      refundAmount: normalizedRefundAmount,
-      refundExchangeRateUSDToIDR: normalizedRefundAmount > 0 ? receiptExchangeRateValue : 0,
-      refundDate: '',
-      refundBankReference: '',
-      refundStatus: normalizedRefundAmount > 0 ? 'PENDING' : 'NONE',
-      bankRemark: receiptBankRemark.trim(),
-      attachmentName: receiptAttachment?.name,
-      attachmentDataUrl: receiptAttachment?.dataUrl,
-    };
-    setIsSavingReceipt(true);
-    try {
-      const result = await db.updateJobAndPersist(activeJob.jobId, {
-        principalReceipts: [...receiptHistory, receipt],
-      });
-      if (!result.saved) {
-        setReceiptAmountError(result.error
-          ? `Penerimaan gagal disimpan ke database: ${result.error}. Form tetap dipertahankan.`
-          : 'Penerimaan tidak tersimpan. Periksa status FDA dan hak akses Finance.');
-        return;
-      }
-
-      setReceiptAmount('');
-      setReceiptAmountError('');
-      setReceiptType('INVOICE');
-      setReceiptBankRemark('');
-      setReceiptAttachment(null);
-      setMsg(normalizedRefundAmount > 0
-        ? `Penerimaan tersimpan. Refund ${formatCurrency(normalizedRefundAmount, receiptCurrency)} tercatat menunggu transfer.`
-        : 'Penerimaan uang dari Principal berhasil disimpan ke database.');
-      setTimeout(() => setMsg(null), 3500);
-    } finally {
-      setIsSavingReceipt(false);
-    }
-  };
-
   const handleMarkPrincipalPaymentPaid = () => {
+    setReceiptActionError('');
     const latestJob = db.getJob(activeJob.jobId);
     if (!latestJob || !isFinanceReady(latestJob)) {
-      setReceiptAmountError('Pembayaran belum dapat ditandai PAID. FDA atau FPDA crew-only harus Approved terlebih dahulu.');
+      setReceiptActionError('Pembayaran belum dapat ditandai lunas. FDA atau FPDA crew-only harus Approved terlebih dahulu.');
       return;
     }
     if ((latestJob.principalReceipts || []).some((receipt) => receipt.refundStatus === 'PENDING')) {
-      setReceiptAmountError('Pembayaran belum dapat ditandai PAID. Selesaikan transfer refund lebih bayar terlebih dahulu.');
+      setReceiptActionError('Pembayaran belum dapat ditandai lunas. Selesaikan transfer refund lebih bayar terlebih dahulu.');
       return;
     }
 
@@ -455,7 +331,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       billed.currency,
     );
     if (outstanding > 0) {
-      setReceiptAmountError(`Pembayaran belum dapat ditandai PAID. Masih ada sisa saldo ${formatJobCurrency(outstanding)}.`);
+      setReceiptActionError(`Pembayaran belum dapat ditandai lunas. Masih ada sisa saldo ${formatJobCurrency(outstanding)}.`);
       return;
     }
 
@@ -482,7 +358,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       ar: updatedAR,
       currentStage: 'PRINCIPAL_INVOICE',
     });
-    setReceiptAmountError('');
+    setReceiptActionError('');
     setMsg('Pembayaran ditandai lunas. Sinyal pelunasan siap untuk proses closing.');
     setTimeout(() => setMsg(null), 3500);
   };
@@ -493,11 +369,11 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     const refundAccount = bankAccounts.find((account) => account.id === refundBankAccountId);
     if (!receipt || receipt.refundStatus !== 'PENDING' || !refundCompletionDate || !refundBankReference.trim() || !refundAccount
       || (receipt.currency !== jobCurrency && (!Number.isFinite(Number(refundExchangeRate)) || Number(refundExchangeRate) <= 0))) {
-      setReceiptAmountError('Lengkapi tanggal, referensi bank, dan rekening perusahaan yang digunakan untuk transfer refund.');
+      setReceiptActionError('Lengkapi tanggal, referensi bank, dan rekening perusahaan yang digunakan untuk transfer refund.');
       return;
     }
     setIsSavingReceipt(true);
-    setReceiptAmountError('');
+    setReceiptActionError('');
     try {
       const result = await db.updateJobAndPersist(activeJob.jobId, {
         principalReceipts: receiptHistory.map((item) => item.id === receiptId
@@ -517,7 +393,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
           : item),
       });
       if (!result.saved) {
-        setReceiptAmountError(result.error || 'Refund gagal disimpan ke database.');
+        setReceiptActionError(result.error || 'Refund gagal disimpan ke database.');
         return;
       }
       setRefundReceiptId(null);
@@ -532,7 +408,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   const handleDeleteReceipt = (receiptId: string) => {
     const receipt = receiptHistory.find((item) => item.id === receiptId);
     if (receipt?.refundStatus === 'PENDING' || receipt?.refundStatus === 'PAID') {
-      setReceiptAmountError('Receipt dengan refund tidak dapat dihapus karena sudah menjadi bagian dari audit trail.');
+      setReceiptActionError('Receipt dengan refund tidak dapat dihapus karena sudah menjadi bagian dari audit trail.');
       return;
     }
     if (!receipt || !window.confirm(`Hapus entry penerimaan ${formatCurrency(receipt.amount, receipt.currency)}?`)) return;
@@ -541,27 +417,6 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     });
     setMsg('Entry penerimaan berhasil dihapus.');
     setTimeout(() => setMsg(null), 3500);
-  };
-
-  const handleReceiptAttachment = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (file.type !== 'image/png') {
-      setMsg('File bukti bank harus berformat PNG.');
-      setTimeout(() => setMsg(null), 3500);
-      event.target.value = '';
-      return;
-    }
-    if (file.size > MAX_RECEIPT_ATTACHMENT_SIZE) {
-      setReceiptAttachment(null);
-      setReceiptAmountError('Ukuran bukti PNG maksimal 1 MB.');
-      event.target.value = '';
-      return;
-    }
-    setReceiptAmountError('');
-    const reader = new FileReader();
-    reader.onload = () => setReceiptAttachment({ name: file.name, dataUrl: String(reader.result || '') });
-    reader.readAsDataURL(file);
   };
 
   const handleCloseCollectedJob = () => {
@@ -611,9 +466,33 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     ? activeFpdaAmount
     : getJobFdaBilledRaw(activeJob).amount;
   const invoiceAmount = roundInvoiceAmount(rawInvoiceAmount, jobCurrency);
+  const fpdaAdvanceReceipts = (activeJob.principalReceipts || [])
+    .filter((receipt) => receipt.paymentType === 'ADVANCE_PAYMENT' && receipt.invoiceType === 'FPDA')
+    .sort((first, second) => second.receivedDate.localeCompare(first.receivedDate));
+  const fpdaAdvancePayment = roundInvoiceAmount(fpdaAdvanceReceipts.reduce((total, receipt) => {
+    const receiptCurrency = receipt.currency || activeJob.currency || jobCurrency;
+    const exchangeRate = receipt.exchangeRateUSDToIDR || getJobExchangeRate(activeJob);
+    const received = convertPrincipalReceiptAmount(
+      activeJob,
+      Number(receipt.amount || 0),
+      receiptCurrency,
+      jobCurrency,
+      exchangeRate,
+    );
+    const refunded = receipt.refundStatus === 'PAID'
+      ? convertPrincipalReceiptAmount(
+        activeJob,
+        Number(receipt.refundAmount || 0),
+        receiptCurrency,
+        jobCurrency,
+        receipt.refundExchangeRateUSDToIDR || exchangeRate,
+      )
+      : 0;
+    return total + received - refunded;
+  }, 0), jobCurrency);
   const invoiceAdvancePayment = invoiceDocumentType === 'FDA'
     ? getPrincipalReceiptSummary(activeJob, jobCurrency).advanceReceived
-    : 0;
+    : fpdaAdvancePayment;
   const invoiceBalanceAfterAdvance = normalizeOutstanding(invoiceAmount - invoiceAdvancePayment, jobCurrency);
   const fdaBillingTotal = roundInvoiceAmount(getJobPrincipalBilledRaw(activeJob).amount, jobCurrency);
   const financeGateMessage = !isFinanceReady(activeJob)
@@ -719,9 +598,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     `).join('');
 
     const totalInvoiceRow = `<tr class="total"><td colspan="2" class="right">TOTAL NILAI INVOICE (BRUTO)</td><td class="amount">${escapeHtml(formatCurrencyNumber(invoiceAmount, jobCurrency))}</td></tr>`;
-    const advancePaymentRow = invoiceDocumentType === 'FDA'
-      ? `<tr><td colspan="2" class="right">Advance Payment FDA</td><td class="amount">-${escapeHtml(formatCurrencyNumber(invoiceAdvancePayment, jobCurrency))}</td></tr><tr class="total"><td colspan="2" class="right">SISA TAGIHAN SETELAH ADVANCE</td><td class="amount">${escapeHtml(formatCurrencyNumber(invoiceBalanceAfterAdvance, jobCurrency))}</td></tr>`
-      : '';
+    const advancePaymentRow = `<tr><td colspan="2" class="right">Advance Payment ${invoiceDocumentType}</td><td class="amount">-${escapeHtml(formatCurrencyNumber(invoiceAdvancePayment, jobCurrency))}</td></tr><tr class="total"><td colspan="2" class="right">SISA TAGIHAN SETELAH ADVANCE</td><td class="amount">${escapeHtml(formatCurrencyNumber(invoiceBalanceAfterAdvance, jobCurrency))}</td></tr>`;
     const equivalentRow = jobCurrency === 'USD'
       ? `<tr class="total"><td colspan="2" class="right">Equivalen IDR (Kurs ${escapeHtml(new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(getJobExchangeRate(activeJob)))}):</td><td class="amount">${escapeHtml(formatIDR(invoiceAmount * getJobExchangeRate(activeJob)))}</td></tr>`
       : '';
@@ -1317,6 +1194,43 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       {/* PRINCIPAL INVOICES TAB */}
       {subTab === 'INVOICES' && (
         <div className="space-y-4">
+          {invoiceDocumentType === 'FPDA' && (
+            <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
+              <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-emerald-800">Advance Received · History FPDA</h3>
+              {fpdaAdvanceReceipts.length > 0 ? (
+                <div className="space-y-2">
+                  {fpdaAdvanceReceipts.map((receipt) => {
+                    const receiptCurrency = receipt.currency || activeJob.currency || jobCurrency;
+                    const exchangeRate = receipt.exchangeRateUSDToIDR || getJobExchangeRate(activeJob);
+                    const received = convertPrincipalReceiptAmount(
+                      activeJob,
+                      Number(receipt.amount || 0),
+                      receiptCurrency,
+                      jobCurrency,
+                      exchangeRate,
+                    );
+                    const refunded = receipt.refundStatus === 'PAID'
+                      ? convertPrincipalReceiptAmount(
+                        activeJob,
+                        Number(receipt.refundAmount || 0),
+                        receiptCurrency,
+                        jobCurrency,
+                        receipt.refundExchangeRateUSDToIDR || exchangeRate,
+                      )
+                      : 0;
+                    return (
+                      <div key={receipt.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-100 bg-white px-3 py-2 text-xs text-slate-700">
+                        <span>{formatDateDisplay(receipt.receivedDate)} · {formatCurrencyNumber(received - refunded, jobCurrency)} {jobCurrency}</span>
+                        <span className="break-words text-slate-500">{receipt.bankRemark || '-'}{refunded > 0 ? ` · Refund: ${formatCurrencyNumber(refunded, jobCurrency)} ${jobCurrency}` : ''}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-600">Belum ada riwayat Advance Payment FPDA.</p>
+              )}
+            </section>
+          )}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-4 mb-5 gap-3">
               <div>
@@ -1420,18 +1334,14 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                       {formatCurrencyNumber(invoiceAmount, jobCurrency)}
                     </td>
                   </tr>
-                  {invoiceDocumentType === 'FDA' && (
-                    <>
-                      <tr>
-                        <td colSpan={2} className="p-3 text-right text-amber-300 uppercase">Advance Payment FDA:</td>
-                        <td className="p-3 text-right font-mono text-amber-300">-{formatCurrencyNumber(invoiceAdvancePayment, jobCurrency)}</td>
-                      </tr>
-                      <tr>
-                        <td colSpan={2} className="p-3 text-right text-emerald-300 uppercase">Sisa Tagihan Setelah Advance:</td>
-                        <td className="p-3 text-right font-mono text-emerald-300">{formatCurrencyNumber(invoiceBalanceAfterAdvance, jobCurrency)}</td>
-                      </tr>
-                    </>
-                  )}
+                  <tr>
+                    <td colSpan={2} className="p-3 text-right text-amber-300 uppercase">Advance Payment {invoiceDocumentType}:</td>
+                    <td className="p-3 text-right font-mono text-amber-300">-{formatCurrencyNumber(invoiceAdvancePayment, jobCurrency)}</td>
+                  </tr>
+                  <tr>
+                    <td colSpan={2} className="p-3 text-right text-emerald-300 uppercase">Sisa Tagihan Setelah Advance:</td>
+                    <td className="p-3 text-right font-mono text-emerald-300">{formatCurrencyNumber(invoiceBalanceAfterAdvance, jobCurrency)}</td>
+                  </tr>
                   {jobCurrency === 'USD' && (
                     <tr>
                       <td colSpan={2} className="p-3 text-right text-slate-400 uppercase">
@@ -1465,10 +1375,10 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                     JOB: {activeJob.jobId}
                   </span>
                   <h2 className="text-base font-bold text-white uppercase tracking-wider mt-1">
-                    Pencatatan Uang Masuk dari Principal (AR)
+                    Konfirmasi Pembayaran Invoice Principal
                   </h2>
                   <p className="text-xs text-slate-400">
-                    Catat penerimaan pembayaran Principal dan simpan bukti transfer bank untuk kontrol Finance.
+                    Pantau penerimaan pembayaran Principal dan status pelunasan invoice.
                   </p>
                   <p className="text-xs font-semibold text-cyan-300 mt-2">
                     Currency Job: {jobCurrency} {jobCurrency === 'USD' ? `| Kurs: ${formatIDR(getJobExchangeRate(activeJob))} / USD` : ''}
@@ -1509,83 +1419,21 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
               </div>
             </div>
 
-            <form onSubmit={handleAddPrincipalReceipt} className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-3 bg-slate-950 p-4 rounded-xl border border-slate-800">
-              <div className="text-xs text-slate-400">
-                <label htmlFor="receipt-date-display">Tanggal Masuk *</label>
-                <div className="relative mt-1">
-                  <input id="receipt-date-display" type="text" readOnly value={formatDateDisplay(receiptDate)} onClick={openReceiptDatePicker} className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 pr-10 text-sm text-white" />
-                  <button type="button" onClick={openReceiptDatePicker} aria-label="Pilih tanggal masuk" title="Pilih tanggal" className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-300 hover:bg-slate-700">
-                    <CalendarDays className="h-4 w-4" />
-                  </button>
-                  <input ref={receiptDatePickerRef} type="date" required value={receiptDate} onChange={(event) => setReceiptDate(event.target.value)} aria-label="Pilih tanggal masuk" className="pointer-events-none absolute h-px w-px opacity-0" />
-                </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950 p-4">
+              <div>
+                <p className="text-xs text-slate-400">Konfirmasi setelah seluruh tagihan diterima dan refund tertunda sudah diselesaikan.</p>
+                {receiptActionError && <p role="alert" className="mt-2 text-xs font-semibold text-rose-300">{receiptActionError}</p>}
               </div>
-              <label className="text-xs text-slate-400">Jenis Penerimaan *
-                <select required value={receiptType} onChange={(event) => setReceiptType(event.target.value as 'ADVANCE_PAYMENT' | 'INVOICE')} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white">
-                  <option value="ADVANCE_PAYMENT">Advance Payment</option>
-                  <option value="INVOICE">Invoice</option>
-                </select>
-              </label>
-              <label className="text-xs text-slate-400">Rekening Penerima Perusahaan *
-                <select required value={receiptBankAccountId} onChange={(event) => setReceiptBankAccountId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white">
-                  <option value="">Pilih rekening penerima</option>
-                  {bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.accountNumber} · {account.accountName}</option>)}
-                </select>
-              </label>
-              <label className="text-xs text-slate-400">Mata Uang Diterima *
-                <select required value={receiptCurrency} onChange={(event) => setReceiptCurrency(event.target.value as Currency)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white">
-                  <option value="USD">USD ($)</option>
-                  <option value="IDR">IDR (Rp)</option>
-                </select>
-              </label>
-              <label className="text-xs text-slate-400">Nominal Masuk ({receiptCurrency}) *
-                <FormattedNumberInput
-                  required
-                  min={receiptCurrency === 'IDR' ? '1' : '0.01'}
-                  value={receiptAmount}
-                  maximumFractionDigits={receiptCurrency === 'IDR' ? 0 : 2}
-                  onValueChange={(value) => { setReceiptAmount(value); setReceiptAmountError(''); }}
-                  placeholder={receiptCurrency === 'IDR' ? '0' : '0.00'}
-                  className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
-                />
-                <span className="mt-1 block text-[10px] text-slate-500">
-                  Format: {receiptAmount && Number.isFinite(Number(receiptAmount)) ? formatCurrency(Number(receiptAmount), receiptCurrency) : receiptCurrency === 'IDR' ? 'Rp 0' : '0 USD'}
-                </span>
-              </label>
-              {receiptCurrency !== jobCurrency ? (
-                <label className="text-xs text-slate-400">Kurs Realisasi (IDR / USD) *
-                  <FormattedNumberInput required min="1" value={receiptExchangeRate} onValueChange={setReceiptExchangeRate} maximumFractionDigits={4} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
-                </label>
-              ) : <div className="text-xs text-slate-400">Kurs Invoice
-                <div className="mt-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-300">{jobCurrency === 'USD' ? `Rp ${new Intl.NumberFormat('en-US').format(getJobExchangeRate(activeJob))} / USD` : 'Tidak diperlukan'}</div>
-              </div>}
-              <label className="text-xs text-slate-400">Remark Bank *
-                <input required value={receiptBankRemark} onChange={(event) => setReceiptBankRemark(event.target.value)} placeholder="Contoh: Transfer BCA dari Principal" className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
-              </label>
-              <div className="text-xs text-slate-400">
-                <span className="block">Upload Bukti PNG</span>
-                <label htmlFor="receipt-attachment" className="mt-1 flex h-9 cursor-pointer items-center overflow-hidden rounded-lg border border-slate-700 bg-slate-900 text-xs">
-                  <span className="flex h-full shrink-0 items-center bg-cyan-500/20 px-3 text-cyan-200">Pilih File</span>
-                  <span className="truncate px-3 text-slate-300">{receiptAttachment?.name || 'Max 1Mb'}</span>
-                </label>
-                <input id="receipt-attachment" type="file" accept="image/png" onChange={handleReceiptAttachment} className="sr-only" />
-              </div>
-              <div className="md:col-span-2 xl:col-span-7 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs">
-                <span className="text-slate-300">Dibukukan ke invoice: <b className="text-emerald-300">{formatJobCurrency(Math.min(receiptAmountInInvoiceCurrency, jobAROutstanding))}</b></span>
-                {estimatedRefundInPaymentCurrency > 0 && <span className="text-rose-300">Lebih bayar, refund pending: <b>{formatCurrency(estimatedRefundInPaymentCurrency, receiptCurrency)}</b></span>}
-                {receiptCurrency !== jobCurrency && <span className="text-slate-400">Kurs realisasi: Rp {new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(receiptExchangeRateValue)} / USD</span>}
-              </div>
-              <div className="md:col-span-2 xl:col-span-7 flex items-center justify-between gap-3">
-                <div>
-                  <span className="text-xs text-slate-500">{receiptAttachment ? `File: ${receiptAttachment.name}` : 'Bukti transfer PNG opsional.'}</span>
-                  {receiptAmountError && <div className="mt-1 text-xs font-semibold text-rose-300">{receiptAmountError}</div>}
-                </div>
-                <div className="flex items-center gap-2">
-                  <button type="submit" disabled={isSavingReceipt} className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:cursor-wait disabled:opacity-60 text-white text-xs font-bold">{isSavingReceipt ? 'Menyimpan...' : 'Simpan Penerimaan'}</button>
-                  <button type="button" disabled={isSavingReceipt || receiptHistory.some((receipt) => receipt.refundStatus === 'PENDING')} onClick={handleMarkPrincipalPaymentPaid} className="px-4 py-2 rounded-xl border-2 border-sky-500 bg-sky-200 text-sky-950 text-xs font-black shadow-sm hover:bg-sky-300 disabled:cursor-wait disabled:opacity-60" title="Refund pending harus ditransfer sebelum pembayaran dapat ditandai lunas">PAID</button>
-                </div>
-              </div>
-            </form>
+              <button
+                type="button"
+                disabled={isSavingReceipt || receiptHistory.some((receipt) => receipt.refundStatus === 'PENDING')}
+                onClick={handleMarkPrincipalPaymentPaid}
+                className="rounded-xl border-2 border-sky-500 bg-sky-200 px-4 py-2 text-xs font-black text-sky-950 shadow-sm hover:bg-sky-300 disabled:cursor-wait disabled:opacity-60"
+                title="Refund pending harus ditransfer sebelum pembayaran dapat ditandai lunas"
+              >
+                Konfirmasi pembayaran
+              </button>
+            </div>
 
             {receiptHistory.filter((receipt) => receipt.refundStatus === 'PENDING').map((receipt) => (
               <div key={`refund-${receipt.id}`} className="mt-4 rounded-xl border border-rose-500/40 bg-rose-500/10 p-4">

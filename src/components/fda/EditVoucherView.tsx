@@ -85,7 +85,7 @@ export const EditVoucherView: React.FC<EditVoucherViewProps> = ({ jobCalls, vend
       {printError && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">{printError}</div>}
 
       <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <table className="w-full min-w-[900px] text-left text-xs">
+        <table className="w-full min-w-[1040px] text-left text-xs">
           <thead className="border-b border-slate-200 bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500">
             <tr>
               <th className="p-3">No</th>
@@ -94,6 +94,7 @@ export const EditVoucherView: React.FC<EditVoucherViewProps> = ({ jobCalls, vend
               <th className="p-3">Info JOB / JOB Number</th>
               <th className="p-3">Vendor Name</th>
               <th className="p-3">Paid To</th>
+              <th className="whitespace-nowrap p-3">A/c Number Vendor</th>
               <th className="p-3">Request By</th>
               <th className="p-3 text-right">Paid Amount</th>
               <th className="p-3">Status</th>
@@ -102,7 +103,7 @@ export const EditVoucherView: React.FC<EditVoucherViewProps> = ({ jobCalls, vend
           </thead>
           <tbody className="divide-y divide-slate-100">
             {vouchers.length === 0 && (
-              <tr><td colSpan={10} className="p-10 text-center text-slate-400">Belum ada voucher tersimpan.</td></tr>
+              <tr><td colSpan={11} className="p-10 text-center text-slate-400">Belum ada voucher tersimpan.</td></tr>
             )}
             {paginatedVouchers.map((voucher, index) => (
               <tr key={voucher.id} className="hover:bg-slate-50">
@@ -115,6 +116,7 @@ export const EditVoucherView: React.FC<EditVoucherViewProps> = ({ jobCalls, vend
                 </td>
                 <td className="p-3 font-semibold text-slate-800">{voucher.vendorName}</td>
                 <td className="p-3 text-slate-600">{voucher.paidTo}</td>
+                <td className="p-3 font-mono text-slate-600">{voucher.accountNumber || '-'}</td>
                 <td className="p-3 text-slate-600">{voucher.requestBy}</td>
                 <td className="p-3 text-right font-mono font-bold text-slate-900">{money(voucher.totalPaidAmount)}</td>
                 <td className="p-3">

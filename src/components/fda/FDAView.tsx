@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getPublicLogoUrl } from '../../utils/logo';
+import { printHtmlInFrame } from '../../utils/printHtmlInFrame';
+import { paymentFooterPrintStyles } from '../../utils/paymentFooterPrintStyles';
 import {
   FileCheck2,
   Coins,
@@ -166,6 +168,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const [showPdfPreview, setShowPdfPreview] = useState(false);
   const [previewDocument, setPreviewDocument] = useState<string | null>(null);
   const iframePreviewRef = useRef<HTMLIFrameElement | null>(null);
+  const documentPrintFrameRef = useRef<HTMLIFrameElement | null>(null);
   const [pdfUploadMeta, setPdfUploadMeta] = useState<{ fileName: string; dataUrl: string } | null>(
     activeJob.fda?.pdfDataUrl && activeJob.fda?.pdfFileName
       ? { fileName: activeJob.fda.pdfFileName, dataUrl: activeJob.fda.pdfDataUrl }
@@ -1178,13 +1181,20 @@ export const FDAView: React.FC<FDAViewProps> = ({
     return `<!doctype html><html><head><meta charset="utf-8"><title>${fdaNo}</title><style>@page{size:A4;margin:10mm}body{font-family:Arial,sans-serif;color:#172033;font-size:10px}.brand{text-align:center;margin-bottom:8px}.brand-wrap{display:inline-flex;align-items:center;gap:12px;text-align:left}.logo{width:78px;height:58px;object-fit:contain}.brand-name{font-size:20px;font-weight:700;color:#3562a8}.tagline{font-size:11px;color:#3562a8;margin-top:3px}.divider{border-bottom:2px solid #315db2;margin:6px 0 10px}.title-block{margin:0 0 8px}.title-block h2{margin:0;background:#214f84;color:#fff;text-align:center;padding:5px;font-size:12px}.meta{display:grid;grid-template-columns:1fr 1fr;gap:2px 28px;margin-bottom:9px}.meta-col{display:flex;flex-direction:column;gap:2px}.meta-row{display:grid;grid-template-columns:105px 8px minmax(0,1fr);line-height:1.25}.right .meta-row{grid-template-columns:82px 8px minmax(0,1fr)}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #9ca3af;padding:4px 5px}th{background:#dbe8f2;text-align:center;font-size:9px}th:nth-child(1),td:nth-child(1){width:5%;text-align:center}th:nth-child(2),td:nth-child(2){width:42%;text-align:left}th:nth-child(3),td:nth-child(3){width:8%;text-align:center}th:nth-child(4),td:nth-child(4){width:17%;text-align:right;white-space:nowrap}th:nth-child(5),td:nth-child(5){width:28%;text-align:left}.section td{background:#808080;color:#fff;font-weight:700;text-align:left;text-transform:uppercase}.subtotal{background:#dbe8f2;font-weight:700}.grand,.net-total{background:#dbe8f2;color:#f00;font-weight:800}.amount{text-align:right;white-space:nowrap}.bank{display:inline-block;width:42%;margin-top:16px;border:1px solid #777;padding:8px;font-size:8px;line-height:1.3;vertical-align:top}.signature{display:inline-block;width:42%;margin:52px 0 0 12%;text-align:center;vertical-align:top;font-size:9px;padding-top:8px}.footer{margin-top:16px;text-align:center;font-size:9px;line-height:1.35;font-weight:600}.footer span{color:#e11d48;text-decoration:underline}</style></head><body><div class="brand"><div class="brand-wrap"><img class="logo" src="${getPublicLogoUrl()}"><div><div class="brand-name">PT Lentera Global Maritim</div><div class="tagline">Seamless Agent, Global Reach</div></div></div></div><h2>FINAL DISBURSEMENT ACCOUNT</h2><div class="meta"><div class="meta-col"><div class="meta-row"><b>No FDA</b><span>:</span><span>${escape(fdaNo)}</span></div><div class="meta-row"><b>Date Inquiry</b><span>:</span><span>${escape(activeJob.inquiry?.date || '-')}</span></div><div class="meta-row"><b>Principal</b><span>:</span><span>${escape(activeJob.customerName)}</span></div><div class="meta-row"><b>GRT</b><span>:</span><span>${vessel?.grt?.toLocaleString('id-ID') || '-'}</span></div><div class="meta-row"><b>Port</b><span>:</span><span>${escape(activeJob.portName)}</span></div><div class="meta-row"><b>ETA</b><span>:</span><span>${escape(activeJob.eta || '-')}</span></div></div><div class="meta-col right"><div class="meta-row"><b>Vessel</b><span>:</span><span>${escape(activeJob.vesselName)}</span></div><div class="meta-row"><b>Estimated Day</b><span>:</span><span>${activeJob.inquiry?.estimatedDays || '-'}</span></div><div class="meta-row"><b>Flag</b><span>:</span><span>${escape(vessel?.flag || '-')}</span></div><div class="meta-row"><b>Cargo Details</b><span>:</span><span>${escape(activeJob.inquiry?.cargoDetails || '-')}</span></div><div class="meta-row"><b>IMO</b><span>:</span><span>${escape(vessel?.imoNumber || '-')}</span></div></div></div><table><thead><tr><th>NO.</th><th>DESCRIPTION</th><th>CURRENCY</th><th>AMOUNT</th><th>REMARKS</th></tr></thead><tbody>${rows}<tr class="grand"><td colspan="3">${fdaSubTotalLabel}</td><td class="amount">${money(totalBeforeGlobalVat, viewCurrency)}</td><td></td></tr>${globalVatRows}</tbody></table><div class="bank">Please kindly remit to our Bank Account<br>Bank Account Detail of PT. Lentera Global Maritim asf:<br><br><b>BANK NEGARA INDONESIA (Persero) Tbk</b><br>Address: BNI Bidakara<br>Jl. Gatot Subroto Kav 71-73, RT.12/RW.5, Tebet Timur,<br>Kec. Tebet, Kota Jakarta Selatan, DKI Jakarta 12820<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number : 2824-1212-69</b><br><b>Swift Code Bank : BNIIDNAXXX</b></div><div class="signature">Sincerely,<br>PT. Lentera Global Maritim<br><br><br>Finance</div><div class="footer">Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan<br>Kota Adm Jakarta Selatan, DKI Jakarta - 12810<br><span>email : maritim@lentera-global.com / web : www.lentera-global.com</span></div></body></html>`;
   };
 
-  const pushFinanceSignatureDown = (html: string) => html
-    .replaceAll('.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}', '.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.signature-main{display:block}.signature-role{display:block;margin-top:120px;padding-top:12px}')
-    .replaceAll('.signature{display:inline-block;width:42%;margin:16px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}', '.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.signature-main{display:block}.signature-role{display:block;margin-top:120px;padding-top:12px}')
-    .replaceAll('margin-top:54px;padding-top:8px', 'margin-top:120px;padding-top:12px')
-    .replaceAll('margin-top:22px;padding-top:4px', 'margin-top:120px;padding-top:12px')
-    .replaceAll('margin:24px 0 0 12%;', 'margin:24px 0 0 12%;')
-    .replaceAll('margin:16px 0 0 12%;', 'margin:24px 0 0 12%;');
+  const pushFinanceSignatureDown = (html: string) => {
+    if (html.includes('<div class="payment-footer">')) return html;
+    return html
+      .replace('<div class="bank">', '<div class="payment-footer"><div class="bank">')
+      .replace('</div><div class="office-footer"', '</div></div><div class="office-footer"')
+      .replace('</div><div class="footer">', '</div></div><div class="footer">')
+      .replaceAll('.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}', '.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.signature-main{display:block}.signature-role{display:block;margin-top:120px;padding-top:12px}')
+      .replaceAll('.signature{display:inline-block;width:42%;margin:16px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}', '.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.signature-main{display:block}.signature-role{display:block;margin-top:120px;padding-top:12px}')
+      .replaceAll('margin-top:54px;padding-top:8px', 'margin-top:120px;padding-top:12px')
+      .replaceAll('margin-top:22px;padding-top:4px', 'margin-top:120px;padding-top:12px')
+      .replaceAll('margin:24px 0 0 12%;', 'margin:24px 0 0 12%;')
+      .replaceAll('margin:16px 0 0 12%;', 'margin:24px 0 0 12%;')
+      .replace('</style>', '.payment-footer{display:grid;grid-template-columns:minmax(0,42%) minmax(0,42%);column-gap:16%;align-items:start;width:100%;margin:0!important;padding:0!important}.payment-footer .bank,.payment-footer .signature{box-sizing:border-box;width:100%;margin:0!important;padding:8px;align-self:start}.payment-footer .signature{text-align:center}</style>');
+  };
 
   const formatFDAExportDates = (html: string) => {
     const inquiryDate = activeJob.inquiry?.date || activeJob.createdAt;
@@ -1282,8 +1292,28 @@ export const FDAView: React.FC<FDAViewProps> = ({
       .brand-name { font-size: 20px !important; }
       .tagline { font-size: 11px !important; }
       h2, .title-block h2 { font-size: 14px !important; }
-      .bank { font-size: 13px !important; }
-      .signature { font-size: 13px !important; }
+      .payment-footer {
+        display: grid !important;
+        grid-template-columns: minmax(0, 52%) minmax(0, 1fr) !important;
+        column-gap: 12px !important;
+        align-items: start !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
+      .payment-footer .bank, .payment-footer .signature {
+        box-sizing: border-box !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        margin: 0 !important;
+        align-self: start !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
+      .payment-footer .bank { font-size: 13px !important; overflow-wrap: anywhere; }
+      .payment-footer .signature { font-size: 13px !important; }
       .footer, .office-footer { font-size: 9px !important; }
       table tr.global-vat td.amount,
       table tr.net-total td.amount { text-align: right !important; }
@@ -1301,25 +1331,36 @@ export const FDAView: React.FC<FDAViewProps> = ({
       .a4-frame-line { display: none !important; }
       .office-footer { position: static !important; inset: auto !important; transform: none !important; display: block !important; width: 100% !important; max-width: 700px !important; margin: 16px auto 0 !important; text-align: center !important; page-break-inside: avoid !important; break-inside: avoid !important; }
     }
-  </style>${officePrintPageStyles}</head>`);
+  </style>${officePrintPageStyles}<style>${paymentFooterPrintStyles}</style></head>`);
 
   const addFDAReceiptSummary = (html: string) => {
     const summaryRows = `<tr class="advance"><td colspan="3">Advance Payment</td><td class="amount">-${formatAccountingNumber(advanceReceived, viewCurrency)}</td><td></td></tr><tr class="balance"><td colspan="3">Balance Due</td><td class="amount">${formatAccountingNumber(balanceDue, viewCurrency)}</td><td></td></tr>`;
     return html.replace('</tbody></table>', `${summaryRows}</tbody></table>`);
   };
 
+  const printFDAHtml = (html: string, printFrame = documentPrintFrameRef.current) => {
+    if (!printFrame) {
+      setMsg('Dokumen FDA belum siap untuk dicetak. Silakan coba kembali.');
+      return;
+    }
+    printHtmlInFrame(printFrame, html, fdaNo.replace(/[\\/:*?"<>|]/g, '-'));
+  };
+
   const openFDAWindow = (print = false, getHtml = false): string | undefined => {
     const onePageHtml = pushFinanceSignatureDown(addFDAReceiptSummary(buildFDAHtmlSalesTemplate(false).replace('</style>', '@page{size:A4;margin:14mm}body{font-size:9px}.brand-row{margin:0 0 2px}.brand-wrap{min-height:48px;gap:10px}.logo{width:70px;height:52px}.brand{font-size:17px}.tag{font-size:10px;margin-top:2px}h2{font-size:10px;padding:4px;margin:2px 0 4px}.meta{gap:1px 20px;margin-bottom:3px}.meta-col{gap:1px}.meta-row{line-height:1.15}.meta-row .label{font-size:9px}table{page-break-inside:avoid;table-layout:fixed}table th:first-child,table td:first-child{width:5%;text-align:center!important}table th:nth-child(2),table td:nth-child(2){width:42%;text-align:center!important}table th:nth-child(3),table td:nth-child(3){width:8%;text-align:center!important}table th:nth-child(4),table td:nth-child(4){width:17%;text-align:center!important;white-space:nowrap}table th:nth-child(5),table td:nth-child(5){width:28%;text-align:center!important}tr{page-break-inside:avoid}th,td{padding:3px 4px;font-size:8px}.subtotal td:first-child,.grand td:first-child{font-weight:700;text-align:center!important}.subtotal td.amount,.grand td.amount,.subtotal td:nth-child(2),.grand td:nth-child(2){font-variant-numeric:tabular-nums;text-align:center!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}.section td{padding-left:0!important}.bank{display:inline-block;width:42%;margin-top:24px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.signature-main{display:block}.signature-role{display:block;margin-top:22px;padding-top:4px}.office-footer{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center;font-size:8px;line-height:1.2;font-weight:600;color:#111;z-index:3}.office-footer span{color:#e11d48;text-decoration:underline}</style>')));
     if (getHtml) return centerFDAExportColumns(onePageHtml);
+    if (print) {
+      printFDAHtml(centerFDAExportColumns(onePageHtml));
+      return;
+    }
     const windowRef = window.open('', '_blank', 'width=900,height=1100');
     if (!windowRef) return;
     windowRef.document.write(centerFDAExportColumns(onePageHtml));
     windowRef.document.close();
-    if (print) windowRef.onload = () => { windowRef.focus(); windowRef.print(); };
   };
   const printFDA = () => {
     const onePageHtml = pushFinanceSignatureDown(addFDAReceiptSummary(buildFDAHtmlSalesTemplate(true).replace('</style>', '@page{size:A4;margin:14mm}body{font-size:9px}.brand-row{margin:0 0 2px}.brand-wrap{min-height:48px;gap:10px}.logo{width:70px;height:52px}.brand{font-size:17px}.tag{font-size:10px;margin-top:2px}h2{font-size:10px;padding:4px;margin:2px 0 4px}.meta{gap:1px 20px;margin-bottom:3px}.meta-col{gap:1px}.meta-row{line-height:1.15}.meta-row .label{font-size:9px}table{page-break-inside:avoid;table-layout:fixed}table th:first-child,table td:first-child{width:5%;text-align:center!important}table th:nth-child(2),table td:nth-child(2){width:42%;text-align:center!important}table th:nth-child(3),table td:nth-child(3){width:8%;text-align:center!important}table th:nth-child(4),table td:nth-child(4){width:17%;text-align:center!important;white-space:nowrap}table th:nth-child(5),table td:nth-child(5){width:28%;text-align:center!important}tr{page-break-inside:avoid}th,td{padding:3px 4px;font-size:8px}.subtotal td:first-child,.grand td:first-child{font-weight:700;text-align:center!important}.subtotal td.amount,.grand td.amount,.subtotal td:nth-child(2),.grand td:nth-child(2){font-variant-numeric:tabular-nums;text-align:center!important;white-space:nowrap;padding-left:0!important;padding-right:4px!important}.section td{padding-left:0!important}.bank{display:inline-block;width:42%;margin-top:24px;border:1px solid #777;padding:8px;text-align:left;font-size:9px;line-height:1.35;vertical-align:top}.signature{display:inline-block;width:42%;margin:24px 0 0 12%;text-align:center;vertical-align:top;font-size:9px}.signature-main{display:block}.signature-role{display:block;margin-top:22px;padding-top:4px}.office-footer{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:700px;text-align:center;font-size:8px;line-height:1.2;font-weight:600;color:#111;z-index:3}.office-footer span{color:#e11d48;text-decoration:underline}</style>')));
-    setPreviewDocument(centerFDAExportColumns(onePageHtml));
+    printFDAHtml(centerFDAExportColumns(onePageHtml));
   };
 
   const handleFDAFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1438,7 +1479,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     return (
       <div className="space-y-3">
         <div className="flex justify-end">
-          <button type="button" onClick={() => iframePreviewRef.current?.contentWindow?.print()} className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white hover:bg-blue-600">
+          <button type="button" onClick={() => printFDAHtml(openFDAWindow(false, true) || '', iframePreviewRef.current)} className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white hover:bg-blue-600">
             Cetak / Simpan PDF
           </button>
         </div>
@@ -1475,7 +1516,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => iframePreviewRef.current?.contentWindow?.print()}
+                  onClick={() => {
+                    if (previewDocument) printFDAHtml(previewDocument, iframePreviewRef.current);
+                  }}
                   className="rounded-lg bg-white px-3 py-1.5 text-sm font-bold text-slate-900 hover:bg-slate-100"
                 >
                   Print / Save PDF
@@ -2537,6 +2580,13 @@ export const FDAView: React.FC<FDAViewProps> = ({
         </div>
       )}
 
+      <iframe
+        ref={documentPrintFrameRef}
+        title={`Dokumen cetak FDA ${activeJob.jobId}`}
+        aria-hidden="true"
+        tabIndex={-1}
+        style={{ position: 'fixed', left: '-10000px', top: 0, width: '210mm', height: '297mm', border: 0 }}
+      />
     </div>
   );
 };

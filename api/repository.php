@@ -321,7 +321,7 @@ function loadAppState(): array
     $receiptsByJob = rowsByJob('principal_receipts');
     $financeReceivablesByJob = [];
     $financeReceivableRows = db()->query(
-        "SELECT id, job_id, invoice_type, payment_type, income_date, remark, bank_name, idr_amount, usd_amount, exchange_rate_usd_to_idr "
+        "SELECT id, job_id, invoice_type, invoice_no, payment_type, income_date, remark, bank_name, idr_amount, usd_amount, exchange_rate_usd_to_idr "
         . "FROM accounts_receivable_entries WHERE subject_data = 'PRINCIPAL' AND job_id IS NOT NULL"
     )->fetchAll();
     foreach ($financeReceivableRows as $financeReceivable) {
@@ -399,6 +399,9 @@ function loadAppState(): array
                     'exchangeRateUSDToIDR' => (float) ($financeReceivable['exchange_rate_usd_to_idr'] ?? 0),
                     'paymentType' => $paymentType,
                     'invoiceType' => $financeReceivable['invoice_type'],
+                    'invoiceNo' => $financeReceivable['invoice_no'],
+                    'receivedBankName' => $financeReceivable['bank_name'],
+                    'receivedRemark' => $financeReceivable['remark'],
                     'bankRemark' => trim((string) $financeReceivable['remark']) . ' | ' . $financeReceivable['bank_name'],
                     'attachmentName' => null,
                     'attachmentDataUrl' => null,

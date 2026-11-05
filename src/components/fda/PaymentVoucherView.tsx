@@ -541,7 +541,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
         <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{editingVoucher ? 'Edit Form Request Payment' : 'Request Payment'}</div>
         <h1 className="mt-1 text-xl font-black text-slate-900 lg:text-2xl">FORM REQUEST PAYMENT VOUCHER</h1>
 
-        <div className="mt-5 grid grid-cols-1 gap-4 text-xs md:grid-cols-2">
+        <div className="mt-5 grid grid-cols-1 gap-4 text-xs md:grid-cols-2 xl:grid-cols-3">
           <label className="block">
             <span className="font-semibold text-slate-500">Request Number</span>
             <input readOnly value={requestNumber} className={`${readonlyClass} mt-1 font-mono`} />
@@ -599,12 +599,12 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
             {vendor ? <input readOnly value={vendor.paidName} className={`${readonlyClass} mt-1`} /> : <input value={manualVendor.paidTo} onChange={(event) => setManualVendor((current) => ({ ...current, paidTo: event.target.value }))} className={`${inputClass} mt-1`} placeholder="Nama penerima" />}
           </label>
           <label className="block">
-            <span className="font-semibold text-slate-500">Bank</span>
-            {vendor ? <input readOnly value={vendor.bankName} className={`${readonlyClass} mt-1`} /> : <input value={manualVendor.bankName} onChange={(event) => setManualVendor((current) => ({ ...current, bankName: event.target.value }))} className={`${inputClass} mt-1`} placeholder="Nama bank" />}
+            <span className="font-semibold text-slate-500">A/c Number Vendor</span>
+            {vendor ? <input readOnly value={vendor.accountNumber} className={`${readonlyClass} mt-1 font-mono`} /> : <input value={manualVendor.accountNumber} onChange={(event) => setManualVendor((current) => ({ ...current, accountNumber: event.target.value }))} className={`${inputClass} mt-1 font-mono`} placeholder="Nomor rekening vendor" />}
           </label>
           <label className="block">
-            <span className="font-semibold text-slate-500">A/c Number</span>
-            {vendor ? <input readOnly value={vendor.accountNumber} className={`${readonlyClass} mt-1 font-mono`} /> : <input value={manualVendor.accountNumber} onChange={(event) => setManualVendor((current) => ({ ...current, accountNumber: event.target.value }))} className={`${inputClass} mt-1 font-mono`} placeholder="Nomor rekening" />}
+            <span className="font-semibold text-slate-500">Bank</span>
+            {vendor ? <input readOnly value={vendor.bankName} className={`${readonlyClass} mt-1`} /> : <input value={manualVendor.bankName} onChange={(event) => setManualVendor((current) => ({ ...current, bankName: event.target.value }))} className={`${inputClass} mt-1`} placeholder="Nama bank" />}
           </label>
         </div>
         {vendorPartners.length === 0 && (

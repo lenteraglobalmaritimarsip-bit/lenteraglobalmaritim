@@ -163,9 +163,11 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
     [invoiceOptions, principalName, vesselName],
   );
   const selectedInvoice = filteredInvoices.find((option) => invoiceOptionKey(option) === selectedInvoiceKey) || null;
-  const effectivePaymentType = subjectData === 'PRINCIPAL' && selectedInvoice?.invoiceType === 'FDA'
-    ? selectedInvoice.fdaApproved ? 'INVOICE' : 'ADVANCE_PAYMENT'
-    : paymentType;
+  const effectivePaymentType = subjectData === 'PRINCIPAL' && selectedInvoice?.invoiceType === 'FPDA'
+    ? 'ADVANCE_PAYMENT'
+    : subjectData === 'PRINCIPAL' && selectedInvoice?.invoiceType === 'FDA'
+      ? selectedInvoice.fdaApproved ? 'INVOICE' : 'ADVANCE_PAYMENT'
+      : paymentType;
   const selectedBank = bankAccounts.find((account) => account.id === bankAccountId) || null;
   const isInvoiceRateLocked = subjectData === 'PRINCIPAL';
   const effectiveUsdIdrRate = subjectData === 'PRINCIPAL'
@@ -382,7 +384,11 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
             </select>
           </label>
           <label className="text-xs font-semibold text-slate-600">Tujuan Penerimaan *
-            {subjectData === 'PRINCIPAL' && selectedInvoice?.invoiceType === 'FDA' ? (
+            {subjectData === 'PRINCIPAL' && selectedInvoice?.invoiceType === 'FPDA' ? (
+              <div className="mt-1 flex h-10 items-center rounded-md border border-slate-300 bg-slate-50 px-3 text-sm font-bold text-slate-800">
+                Advance Payment FPDA
+              </div>
+            ) : subjectData === 'PRINCIPAL' && selectedInvoice?.invoiceType === 'FDA' ? (
               <div className="mt-1 flex h-10 items-center rounded-md border border-slate-300 bg-slate-50 px-3 text-sm font-bold text-slate-800">
                 {effectivePaymentType === 'ADVANCE_PAYMENT' ? 'Advance Payment (FDA belum disetujui)' : 'Pembayaran / Pelunasan Invoice (FDA disetujui)'}
               </div>

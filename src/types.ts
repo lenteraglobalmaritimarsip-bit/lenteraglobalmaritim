@@ -583,6 +583,8 @@ export interface PrincipalReceipt {
   receivedBankName?: string;
   receivedAccountName?: string;
   receivedAccountNumber?: string;
+  invoiceNo?: string;
+  receivedRemark?: string;
   bankRemark: string;
   attachmentName?: string;
   attachmentDataUrl?: string;

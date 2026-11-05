@@ -384,7 +384,7 @@ export default function App() {
         {/* Content Area */}
         <main className="maritim-main">
           <div
-            className={`maritim-content${currentRole === 'MANAGER_OPS' || currentRole === 'DIRECTOR' ? ' manager-director-workspace' : ''}`}
+            className={`maritim-content${currentRole === 'MANAGER_OPS' || currentRole === 'DIRECTOR' ? ' manager-director-workspace' : ''}${currentRole === 'FINANCE' ? ' finance-workspace' : ''}${currentRole === 'FDA' ? ' fda-workspace' : ''}`}
             key={viewSessionKey}
           >
             {/* 1. ADMIN DASHBOARD */}

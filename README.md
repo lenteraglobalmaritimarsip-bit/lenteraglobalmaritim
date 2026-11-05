@@ -28,6 +28,8 @@ Email corporate dapat digunakan oleh beberapa user. Login hanya menggunakan user
 
 Rekap Keuangan menampilkan rekening perusahaan yang benar-benar menerima atau mengirim dana. Input penerimaan Principal dan konfirmasi refund meminta rekening perusahaan yang digunakan; transaksi lama tanpa snapshot rekening ditampilkan sebagai tidak tersedia. Untuk database lama, jalankan `database/migrations/20261040_add_principal_receipt_bank_accounts.sql` sebelum deployment.
 
+Penerimaan invoice FPDA melalui Accounts Receivable hanya dicatat sebagai **Advance Payment**; form tidak menyediakan pilihan pembayaran invoice untuk FPDA. Riwayatnya ditampilkan pada form FPDA dan invoice FPDA di Finance; total advance dan sisa tagihan setelah advance ikut dicantumkan saat invoice dicetak atau disimpan sebagai PDF.
+
 Pada menu **Finance → Request Payment → Created Payment**, kotak **Sign to approval** mengirim voucher ke satu user Manager OPS dari branch yang sama atau user DIRECTOR aktif. Setiap voucher hanya dapat diproses oleh user approver yang dipilih. Untuk database lama, jalankan `database/migrations/20261037_add_payment_voucher_approval_targets.sql` sebelum deployment.
 
 ## Standar pesan informasi
@@ -141,4 +143,9 @@ TAMBAH DATA VESSEL DI INQUIRY DAN MENGUPDATE DATABASE DAN MASTERDATA
 
 PERUBAHAN TAMPILAN INFORMASI INQUIRY VESSEL 05/11/2026
 PENGHAPUSAN FIELD PPH23 PADA ROLE FINANCE DONE
-
+HAPUS FIELD ENTRY JOB INVOICE MENU TERIMA DAN MEJADIKAN FUNGSI KONFIRMASI PAID MENJADI PAID
+buat history pasyment pada fpda 
+PERBAIKAN untuk aturan cetak/pdf 
+kotak nomor rekening dan sincerely,PT. Lentera Global Maritim Finance
+dibuat sejajar 2 mm dibawah garis akhir tabel; footer rekening tidak dipisah ke halaman berikutnya tanpa membawa baris tabel terakhir bersamanya
+Cetak / PDF EPDA, FDA, PDA, dan FPDA langsung membuka dialog cetak tanpa jendela pratinjau baru. Proses cetak mencegah klik ganda dan tetap berjalan jika logo pada dokumen gagal dimuat dalam 3 detik.

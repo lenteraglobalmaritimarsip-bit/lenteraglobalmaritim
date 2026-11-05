@@ -74,7 +74,7 @@ export const VoucherHistoryView: React.FC<VoucherHistoryViewProps> = ({ paymentV
   const handleDownload = async () => {
     const workbook = new ExcelJS.Workbook();
     const summary = workbook.addWorksheet('History Request');
-    summary.addRow(['No', 'Request Number', 'Request Date', 'Info JOB', 'JOB Number', 'Vendor', 'Paid To', 'Request By', 'Paid Amount', 'Status']);
+    summary.addRow(['No', 'Request Number', 'Request Date', 'Info JOB', 'JOB Number', 'Vendor', 'Paid To', 'A/c Number Vendor', 'Request By', 'Paid Amount', 'Status']);
     vouchers.forEach((voucher, index) => summary.addRow([
       index + 1,
       voucher.requestNumber,
@@ -83,6 +83,7 @@ export const VoucherHistoryView: React.FC<VoucherHistoryViewProps> = ({ paymentV
       [...new Set((voucher.items || []).map((item) => item.jobNumber.trim()).filter(Boolean))].join(', ') || '-',
       voucher.vendorName,
       voucher.paidTo,
+      voucher.accountNumber || '-',
       voucher.requestBy,
       voucher.totalPaidAmount,
       badges[statusGroup(voucher)].label,
@@ -97,7 +98,7 @@ export const VoucherHistoryView: React.FC<VoucherHistoryViewProps> = ({ paymentV
       worksheet.getRow(1).font = { bold: true };
       worksheet.columns.forEach((column) => { column.width = 18; });
     });
-    [9].forEach((column) => { summary.getColumn(column).numFmt = '#,##0.00'; });
+    [10].forEach((column) => { summary.getColumn(column).numFmt = '#,##0.00'; });
     [5, 6, 7, 9, 10].forEach((column) => { details.getColumn(column).numFmt = '#,##0.00'; });
     const buffer = await workbook.xlsx.writeBuffer();
     const url = URL.createObjectURL(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
@@ -109,12 +110,12 @@ export const VoucherHistoryView: React.FC<VoucherHistoryViewProps> = ({ paymentV
   };
 
   const handlePrint = () => {
-    const summaryRows = vouchers.map((voucher) => `<tr><td>${escapeHtml(voucher.requestNumber)}</td><td>${escapeHtml(formatDate(voucher.requestDate))}</td><td>${voucher.jobInfo === 'JOB_VESSEL' ? 'JOB Vessel' : 'Operasional'}</td><td>${escapeHtml([...new Set((voucher.items || []).map((item) => item.jobNumber.trim()).filter(Boolean))].join(', ') || '-')}</td><td>${escapeHtml(voucher.vendorName)}</td><td>${escapeHtml(voucher.paidTo)}</td><td>${escapeHtml(voucher.requestBy)}</td><td>${escapeHtml(money(voucher.totalPaidAmount))}</td><td>${escapeHtml(badges[statusGroup(voucher)].label)}</td></tr>`).join('');
+    const summaryRows = vouchers.map((voucher) => `<tr><td>${escapeHtml(voucher.requestNumber)}</td><td>${escapeHtml(formatDate(voucher.requestDate))}</td><td>${voucher.jobInfo === 'JOB_VESSEL' ? 'JOB Vessel' : 'Operasional'}</td><td>${escapeHtml([...new Set((voucher.items || []).map((item) => item.jobNumber.trim()).filter(Boolean))].join(', ') || '-')}</td><td>${escapeHtml(voucher.vendorName)}</td><td>${escapeHtml(voucher.paidTo)}</td><td>${escapeHtml(voucher.accountNumber || '-')}</td><td>${escapeHtml(voucher.requestBy)}</td><td>${escapeHtml(money(voucher.totalPaidAmount))}</td><td>${escapeHtml(badges[statusGroup(voucher)].label)}</td></tr>`).join('');
     const detailRows = vouchers.flatMap((voucher) => (voucher.items || []).map((item) => `<tr><td>${escapeHtml(voucher.requestNumber)}</td><td>${escapeHtml(item.jobNumber)}</td><td>${escapeHtml(item.customerName)}</td><td>${escapeHtml(item.itemService)}</td><td>${escapeHtml(money(item.amount))}</td><td>${escapeHtml(money(item.vatAmount))}</td><td>${escapeHtml(money(item.total))}</td><td>${escapeHtml(getPaymentVoucherPphRate(item) ? getPaymentVoucherPphLabel(getPaymentVoucherPphRate(item)) : 'Tidak ada')}</td><td>${escapeHtml(money(item.pph23Amount))}</td><td>${escapeHtml(money(item.paidAmount))}</td></tr>`)).join('');
     const range = `${startDate || 'Awal'} - ${endDate || 'Akhir'}`;
     const printWindow = window.open('', '_blank', 'width=1400,height=900');
     if (!printWindow) return;
-    printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>History Request Payment</title><style>@page{size:A4 landscape;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#1f2937;margin:0}h1{font-size:18px;margin:0 0 4px}h2{font-size:12px;margin:18px 0 6px}p{font-size:10px;color:#64748b;margin:0 0 12px}table{width:100%;border-collapse:collapse;font-size:8px}th{background:#eef3f9;text-align:left;padding:5px;border:1px solid #d5deea}td{padding:5px;border:1px solid #dfe6ef;vertical-align:top;overflow-wrap:anywhere}tr:nth-child(even){background:#fafcff}@media print{thead{display:table-header-group}tr{break-inside:avoid}}</style></head><body><h1>History Request Payment</h1><p>Periode Request Date: ${escapeHtml(range)} · ${vouchers.length} voucher</p><table><thead><tr><th>Request Number</th><th>Request Date</th><th>Info JOB</th><th>JOB Number</th><th>Vendor</th><th>Paid To</th><th>Request By</th><th>Paid Amount</th><th>Status</th></tr></thead><tbody>${summaryRows || '<tr><td colspan="9">Tidak ada data pada periode ini.</td></tr>'}</tbody></table><h2>Detail Item</h2><table><thead><tr><th>Request Number</th><th>JOB Number</th><th>Customer / Vessel</th><th>Item Service</th><th>Amount</th><th>VAT</th><th>Total</th><th>Tarif PPh</th><th>Potongan PPh</th><th>Paid Amount</th></tr></thead><tbody>${detailRows || '<tr><td colspan="10">Tidak ada rincian item.</td></tr>'}</tbody></table><script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}</script></body></html>`);
+    printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>History Request Payment</title><style>@page{size:A4 landscape;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#1f2937;margin:0}h1{font-size:18px;margin:0 0 4px}h2{font-size:12px;margin:18px 0 6px}p{font-size:10px;color:#64748b;margin:0 0 12px}table{width:100%;border-collapse:collapse;font-size:8px}th{background:#eef3f9;text-align:left;padding:5px;border:1px solid #d5deea}td{padding:5px;border:1px solid #dfe6ef;vertical-align:top;overflow-wrap:anywhere}tr:nth-child(even){background:#fafcff}@media print{thead{display:table-header-group}tr{break-inside:avoid}}</style></head><body><h1>History Request Payment</h1><p>Periode Request Date: ${escapeHtml(range)} · ${vouchers.length} voucher</p><table><thead><tr><th>Request Number</th><th>Request Date</th><th>Info JOB</th><th>JOB Number</th><th>Vendor</th><th>Paid To</th><th>A/c Number Vendor</th><th>Request By</th><th>Paid Amount</th><th>Status</th></tr></thead><tbody>${summaryRows || '<tr><td colspan="10">Tidak ada data pada periode ini.</td></tr>'}</tbody></table><h2>Detail Item</h2><table><thead><tr><th>Request Number</th><th>JOB Number</th><th>Customer / Vessel</th><th>Item Service</th><th>Amount</th><th>VAT</th><th>Total</th><th>Tarif PPh</th><th>Potongan PPh</th><th>Paid Amount</th></tr></thead><tbody>${detailRows || '<tr><td colspan="10">Tidak ada rincian item.</td></tr>'}</tbody></table><script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}</script></body></html>`);
     printWindow.document.close();
   };
 
@@ -173,7 +174,7 @@ export const VoucherHistoryView: React.FC<VoucherHistoryViewProps> = ({ paymentV
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <table className="w-full min-w-[1000px] text-left text-xs">
+        <table className="w-full min-w-[1160px] text-left text-xs">
           <thead className="border-b border-slate-200 bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500">
             <tr>
               <th className="w-10 p-3" />
@@ -182,6 +183,7 @@ export const VoucherHistoryView: React.FC<VoucherHistoryViewProps> = ({ paymentV
               <th className="p-3">Request Date</th>
               <th className="p-3">Info JOB / JOB Number</th>
               <th className="p-3">Vendor / Paid To</th>
+              <th className="whitespace-nowrap p-3">A/c Number Vendor</th>
               <th className="p-3">Request By</th>
               <th className="p-3 text-right">Paid Amount</th>
               <th className="p-3">Status</th>
@@ -189,7 +191,7 @@ export const VoucherHistoryView: React.FC<VoucherHistoryViewProps> = ({ paymentV
           </thead>
           <tbody className="divide-y divide-slate-100">
             {vouchers.length === 0 && (
-              <tr><td colSpan={9} className="p-10 text-center text-slate-400">Belum ada pengajuan voucher.</td></tr>
+              <tr><td colSpan={10} className="p-10 text-center text-slate-400">Belum ada pengajuan voucher.</td></tr>
             )}
             {paginatedVouchers.map((voucher, index) => {
               const group = statusGroup(voucher);
@@ -210,6 +212,7 @@ export const VoucherHistoryView: React.FC<VoucherHistoryViewProps> = ({ paymentV
                       <div className="font-bold text-slate-900">{voucher.vendorName}</div>
                       <div className="text-slate-500">{voucher.paidTo}</div>
                     </td>
+                    <td className="p-3 font-mono text-slate-600">{voucher.accountNumber || '-'}</td>
                     <td className="p-3 text-slate-700">{voucher.requestBy}</td>
                     <td className="p-3 text-right font-mono font-black text-slate-900">{money(voucher.totalPaidAmount)}</td>
                     <td className="p-3">
@@ -222,7 +225,7 @@ export const VoucherHistoryView: React.FC<VoucherHistoryViewProps> = ({ paymentV
                   {expanded && (
                     <tr className="bg-slate-50/60">
                       <td />
-                      <td colSpan={8} className="p-3">
+                      <td colSpan={9} className="p-3">
                         <div className="mb-2 text-[11px] text-slate-600">
                           Bank: <b>{voucher.bankName || '-'}</b> · A/c: <b className="font-mono">{voucher.accountNumber || '-'}</b>
                           {voucher.reviewedBy && <> · Direview oleh: <b>{voucher.reviewedBy}</b></>}

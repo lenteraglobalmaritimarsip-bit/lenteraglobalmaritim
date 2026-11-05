@@ -299,9 +299,11 @@ try {
     }
     if ($subjectData === 'PRINCIPAL' && ($jobId === '' || strlen($jobId) > 50
         || !in_array($invoiceType, ['FDA', 'FPDA'], true)
-        || ($invoiceType === 'FPDA' && !in_array($paymentType, ['ADVANCE_PAYMENT', 'INVOICE'], true))
+        || ($invoiceType === 'FPDA' && $paymentType !== 'ADVANCE_PAYMENT')
         || $invoiceNo === '' || strlen($invoiceNo) > 180)) {
-        jsonResponse(['error' => 'Principal, Vessel, dan Invoice wajib dipilih untuk Subject Data Principal'], 400);
+        jsonResponse(['error' => $invoiceType === 'FPDA' && $paymentType !== 'ADVANCE_PAYMENT'
+            ? 'Penerimaan FPDA hanya dapat dicatat sebagai Advance Payment'
+            : 'Principal, Vessel, dan Invoice wajib dipilih untuk Subject Data Principal'], 400);
     }
     $attachmentBytes = base64_decode($attachmentMatch[2], true);
     $attachmentInfo = $attachmentBytes === false ? false : getimagesizefromstring($attachmentBytes);
@@ -349,6 +351,8 @@ try {
         $exchangeRate = (float) ($invoice['exchange_rate'] ?? 0);
         if ($invoiceType === 'FDA') {
             $paymentType = !empty($invoice['fda_approved']) ? 'INVOICE' : 'ADVANCE_PAYMENT';
+        } else {
+            $paymentType = 'ADVANCE_PAYMENT';
         }
         if ($usdAmount > 0 && (!is_finite($exchangeRate) || $exchangeRate <= 0)) {
             jsonResponse(['error' => 'Kurs pada invoice FDA/FPDA belum valid untuk penerimaan USD'], 409);

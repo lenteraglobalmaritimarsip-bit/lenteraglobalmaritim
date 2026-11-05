@@ -1,13 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, CheckCircle2, FileSpreadsheet, Pencil, Plus, Printer, Send, Trash2, X } from 'lucide-react';
-import { Customer, JobCall, User, Vessel, formatPurposeOfCall } from '../../types';
+import { Currency, Customer, JobCall, User, Vessel, formatPurposeOfCall } from '../../types';
 import { formatDateDisplay, formatInquiryDate } from '../../utils/date';
 import { getPublicLogoUrl } from '../../utils/logo';
+import { printHtmlInFrame } from '../../utils/printHtmlInFrame';
+import { paymentFooterPrintStyles } from '../../utils/paymentFooterPrintStyles';
+import { bankAccountPrintStyles } from '../../utils/bankAccountPrintStyles';
 import { DateTimeInput } from '../shared/DateTimeInput';
 import { FormattedNumberInput } from '../shared/FormattedNumberInput';
 import { ContinuedPdaItemReference, loadPdaServiceItemHistory, openPdaDraft, PdaDocumentType, PdaDraft, savePdaDraft, submitPdaDraft } from '../../lib/api';
 import { officePrintPageStyles } from '../../utils/officePrintPageStyles';
 import { InquiryVesselDetails } from '../shared/InquiryVesselDetails';
+import { convertPrincipalReceiptAmount } from '../../utils/principalInvoice';
 
 interface CrewPDAViewProps {
   job?: JobCall;
@@ -95,6 +99,35 @@ const formatAmount = (amount: number, currency: string) =>
 const formatAmountValue = (amount: number) =>
   new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount || 0);
 
+const getFpdaAdvancePayment = (job: JobCall, currency: Currency) => {
+  const receipts = (job.principalReceipts || []).filter(
+    (receipt) => receipt.paymentType === 'ADVANCE_PAYMENT' && receipt.invoiceType === 'FPDA',
+  );
+  const amount = receipts.reduce((total, receipt) => {
+    const receiptCurrency = receipt.currency || job.currency || currency;
+    const exchangeRate = receipt.exchangeRateUSDToIDR;
+    const received = convertPrincipalReceiptAmount(
+      job,
+      Number(receipt.amount || 0),
+      receiptCurrency,
+      currency,
+      exchangeRate,
+    );
+    const refunded = receipt.refundStatus === 'PAID'
+      ? convertPrincipalReceiptAmount(
+        job,
+        Number(receipt.refundAmount || 0),
+        receiptCurrency,
+        currency,
+        receipt.refundExchangeRateUSDToIDR || exchangeRate,
+      )
+      : 0;
+    return total + received - refunded;
+  }, 0);
+
+  return currency === 'IDR' ? Math.round(amount) : roundPdaAmount(amount);
+};
+
 const formatPdaDateMade = (value?: string) => {
   if (!value) return '-';
   return formatDateDisplay(value);
@@ -108,7 +141,7 @@ const formatPdaScheduleOrRemark = (dateTime?: string, remarks?: string) => {
 export const createPdaPreviewHtml = (
   job: JobCall,
   items: PdaEntryItem[],
-  currency: string,
+  currency: Currency,
   pdaNo: string,
   pdaType: PdaDocumentType = 'SALES',
   pph23Applied = false,
@@ -158,6 +191,11 @@ export const createPdaPreviewHtml = (
     : groupedItems.length
       ? `GRAND TOTAL ${groupedItems.map((_, index) => index + 1).join(' + ')}`
       : 'GRAND TOTAL';
+  const advancePayment = fpda ? getFpdaAdvancePayment(job, currency) : 0;
+  const advanceRows = fpda
+    ? `<tr class="subtotal"><td colspan="5">ADVANCE PAYMENT FPDA</td><td class="amount">-${escapeHtml(formatAmountValue(advancePayment))}</td><td></td></tr>
+      <tr class="grand-total"><td colspan="5">BALANCE DUE AFTER ADVANCE</td><td class="amount">${escapeHtml(formatAmountValue(Math.max(0, totals.grandTotal - advancePayment)))}</td><td></td></tr>`
+    : '';
   const bankFooter = currency === 'USD'
     ? '<div class="bank"><div>Please kindly remit to our Bank Account</div><div>Bank Account Detail of PT. Lentera Global Maritim asf:</div><br><b>BANK MANDIRI (Persero) Tbk</b><br>Address:<br>BANK MANDIRI TEBET SUPOMO<br>Jl. Prof. Dr.Supomo SH No 43, Tebet, RT.04/RW.03<br>Tebet barat , Kec. Tebet, Kota Jakarta Selatan,<br>Daerah Khusus Ibukota Jakarta 12810<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number (USD) : 120-00-5575599-0</b><br><b>Swift Code Bank : BMRIIDJAXXX</b></div>'
     : '<div class="bank"><div>Please kindly remit to our Bank Account</div><div>Bank Account Detail of PT. Lentera Global Maritim asf:</div><br><b>BANK NEGARA INDONESIA (Persero) Tbk</b><br>Address:<br>BNI BIDAKARA<br>Jl. Gatot Subroto Kab 71-73, RT.12/RW.5, Tebet Timur,<br>Kec. Tebet, Kota Jakarta Selatan, Daerah Khusus Ibukota Jakarta 12820<br><br><b>Account Holder : PT.Lentera Global Maritim</b><br><b>Account Number : 2824-1212-09</b><br><b>Swift Code Bank : BNINIDJAXXX</b></div>';
@@ -189,8 +227,9 @@ export const createPdaPreviewHtml = (
     .number{text-align:center}.amount{text-align:right;white-space:nowrap}
     .category td{background:#214f84;color:#fff;font-weight:700;text-transform:uppercase;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .total{font-weight:700}.total td:first-child,.subtotal td:first-child{text-align:right}.subtotal{background:#dbe8f2;font-weight:700}
-    .bank{display:inline-block;width:52%;margin-top:16px;border:1px solid #777;padding:5px;text-align:left;font-size:13px;line-height:1.2;vertical-align:top}
-    .signature{display:inline-block;width:42%;margin:16px 0 0 12%;text-align:center;vertical-align:top;font-size:9px;line-height:1.35}.signature-main{display:block}.signature-role{display:block;margin-top:120px;padding-top:8px}
+    .payment-footer{display:grid;grid-template-columns:minmax(0,52%) minmax(0,42%);column-gap:6%;align-items:start;width:100%;margin:0;padding:0}
+    .bank{box-sizing:border-box;width:100%;margin:0;border:1px solid #777;padding:5px;text-align:left;font-size:13px;line-height:1.2}
+    .signature{box-sizing:border-box;width:100%;margin:0;text-align:center;font-size:9px;line-height:1.35}.signature-main{display:block}.signature-role{display:block;margin-top:120px;padding-top:8px}
     .office-footer{position:static;box-sizing:border-box;width:100%;max-width:700px;margin:16px auto 0;text-align:center;font-size:9px;line-height:1.45;font-weight:600;color:#111;break-inside:avoid;page-break-inside:avoid}
     .office-footer span{color:#dc2626;text-decoration:underline}
     @page{size:A4 portrait;margin:10mm}
@@ -207,7 +246,7 @@ export const createPdaPreviewHtml = (
       .bank,.signature{break-inside:avoid;page-break-inside:avoid}
       table td.amount,table td.amount *{text-align:right!important}
     }
-  </style>${officePrintPageStyles}</head><body><div class="a4-page-frame" aria-hidden="true"></div><i class="a4-frame-line a4-frame-line-top" aria-hidden="true"></i><i class="a4-frame-line a4-frame-line-bottom" aria-hidden="true"></i>
+  </style>${officePrintPageStyles}<style>${paymentFooterPrintStyles}</style><style>${bankAccountPrintStyles}</style></head><body><div class="a4-page-frame" aria-hidden="true"></div><i class="a4-frame-line a4-frame-line-top" aria-hidden="true"></i><i class="a4-frame-line a4-frame-line-bottom" aria-hidden="true"></i>
     <div class="brand-row"><div class="brand-wrap"><img class="logo" src="${getPublicLogoUrl()}" alt="LGM"><div><div class="brand">PT Lentera Global Maritim</div><div class="tag">Seamless Agent, Global Reach</div></div></div></div>
     <h2>${fpda ? 'FINAL DISBURSEMENT ACCOUNT' : 'ESTIMATE PORT DISBURSEMENT OF ACCOUNT'}</h2>
     <section class="meta">
@@ -226,9 +265,9 @@ export const createPdaPreviewHtml = (
     </section>
     <table><thead><tr><th>No</th><th>Description</th><th>Qty</th><th>Unit</th><th>Price (${escapeHtml(currency)})</th><th>Amount (${escapeHtml(currency)})</th><th>Remarks</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="7" style="text-align:center">Belum ada item PDA</td></tr>'}
-      ${totalSubRow}${globalVatRows}${pph23Row}${discountRow}<tr class="grand-total"><td colspan="5" style="text-align:right">${grandTotalLabel}</td><td class="amount">${escapeHtml(formatAmountValue(totals.grandTotal))}</td><td></td></tr></tbody>
+      ${totalSubRow}${globalVatRows}${pph23Row}${discountRow}<tr class="grand-total"><td colspan="5" style="text-align:right">${grandTotalLabel}</td><td class="amount">${escapeHtml(formatAmountValue(totals.grandTotal))}</td><td></td></tr>${advanceRows}</tbody>
     </table>
-    ${bankFooter}${financeSignature}${officeFooter}
+    <div class="payment-footer">${bankFooter}${financeSignature}</div>${officeFooter}
   </body></html>`;
 };
 
@@ -275,7 +314,6 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, users = 
   });
   const [showPreview, setShowPreview] = useState(false);
   const printFrameRef = useRef<HTMLIFrameElement>(null);
-  const printPending = useRef(false);
   const draftRevisions = useRef(new Map<string, number>());
   const draftSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const draftSaveTimer = useRef<number | null>(null);
@@ -550,24 +588,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, users = 
   const printPda = () => {
     const printFrame = printFrameRef.current;
     if (!printFrame) return;
-    printPending.current = true;
-    printFrame.srcdoc = previewHtml;
-  };
-
-  const handlePrintFrameLoad = () => {
-    if (!printPending.current) return;
-    printPending.current = false;
-    const printWindow = printFrameRef.current?.contentWindow;
-    if (!printWindow) return;
-    const originalTitle = document.title;
-    const printFileName = sanitizePrintFileName(pdaNo);
-    document.title = printFileName;
-    printWindow.document.title = printFileName;
-    printWindow.addEventListener('afterprint', () => {
-      document.title = originalTitle;
-    }, { once: true });
-    printWindow.focus();
-    printWindow.print();
+    printHtmlInFrame(printFrame, previewHtml, sanitizePrintFileName(pdaNo));
   };
 
   const previewHtml = useMemo(
@@ -588,6 +609,12 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, users = 
       ? 'GRAND TOTAL'
       : `Grand Total ${pdaGroups.map((_, index) => index + 1).join(' + ')}`
     : 'Grand Total';
+  const fpdaAdvanceReceipts = documentPdaType === 'FDA'
+    ? (job.principalReceipts || [])
+      .filter((receipt) => receipt.paymentType === 'ADVANCE_PAYMENT' && receipt.invoiceType === 'FPDA')
+      .sort((first, second) => second.receivedDate.localeCompare(first.receivedDate))
+    : [];
+  const fpdaAdvancePayment = documentPdaType === 'FDA' ? getFpdaAdvancePayment(job, currency) : 0;
 
   return (
     <div className="space-y-4 epda-form-root">
@@ -804,6 +831,12 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, users = 
               {!items.length && <tr><td colSpan={8} className="p-8 text-center text-slate-500">Belum ada item. Klik Tambah Item untuk mulai entry.</td></tr>}
               {pdaTotals.discountAmount > 0 && <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-rose-300">DISCOUNT</td><td className="border-l border-slate-800 p-2.5 text-right font-mono text-xs font-bold text-rose-300">-{formatAmountValue(pdaTotals.discountAmount)}</td><td colSpan={2} className="border-l border-slate-800" /></tr>}
               <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-3.5 text-right font-bold uppercase tracking-wider text-slate-200">{grandTotalLabel}</td><td className="border-l border-slate-800 p-3.5 text-right font-mono text-xs font-bold text-white">{formatAmountValue(total)}</td><td colSpan={2} className="border-l border-slate-800" /></tr>
+              {documentPdaType === 'FDA' && (
+                <>
+                  <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-amber-300">ADVANCE PAYMENT FPDA</td><td className="border-l border-slate-800 p-2.5 text-right font-mono text-xs font-bold text-amber-300">-{formatAmountValue(fpdaAdvancePayment)}</td><td colSpan={2} className="border-l border-slate-800" /></tr>
+                  <tr className="bg-slate-950/70"><td colSpan={5} className="border-l border-slate-800 p-2.5 text-right font-bold uppercase tracking-wider text-emerald-300">BALANCE DUE AFTER ADVANCE</td><td className="border-l border-slate-800 p-2.5 text-right font-mono text-xs font-bold text-emerald-300">{formatAmountValue(Math.max(0, total - fpdaAdvancePayment))}</td><td colSpan={2} className="border-l border-slate-800" /></tr>
+                </>
+              )}
             </tbody>
           </table>
         </div>
@@ -927,6 +960,30 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, users = 
             </div>
           </form>
         </div>
+        {documentPdaType === 'FDA' && (
+          <section className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
+            <h3 className="mb-4 break-words text-[15px] font-bold uppercase leading-relaxed tracking-wide text-emerald-800">
+              Advance Received · History
+            </h3>
+            <div className="min-w-0">
+              <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-700">History Payment</h4>
+              {fpdaAdvanceReceipts.length > 0 ? (
+                <div className="min-w-0 space-y-1 text-xs text-slate-700">
+                  {fpdaAdvanceReceipts.map((receipt) => (
+                    <div key={receipt.id} className="min-w-0 break-words rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 leading-relaxed">
+                      {formatDateDisplay(receipt.receivedDate)} · {formatAmount(Number(receipt.amount || 0), receipt.currency || currency)}
+                      {' · Finance (FPDA'}{receipt.invoiceNo ? `: ${receipt.invoiceNo}` : ''}{')'}
+                      {' · '}{receipt.receivedBankName || '-'}
+                      {' · '}{receipt.receivedRemark || receipt.bankRemark || '-'}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500">Belum ada riwayat Advance Payment FPDA.</p>
+              )}
+            </div>
+          </section>
+        )}
       </section>
 
       {showPreview && (
@@ -946,7 +1003,6 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, users = 
       <iframe
         ref={printFrameRef}
         title={`Dokumen cetak PDA ${job.jobId}`}
-        onLoad={handlePrintFrameLoad}
         aria-hidden="true"
         tabIndex={-1}
         style={{ position: 'fixed', left: '-10000px', top: 0, width: '210mm', height: '297mm', border: 0 }}

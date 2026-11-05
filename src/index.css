@@ -29,6 +29,13 @@ button{ cursor:pointer; }
   background:
     radial-gradient(circle at 80% -10%, rgba(37,99,235,.09), transparent 32%),
     #eef4fb;
+  -webkit-font-smoothing:auto;
+  -moz-osx-font-smoothing:auto;
+}
+
+.admin-master-data-root{
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
 }
 
 .admin-master-table-area thead th,
@@ -187,6 +194,15 @@ button{ cursor:pointer; }
 
 .maritim-main{flex:1;min-width:0;overflow:visible;padding:22px;background:#eef4fb}
 .maritim-content{max-width:1260px;margin:0 auto}
+.finance-workspace :where(div, p, span, label, th, td, li, a, small, strong, b, em):not(button *):not(h1 *):not(h2 *):not(h3 *):not(h4 *):not(h5 *):not(h6 *):not([role="status"] *):not([role="alert"] *){
+  font-size:11px !important;
+}
+.fda-workspace :where(div, p, span, label, th, td, li, a, small, strong, b, em):not(button *):not(h1 *):not(h2 *):not(h3 *):not(h4 *):not(h5 *):not(h6 *):not([role="status"] *):not([role="alert"] *){
+  font-size:11px !important;
+}
+.fda-workspace :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea){
+  font-size:11px !important;
+}
 .admin-master-actions{max-width:100%;}
 @media(max-width:900px){
   .admin-master-actions{width:100%;justify-content:flex-start;}

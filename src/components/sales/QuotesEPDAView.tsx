@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getPublicLogoUrl } from '../../utils/logo';
+import { printHtmlInFrame } from '../../utils/printHtmlInFrame';
+import { bankAccountPrintStyles } from '../../utils/bankAccountPrintStyles';
 import { FileSpreadsheet, Plus, Trash2, Save, Ship, Building, CheckCircle2, Download, Printer, Eye, Send, Pencil, Check, X } from 'lucide-react';
 import { JobCall, DisbursementItem, Currency, User, Vessel, Customer, FixTariff, ExpensesItem, formatPurposeOfCall } from '../../types';
 import { db } from '../../db/storage';
@@ -80,6 +82,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     setExchangeRate(savedExchangeRate ? String(savedExchangeRate) : '');
   }, [job.jobId, savedExchangeRate]);
   const previewFrameRef = useRef<HTMLIFrameElement>(null);
+  const documentPrintFrameRef = useRef<HTMLIFrameElement>(null);
   const [isSaved, setIsSaved] = useState(false);
   const [isSavingEPDANumber, setIsSavingEPDANumber] = useState(false);
   const [epdaNumberMigrationError, setEpdaNumberMigrationError] = useState('');
@@ -967,6 +970,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     const onePageHtml = html.replace('</style>', '@page{size:A4;margin:10mm}body{font-family:Arial,sans-serif;font-size:12px;color:#172033}.brand-row{margin-bottom:8px}.brand-wrap{min-height:58px;gap:12px}.logo{width:78px;height:58px}.brand{font-size:20px;color:#3562a8}.tag{font-size:11px;color:#3562a8;margin-top:3px}h2{background:#214f84;font-size:14px;padding:5px;margin:8px 0 9px}.meta{gap:2px 28px;margin-bottom:9px}.meta-col{gap:2px}.meta-row{line-height:1.25}.meta-row .label{font-size:12px}table{page-break-inside:avoid;table-layout:fixed;border:1px solid #9ca3af;border-collapse:collapse}tr{page-break-inside:avoid}th,td{padding:4px 5px;font-size:12px;border:1px solid #9ca3af!important}thead th,table thead th{background:#dbe8f2!important;text-align:center!important;border-bottom:1px solid #9ca3af!important}table th:nth-child(1),table td:nth-child(1){width:5%!important;text-align:center!important}table th:nth-child(2),table td:nth-child(2){width:42%!important;text-align:center!important}table th:nth-child(3),table td:nth-child(3){width:8%!important;text-align:center!important}table th:nth-child(4),table td:nth-child(4){width:17%!important;text-align:center!important;white-space:nowrap}table th:nth-child(5),table td:nth-child(5){width:28%!important;text-align:center!important}thead th:nth-child(1),thead th:nth-child(2),thead th:nth-child(3),thead th:nth-child(4),thead th:nth-child(5){text-align:center!important}.item-row td{background:#fff!important;border:1px solid #9ca3af!important}.subtotal{background:#dbe8f2!important;font-weight:700}.subtotal td{border-top:1px solid #9ca3af!important}.grand{background:#dbe8f2!important;color:#f00;font-weight:800}.grand td{border-top:1px solid #9ca3af!important}.subtotal td:first-child,.grand td:first-child{text-align:center!important}.subtotal td.amount,.grand td.amount{padding-left:0!important;padding-right:4px!important;text-align:center!important;white-space:nowrap}.bank{display:inline-block;width:42%;margin-top:16px;border:1px solid #777;padding:8px;font-size:12px;line-height:1.3;vertical-align:top}.signature{display:inline-block;width:42%;margin:16px 0 0 12%;text-align:center;vertical-align:top;font-size:12px}.footer{margin-top:16px;text-align:center;font-size:12px;line-height:1.35;font-weight:600}.footer .contact{color:#e11d48;text-decoration:underline}.bank.bank-mandiri{font-size:13px!important}</style>');
     const previewHtml = onePageHtml.replace(/<div class="meta">[\s\S]*?(?=<table(?:\s|>))/i, inquiryMeta).replaceAll('width:42%!important', 'width:20%!important').replaceAll('width:8%!important', 'width:35%!important').replaceAll('width:17%!important', 'width:12%!important').replaceAll('text-align:center!important}table th:nth-child(3)', 'text-align:center!important;white-space:nowrap}table th:nth-child(3)');
     const printStyles = `<style>
+      .bank { display: block !important; margin: 0 !important; }
       .grand, .grand td, .grand td:first-child { font-weight: 400 !important; }
       h2, .category-row, .category-row td { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
       table thead th:nth-child(2) { text-align: center !important; }
@@ -1080,15 +1084,20 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     </style>`;
     return previewHtml
       .replace('<body>', '<body><div class="a4-page-frame" aria-hidden="true"></div><i class="a4-frame-line a4-frame-line-top" aria-hidden="true"></i><i class="a4-frame-line a4-frame-line-bottom" aria-hidden="true"></i>')
-      .replace('</head>', `${printStyles}${officePrintPageStyles}</head>`);
+      .replace('</head>', `${printStyles}${officePrintPageStyles}<style>${bankAccountPrintStyles}</style></head>`);
   };
 
   const openPreview = (print = false) => {
+    if (print) {
+      const printFrame = documentPrintFrameRef.current;
+      if (!printFrame) return;
+      printHtmlInFrame(printFrame, buildPreviewHtml(), epdaNo.replace(/[\\/:*?"<>|]/g, '-'));
+      return;
+    }
     const preview = window.open('', '_blank', 'width=900,height=1100');
     if (!preview) return;
     preview.document.write(buildPreviewHtml());
     preview.document.close();
-    if (print) preview.onload = () => { preview.focus(); preview.print(); };
   };
 
   const downloadExcel = () => {
@@ -1123,7 +1132,10 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
     return (
       <div className="space-y-3">
         <div className="flex justify-end">
-          <button type="button" onClick={() => previewFrameRef.current?.contentWindow?.print()} className="flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white hover:bg-blue-600">
+          <button type="button" onClick={() => {
+            const printFrame = previewFrameRef.current;
+            if (printFrame) printHtmlInFrame(printFrame, buildPreviewHtml(), epdaNo.replace(/[\\/:*?"<>|]/g, '-'));
+          }} className="flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white hover:bg-blue-600">
             <Printer className="h-4 w-4" />
             Cetak / Simpan PDF
           </button>
@@ -1584,6 +1596,13 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
           <p className="mt-1 text-[10px] text-slate-500">Nominal dikurangi setelah VAT/PPh, tepat sebelum Grand Total. Maksimal sebesar total sebelum diskon.</p>
         </div>
       </div>}
+      <iframe
+        ref={documentPrintFrameRef}
+        title={`Dokumen cetak EPDA ${job.jobId}`}
+        aria-hidden="true"
+        tabIndex={-1}
+        style={{ position: 'fixed', left: '-10000px', top: 0, width: '210mm', height: '297mm', border: 0 }}
+      />
     </div>
   );
 };

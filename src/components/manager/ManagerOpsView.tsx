@@ -21,6 +21,7 @@ import { db } from '../../db/storage';
 import { formatDateDisplay, formatInquiryDate, formatInquiryDateRange, isInquiryDateInRange } from '../../utils/date';
 import { formatCostCategoryLabel } from '../../utils/costCategories';
 import { getPrincipalReceiptSummary } from '../../utils/principalInvoice';
+import { printHtmlInFrame } from '../../utils/printHtmlInFrame';
 import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateRangePicker';
 import { QuotesEPDAView } from '../sales/QuotesEPDAView';
 import { createPdaPreviewHtml } from '../sales/CrewPDAView';
@@ -134,7 +135,10 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
     return (
       <div className="space-y-3">
         <div className="flex justify-end">
-          <button type="button" onClick={() => managerPdaPreviewFrameRef.current?.contentWindow?.print()} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white hover:bg-blue-600">
+          <button type="button" onClick={() => {
+            const printFrame = managerPdaPreviewFrameRef.current;
+            if (printFrame) printHtmlInFrame(printFrame, srcDoc, draft.pdaNo.replace(/[\\/:*?"<>|]/g, '-'));
+          }} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white hover:bg-blue-600">
             <Printer className="h-4 w-4" /> Cetak / Simpan PDF
           </button>
         </div>

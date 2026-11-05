@@ -1305,12 +1305,7 @@ try {
                 foreach ($newReceipts as $receipt) {
                     if (isset($oldReceiptsById[$receipt['id']])) continue;
                     if (str_starts_with((string) $receipt['id'], 'FIN-AR-')) continue;
-                    if (!validPrincipalReceiptRecord($receipt, (string) $jobId)) {
-                        jsonResponse(['error' => 'Finance receipt data is invalid'], 403);
-                    }
-                    if (!validReceiptBankAccountSnapshot($receipt, 'received', $bankAccountsById, $actor)) {
-                        jsonResponse(['error' => 'Rekening penerimaan perusahaan tidak valid atau bukan milik branch aktif.'], 403);
-                    }
+                    jsonResponse(['error' => 'Finance cannot add principal receipts from Job Invoice. Record incoming payments through Accounts Receivable.'], 403);
                 }
             }
             if ($actor['role'] === 'MANAGER_OPS'
