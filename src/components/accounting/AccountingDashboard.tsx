@@ -164,7 +164,7 @@ export const AccountingDashboard: React.FC<AccountingDashboardProps> = ({ onNavi
     ];
 
   return (
-    <div className="space-y-4">
+    <div className={`${audience === 'DIRECTOR' ? 'director-dashboard-content ' : ''}space-y-4`}>
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
           <div className="inline-flex rounded-md bg-blue-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-blue-700">{audience === 'DIRECTOR' ? 'Executive Monitoring' : 'Accounting Monitoring'}</div>

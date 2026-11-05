@@ -668,36 +668,25 @@ export default function App() {
               </div>
             )}
 
-            {currentRole === 'ACCOUNTING' && activeTab === 'ACCOUNTING_DASHBOARD' && (
-              <AccountingDashboard onNavigate={setActiveTab} />
+            {currentRole === 'ACCOUNTING' && (
+              <div className="accounting-role-content">
+                {activeTab === 'ACCOUNTING_DASHBOARD' && <AccountingDashboard onNavigate={setActiveTab} />}
+                {activeTab === 'ACCOUNTING_WORKSPACE' && <AccountingWorkspace />}
+                {activeTab === 'ACCOUNTING_ASSETS' && <AccountingAssetsView />}
+                {activeTab === 'ACCOUNTING_POSTED_JOURNAL_REPORT' && <AccountingPostedJournalReport />}
+                {activeTab === 'ACCOUNTING_FINANCE_HISTORY' && (
+                  <AccountingFinanceHistory
+                    branches={data.branches.filter((branch) => branch.isActive)}
+                    jobCalls={data.jobCalls}
+                    paymentVouchers={data.paymentVouchers || []}
+                    bankAccounts={data.bankAccounts || []}
+                  />
+                )}
+                {activeTab === 'ACCOUNTING_BALANCE_SHEET' && <AccountingBalanceSheetView />}
+                {activeTab === 'ACCOUNTING_PROFIT_LOSS' && <AccountingProfitLossView />}
+                {activeTab === 'ACCOUNTING_PROFIT_DETAIL' && <AccountingProfitDetailView />}
+              </div>
             )}
-
-            {currentRole === 'ACCOUNTING' && activeTab === 'ACCOUNTING_WORKSPACE' && (
-              <AccountingWorkspace />
-            )}
-
-            {currentRole === 'ACCOUNTING' && activeTab === 'ACCOUNTING_ASSETS' && (
-              <AccountingAssetsView />
-            )}
-
-            {currentRole === 'ACCOUNTING' && activeTab === 'ACCOUNTING_POSTED_JOURNAL_REPORT' && (
-              <AccountingPostedJournalReport />
-            )}
-
-            {currentRole === 'ACCOUNTING' && activeTab === 'ACCOUNTING_FINANCE_HISTORY' && (
-              <AccountingFinanceHistory
-                branches={data.branches.filter((branch) => branch.isActive)}
-                jobCalls={data.jobCalls}
-                paymentVouchers={data.paymentVouchers || []}
-                bankAccounts={data.bankAccounts || []}
-              />
-            )}
-
-            {currentRole === 'ACCOUNTING' && activeTab === 'ACCOUNTING_BALANCE_SHEET' && <AccountingBalanceSheetView />}
-
-            {currentRole === 'ACCOUNTING' && activeTab === 'ACCOUNTING_PROFIT_LOSS' && <AccountingProfitLossView />}
-
-            {currentRole === 'ACCOUNTING' && activeTab === 'ACCOUNTING_PROFIT_DETAIL' && <AccountingProfitDetailView />}
 
             {currentRole === 'DIRECTOR' && activeTab === 'DIRECTOR_DASHBOARD' && (
               <AccountingDashboard audience="DIRECTOR" onNavigate={(tab) => {

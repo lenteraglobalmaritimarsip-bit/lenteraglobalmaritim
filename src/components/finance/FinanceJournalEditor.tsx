@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChartOfAccount, FinanceJournalLine } from '../../types';
 import { createFinanceJournalLine, getFinanceJournalTotals } from '../../utils/financeJournal';
 import { FormattedNumberInput } from '../shared/FormattedNumberInput';
@@ -13,6 +14,8 @@ interface AccountSearchProps {
 const AccountSearch: React.FC<AccountSearchProps> = ({ accounts, value, onChange, label }) => {
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
+  const [popupStyle, setPopupStyle] = useState<React.CSSProperties>();
+  const inputRef = useRef<HTMLInputElement>(null);
   const selectedAccount = accounts.find((account) => account.id === value);
   const selectedLabel = selectedAccount ? `${selectedAccount.code} - ${selectedAccount.accountDesc}` : '';
   const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -26,9 +29,37 @@ const AccountSearch: React.FC<AccountSearchProps> = ({ accounts, value, onChange
     if (!isOpen) setQuery(selectedLabel);
   }, [isOpen, selectedLabel]);
 
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    const updatePopupPosition = () => {
+      const rect = inputRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const spaceBelow = window.innerHeight - rect.bottom - 8;
+      const spaceAbove = rect.top - 8;
+      const showBelow = spaceBelow >= 160 || spaceBelow >= spaceAbove;
+      const maxHeight = Math.max(80, Math.min(224, showBelow ? spaceBelow : spaceAbove));
+      setPopupStyle({
+        position: 'fixed',
+        left: rect.left,
+        top: showBelow ? rect.bottom + 4 : rect.top - maxHeight - 4,
+        width: rect.width,
+        maxHeight,
+        zIndex: 1000,
+      });
+    };
+    updatePopupPosition();
+    window.addEventListener('resize', updatePopupPosition);
+    window.addEventListener('scroll', updatePopupPosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePopupPosition);
+      window.removeEventListener('scroll', updatePopupPosition, true);
+    };
+  }, [isOpen, query, matchingAccounts.length]);
+
   return (
     <div className="relative">
       <input
+        ref={inputRef}
         role="combobox"
         aria-label={label}
         aria-autocomplete="list"
@@ -45,8 +76,8 @@ const AccountSearch: React.FC<AccountSearchProps> = ({ accounts, value, onChange
         placeholder="Cari kode atau nama akun..."
         className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-[10px] text-slate-800"
       />
-      {isOpen && (
-        <div id={listId} role="listbox" className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
+      {isOpen && popupStyle && createPortal(
+        <div id={listId} role="listbox" style={popupStyle} className="overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
           {!normalizedQuery ? (
             <p className="px-3 py-2 text-[10px] text-slate-500">Ketik kode atau nama akun untuk mencari.</p>
           ) : matchingAccounts.length > 0 ? matchingAccounts.map((account) => {
@@ -71,7 +102,8 @@ const AccountSearch: React.FC<AccountSearchProps> = ({ accounts, value, onChange
           }) : (
             <p className="px-3 py-2 text-[10px] text-slate-500">Akun COA aktif tidak ditemukan.</p>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -114,8 +146,15 @@ export const FinanceJournalEditor: React.FC<FinanceJournalEditorProps> = ({
         <h2 className="text-[10px] font-black text-slate-900">Entry jurnal</h2>
         <p className="mt-1 text-[10px] text-slate-500">Pilih akun dengan mengetik kode atau nama COA, lalu isi posisi debit/kredit dan jumlah IDR. Jurnal hanya dapat diposting jika seimbang.</p>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] text-left text-[10px]">
+      <div className="finance-journal-table-scroll overflow-x-auto overscroll-x-contain pb-2">
+        <table className="w-full min-w-[760px] table-fixed text-left text-[10px]">
+          <colgroup>
+            <col className="w-[34%]" />
+            <col className="w-[29%]" />
+            <col className="w-[13%]" />
+            <col className="w-[18%]" />
+            <col className="w-[6%]" />
+          </colgroup>
           <thead className="border-b border-slate-200 text-slate-500">
             <tr>
               <th className="px-2 py-2">Akun</th>

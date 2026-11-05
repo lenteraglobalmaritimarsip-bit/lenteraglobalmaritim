@@ -52,6 +52,43 @@ button{ cursor:pointer; }
   font-weight: 400 !important;
 }
 
+.accounting-role-content :where(th, td, p, dt, dd) {
+  font-size: 11px !important;
+}
+
+.director-dashboard-content :where(p, label, button, th, td, dt, dd, [class~="text-[10px]"], [class~="text-[9px]"], .text-xs) {
+  font-size: 11px !important;
+}
+
+.director-dashboard-content svg text {
+  font-size: 11px;
+}
+
+.epda-form-root :where(th, td, input, select, textarea, [class~="text-[10px]"], [class~="text-[11px]"], .text-xs, .text-sm),
+.fda-form-root :where(th, td, input, select, textarea, [class~="text-[10px]"], [class~="text-[11px]"], .text-xs, .text-sm) {
+  font-size: 11px !important;
+}
+
+.finance-journal-table-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 #e2e8f0;
+}
+
+.finance-journal-table-scroll::-webkit-scrollbar {
+  height: 12px;
+}
+
+.finance-journal-table-scroll::-webkit-scrollbar-track {
+  background: #e2e8f0;
+  border-radius: 999px;
+}
+
+.finance-journal-table-scroll::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border: 2px solid #e2e8f0;
+  border-radius: 999px;
+}
+
 :where([data-app-feedback], [role="status"], [role="alert"]) {
   padding: 10px 12px !important;
   border: 1px solid #bfdbfe !important;

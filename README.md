@@ -146,6 +146,5 @@ PENGHAPUSAN FIELD PPH23 PADA ROLE FINANCE DONE
 HAPUS FIELD ENTRY JOB INVOICE MENU TERIMA DAN MEJADIKAN FUNGSI KONFIRMASI PAID MENJADI PAID
 buat history pasyment pada fpda 
 PERBAIKAN untuk aturan cetak/pdf 
-kotak nomor rekening dan sincerely,PT. Lentera Global Maritim Finance
-dibuat sejajar 2 mm dibawah garis akhir tabel; footer rekening tidak dipisah ke halaman berikutnya tanpa membawa baris tabel terakhir bersamanya
+kotak nomor rekening EPDA, PDA, FDA, dan FPDA dibuat sejajar 2 mm dibawah garis akhir tabel; alamat kantor FDA/FPDA tetap berada di bagian bawah halaman, tepat di atas garis frame. Footer rekening tidak dipisah ke halaman berikutnya tanpa membawa baris tabel terakhir bersamanya
 Cetak / PDF EPDA, FDA, PDA, dan FPDA langsung membuka dialog cetak tanpa jendela pratinjau baru. Proses cetak mencegah klik ganda dan tetap berjalan jika logo pada dokumen gagal dimuat dalam 3 detik.

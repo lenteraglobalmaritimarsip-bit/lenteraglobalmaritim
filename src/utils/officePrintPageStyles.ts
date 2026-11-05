@@ -109,6 +109,9 @@ export const officePrintPageStyles = `<style>
       inset: 15mm 13mm 50mm;
       overflow: hidden;
     }
+    body.payment-footer-page-layout .office-preview-content {
+      inset: 15mm 13mm 30mm;
+    }
     .office-preview-content > table {
       width: 100% !important;
       max-width: 100% !important;
@@ -190,6 +193,9 @@ export const officePrintPageStyles = `<style>
       position: absolute !important;
       inset: 15mm 13mm 50mm !important;
       overflow: hidden !important;
+    }
+    body.payment-footer-page-layout .office-preview-content {
+      inset: 15mm 13mm 30mm !important;
     }
     .office-preview-content > table {
       width: 100% !important;
@@ -321,7 +327,7 @@ export const officePrintPageStyles = `<style>
 
         addPage();
         var next = makeTablePage(sourceTable);
-        while (previousBody.rows.length > 1) {
+        while (previousBody.rows.length > 0) {
           next.tbody.insertBefore(previousBody.rows[previousBody.rows.length - 1], next.tbody.firstChild);
           content.appendChild(footerNode);
           if (!isOverfull()) return;
@@ -360,6 +366,10 @@ export const officePrintPageStyles = `<style>
     function initialize() {
       body = document.body;
       originalNodes = Array.prototype.slice.call(body.childNodes);
+      var hasPaymentFooter = originalNodes.some(function (node) {
+        return node.nodeType === 1 && node.classList.contains('payment-footer');
+      });
+      if (hasPaymentFooter) body.classList.add('payment-footer-page-layout');
       footerTemplate = originalNodes.find(function (node) {
         return node.nodeType === 1 && node.classList.contains('office-footer');
       });
