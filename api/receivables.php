@@ -284,7 +284,6 @@ try {
     $incomeDate = (string) ($body['incomeDate'] ?? '');
     $bankAccountId = trim((string) ($body['bankAccountId'] ?? ''));
     $remark = trim((string) ($body['remark'] ?? ''));
-    $pph23 = $body['pph23AmountIDR'] ?? 0;
     $idrAmount = $body['idrAmount'] ?? 0;
     $usdAmount = $body['usdAmount'] ?? 0;
     $attachmentName = trim((string) ($body['attachmentName'] ?? ''));
@@ -311,12 +310,11 @@ try {
         || $attachmentInfo === false || ($attachmentInfo['mime'] ?? '') !== $expectedMime) {
         jsonResponse(['error' => 'Photo bukti kas harus berupa JPG atau PNG maksimal 1 MB'], 400);
     }
-    foreach ([$pph23, $idrAmount, $usdAmount] as $amount) {
+    foreach ([$idrAmount, $usdAmount] as $amount) {
         if (!is_numeric($amount) || !is_finite((float) $amount) || (float) $amount < 0) {
-            jsonResponse(['error' => 'Nominal PPh 23 dan Amount harus berupa angka nol atau lebih'], 400);
+            jsonResponse(['error' => 'Nominal Amount harus berupa angka nol atau lebih'], 400);
         }
     }
-    $pph23 = round((float) $pph23, 2);
     $idrAmount = round((float) $idrAmount, 2);
     $usdAmount = round((float) $usdAmount, 2);
     if ($idrAmount <= 0 && $usdAmount <= 0) jsonResponse(['error' => 'Isi IDR Amount atau USD Amount'], 400);
@@ -380,7 +378,7 @@ try {
         'income_date' => $incomeDate,
         'principal_name' => $invoice['principal_name'],
         'vessel_name' => $invoice['vessel_name'],
-        'pph23_amount_idr' => $pph23,
+        'pph23_amount_idr' => 0,
         'remark' => $remark,
         'bank_account_id' => $bankAccountId,
         'bank_name' => $bank['bank_name'],

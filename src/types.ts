@@ -572,9 +572,17 @@ export interface PrincipalReceipt {
   refundExchangeRateUSDToIDR?: number;
   refundDate?: string;
   refundBankReference?: string;
+  refundBankAccountId?: string;
+  refundBankName?: string;
+  refundAccountName?: string;
+  refundAccountNumber?: string;
   refundStatus?: 'NONE' | 'PENDING' | 'PAID';
   paymentType: 'ADVANCE_PAYMENT' | 'INVOICE';
   invoiceType?: 'FDA' | 'FPDA';
+  receivedBankAccountId?: string;
+  receivedBankName?: string;
+  receivedAccountName?: string;
+  receivedAccountNumber?: string;
   bankRemark: string;
   attachmentName?: string;
   attachmentDataUrl?: string;

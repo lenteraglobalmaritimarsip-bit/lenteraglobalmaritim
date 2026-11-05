@@ -85,6 +85,10 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
     () => bankAccounts.filter((account) => account.currency === paymentCurrency),
     [bankAccounts, paymentCurrency],
   );
+  const bankAccountsById = useMemo(
+    () => new Map(bankAccounts.map((account) => [account.id, account])),
+    [bankAccounts],
+  );
   const defaultPaymentDescription = (voucher: PaymentVoucher) => {
     const references = voucher.jobInfo === 'JOB_VESSEL'
       ? [...new Set(voucher.items.map((item) => {
@@ -926,7 +930,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
-          <table className={`w-full text-left text-xs ${mode === 'INPUT' ? 'min-w-[1760px]' : 'min-w-[1580px]'}`}>
+          <table className={`w-full text-left text-xs ${mode === 'INPUT' ? 'min-w-[1760px]' : 'min-w-[1940px]'}`}>
             <thead className="border-b border-slate-200 bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="w-10 p-3.5" />
@@ -936,6 +940,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                 <th className="whitespace-nowrap p-3.5">Request Number</th>
                 <th className="whitespace-nowrap p-3.5">Request Date</th>
                 <th className="whitespace-nowrap p-3.5">Requested Payment Date</th>
+                {mode === 'HISTORY' && <th className="whitespace-nowrap p-3.5">Bank Remittance</th>}
                 <th className="p-3.5">Info JOB</th>
                 <th className="p-3.5">FDA Number</th>
                 <th className="p-3.5">Vendor Name</th>
@@ -952,6 +957,9 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
               {paginatedVouchers.map((voucher, index) => {
                 const expanded = expandedId === voucher.id;
                 const fdaNumbers = getVoucherFdaNumbers(voucher);
+                const remittanceAccount = voucher.paidFromBankAccountId
+                  ? bankAccountsById.get(voucher.paidFromBankAccountId)
+                  : undefined;
                 return (
                   <React.Fragment key={voucher.id}>
                     <tr className="cursor-pointer hover:bg-slate-50" onClick={() => setExpandedId(expanded ? null : voucher.id)}>
@@ -962,6 +970,13 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                       <td className="whitespace-nowrap p-3.5 font-mono font-bold text-slate-900">{voucher.requestNumber}</td>
                       <td className="whitespace-nowrap p-3.5 text-slate-700">{formatDate(voucher.requestDate)}</td>
                       <td className="whitespace-nowrap p-3.5 text-slate-700">{formatDate(voucher.requestedPaymentDate)}</td>
+                      {mode === 'HISTORY' && (
+                        <td className="p-3.5 text-slate-700">
+                          <div>{remittanceAccount?.bankName || '-'}</div>
+                          <div className="font-mono text-[11px] text-slate-500">{remittanceAccount?.accountNumber || '-'}</div>
+                          {remittanceAccount && <div className="text-[11px] text-slate-500">{remittanceAccount.accountName}</div>}
+                        </td>
+                      )}
                       <td className="p-3.5">
                         <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
                           {voucher.jobInfo === 'JOB_VESSEL' ? 'JOB Vessel' : 'Operasional'}
@@ -1026,7 +1041,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                     {expanded && (
                       <tr className="bg-slate-50/60">
                         <td />
-                        <td colSpan={mode === 'HISTORY' ? 16 : 15} className="p-3.5">
+                        <td colSpan={mode === 'HISTORY' ? 17 : 15} className="p-3.5">
                         <table className="w-full text-left text-[11px]">
                             <thead className="text-[10px] uppercase text-slate-500">
                               <tr>

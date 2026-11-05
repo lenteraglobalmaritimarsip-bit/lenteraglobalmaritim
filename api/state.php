@@ -582,6 +582,23 @@ function validPrincipalReceiptRecord(array $receipt, string $jobId): bool
     return true;
 }
 
+function validReceiptBankAccountSnapshot(array $receipt, string $prefix, array $bankAccountsById, array $actor): bool
+{
+    $accountId = trim((string) ($receipt[$prefix . 'BankAccountId'] ?? ''));
+    $account = $bankAccountsById[$accountId] ?? null;
+    if (!$account) return false;
+    $bankNameField = $prefix === 'received' ? 'receivedBankName' : 'refundBankName';
+    $accountNameField = $prefix === 'received' ? 'receivedAccountName' : 'refundAccountName';
+    $accountNumberField = $prefix === 'received' ? 'receivedAccountNumber' : 'refundAccountNumber';
+    if ((string) ($receipt[$bankNameField] ?? '') !== (string) ($account['bankName'] ?? '')
+        || (string) ($receipt[$accountNameField] ?? '') !== (string) ($account['accountName'] ?? '')
+        || (string) ($receipt[$accountNumberField] ?? '') !== (string) ($account['accountNumber'] ?? '')) return false;
+    $actorBranchId = (string) ($actor['branch_id'] ?? '');
+    $accountBranchId = (string) ($account['branchId'] ?? '');
+    if ($actorBranchId !== '' && $accountBranchId !== '') return $actorBranchId === $accountBranchId;
+    return branchNameKey((string) ($account['branchName'] ?? '')) === branchNameKey((string) ($actor['branch_name'] ?? $actor['branch'] ?? ''));
+}
+
 function validPaymentProofDataUrl(?string $dataUrl): bool
 {
     if ($dataUrl === null || $dataUrl === '') return true;
@@ -608,6 +625,10 @@ function immutablePrincipalPaymentFields(array $receipt): array
         $receipt['refundExchangeRateUSDToIDR'],
         $receipt['refundDate'],
         $receipt['refundBankReference'],
+        $receipt['refundBankAccountId'],
+        $receipt['refundBankName'],
+        $receipt['refundAccountName'],
+        $receipt['refundAccountNumber'],
         $receipt['refundStatus'],
     );
     ksort($receipt);
@@ -1226,6 +1247,34 @@ try {
                     }
                     $newReceiptsById[$receipt['id']] = $receipt;
                 }
+                $requiresBankSnapshotColumns = false;
+                foreach ($newReceipts as $receipt) {
+                    if (!isset($oldReceiptsById[$receipt['id']]) && !str_starts_with((string) $receipt['id'], 'FIN-AR-')) {
+                        $requiresBankSnapshotColumns = true;
+                        break;
+                    }
+                }
+                if (!$requiresBankSnapshotColumns) {
+                    foreach ($oldReceipts as $receipt) {
+                        $receiptId = (string) ($receipt['id'] ?? '');
+                        $updatedReceipt = $newReceiptsById[$receiptId] ?? null;
+                        if (($receipt['refundStatus'] ?? 'NONE') !== 'PAID'
+                            && ($updatedReceipt['refundStatus'] ?? 'NONE') === 'PAID') {
+                            $requiresBankSnapshotColumns = true;
+                            break;
+                        }
+                    }
+                }
+                if ($requiresBankSnapshotColumns) {
+                    $requiredReceiptColumns = [
+                        'received_bank_account_id', 'received_bank_name', 'received_account_name', 'received_account_number',
+                        'refund_bank_account_id', 'refund_bank_name', 'refund_account_name', 'refund_account_number',
+                    ];
+                    $availableReceiptColumns = tableColumns($pdo, 'principal_receipts') ?? [];
+                    if (array_diff($requiredReceiptColumns, $availableReceiptColumns)) {
+                        jsonResponse(['error' => 'Database belum siap menyimpan rekening penerimaan/refund. Jalankan migrasi 20261040_add_principal_receipt_bank_accounts.sql.'], 503);
+                    }
+                }
                 foreach ($oldReceipts as $receipt) {
                     $receiptId = $receipt['id'] ?? null;
                     if (!isset($receiptId, $newReceiptsById[$receiptId])) {
@@ -1249,12 +1298,18 @@ try {
                         || $oldRefundStatus === 'PAID') {
                         jsonResponse(['error' => 'Only a pending refund can be confirmed as paid'], 403);
                     }
+                    if ($newRefundStatus === 'PAID' && !validReceiptBankAccountSnapshot($updatedReceipt, 'refund', $bankAccountsById, $actor)) {
+                        jsonResponse(['error' => 'Rekening perusahaan untuk transfer refund tidak valid atau bukan milik branch aktif.'], 403);
+                    }
                 }
                 foreach ($newReceipts as $receipt) {
                     if (isset($oldReceiptsById[$receipt['id']])) continue;
                     if (str_starts_with((string) $receipt['id'], 'FIN-AR-')) continue;
                     if (!validPrincipalReceiptRecord($receipt, (string) $jobId)) {
                         jsonResponse(['error' => 'Finance receipt data is invalid'], 403);
+                    }
+                    if (!validReceiptBankAccountSnapshot($receipt, 'received', $bankAccountsById, $actor)) {
+                        jsonResponse(['error' => 'Rekening penerimaan perusahaan tidak valid atau bukan milik branch aktif.'], 403);
                     }
                 }
             }

@@ -19,7 +19,7 @@ import {
   Trash2,
   CalendarDays,
 } from 'lucide-react';
-import { ExpensesItem, FixTariff, JobCall, ActiveTab, Currency, Vessel } from '../../types';
+import { ExpensesItem, FixTariff, JobCall, ActiveTab, BankAccount, Currency, Vessel } from '../../types';
 import { formatDateDisplay, isInquiryDateInRange, todayISO } from '../../utils/date';
 import { db } from '../../db/storage';
 import { formatCostCategoryLabel, getCostCategoryRank, normalizeCostCategory } from '../../utils/costCategories';
@@ -34,6 +34,7 @@ interface FinanceViewProps {
   vessels?: Vessel[];
   fixTariffs?: FixTariff[];
   expensesItems?: ExpensesItem[];
+  bankAccounts?: BankAccount[];
   activeJob: JobCall;
   onSelectJob: (jobId: string) => void;
   onNavigate: (tab: ActiveTab) => void;
@@ -47,6 +48,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   vessels = [],
   fixTariffs = [],
   expensesItems = [],
+  bankAccounts = [],
   activeJob,
   onSelectJob,
   onNavigate,
@@ -70,9 +72,11 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   const [refundCompletionDate, setRefundCompletionDate] = useState(todayISO());
   const [refundExchangeRate, setRefundExchangeRate] = useState('');
   const [refundBankReference, setRefundBankReference] = useState('');
+  const [refundBankAccountId, setRefundBankAccountId] = useState('');
   const [receiptAmount, setReceiptAmount] = useState('');
   const [receiptAmountError, setReceiptAmountError] = useState('');
   const [receiptBankRemark, setReceiptBankRemark] = useState('');
+  const [receiptBankAccountId, setReceiptBankAccountId] = useState('');
   const [receiptAttachment, setReceiptAttachment] = useState<{ name: string; dataUrl: string } | null>(null);
   const [isSavingReceipt, setIsSavingReceipt] = useState(false);
   const openReceiptDatePicker = () => {
@@ -370,8 +374,9 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     );
     const isWholeIDR = receiptCurrency !== 'IDR' || Number.isInteger(enteredAmount);
     const requiresExchangeRate = receiptCurrency !== jobCurrency;
-    if (!isFinanceReady(activeJob) || !receiptDate || !Number.isFinite(enteredAmount) || enteredAmount <= 0 || !Number.isFinite(amount) || amount <= 0 || !receiptBankRemark.trim()) {
-      setReceiptAmountError('Lengkapi tanggal, nominal penerimaan, dan remark bank. Job harus memiliki FDA approved atau FPDA approved untuk crew-only.');
+    const receivingAccount = bankAccounts.find((account) => account.id === receiptBankAccountId);
+    if (!isFinanceReady(activeJob) || !receiptDate || !Number.isFinite(enteredAmount) || enteredAmount <= 0 || !Number.isFinite(amount) || amount <= 0 || !receiptBankRemark.trim() || !receivingAccount) {
+      setReceiptAmountError('Lengkapi tanggal, nominal, rekening penerima perusahaan, dan remark bank. Job harus memiliki FDA approved atau FPDA approved untuk crew-only.');
       setMsg('Data penerimaan belum lengkap.');
       setTimeout(() => setMsg(null), 4000);
       return;
@@ -394,6 +399,10 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       currency: receiptCurrency,
       exchangeRateUSDToIDR: receiptExchangeRateValue,
       paymentType: receiptType,
+      receivedBankAccountId: receivingAccount.id,
+      receivedBankName: receivingAccount.bankName,
+      receivedAccountName: receivingAccount.accountName,
+      receivedAccountNumber: receivingAccount.accountNumber,
       refundAmount: normalizedRefundAmount,
       refundExchangeRateUSDToIDR: normalizedRefundAmount > 0 ? receiptExchangeRateValue : 0,
       refundDate: '',
@@ -481,9 +490,10 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   const handleCompleteRefund = async (receiptId: string) => {
     if (isSavingReceipt) return;
     const receipt = receiptHistory.find((item) => item.id === receiptId);
-    if (!receipt || receipt.refundStatus !== 'PENDING' || !refundCompletionDate || !refundBankReference.trim()
+    const refundAccount = bankAccounts.find((account) => account.id === refundBankAccountId);
+    if (!receipt || receipt.refundStatus !== 'PENDING' || !refundCompletionDate || !refundBankReference.trim() || !refundAccount
       || (receipt.currency !== jobCurrency && (!Number.isFinite(Number(refundExchangeRate)) || Number(refundExchangeRate) <= 0))) {
-      setReceiptAmountError('Lengkapi tanggal transfer dan referensi bank refund.');
+      setReceiptAmountError('Lengkapi tanggal, referensi bank, dan rekening perusahaan yang digunakan untuk transfer refund.');
       return;
     }
     setIsSavingReceipt(true);
@@ -496,6 +506,10 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
               refundStatus: 'PAID',
               refundDate: refundCompletionDate,
               refundBankReference: refundBankReference.trim(),
+              refundBankAccountId: refundAccount.id,
+              refundBankName: refundAccount.bankName,
+              refundAccountName: refundAccount.accountName,
+              refundAccountNumber: refundAccount.accountNumber,
               refundExchangeRateUSDToIDR: receipt.currency === jobCurrency
                 ? receipt.exchangeRateUSDToIDR || getJobExchangeRate(activeJob)
                 : Number(refundExchangeRate),
@@ -1512,6 +1526,12 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   <option value="INVOICE">Invoice</option>
                 </select>
               </label>
+              <label className="text-xs text-slate-400">Rekening Penerima Perusahaan *
+                <select required value={receiptBankAccountId} onChange={(event) => setReceiptBankAccountId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white">
+                  <option value="">Pilih rekening penerima</option>
+                  {bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.accountNumber} · {account.accountName}</option>)}
+                </select>
+              </label>
               <label className="text-xs text-slate-400">Mata Uang Diterima *
                 <select required value={receiptCurrency} onChange={(event) => setReceiptCurrency(event.target.value as Currency)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white">
                   <option value="USD">USD ($)</option>
@@ -1577,13 +1597,14 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                   {refundReceiptId !== receipt.id && <button type="button" onClick={() => {
                     setRefundReceiptId(receipt.id);
                     setRefundCompletionDate(todayISO());
+                    setRefundBankAccountId('');
                     setRefundExchangeRate(receipt.currency === jobCurrency
                       ? String(receipt.refundExchangeRateUSDToIDR || receipt.exchangeRateUSDToIDR || getJobExchangeRate(activeJob))
                       : '');
                   }} className="rounded-lg bg-rose-600 px-3 py-2 text-xs font-bold text-white hover:bg-rose-500">Catat Transfer Refund</button>}
                 </div>
                 {refundReceiptId === receipt.id && (
-                  <form onSubmit={(event) => { event.preventDefault(); void handleCompleteRefund(receipt.id); }} className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_2fr_auto]">
+                  <form onSubmit={(event) => { event.preventDefault(); void handleCompleteRefund(receipt.id); }} className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
                     <label className="text-xs text-rose-100">Tanggal Refund *
                       <input type="date" required value={refundCompletionDate} onChange={(event) => setRefundCompletionDate(event.target.value)} className="mt-1 w-full rounded-lg border border-rose-300/30 bg-slate-900 px-3 py-2 text-sm text-white" />
                     </label>
@@ -1592,6 +1613,12 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                     </label>}
                     <label className="text-xs text-rose-100">Referensi Bank Refund *
                       <input required value={refundBankReference} onChange={(event) => setRefundBankReference(event.target.value)} className="mt-1 w-full rounded-lg border border-rose-300/30 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="Nomor referensi transfer" />
+                    </label>
+                    <label className="text-xs text-rose-100">Rekening Pengirim Perusahaan *
+                      <select required value={refundBankAccountId} onChange={(event) => setRefundBankAccountId(event.target.value)} className="mt-1 w-full rounded-lg border border-rose-300/30 bg-slate-900 px-3 py-2 text-sm text-white">
+                        <option value="">Pilih rekening</option>
+                        {bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.accountNumber} · {account.accountName}</option>)}
+                      </select>
                     </label>
                     <button type="submit" disabled={isSavingReceipt} className="self-end rounded-lg bg-rose-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{isSavingReceipt ? 'Menyimpan...' : 'Konfirmasi Refund'}</button>
                   </form>

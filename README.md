@@ -26,6 +26,8 @@ Role **DIRECTOR (Direktur)** adalah role pusat lintas branch yang dapat membaca 
 
 Email corporate dapat digunakan oleh beberapa user. Login hanya menggunakan username yang unik. Pada database lama, jalankan `database/migrations/20261039_allow_shared_user_emails.sql` sebelum deployment agar email tidak lagi dibatasi unik.
 
+Rekap Keuangan menampilkan rekening perusahaan yang benar-benar menerima atau mengirim dana. Input penerimaan Principal dan konfirmasi refund meminta rekening perusahaan yang digunakan; transaksi lama tanpa snapshot rekening ditampilkan sebagai tidak tersedia. Untuk database lama, jalankan `database/migrations/20261040_add_principal_receipt_bank_accounts.sql` sebelum deployment.
+
 Pada menu **Finance → Request Payment → Created Payment**, kotak **Sign to approval** mengirim voucher ke satu user Manager OPS dari branch yang sama atau user DIRECTOR aktif. Setiap voucher hanya dapat diproses oleh user approver yang dipilih. Untuk database lama, jalankan `database/migrations/20261037_add_payment_voucher_approval_targets.sql` sebelum deployment.
 
 ## Standar pesan informasi
@@ -138,3 +140,5 @@ Info News pada halaman login dikelola oleh role **Admin** melalui menu **Info Ne
 TAMBAH DATA VESSEL DI INQUIRY DAN MENGUPDATE DATABASE DAN MASTERDATA
 
 PERUBAHAN TAMPILAN INFORMASI INQUIRY VESSEL 05/11/2026
+PENGHAPUSAN FIELD PPH23 PADA ROLE FINANCE DONE
+

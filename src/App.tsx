@@ -813,7 +813,7 @@ export default function App() {
             )}
 
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_HISTORY_REPORT' && (
-              <FinancialHistoryView paymentVouchers={branchPaymentVouchers} jobCalls={roleVisibleJobCalls} />
+              <FinancialHistoryView paymentVouchers={branchPaymentVouchers} jobCalls={roleVisibleJobCalls} bankAccounts={branchBankAccounts} />
             )}
 
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_RECEIVABLE_INPUT' && (
@@ -848,6 +848,7 @@ export default function App() {
                 vessels={data.vessels}
                 fixTariffs={data.fixTariffs}
                 expensesItems={data.expensesItems}
+                bankAccounts={branchBankAccounts}
                 activeJob={currentJob}
                 onSelectJob={setSelectedJobId}
                 onNavigate={setActiveTab}

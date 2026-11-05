@@ -8,7 +8,6 @@ import { DateInput } from '../shared/DateInput';
 import { getPaymentVoucherPaymentEvents } from '../../utils/paymentVoucherHistory';
 import { buildPaymentVoucherJournal } from '../../utils/paymentVoucherJournal';
 import { addChartOfAccountsWorksheet } from '../../utils/chartOfAccountsWorkbook';
-import { buildReceivableJournal } from '../../utils/receivableJournal';
 import { getPaymentVoucherPphRate } from '../../utils/paymentVoucherTax';
 
 interface FinanceRecapViewProps {
@@ -30,6 +29,9 @@ interface IncomeRow {
   invoiceType: string;
   invoiceNo: string;
   bank: string;
+  accountName: string;
+  accountNumber: string;
+  bankSource: string;
   remark: string;
   pph23: number;
   idr: number;
@@ -51,6 +53,7 @@ interface ExpenseRow {
   jobNumbers: string;
   fdaNo: string;
   bank: string;
+  remittanceAccountName: string;
   accountNumber: string;
   remittanceBank: string;
   remittanceAccountNumber: string;
@@ -136,6 +139,9 @@ const toIncomeRow = (entry: AccountsReceivableEntry): IncomeRow => {
     invoiceType: principalEntry ? entry.invoiceType || '-' : '-',
     invoiceNo: principalEntry ? entry.invoiceNo || '-' : '-',
     bank: entry.bankName || '-',
+    accountName: entry.accountName || '-',
+    accountNumber: entry.accountNumber || '-',
+    bankSource: '',
     remark: entry.remark || '',
     pph23: Number(entry.pph23AmountIDR) || 0,
     idr,
@@ -169,7 +175,10 @@ const toPrincipalReceiptRow = (job: JobCall, receipt: PrincipalReceipt): IncomeR
     vesselOrJob: job.vesselName || job.jobId,
     invoiceType: receipt.paymentType === 'ADVANCE_PAYMENT' ? 'FDA Advance' : 'Invoice Receipt',
     invoiceNo: job.fda?.fdaNo || '-',
-    bank: '-',
+    bank: receipt.receivedBankName || '-',
+    accountName: receipt.receivedAccountName || '-',
+    accountNumber: receipt.receivedAccountNumber || '-',
+    bankSource: receipt.bankRemark || '',
     remark: receipt.bankRemark || '',
     pph23: 0,
     idr,
@@ -210,6 +219,7 @@ const toExpenseRow = (
     jobNumbers: jobNumbers || '-',
     fdaNo: fdaNo || '-',
     bank: voucher.bankName || '-',
+    remittanceAccountName: remittanceAccount?.accountName || '-',
     accountNumber: voucher.accountNumber || '-',
     remittanceBank: remittanceAccount?.bankName || '-',
     remittanceAccountNumber: remittanceAccount?.accountNumber || '-',
@@ -250,10 +260,11 @@ const toPrincipalRefundExpenseRow = (job: JobCall, receipt: PrincipalReceipt): E
     jobInfo: 'JOB Vessel',
     jobNumbers: job.jobId,
     fdaNo: job.fda?.fdaNo || '-',
-    bank: 'Principal refund',
+    bank: 'Principal',
+    remittanceAccountName: receipt.refundAccountName || '-',
     accountNumber: '-',
-    remittanceBank: '-',
-    remittanceAccountNumber: '-',
+    remittanceBank: receipt.refundBankName || '-',
+    remittanceAccountNumber: receipt.refundAccountNumber || '-',
     paid: refundAmount,
     surcharge: 0,
     other: 0,
@@ -328,7 +339,10 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
           matchingReceipt.pph23 += row.pph23;
           pphMerged = true;
         }
-        if (matchingReceipt.bank === '-') matchingReceipt.bank = row.bank;
+        if (matchingReceipt.accountName === '-' && row.accountName !== '-') matchingReceipt.accountName = row.accountName;
+        if (matchingReceipt.accountNumber === '-' && row.accountNumber !== '-') matchingReceipt.accountNumber = row.accountNumber;
+        if (matchingReceipt.bankSource === '' && row.bankSource) matchingReceipt.bankSource = row.bankSource;
+        if (matchingReceipt.bank === '-' && row.bank !== '-') matchingReceipt.bank = row.bank;
         return true;
       };
       if (idr > 0 && mergeDuplicate('IDR', idr)) idr = 0;
@@ -401,7 +415,8 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
         arApNumber: row.arApNumber,
         reference: row.subject === 'Principal' ? `${row.invoiceType} ${row.invoiceNo}`.trim() : 'Operasional',
         party: row.principal, detail: row.vesselOrJob, fdaNo: jobsById.get(row.jobId)?.fda?.fdaNo || '-',
-        description: row.remark, items: [], vat: 0, pph23: row.pph23, bank: row.bank, accountNumber: '-',
+        description: row.remark, items: [], vat: 0, pph23: row.pph23, bank: row.bank,
+        accountName: row.accountName, accountNumber: row.accountNumber, bankSource: row.bankSource,
         remittanceBank: '-', remittanceAccountNumber: '-',
         note: row.remark, exchangeRate: row.exchangeRate,
         inIDR: row.idrEquivalent, inUSD: row.usd, inRate: row.exchangeRate, outIDR: 0, outUSD: 0, outRate: 0, outIDREquivalent: null,
@@ -412,7 +427,7 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
         reference: row.requestNo,
         party: row.vendor, detail: row.jobInfo === 'Operasional' ? 'Operasional' : row.jobNumbers,
         fdaNo: row.fdaNo, description: row.description, items: row.items, vat: row.vat, pph23: row.pph23,
-        bank: row.bank, accountNumber: row.accountNumber,
+        bank: row.remittanceBank || '-', accountName: row.remittanceAccountName || '-', accountNumber: row.remittanceAccountNumber || '-', bankSource: '',
         remittanceBank: row.remittanceBank, remittanceAccountNumber: row.remittanceAccountNumber,
         note: `${row.currency}${row.description ? ` · ${row.description}` : ''}`, exchangeRate: row.exchangeRate,
         inIDR: 0, inUSD: 0, inRate: 0,
@@ -465,21 +480,22 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
 
       // --- Pemasukan ---
       const incomeSheet = workbook.addWorksheet('Pemasukan');
-      incomeSheet.addRow(['No', 'Tanggal', 'Subjek', 'Principal', 'Vessel / Job', 'Jenis Invoice', 'No Invoice', 'Bank', 'Keterangan', 'PPh 23 (IDR)', 'Jumlah IDR', 'Jumlah USD', 'Dicatat Oleh', 'Kurs USD/IDR', 'Ekuivalen IDR']);
+      incomeSheet.addRow(['No', 'Tanggal', 'Subjek', 'Principal', 'Vessel / Job', 'Jenis Invoice', 'No Invoice', 'Bank Penerima Perusahaan', 'Nama Rekening Penerima', 'No. Rekening Penerima', 'Remark Bank', 'Keterangan', 'PPh 23 (IDR)', 'Jumlah IDR', 'Jumlah USD', 'Dicatat Oleh', 'Kurs USD/IDR', 'Ekuivalen IDR']);
       incomeRows.forEach((row, index) => incomeSheet.addRow([
         index + 1, toExcelDate(row.date), row.subject, row.principal, row.vesselOrJob, row.invoiceType, row.invoiceNo,
-        row.bank, row.remark, row.pph23, row.idr, row.usd, row.createdBy, row.exchangeRate, row.idrEquivalent,
+        row.bank, row.accountName, row.accountNumber, row.bankSource, row.remark, row.pph23, row.idr, row.usd,
+        row.createdBy, row.exchangeRate, row.idrEquivalent,
       ]));
       const incomeTotal = incomeSheet.addRow([
-        '', '', '', '', '', '', '', '', 'TOTAL',
-        sumCell('J', incomeRows.length, totals.pph23), sumCell('K', incomeRows.length, totals.inIDR), sumCell('L', incomeRows.length, totals.inUSD), '', '',
-        sumCell('O', incomeRows.length, totals.inIDR + totals.usdInIDR),
+        '', '', '', '', '', '', '', '', '', '', '', 'TOTAL',
+        sumCell('M', incomeRows.length, totals.pph23), sumCell('N', incomeRows.length, totals.inIDR), sumCell('O', incomeRows.length, totals.inUSD), '', '',
+        sumCell('R', incomeRows.length, totals.inIDR + totals.usdInIDR),
       ]);
       incomeTotal.font = { bold: true };
-      styleHeader(incomeSheet, 1, 15);
+      styleHeader(incomeSheet, 1, 18);
       incomeSheet.getColumn(2).numFmt = dateFmt;
-      [10, 11, 12, 14, 15].forEach((column) => { incomeSheet.getColumn(column).numFmt = money2; });
-      [6, 12, 12, 24, 24, 14, 22, 18, 32, 16, 18, 16, 20, 16, 20].forEach((width, index) => { incomeSheet.getColumn(index + 1).width = width; });
+      [13, 14, 15, 17, 18].forEach((column) => { incomeSheet.getColumn(column).numFmt = money2; });
+      [6, 12, 12, 24, 24, 14, 22, 24, 28, 22, 32, 32, 16, 18, 16, 20, 16, 20].forEach((width, index) => { incomeSheet.getColumn(index + 1).width = width; });
 
       // --- Pengeluaran ---
       const expenseSheet = workbook.addWorksheet('Pengeluaran');
@@ -522,8 +538,8 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
       const transactionSheet = workbook.addWorksheet('Rincian Transaksi');
       transactionSheet.addRow([
         'No', 'Tanggal', 'Jenis', 'No. AR/AP', 'Referensi', 'Pihak', 'Vessel / Job', 'No FDA',
-        'Item Service', 'Deskripsi', 'Amount', 'VAT', 'PPh 23', 'Ket PPH23', 'Bank Tujuan', 'Rekening Tujuan',
-        'Bank Remitten', 'Rekening Remitten', 'Masuk IDR Ekuiv.',
+        'Item Service', 'Deskripsi', 'Amount', 'VAT', 'PPh 23', 'Ket PPH23', 'Bank Perusahaan Digunakan', 'Rekening Perusahaan Digunakan',
+        'Bank Tujuan', 'Rekening Tujuan', 'Masuk IDR Ekuiv.',
         'Masuk USD', 'Kurs Masuk USD/IDR', 'Keluar IDR', 'Keluar USD', 'Kurs Keluar USD/IDR',
         'Keluar IDR Ekuiv.',
       ]);
@@ -576,8 +592,10 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
           return transactionSheet.addRow([
             transactionSheet.rowCount, toExcelDate(row.date), row.kind === 'IN' ? 'Masuk' : 'Keluar',
             row.arApNumber, row.reference, row.party, row.detail, row.fdaNo, line.itemService,
-            row.description, line.amount, line.vat, line.pph23, line.pph23Rate, row.bank, row.accountNumber,
-            row.remittanceBank, row.remittanceAccountNumber,
+            row.description, line.amount, line.vat, line.pph23, line.pph23Rate,
+            row.kind === 'IN' ? row.bank : row.remittanceBank,
+            row.kind === 'IN' ? row.accountNumber : row.remittanceAccountNumber,
+            row.kind === 'OUT' ? row.bank : '-', row.kind === 'OUT' ? row.accountNumber : '-',
             line.inIDR || '', line.inUSD || '', line.inRate || '', line.outIDR || '',
             line.outUSD || '', line.outRate || '', line.outIDREquivalent ?? '',
           ]);
@@ -827,7 +845,20 @@ export const FinanceRecapView: React.FC<FinanceRecapViewProps> = ({ paymentVouch
                   <td className="px-3 py-2 text-xs text-slate-700">{row.reference || '-'}</td>
                   <td className="px-3 py-2 text-xs text-slate-700">{row.party}</td>
                   <td className="px-3 py-2 text-xs text-slate-700">{row.detail}</td>
-                  <td className="px-3 py-2 text-xs text-slate-700">{row.bank}</td>
+                  <td className="px-3 py-2 text-xs text-slate-700">
+                    <div>{row.bank}</div>
+                    {row.accountNumber !== '-' && (
+                      <div className="mt-1 text-[10px] text-slate-500">
+                        <div>{row.accountName}</div>
+                        <div className="font-mono">Rekening: {row.accountNumber}</div>
+                      </div>
+                    )}
+                    {row.kind === 'IN' && row.bankSource && (
+                      <div className="mt-1 border-t border-slate-100 pt-1 text-[10px] text-slate-500">
+                        Remark bank: {row.bankSource}
+                      </div>
+                    )}
+                  </td>
                   <td className={num}>{row.kind === 'IN' ? money(row.inIDR) : '-'}</td>
                   <td className={num}>{row.kind === 'IN' ? money(row.inUSD) : '-'}</td>
                   <td className={num}>{row.kind === 'IN' && row.inRate > 0 ? money(row.inRate) : '-'}</td>

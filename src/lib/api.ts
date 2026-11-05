@@ -315,7 +315,6 @@ export async function createAccountsReceivableEntry(entry: {
   invoiceNo?: string;
   incomeDate: string;
   bankAccountId: string;
-  pph23AmountIDR: number;
   remark: string;
   idrAmount: number;
   usdAmount: number;

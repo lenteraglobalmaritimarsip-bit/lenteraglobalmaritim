@@ -89,20 +89,13 @@ export const createReceivableJournalTemplate = (input: {
   receivableCoaId: string;
   idrAmount: number;
   usdAmount: number;
-  pph23AmountIDR: number;
   exchangeRateUSDToIDR: number;
-  accounts: ChartOfAccount[];
 }): FinanceJournalLine[] => {
   const cashIdr = Number(input.idrAmount || 0) + Number(input.usdAmount || 0) * Number(input.exchangeRateUSDToIDR || 0);
   const lines: FinanceJournalLine[] = [];
   if (cashIdr > 0) lines.push(createFinanceJournalLine({ coaId: input.bankCoaId, memo: 'Penerimaan bank', amount: cashIdr, direction: 'DEBIT' }));
-  if (input.pph23AmountIDR > 0) {
-    const taxAccount = input.accounts.find((account) => account.isActive && account.code === 'PT00120');
-    lines.push(createFinanceJournalLine({ coaId: taxAccount?.id || '', memo: 'PPh 23 dibayar dimuka', amount: input.pph23AmountIDR, direction: 'DEBIT' }));
-  }
-  const receivableAmount = cashIdr + Number(input.pph23AmountIDR || 0);
-  if (receivableAmount > 0) {
-    lines.push(createFinanceJournalLine({ coaId: input.receivableCoaId, memo: 'Pelunasan piutang', amount: receivableAmount, direction: 'CREDIT' }));
+  if (cashIdr > 0) {
+    lines.push(createFinanceJournalLine({ coaId: input.receivableCoaId, memo: 'Pelunasan piutang', amount: cashIdr, direction: 'CREDIT' }));
   }
   return lines.length > 0 ? lines : [createFinanceJournalLine(), createFinanceJournalLine({ direction: 'CREDIT' })];
 };
