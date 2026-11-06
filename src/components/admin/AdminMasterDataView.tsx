@@ -308,8 +308,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         role: editUserForm.role as UserRole,
         position: editUserForm.position,
         department: editUserForm.department || editingUser.department,
-        branch: ['ACCOUNTING', 'DIRECTOR'].includes(editUserForm.role) ? '' : editUserForm.branch || editingUser.branch,
-        branchId: ['ACCOUNTING', 'DIRECTOR'].includes(editUserForm.role) ? undefined : editUserForm.branchId || findBranch(editUserForm.branch || editingUser.branch)?.id,
+        branch: ['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'].includes(editUserForm.role) ? '' : editUserForm.branch || editingUser.branch,
+        branchId: ['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'].includes(editUserForm.role) ? undefined : editUserForm.branchId || findBranch(editUserForm.branch || editingUser.branch)?.id,
         email: editUserForm.email,
         phone: editUserForm.phone,
         status: editUserForm.status as User['status'],
@@ -937,7 +937,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     setAddFormError('');
     try {
       if (activeTab === 'USERS') {
-        const branchIsRequired = !['ACCOUNTING', 'DIRECTOR'].includes(newUser.role);
+        const branchIsRequired = !['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'].includes(newUser.role);
         if (!newUser.name?.trim() || !newUser.email?.trim() || !newUser.username?.trim() || !newUser.password || !newUser.position?.trim() || !newUser.role || !newUser.status || !newUser.department?.trim()
           || (branchIsRequired && (!newUser.branch?.trim() || !(newUser.branchId || findBranch(newUser.branch)?.id)))) {
           setAddFormError(`Lengkapi User, Password, Nama, Jabatan, Email, Role, Status, Departemen${branchIsRequired ? ', dan Branch' : ''} sebelum menyimpan.`);
@@ -949,7 +949,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         }
         await db.addUser({
           ...newUser,
-          branchId: ['ACCOUNTING', 'DIRECTOR'].includes(newUser.role) ? undefined : newUser.branchId || findBranch(newUser.branch)?.id,
+          branchId: ['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'].includes(newUser.role) ? undefined : newUser.branchId || findBranch(newUser.branch)?.id,
         } as Omit<User, 'id'>);
       } else if (activeTab === 'CUSTOMERS') {
         if (!newCustomer.companyName?.trim()) {
@@ -1430,7 +1430,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 <span className="font-semibold text-slate-600">Role</span>
                 <select required value={userForm.role || ''} onChange={(e) => {
                   const role = e.target.value as UserRole;
-                  updateUserForm(['ACCOUNTING', 'DIRECTOR'].includes(role) ? { role, branch: '', branchId: undefined } : { role });
+                  updateUserForm(['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'].includes(role) ? { role, branch: '', branchId: undefined } : { role });
                 }} className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-slate-800">
                   <option value="">Pilih role</option>
                   <option value="ADMIN">ADMIN</option>
@@ -1440,6 +1440,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                   <option value="FINANCE">FINANCE</option>
                   <option value="ACCOUNTING">ACCOUNTING</option>
                   <option value="DIRECTOR">DIREKTUR</option>
+                  <option value="HR_ADMINISTRASI">HR ADMINISTRASI</option>
+                  <option value="PEKERJA">PEKERJA</option>
                 </select>
               </label>
               <label className="block">
@@ -1460,10 +1462,10 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 </select>
               </label>
               <label className="block">
-                <span className="font-semibold text-slate-600">Branch {['ACCOUNTING', 'DIRECTOR'].includes(userForm.role) ? '(Pusat)' : ''}</span>
+                <span className="font-semibold text-slate-600">Branch {['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'].includes(userForm.role) ? '(Pusat)' : ''}</span>
                 <select
-                  required={!['ACCOUNTING', 'DIRECTOR'].includes(userForm.role)}
-                  disabled={['ACCOUNTING', 'DIRECTOR'].includes(userForm.role)}
+                  required={!['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'].includes(userForm.role)}
+                  disabled={['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'].includes(userForm.role)}
                   value={userForm.branchId || findBranch(userForm.branch)?.id || ''}
                   onChange={(e) => {
                     const branch = branches.find((item) => item.id === e.target.value);
@@ -1471,7 +1473,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                   }}
                   className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-slate-800"
                 >
-                  <option value="">{['ACCOUNTING', 'DIRECTOR'].includes(userForm.role) ? 'Tidak dibatasi ke satu branch' : 'Pilih branch'}</option>
+                  <option value="">{['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'].includes(userForm.role) ? 'Tidak dibatasi ke satu branch' : 'Pilih branch'}</option>
                   {activeBranches.map((branch) => (
                     <option key={branch.id} value={branch.id}>{branch.id} · {branch.code} · {branch.name}</option>
                   ))}

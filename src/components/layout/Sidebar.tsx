@@ -48,17 +48,30 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
     currentRole==='ACCOUNTING'?'Jurnal COA seluruh branch':
     currentRole==='DIRECTOR'?'Dashboard, laporan & monitoring seluruh branch':
     'Invoice, AP/AR & job closing';
+  const resolvedRoleTitle = currentRole === 'HR_ADMINISTRASI' ? 'HR ADMINISTRASI' : currentRole === 'PEKERJA' ? 'PEKERJA WORKSPACE' : roleTitle;
+  const resolvedRoleDesc = currentRole === 'HR_ADMINISTRASI' ? 'Administrasi pekerja seluruh cabang' : currentRole === 'PEKERJA' ? 'Profil dan administrasi pribadi' : roleDesc;
 
   return (
     <aside className={`maritim-sidebar${mobileOpen ? ' mobile-open' : ''}`}>
       <div className="maritim-sidebar-top">
         <div className="maritim-workspace-label">WORKSPACE</div>
-        <div className="maritim-workspace-title">{roleTitle}</div>
-        <div className="maritim-workspace-desc">{roleDesc}</div>
+        <div className="maritim-workspace-title">{resolvedRoleTitle}</div>
+        <div className="maritim-workspace-desc">{resolvedRoleDesc}</div>
       </div>
 
       <nav className="maritim-nav">
         <div className="maritim-nav-section">Main Menu</div>
+
+        {currentRole==='HR_ADMINISTRASI' && <>
+          {item({label:'Administrasi Pekerja',tab:'HR_WORKSPACE',icon:Users})}
+          {item({label:'Absensi Kehadiran',tab:'HR_ATTENDANCE',icon:ClipboardCheck})}
+          {item({label:'Surat Permohonan Masuk',tab:'HR_LEAVE_APPROVAL',icon:FileText})}
+        </>}
+        {currentRole==='PEKERJA' && <>
+          {item({label:'Profil Saya',tab:'WORKER_WORKSPACE',icon:Users})}
+          {item({label:'Absensi',tab:'WORKER_ATTENDANCE',icon:ClipboardCheck})}
+          {item({label:'Surat Permohonan Ijin',tab:'WORKER_LEAVE_REQUEST',icon:FileText})}
+        </>}
 
         {currentRole==='ADMIN' && <>
           {item({label:'Dashboard',tab:'DASHBOARD',icon:LayoutDashboard})}

@@ -132,7 +132,7 @@ The portal now opens in the SALES workspace with a light enterprise dashboard in
 
 ## Login & Active User
 Login memakai akun di tabel `users` (PHP session + CSRF). Akun admin pertama dibuat lewat `api/create_admin.php`
-(password acak 8 digit dicetak satu kali); akun role lain dibuat di **Admin > Users**. Tidak ada akun/password demo.
+(password acak 8 digit dicetak satu kali); akun role lain dibuat di **Admin > Users**. Role **HR Administrasi** mengelola administrasi pekerja lintas cabang (biodata, kontrak/status, dokumen, riwayat, kehadiran, dan persetujuan cuti/perubahan profil). Menu **Absensi Kehadiran** menyediakan rekap berdasarkan tahun/bulan/semua data, branch, atau nama pekerja, serta unduhan Excel. Role **Pekerja** hanya dapat melihat profil/dokumennya sendiri, mengajukan cuti/izin, meminta perubahan profil untuk disetujui HR, dan mencatat empat jenis absensi dengan menahan tombol 2,5 detik. Lokasi hanya diambil saat pekerja mengirim absensi setelah memberikan izin lokasi perangkat; aplikasi tidak melacak lokasi terus-menerus. Absensi memerlukan HTTPS dan izin lokasi browser/Android. Payroll tidak termasuk. Pada database lama, backup lalu jalankan `database/migrations/20261106_add_hr_worker_roles.sql` lalu `database/migrations/20261107_add_hr_attendance_events.sql` sebelum deployment atau membuat akun role baru. Jika migrasi role HR 20261106 sudah dijalankan sebelumnya, cukup jalankan migrasi 20261107. Migrasi menambah tabel/kolom HR tanpa menghapus data lama. Buat akun pekerja di Admin > Users dengan branch yang sesuai; HR Administrasi adalah role pusat tanpa branch akun.
 User aktif tampil di header dan dapat logout.
 PROJECT INI SUDAHH LIVE DI HOSTINGER https://lenteraglobalmaritim.agency/
 

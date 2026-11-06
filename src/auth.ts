@@ -13,6 +13,8 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   FINANCE: 'Finance & Accounting',
   ACCOUNTING: 'Accounting',
   DIRECTOR: 'Direktur',
+  HR_ADMINISTRASI: 'HR Administrasi',
+  PEKERJA: 'Pekerja',
 };
 
 export function initials(name: string): string {

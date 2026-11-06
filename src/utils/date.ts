@@ -38,6 +38,28 @@ export const formatDateDisplay = (value?: string | Date | null, includeTime = fa
   return time ? `${formatted} ${time}` : formatted;
 };
 
+export const formatDateTimeWib = (value?: string | null): string => {
+  if (!value) return '-';
+  const iso = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?:\:\d{2}(?:\.\d{3})?)?$/.test(value)
+    ? `${value.replace(' ', 'T')}Z`
+    : value;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return value;
+  const formattedDate = new Intl.DateTimeFormat('id-ID', {
+    timeZone: 'Asia/Jakarta',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  }).format(date);
+  const formattedTime = new Intl.DateTimeFormat('id-ID', {
+    timeZone: 'Asia/Jakarta',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(date);
+  return `${formattedDate}, ${formattedTime} WIB`;
+};
+
 export const formatInquiryDate = (value?: string | Date | null): string =>
   formatDateDisplay(value);
 

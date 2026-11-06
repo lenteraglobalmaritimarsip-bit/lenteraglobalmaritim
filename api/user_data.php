@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 require __DIR__ . '/bootstrap.php';
 
-$allowedKeys = ['voucher_draft', 'finance_payment_draft', 'finance_receivable_draft', 'notification_reads'];
-
 try {
     $user = requireAuthenticatedUser();
+    $roleKeys = match ($user['role'] ?? '') {
+        'FDA' => ['voucher_draft'],
+        'FINANCE' => ['finance_payment_draft', 'finance_receivable_draft'],
+        default => [],
+    };
+    $allowedKeys = [...$roleKeys, 'notification_reads'];
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
     if ($method === 'GET') {

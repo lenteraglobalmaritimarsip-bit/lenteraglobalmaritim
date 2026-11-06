@@ -1,4 +1,4 @@
-export type UserRole = 'ADMIN' | 'SALES' | 'MANAGER_OPS' | 'FDA' | 'FINANCE' | 'ACCOUNTING' | 'DIRECTOR';
+export type UserRole = 'ADMIN' | 'SALES' | 'MANAGER_OPS' | 'FDA' | 'FINANCE' | 'ACCOUNTING' | 'DIRECTOR' | 'HR_ADMINISTRASI' | 'PEKERJA';
 
 export type Currency = 'USD' | 'IDR';
 
@@ -850,6 +850,12 @@ export interface JobCall {
 export type ActiveTab =
   | 'DASHBOARD'
   | 'NEWS'
+  | 'HR_WORKSPACE'
+  | 'HR_ATTENDANCE'
+  | 'HR_LEAVE_APPROVAL'
+  | 'WORKER_WORKSPACE'
+  | 'WORKER_ATTENDANCE'
+  | 'WORKER_LEAVE_REQUEST'
   | 'ACCOUNTING_DASHBOARD'
   | 'ACCOUNTING_WORKSPACE'
   | 'ACCOUNTING_ASSETS'

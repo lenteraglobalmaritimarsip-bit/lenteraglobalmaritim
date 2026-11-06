@@ -488,7 +488,7 @@ class DatabaseService {
 
   // Users
   public async addUser(user: Omit<User, 'id'>): Promise<User> {
-    const isHeadOfficeRole = user.role === 'ACCOUNTING' || user.role === 'DIRECTOR';
+    const isHeadOfficeRole = ['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'].includes(user.role);
     const branch = isHeadOfficeRole
       ? undefined
       : getBranchByValue(user.branchId || user.branch, this.state.branches);
@@ -510,7 +510,7 @@ class DatabaseService {
   public async updateUser(id: string, updates: Partial<User>): Promise<void> {
     const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     const currentUser = this.state.users.find((user) => user.id === id);
-    const headOfficeUser = ['ACCOUNTING', 'DIRECTOR'].includes(updates.role || currentUser?.role || '');
+    const headOfficeUser = ['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'].includes(updates.role || currentUser?.role || '');
     const branch = headOfficeUser
       ? undefined
       : getBranchByValue(updates.branchId || updates.branch || currentUser?.branchId || currentUser?.branch, this.state.branches);

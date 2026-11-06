@@ -136,6 +136,8 @@ export const Header: React.FC<HeaderProps> = ({
     FINANCE: { label:'FINANCE', desc:'Invoice, AP/AR & Closing', icon:DollarSign },
     ACCOUNTING: { label:'ACCOUNTING', desc:'Jurnal COA & Laporan Lintas Branch', icon:BookOpen },
     DIRECTOR: { label:'DIREKTUR', desc:'Executive Dashboard & Monitoring', icon:BookOpen },
+    HR_ADMINISTRASI: { label:'HR ADMINISTRASI', desc:'Administrasi pekerja seluruh cabang', icon:Briefcase },
+    PEKERJA: { label:'PEKERJA', desc:'Profil dan administrasi pribadi', icon:UserCircle2 },
   };
   const RoleIcon = roleMeta[currentRole].icon;
 

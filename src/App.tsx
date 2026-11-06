@@ -34,6 +34,7 @@ import { AccountingFinanceHistory } from './components/accounting/AccountingFina
 import { AccountingBalanceSheetView, AccountingProfitDetailView, AccountingProfitLossView } from './components/accounting/AccountingFinancialReports';
 import { AccountingDashboard } from './components/accounting/AccountingDashboard';
 import { DirectorActivityLogView } from './components/director/DirectorActivityLogView';
+import { HrWorkspaceView } from './components/hr/HrWorkspaceView';
 import { AuthAccount } from './auth';
 import { LoginView } from './components/auth/LoginView';
 import { apiAuth } from './lib/api';
@@ -74,6 +75,10 @@ const getDefaultTabForRole = (role: UserRole): ActiveTab => {
       return 'ACCOUNTING_DASHBOARD';
     case 'DIRECTOR':
       return 'DIRECTOR_DASHBOARD';
+    case 'HR_ADMINISTRASI':
+      return 'HR_WORKSPACE';
+    case 'PEKERJA':
+      return 'WORKER_WORKSPACE';
     case 'ADMIN':
     case 'SALES':
     case 'MANAGER_OPS':
@@ -205,6 +210,7 @@ export default function App() {
 
   useEffect(() => {
     if (!apiAuth.enabled || !currentUser) return;
+    if (currentUser.role === 'HR_ADMINISTRASI' || currentUser.role === 'PEKERJA') return;
     const refresh = () => {
       if (document.visibilityState !== 'visible') return;
       void db.refreshRemote().catch((error) => console.error('API refresh failed:', error));
@@ -233,6 +239,31 @@ export default function App() {
     setDatabaseError(null);
     if (currentUser) db.setActor({ id: currentUser.id, name: currentUser.name, role: currentUser.role, branch: currentUser.branch, branchId: currentUser.branchId });
     let unsubscribe = () => {};
+    if (currentUser?.role === 'HR_ADMINISTRASI' || currentUser?.role === 'PEKERJA') {
+      setSelectedJobId('');
+      setData({
+        branches: [],
+        users: [],
+        customers: [],
+        vessels: [],
+        ports: [],
+        zones: [],
+        fixTariffs: [],
+        expensesItems: [],
+        vendorPartners: [],
+        bankAccounts: [],
+        chartOfAccounts: [],
+        cashBalanceAdjustments: [],
+        paymentVouchers: [],
+        jobCalls: [],
+        currentRole: currentUser.role,
+        selectedJobId: '',
+        auditLogs: [],
+      });
+      setDatabaseReady(true);
+      setDatabaseError(null);
+      return () => unsubscribe();
+    }
     void (async () => {
       try {
         const resetJobs = new URLSearchParams(window.location.search).get('resetJobs') === '1';
@@ -384,10 +415,18 @@ export default function App() {
         {/* Content Area */}
         <main className="maritim-main">
           <div
-            className={`maritim-content${currentRole === 'MANAGER_OPS' || currentRole === 'DIRECTOR' ? ' manager-director-workspace' : ''}${currentRole === 'FINANCE' ? ' finance-workspace' : ''}${currentRole === 'FDA' ? ' fda-workspace' : ''}`}
+            className={`maritim-content${currentRole === 'MANAGER_OPS' || currentRole === 'DIRECTOR' ? ' manager-director-workspace' : ''}${currentRole === 'FINANCE' ? ' finance-workspace' : ''}${currentRole === 'FDA' ? ' fda-workspace' : ''}${currentRole === 'HR_ADMINISTRASI' ? ' hr-workspace' : ''}${currentRole === 'PEKERJA' ? ' worker-workspace' : ''}`}
             key={viewSessionKey}
           >
             {/* 1. ADMIN DASHBOARD */}
+            {(currentRole === 'HR_ADMINISTRASI' && ['HR_WORKSPACE', 'HR_ATTENDANCE', 'HR_LEAVE_APPROVAL'].includes(activeTab)
+              || currentRole === 'PEKERJA' && ['WORKER_WORKSPACE', 'WORKER_ATTENDANCE', 'WORKER_LEAVE_REQUEST'].includes(activeTab)) && (
+              <HrWorkspaceView
+                currentUser={currentUser}
+                initialPanel={activeTab === 'HR_ATTENDANCE' ? 'attendance' : activeTab === 'HR_LEAVE_APPROVAL' ? 'leave-approval' : activeTab === 'WORKER_ATTENDANCE' ? 'worker-attendance' : activeTab === 'WORKER_LEAVE_REQUEST' ? 'worker-leave' : currentRole === 'PEKERJA' ? 'worker-profile' : 'employees'}
+              />
+            )}
+
             {currentRole === 'ADMIN' && activeTab === 'DASHBOARD' && (
               <AdminDashboardView data={data} onNavigate={setActiveTab} />
             )}

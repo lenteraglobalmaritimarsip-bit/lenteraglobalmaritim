@@ -333,7 +333,7 @@ function validateUserBranches(array $newState, array $oldState): ?string
         $branchChanged = $oldUser === null
             || branchNameKey((string) ($oldUser['branch'] ?? '')) !== branchNameKey($branchCode)
             || branchIdKey((string) ($oldUser['branchId'] ?? '')) !== branchIdKey($branchId);
-        if ($branchCode === '' && in_array(($user['role'] ?? ''), ['ADMIN', 'ACCOUNTING', 'DIRECTOR'], true)) continue;
+        if ($branchCode === '' && in_array(($user['role'] ?? ''), ['ADMIN', 'ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'], true)) continue;
         if ($branchId === '') $branchId = branchIdFromValue($branchCode) ?? '';
         if ($branchId !== '' && !validBranchSelection($branchId, $branchCode)) {
             return 'Pilih branch aktif yang valid dari master branch untuk user.';
@@ -758,7 +758,10 @@ function applyNonAdminMasterData(array &$state, array $before, string $role): vo
 
 try {
     if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
-        requireAuthenticatedUser();
+        $actor = requireAuthenticatedUser();
+        if (in_array($actor['role'] ?? '', ['HR_ADMINISTRASI', 'PEKERJA'], true)) {
+            jsonResponse(['error' => 'Role HR dan Pekerja menggunakan workspace administrasi khusus.'], 403);
+        }
         $state = loadAppState();
         $initialized = !empty($state['ports']) || !empty($state['customers']) || !empty($state['vessels']);
         jsonResponse(['state' => $state, 'initialized' => $initialized, 'revision' => stateRevision($state)]);
@@ -766,6 +769,9 @@ try {
 
     requireMethod('PUT');
     $actor = requireAuthenticatedUser();
+    if (in_array($actor['role'] ?? '', ['HR_ADMINISTRASI', 'PEKERJA'], true)) {
+        jsonResponse(['error' => 'Role HR dan Pekerja tidak dapat mengubah state operasional.'], 403);
+    }
     requireCsrfToken();
     $body = requestJson();
     $state = $body['state'] ?? null;
@@ -815,6 +821,35 @@ try {
     $lock = $pdo->query("SELECT GET_LOCK('maritimport_app_state', 10)")->fetchColumn();
     if ((int) $lock !== 1) jsonResponse(['error' => 'Could not lock application state for saving'], 503);
     $before = loadAppState();
+    $incomingUsersById = [];
+    foreach ($state['users'] ?? [] as $incomingUser) {
+        $incomingUsersById[(string) ($incomingUser['id'] ?? '')] = $incomingUser;
+    }
+    $workersLosingRole = [];
+    foreach ($before['users'] ?? [] as $existingUser) {
+        if (($existingUser['role'] ?? '') !== 'PEKERJA') continue;
+        $incomingUser = $incomingUsersById[(string) ($existingUser['id'] ?? '')] ?? null;
+        if ($incomingUser === null || ($incomingUser['role'] ?? '') !== 'PEKERJA') {
+            $workersLosingRole[] = (string) $existingUser['id'];
+        }
+    }
+    if ($workersLosingRole) {
+        $hasHrHistory = false;
+        foreach (['hr_employee_records', 'hr_employee_documents', 'hr_attendance', 'hr_leave_requests', 'hr_profile_change_requests', 'hr_employee_history'] as $table) {
+            if (tableColumns($pdo, $table) === null) continue;
+            $marks = implode(', ', array_fill(0, count($workersLosingRole), '?'));
+            $query = $pdo->prepare("SELECT 1 FROM `{$table}` WHERE user_id IN ({$marks}) LIMIT 1");
+            $query->execute($workersLosingRole);
+            if ($query->fetchColumn()) {
+                $hasHrHistory = true;
+                break;
+            }
+        }
+        if ($hasHrHistory) {
+            $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+            jsonResponse(['error' => 'Akun pekerja yang memiliki administrasi HR tidak dapat dihapus atau diganti role. Nonaktifkan akun atau ubah status kerja menjadi resign agar riwayat tetap utuh.'], 409);
+        }
+    }
     $approvalTargetError = validatePaymentVoucherApprovalTargets($state, $before, $actor);
     if ($approvalTargetError !== null) {
         $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");

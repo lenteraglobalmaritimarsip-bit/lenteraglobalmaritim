@@ -468,3 +468,268 @@ export async function updateAccountingAsset(assetId: string, input: {
     body: JSON.stringify(input),
   });
 }
+
+export type HrEmploymentStatus = 'ACTIVE' | 'ON_LEAVE' | 'RESIGNED';
+export type HrLeaveStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+export interface HrEmployee {
+  userId: string;
+  employeeNumber: string | null;
+  name: string;
+  email: string;
+  phone: string | null;
+  position: string | null;
+  department: string | null;
+  branchName: string | null;
+  branchId: string | number | null;
+  dateOfBirth: string | null;
+  birthCity: string | null;
+  gender: 'MALE' | 'FEMALE' | 'OTHER' | null;
+  address: string | null;
+  emergencyContactName: string | null;
+  emergencyContactPhone: string | null;
+  employmentStatus: HrEmploymentStatus;
+  contractType: 'PERMANENT' | 'CONTRACT' | 'PROBATION' | 'INTERNSHIP' | 'OTHER' | null;
+  contractStart: string | null;
+  contractEnd: string | null;
+  contractDurationYears: number | null;
+  nik: string | null;
+  npwp: string | null;
+  payrollAccountNumber: string | null;
+  payrollBankName: string | null;
+  hasRecord: boolean;
+  photoDataBase64: string | null;
+  photoMimeType: string | null;
+}
+
+export interface HrDocument {
+  id: string;
+  userId?: string;
+  employeeName?: string;
+  title: string;
+  category: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  uploadedByName: string;
+  uploadedAt: string;
+}
+
+export interface HrAttendance {
+  id: string;
+  userId?: string;
+  employeeName?: string;
+  date: string;
+  status: 'PRESENT' | 'ABSENT' | 'REMOTE' | 'LEAVE';
+  checkIn: string | null;
+  checkOut: string | null;
+  note: string | null;
+  updatedByName?: string;
+  updatedAt: string;
+  checkInAt?: string | null;
+  checkInLatitude?: number | string | null;
+  checkInLongitude?: number | string | null;
+  checkInAccuracyMeters?: number | string | null;
+  overtimeCheckInAt?: string | null;
+  overtimeCheckInLatitude?: number | string | null;
+  overtimeCheckInLongitude?: number | string | null;
+  overtimeCheckInAccuracyMeters?: number | string | null;
+  checkOutAt?: string | null;
+  checkOutLatitude?: number | string | null;
+  checkOutLongitude?: number | string | null;
+  checkOutAccuracyMeters?: number | string | null;
+  overtimeCheckOutAt?: string | null;
+  overtimeCheckOutLatitude?: number | string | null;
+  overtimeCheckOutLongitude?: number | string | null;
+  overtimeCheckOutAccuracyMeters?: number | string | null;
+}
+
+export interface HrAttendanceReportRow {
+  date: string;
+  employeeName: string;
+  userId: string;
+  branchName: string | null;
+  checkInAt: string | null;
+  checkInLatitude: number | string | null;
+  checkInLongitude: number | string | null;
+  checkInAccuracyMeters: number | string | null;
+  overtimeCheckInAt: string | null;
+  overtimeCheckInLatitude: number | string | null;
+  overtimeCheckInLongitude: number | string | null;
+  overtimeCheckInAccuracyMeters: number | string | null;
+  checkOutAt: string | null;
+  checkOutLatitude: number | string | null;
+  checkOutLongitude: number | string | null;
+  checkOutAccuracyMeters: number | string | null;
+  overtimeCheckOutAt: string | null;
+  overtimeCheckOutLatitude: number | string | null;
+  overtimeCheckOutLongitude: number | string | null;
+  overtimeCheckOutAccuracyMeters: number | string | null;
+}
+
+export type HrAttendanceEvent = 'CHECK_IN' | 'OVERTIME_CHECK_IN' | 'CHECK_OUT' | 'OVERTIME_CHECK_OUT';
+
+export interface HrLeaveRequest {
+  id: string;
+  userId?: string;
+  employeeName?: string;
+  type: 'ANNUAL' | 'SICK' | 'PERSONAL' | 'OTHER';
+  startDate: string;
+  endDate: string;
+  reason: string;
+  status: HrLeaveStatus;
+  reviewNote: string | null;
+  createdAt: string;
+  reviewedByName?: string | null;
+  reviewedAt?: string | null;
+}
+
+export interface HrProfileChangeRequest {
+  id: string;
+  userId?: string;
+  employeeName?: string;
+  proposedData: Record<string, string | null>;
+  status: HrLeaveStatus;
+  reviewNote: string | null;
+  createdAt: string;
+  reviewedByName?: string | null;
+  reviewedAt?: string | null;
+}
+
+export interface HrHistoryEntry {
+  id: string;
+  userId: string;
+  employeeName: string | null;
+  eventType: string;
+  summary: string;
+  beforeData: Record<string, unknown> | null;
+  afterData: Record<string, unknown> | null;
+  actorName: string;
+  createdAt: string;
+  createdAtWib?: string;
+}
+
+export interface HrWorkspace {
+  employees?: HrEmployee[];
+  profile?: HrEmployee | null;
+  documents: HrDocument[];
+  attendance: HrAttendance[];
+  leaveRequests: HrLeaveRequest[];
+  profileRequests: HrProfileChangeRequest[];
+  history?: HrHistoryEntry[];
+  branches?: Branch[];
+}
+
+export interface HrEmployeeSave {
+  userId: string;
+  employeeNumber: string;
+  name: string;
+  email: string;
+  phone: string;
+  position: string;
+  department: string;
+  branchId: string;
+  dateOfBirth: string;
+  birthCity: string;
+  gender: '' | 'MALE' | 'FEMALE' | 'OTHER';
+  address: string;
+  emergencyContactName: string;
+  emergencyContactPhone: string;
+  photoDataBase64?: string;
+  photoMimeType?: string;
+  employmentStatus: HrEmploymentStatus;
+  contractType: '' | 'PERMANENT' | 'CONTRACT' | 'PROBATION' | 'INTERNSHIP' | 'OTHER';
+  contractStart: string;
+  contractEnd: string;
+  contractDurationYears: string;
+  nik: string;
+  npwp: string;
+  payrollAccountNumber: string;
+  payrollBankName: string;
+}
+
+export const hrApi = {
+  async loadWorkspace(): Promise<HrWorkspace> {
+    if (!apiEnabled) throw new Error('Workspace HR memerlukan koneksi API aktif.');
+    return request<HrWorkspace>('hr.php?action=workspace');
+  },
+  async saveEmployee(input: HrEmployeeSave): Promise<void> {
+    await request<{ ok: boolean }>('hr.php?action=save-employee', { method: 'POST', body: JSON.stringify(input) });
+  },
+  async uploadDocument(input: { userId: string; title: string; category: string; file: File }): Promise<void> {
+    if (!apiEnabled) throw new Error('Upload dokumen memerlukan koneksi API aktif.');
+    const form = new FormData();
+    form.set('userId', input.userId);
+    form.set('title', input.title);
+    form.set('category', input.category);
+    form.set('document', input.file);
+    const response = await fetch('/api/hr.php?action=upload-document', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'X-CSRF-Token': csrfToken },
+      body: form,
+    });
+    const payload = await response.json().catch(() => ({})) as ApiErrorPayload;
+    if (!response.ok) throw new Error(payload.error || `Dokumen gagal diunggah (${response.status}).`);
+  },
+  async downloadDocument(id: string): Promise<{ fileName: string; mimeType: string; contentBase64: string }> {
+    const query = new URLSearchParams({ action: 'document', id });
+    return request<{ fileName: string; mimeType: string; contentBase64: string }>(`hr.php?${query.toString()}`);
+  },
+  async saveAttendance(input: {
+    userId: string;
+    date: string;
+    status: HrAttendance['status'];
+    checkIn: string;
+    checkOut: string;
+    note: string;
+  }): Promise<void> {
+    await request<{ ok: boolean }>('hr.php?action=save-attendance', { method: 'POST', body: JSON.stringify(input) });
+  },
+  async attendanceReport(input: {
+    year: number;
+    month: number;
+    category: 'ALL' | 'BRANCH' | 'EMPLOYEE';
+    branchId?: string;
+    name?: string;
+    date?: string;
+  }): Promise<HrAttendanceReportRow[]> {
+    const query = new URLSearchParams({
+      action: 'attendance-report',
+      year: String(input.year),
+      month: String(input.month),
+      category: input.category,
+    });
+    if (input.branchId) query.set('branchId', input.branchId);
+    if (input.name) query.set('name', input.name);
+    if (input.date) query.set('date', input.date);
+    const result = await request<{ rows: HrAttendanceReportRow[] }>(`hr.php?${query.toString()}`);
+    return result.rows;
+  },
+  async punchAttendance(input: {
+    event: HrAttendanceEvent;
+    latitude: number;
+    longitude: number;
+    accuracy: number;
+  }): Promise<{ ok: boolean; event: HrAttendanceEvent; occurredAt: string }> {
+    return request<{ ok: boolean; event: HrAttendanceEvent; occurredAt: string }>('hr.php?action=punch-attendance', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+  async requestLeave(input: { type: HrLeaveRequest['type']; startDate: string; endDate: string; reason: string }): Promise<void> {
+    await request<{ ok: boolean }>('hr.php?action=request-leave', { method: 'POST', body: JSON.stringify(input) });
+  },
+  async reviewLeave(input: { id: string; decision: 'APPROVED' | 'REJECTED'; note: string }): Promise<void> {
+    await request<{ ok: boolean }>('hr.php?action=review-leave', { method: 'POST', body: JSON.stringify(input) });
+  },
+  async requestProfileChange(changes: Record<string, string>): Promise<void> {
+    await request<{ ok: boolean }>('hr.php?action=request-profile-change', { method: 'POST', body: JSON.stringify({ changes }) });
+  },
+  async updateWorkerPhoto(input: { photoDataBase64: string; photoMimeType: string }): Promise<void> {
+    await request<{ ok: boolean }>('hr.php?action=update-worker-photo', { method: 'POST', body: JSON.stringify(input) });
+  },
+  async reviewProfileChange(input: { id: string; decision: 'APPROVED' | 'REJECTED'; note: string }): Promise<void> {
+    await request<{ ok: boolean }>('hr.php?action=review-profile-change', { method: 'POST', body: JSON.stringify(input) });
+  },
+};

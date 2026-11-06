@@ -7,6 +7,7 @@ import { Customer, JobCall, User, Vessel } from '../../types';
 import { formatDateDisplay, formatInquiryDate, formatInquiryDateRange, isInquiryDateInRange } from '../../utils/date';
 import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateRangePicker';
 import { InquiryVesselDetails } from '../shared/InquiryVesselDetails';
+import { printHtmlInFrame } from '../../utils/printHtmlInFrame';
 
 interface Props {
   jobCalls: JobCall[];
@@ -123,6 +124,7 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,users =
   const [selectedDetailId,setSelectedDetailId] = useState<string | null>(null);
   const [downloadOpen,setDownloadOpen] = useState(false);
   const downloadRef = useRef<HTMLDivElement>(null);
+  const pdfPrintFrameRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
     const closeDownloadMenu = (event: MouseEvent) => {
@@ -189,21 +191,26 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,users =
   };
 
   const exportPdf = () => {
-    const lines = ['MONITORING VESSEL CALLS', dateRangeText, '', exportHeaders.join(' | '), ...exportRows.map(row => row.map(value => String(value)).join(' | '))];
-    const esc=(v:string)=>v.replace(/\\/g,'\\\\').replace(/\(/g,'\\(').replace(/\)/g,'\\)');
-    const bodyLines = lines.slice(1).flatMap((l,i) => [`(${esc(l.slice(0,180))}) Tj`, ...(i < lines.length - 2 ? ['0 -12 Td'] : [])]);
-    const stream = ['BT','/F1 16 Tf','40 550 Td',`(${esc(lines[0])}) Tj`,'0 -22 Td','/F1 8 Tf',...bodyLines,'ET'].join('\n');
-    const objs=[
-      '1 0 obj<< /Type /Catalog /Pages 2 0 R >>endobj',
-      '2 0 obj<< /Type /Pages /Kids [3 0 R] /Count 1 >>endobj',
-      '3 0 obj<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>endobj',
-      '4 0 obj<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>endobj',
-      `5 0 obj<< /Length ${stream.length} >>stream\n${stream}\nendstream\nendobj`
-    ];
-    let pdf='%PDF-1.4\n'; const offsets=[0];
-    objs.forEach(o=>{offsets.push(pdf.length);pdf+=o+'\n';});
-    const xref=pdf.length; pdf+=`xref\n0 ${objs.length+1}\n0000000000 65535 f \n`+offsets.slice(1).map(o=>String(o).padStart(10,'0')+' 00000 n \n').join('')+`trailer<< /Size ${objs.length+1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
-    download(new Blob([pdf],{type:'application/pdf'}),`active-vessel-calls-${dateRange.from || 'awal'}-${dateRange.to || 'akhir'}.pdf`);
+    const tableRows = exportRows.map((row) => `<tr>${row.map((value) => `<td>${escapeHtml(value)}</td>`).join('')}</tr>`).join('');
+    const html = `<!doctype html><html lang="id"><head><meta charset="utf-8"><title>Monitoring Vessel Calls - ${escapeHtml(dateRangeText)}</title><style>
+      @page{size:A4 landscape;margin:10mm}
+      *{box-sizing:border-box}
+      body{font-family:Arial,sans-serif;color:#1f2937;margin:0}
+      h1{font-size:18px;margin:0 0 4px}
+      p{font-size:10px;color:#64748b;margin:0 0 12px}
+      table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:7px}
+      thead{display:table-header-group}
+      th{background:#eef3f9;text-align:left;padding:4px;border:1px solid #d5deea;overflow-wrap:anywhere}
+      td{padding:4px;border:1px solid #dfe6ef;vertical-align:top;overflow-wrap:anywhere}
+      tr{break-inside:avoid;page-break-inside:avoid}
+      tr:nth-child(even){background:#fafcff}
+    </style></head><body><h1>Monitoring Vessel Calls</h1><p>${escapeHtml(dateRangeText)} · ${rows.length} Vessel Call</p><table><thead><tr>${exportHeaders.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead><tbody>${tableRows || `<tr><td colspan="${exportHeaders.length}">Tidak ada data pada periode ini.</td></tr>`}</tbody></table></body></html>`;
+    const frame = pdfPrintFrameRef.current;
+    if (!frame) {
+      console.error('PDF print frame is not available.');
+      return;
+    }
+    printHtmlInFrame(frame, html, `active-vessel-calls-${dateRange.from || 'awal'}-${dateRange.to || 'akhir'}`);
     setDownloadOpen(false);
   };
 
@@ -353,5 +360,12 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,users =
         Next
       </button>
     </div>
+    <iframe
+      ref={pdfPrintFrameRef}
+      title="Dokumen PDF Monitoring Vessel Calls"
+      aria-hidden="true"
+      tabIndex={-1}
+      style={{ position: 'fixed', left: '-10000px', top: 0, width: '297mm', height: '210mm', border: 0 }}
+    />
   </div>;
 };

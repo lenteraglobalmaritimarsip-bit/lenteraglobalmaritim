@@ -76,12 +76,23 @@ function requireAuthenticatedUser(): array
     if (empty($_SESSION['user'])) {
         jsonResponse(['error' => 'Authentication required'], 401);
     }
-    $query = db()->prepare('SELECT status FROM users WHERE id = :id LIMIT 1');
+    $query = db()->prepare('SELECT status, role FROM users WHERE id = :id LIMIT 1');
     $query->execute(['id' => $_SESSION['user']['id']]);
-    if ($query->fetchColumn() !== 'ACTIVE') {
+    $account = $query->fetch();
+    if (!$account || $account['status'] !== 'ACTIVE') {
         $_SESSION = [];
         session_destroy();
         jsonResponse(['error' => 'Akun tidak aktif. Hubungi administrator.'], 401);
+    }
+    $_SESSION['user']['role'] = $account['role'];
+    if ($account['role'] === 'PEKERJA') {
+        $employment = db()->prepare('SELECT employment_status FROM hr_employee_records WHERE user_id = :id LIMIT 1');
+        $employment->execute(['id' => $_SESSION['user']['id']]);
+        if ($employment->fetchColumn() === 'RESIGNED') {
+            $_SESSION = [];
+            session_destroy();
+            jsonResponse(['error' => 'Akun pekerja telah dinonaktifkan karena status kerja berakhir.'], 401);
+        }
     }
     return $_SESSION['user'];
 }

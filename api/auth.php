@@ -52,6 +52,15 @@ try {
             $pdo->commit();
             jsonResponse(['error' => 'Akun tidak aktif. Hubungi administrator.'], 401);
         }
+        if ($user['role'] === 'PEKERJA') {
+            $employment = $pdo->prepare('SELECT employment_status FROM hr_employee_records WHERE user_id = :id LIMIT 1');
+            $employment->execute(['id' => $user['id']]);
+            if ($employment->fetchColumn() === 'RESIGNED') {
+                recordAuthAudit($user, 'LOGIN_REJECTED', 'Login ditolak karena status kerja pekerja telah berakhir.');
+                $pdo->commit();
+                jsonResponse(['error' => 'Akun pekerja telah dinonaktifkan karena status kerja berakhir.'], 401);
+            }
+        }
 
         $passwordMatches = preg_match('/^\d{8}$/', $password)
             && !empty($user['password_hash'])

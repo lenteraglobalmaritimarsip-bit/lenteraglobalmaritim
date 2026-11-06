@@ -1,0 +1,17 @@
+ALTER TABLE hr_attendance
+  ADD COLUMN check_in_at DATETIME(3) NULL AFTER check_in,
+  ADD COLUMN check_in_latitude DECIMAL(10,7) NULL AFTER check_in_at,
+  ADD COLUMN check_in_longitude DECIMAL(10,7) NULL AFTER check_in_latitude,
+  ADD COLUMN check_in_accuracy_meters DECIMAL(8,2) NULL AFTER check_in_longitude,
+  ADD COLUMN check_out_at DATETIME(3) NULL AFTER check_out,
+  ADD COLUMN check_out_latitude DECIMAL(10,7) NULL AFTER check_out_at,
+  ADD COLUMN check_out_longitude DECIMAL(10,7) NULL AFTER check_out_latitude,
+  ADD COLUMN check_out_accuracy_meters DECIMAL(8,2) NULL AFTER check_out_longitude,
+  ADD COLUMN overtime_check_in_at DATETIME(3) NULL AFTER check_out_accuracy_meters,
+  ADD COLUMN overtime_check_in_latitude DECIMAL(10,7) NULL AFTER overtime_check_in_at,
+  ADD COLUMN overtime_check_in_longitude DECIMAL(10,7) NULL AFTER overtime_check_in_latitude,
+  ADD COLUMN overtime_check_in_accuracy_meters DECIMAL(8,2) NULL AFTER overtime_check_in_longitude,
+  ADD COLUMN overtime_check_out_at DATETIME(3) NULL AFTER overtime_check_in_accuracy_meters,
+  ADD COLUMN overtime_check_out_latitude DECIMAL(10,7) NULL AFTER overtime_check_out_at,
+  ADD COLUMN overtime_check_out_longitude DECIMAL(10,7) NULL AFTER overtime_check_out_latitude,
+  ADD COLUMN overtime_check_out_accuracy_meters DECIMAL(8,2) NULL AFTER overtime_check_out_longitude;

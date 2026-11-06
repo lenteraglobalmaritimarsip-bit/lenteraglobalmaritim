@@ -302,6 +302,160 @@ button{ cursor:pointer; }
     background:rgba(8,15,30,.48);cursor:pointer;
   }
 }
+@media(max-width:680px){
+  .maritim-header-inner{gap:8px;padding:0 10px}
+  .maritim-header{
+    position:fixed;
+    top:0;
+    right:0;
+    left:0;
+    width:100%;
+  }
+  .maritim-app{
+    padding-top:64px;
+  }
+  .maritim-brand{gap:7px;flex:0 1 auto}
+  .maritim-logo{width:30px;height:30px;flex:0 0 30px}
+  .maritim-logo img{width:26px;height:26px}
+  .maritim-brand-name{white-space:nowrap;font-size:clamp(10px,3.2vw,12px);letter-spacing:-.35px}
+  .maritim-header-actions{gap:5px}
+}
+@media(max-width:360px){
+  .maritim-role-pill{display:none}
+  .maritim-header-inner{gap:6px;padding:0 8px}
+  .maritim-brand-name{font-size:10px}
+  .maritim-user{padding-left:5px}
+}
+
+@media(max-width:680px){
+  html,
+  body{
+    max-width:100%;
+    overflow-x:hidden;
+  }
+  .hr-workspace,
+  .worker-workspace{width:100%}
+  .maritim-main,
+  .maritim-main main,
+  .hr-workspace,
+  .worker-workspace{
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+    overflow-x:hidden;
+  }
+  .hr-workspace header,
+  .worker-workspace header{padding:16px!important}
+  .hr-workspace header h1,
+  .worker-workspace header h1{font-size:21px!important}
+  .hr-workspace [aria-label="Menu HR"]{
+    display:grid!important;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  .hr-workspace [aria-label="Menu HR"] button,
+  .worker-workspace button:not(.maritim-nav-item){
+    white-space:normal;
+  }
+  .hr-workspace form.grid,
+  .worker-workspace form.grid{grid-template-columns:minmax(0,1fr)!important}
+  .hr-workspace input,
+  .hr-workspace select,
+  .hr-workspace textarea,
+  .worker-workspace input,
+  .worker-workspace select,
+  .worker-workspace textarea{
+    width:100%!important;
+    min-width:0;
+    font-size:16px!important;
+  }
+  .hr-workspace table,
+  .worker-workspace table{font-size:12px!important}
+  .hr-workspace th,
+  .hr-workspace td,
+  .worker-workspace th,
+  .worker-workspace td{padding:8px 7px!important}
+  .hr-workspace .overflow-x-auto,
+  .worker-workspace .overflow-x-auto{
+    margin-left:-4px;
+    margin-right:-4px;
+    padding-left:4px;
+    padding-right:4px;
+  }
+  .worker-workspace section,
+  .hr-workspace section{
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+  }
+  .worker-workspace .worker-profile-layout{
+    grid-template-columns:minmax(0,1fr)!important;
+    gap:18px!important;
+    width:100%!important;
+    min-width:0!important;
+  }
+  .worker-workspace .worker-profile-layout > *{
+    width:100%!important;
+    min-width:0!important;
+  }
+  .worker-workspace [data-worker-photo-frame]{
+    width:min(190px,72vw)!important;
+    margin-inline:auto;
+  }
+  .worker-workspace .worker-profile-details{
+    width:100%;
+    margin-top:0;
+  }
+  .worker-profile-detail{
+    grid-template-columns:minmax(112px,42%) 8px minmax(0,58%);
+    gap:4px;
+    padding:5px 0;
+  }
+  .worker-workspace .worker-profile-detail dt,
+  .worker-workspace .worker-profile-value{
+    overflow-wrap:anywhere;
+  }
+  .worker-workspace dl.grid{grid-template-columns:minmax(0,1fr)!important}
+  .hr-workspace article,
+  .worker-workspace article{padding:12px!important}
+  .hr-workspace section,
+  .worker-workspace section{overflow:hidden}
+  .hr-workspace header,
+  .worker-workspace header{position:relative}
+  .worker-workspace button,
+  .hr-workspace button{max-width:100%}
+}
+
+/* Employee photo frame — Lentera blue portrait 4 × 6 */
+/* Worker profile information follows a clean label / colon / value layout. */
+.worker-profile-details{margin-top:2px}
+.worker-workspace .worker-profile-layout{column-gap:28px}
+.worker-profile-detail{
+  display:grid;
+  grid-template-columns:minmax(120px,150px) 8px minmax(0,1fr);
+  align-items:start;
+  gap:4px;
+  padding:5px 0;
+  border:0;
+  background:transparent;
+}
+.worker-profile-detail dt{color:#64748b;font-weight:500}
+.worker-profile-colon{color:#64748b}
+.worker-profile-value{font-weight:700;color:#1e293b;overflow-wrap:anywhere}
+
+@media(max-width:680px){
+  .worker-profile-detail{
+    grid-template-columns:minmax(105px,135px) 10px minmax(0,1fr);
+    gap:6px;
+    padding:6px 0;
+    font-size:13px;
+  }
+}
+
+.hr-workspace [data-employee-photo-frame],
+.worker-workspace [data-worker-photo-frame]{
+  border:3px solid #1d4ed8;
+  box-shadow:0 8px 22px rgba(29,78,216,.22), inset 0 0 0 1px rgba(255,255,255,.8);
+}
 @media(min-width:901px){
   .maritim-mobile-nav-overlay{display:none}
 }
