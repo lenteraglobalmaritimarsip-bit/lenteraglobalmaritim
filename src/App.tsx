@@ -420,10 +420,10 @@ export default function App() {
           >
             {/* 1. ADMIN DASHBOARD */}
             {(currentRole === 'HR_ADMINISTRASI' && ['HR_WORKSPACE', 'HR_ATTENDANCE', 'HR_LEAVE_APPROVAL'].includes(activeTab)
-              || currentRole === 'PEKERJA' && ['WORKER_WORKSPACE', 'WORKER_ATTENDANCE', 'WORKER_LEAVE_REQUEST'].includes(activeTab)) && (
+              || currentRole === 'PEKERJA' && ['WORKER_WORKSPACE', 'WORKER_ATTENDANCE', 'WORKER_LEAVE_REQUEST', 'WORKER_DOWNLOAD_PAYSLIP', 'WORKER_DOWNLOAD_ATTENDANCE'].includes(activeTab)) && (
               <HrWorkspaceView
                 currentUser={currentUser}
-                initialPanel={activeTab === 'HR_ATTENDANCE' ? 'attendance' : activeTab === 'HR_LEAVE_APPROVAL' ? 'leave-approval' : activeTab === 'WORKER_ATTENDANCE' ? 'worker-attendance' : activeTab === 'WORKER_LEAVE_REQUEST' ? 'worker-leave' : currentRole === 'PEKERJA' ? 'worker-profile' : 'employees'}
+                initialPanel={activeTab === 'HR_ATTENDANCE' ? 'attendance' : activeTab === 'HR_LEAVE_APPROVAL' ? 'leave-approval' : activeTab === 'WORKER_ATTENDANCE' ? 'worker-attendance' : activeTab === 'WORKER_LEAVE_REQUEST' ? 'worker-leave' : activeTab === 'WORKER_DOWNLOAD_PAYSLIP' ? 'worker-download-payslip' : activeTab === 'WORKER_DOWNLOAD_ATTENDANCE' ? 'worker-download-attendance' : currentRole === 'PEKERJA' ? 'worker-profile' : 'employees'}
               />
             )}
 

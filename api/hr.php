@@ -541,8 +541,13 @@ try {
         if ($content === false) jsonResponse(['error' => 'Dokumen gagal dibaca oleh server.'], 400);
         $finfo = new finfo(FILEINFO_MIME_TYPE);
         $mimeType = $finfo->buffer($content);
-        if (!in_array($mimeType, ['application/pdf', 'image/jpeg', 'image/png'], true)) {
-            jsonResponse(['error' => 'Format dokumen yang diizinkan hanya PDF, JPG, atau PNG.'], 400);
+        if (!in_array($mimeType, [
+            'application/pdf',
+            'image/jpeg',
+            'image/png',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ], true)) {
+            jsonResponse(['error' => 'Format dokumen yang diizinkan hanya PDF, JPG, PNG, atau Excel XLSX.'], 400);
         }
         $originalName = str_replace('\\', '/', (string) ($file['name'] ?? 'dokumen'));
         $fileName = basename($originalName);

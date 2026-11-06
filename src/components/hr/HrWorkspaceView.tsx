@@ -18,7 +18,7 @@ import {
 import { formatDateDisplay, formatDateTimeWib, todayISO } from '../../utils/date';
 import { getPublicLogoUrl } from '../../utils/logo';
 
-type HrPanel = 'employees' | 'requests' | 'leave-approval' | 'attendance' | 'documents' | 'history' | 'worker-profile' | 'worker-attendance' | 'worker-leave';
+type HrPanel = 'employees' | 'requests' | 'leave-approval' | 'attendance' | 'documents' | 'history' | 'worker-profile' | 'worker-attendance' | 'worker-leave' | 'worker-download-payslip' | 'worker-download-attendance';
 
 const emptyEmployeeForm: HrEmployeeSave = {
   userId: '',
@@ -114,6 +114,12 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
   });
   const [workerPhotoPreview, setWorkerPhotoPreview] = useState('');
   const [decisionNotes, setDecisionNotes] = useState<Record<string, string>>({});
+  const [workerDownloadFilters, setWorkerDownloadFilters] = useState({
+    year: Number(todayISO().slice(0, 4)),
+    month: Number(todayISO().slice(5, 7)),
+  });
+  const [workerAttendanceShown, setWorkerAttendanceShown] = useState(false);
+  const [workerPayslipShown, setWorkerPayslipShown] = useState(false);
   const [reportFilters, setReportFilters] = useState({
     year: Number(todayISO().slice(0, 4)),
     month: Number(todayISO().slice(5, 7)),
@@ -126,6 +132,7 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
   const [reportRows, setReportRows] = useState<HrAttendanceReportRow[] | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [punchLoading, setPunchLoading] = useState(false);
+  const [selectedPunchEvent, setSelectedPunchEvent] = useState<HrAttendanceEvent>('CHECK_IN');
   const [attendanceSuccess, setAttendanceSuccess] = useState<{ title: string; message: string } | null>(null);
 
   const reload = useCallback(async (showLoading = false): Promise<boolean> => {
@@ -370,13 +377,14 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
       if (navigator.vibrate) navigator.vibrate(80);
       if (await reload()) setNotice(`${attendanceEventLabel(event)} berhasil dicatat pada ${result.occurredAt}.`);
       const lateCheckIn = event === 'CHECK_IN' && attendanceTimeMinutes(result.occurredAt) > 540;
+      const attendanceTime = formatAttendanceTime(result.occurredAt);
       setAttendanceSuccess({
         title: lateCheckIn ? 'Anda absen datang telat' : 'Absensi berhasil',
         message: event === 'CHECK_IN'
-          ? lateCheckIn ? 'Anda absen datang telat. Mohon gunakan waktu yang tersedia.' : 'Selamat beraktivitas penuh semangat ya.'
+          ? lateCheckIn ? `Anda sudah melakukan presensi Absen datang jam ${attendanceTime}. Mohon gunakan waktu yang tersedia.` : `Anda sudah melakukan presensi Absen datang jam ${attendanceTime}.`
           : event === 'CHECK_OUT'
-            ? 'Selamat beristirahat ya.'
-            : `${attendanceEventLabel(event)} berhasil dicatat.`,
+            ? `Anda sudah melakukan presensi Absen pulang jam ${attendanceTime}. Selamat beristirahat ya.`
+            : `Anda sudah melakukan presensi ${attendanceEventLabel(event)} jam ${attendanceTime}.`,
       });
     } catch (punchError) {
       if (punchError instanceof GeolocationPositionError) {
@@ -391,6 +399,22 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
     } finally {
       setPunchLoading(false);
     }
+  };
+
+  const confirmAttendance = (event: HrAttendanceEvent) => {
+    const action = workerAttendanceActions(workspace?.attendance || []).find((item) => item.event === event);
+    if (!action) return;
+
+    if (action.completed) {
+      const recordedTime = workerAttendanceRecordedTime(workspace?.attendance || [], event);
+      setAttendanceSuccess({
+        title: 'Presensi sudah tercatat',
+        message: `Anda sudah melakukan presensi ${attendanceEventLabel(event)} jam ${recordedTime}.`,
+      });
+      return;
+    }
+
+    void punchAttendance(event);
   };
 
   const reviewLeave = (request: HrLeaveRequest, decision: 'APPROVED' | 'REJECTED') => {
@@ -415,6 +439,56 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
   const ownDocuments = workspace?.documents || [];
   const ownAttendance = workspace?.attendance || [];
   const ownLeaveRequests = workspace?.leaveRequests || [];
+  const workerDownloadYears = Array.from(new Set([
+    Number(todayISO().slice(0, 4)),
+    ...ownAttendance.map((row) => Number(row.date.slice(0, 4))).filter((year) => Number.isInteger(year) && year > 0),
+    ...ownDocuments.map((document) => Number(String(document.uploadedAt).slice(0, 4))).filter((year) => Number.isInteger(year) && year > 0),
+  ])).sort((a, b) => b - a);
+  const filteredWorkerAttendance = ownAttendance.filter((row) => {
+    const [year, month] = row.date.split('-').map(Number);
+    return year === workerDownloadFilters.year && month === workerDownloadFilters.month;
+  });
+  const workerPayslipDocuments = ownDocuments.filter((document) => {
+    const date = String(document.uploadedAt).slice(0, 10);
+    const [year, month] = date.split('-').map(Number);
+    const searchableText = `${document.category} ${document.title}`.toLocaleLowerCase();
+    return year === workerDownloadFilters.year
+      && month === workerDownloadFilters.month
+      && (searchableText.includes('gaji') || searchableText.includes('payroll') || searchableText.includes('slip'));
+  });
+
+  const downloadOwnAttendance = async (rows: HrAttendance[]) => {
+    try {
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet('Absensi');
+      sheet.columns = [
+        { header: 'Tanggal', key: 'date', width: 16 },
+        { header: 'Status', key: 'status', width: 16 },
+        { header: 'Absen Datang', key: 'checkIn', width: 20 },
+        { header: 'Absen Pulang', key: 'checkOut', width: 20 },
+        { header: 'Keterangan', key: 'note', width: 36 },
+      ];
+      rows.forEach((row) => sheet.addRow({
+        date: formatDateDisplay(row.date),
+        status: row.status,
+        checkIn: formatAttendanceTime(row.checkInAt || row.checkIn),
+        checkOut: formatAttendanceTime(row.checkOutAt || row.checkOut),
+        note: row.note || '',
+      }));
+      sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF17365D' } };
+      sheet.views = [{ state: 'frozen', ySplit: 1 }];
+      const buffer = await workbook.xlsx.writeBuffer();
+      const url = URL.createObjectURL(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      const link = window.document.createElement('a');
+      link.href = url;
+      link.download = `absensi-${profile?.employeeNumber || currentUser.id}.xlsx`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : 'File absensi gagal dibuat.');
+    }
+  };
   useEffect(() => {
     setWorkerPhotoPreview(profile?.photoDataBase64 && profile.photoMimeType
       ? `data:${profile.photoMimeType};base64,${profile.photoDataBase64}`
@@ -685,8 +759,12 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
                 {(workspace?.leaveRequests || []).map((request) => (
                   <article key={request.id} className="rounded-xl border border-slate-200 p-4">
                     <div className="flex flex-wrap justify-between gap-2">
-                      <h3 className="font-semibold text-slate-800">{request.employeeName} · {leaveTypeLabel(request.type)} · {request.status}</h3>
+                      <h3 className="font-semibold text-slate-800">{request.employeeName} · {leaveTypeLabel(request.type)} · {leaveStatusLabel(request.status)}</h3>
                       <span className="text-xs text-slate-500">{formatDateDisplay(request.startDate)} – {formatDateDisplay(request.endDate)}</span>
+                    </div>
+                    <div className="mt-2 grid gap-1 text-xs text-slate-500">
+                      <span>Tanggal dibuat surat: {formatDateDisplay(request.createdAt)}</span>
+                      <span>Status permohonan: {leaveStatusLabel(request.status)}</span>
                     </div>
                     <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{request.reason}</p>
                     {request.reviewNote && <p className="mt-2 text-xs text-slate-500">Catatan HR: {request.reviewNote}</p>}
@@ -784,7 +862,7 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
                 <label className="text-sm font-medium text-slate-700">Pekerja<select required className={fieldClass} value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)}><option value="">Pilih pekerja</option>{employees.map((employee) => <option key={employee.userId} value={employee.userId}>{employee.name}</option>)}</select></label>
                 <label className="text-sm font-medium text-slate-700">Judul<input required name="title" maxLength={180} className={fieldClass} /></label>
                 <label className="text-sm font-medium text-slate-700">Kategori<input required name="category" maxLength={60} placeholder="Kontrak, identitas, sertifikat..." className={fieldClass} /></label>
-                <label className="text-sm font-medium text-slate-700">Berkas<input required name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" className={fieldClass} /></label>
+                <label className="text-sm font-medium text-slate-700">Berkas<input required name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,application/pdf,image/jpeg,image/png,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className={fieldClass} /></label>
                 <div className="sm:col-span-2 lg:col-span-4"><button className={buttonClass} disabled={saving || !selectedUserId}>{saving ? 'Mengunggah...' : 'Unggah dokumen'}</button></div>
               </form>
               <DocumentTable rows={workspace?.documents || []} onDownload={downloadDocument} />
@@ -844,20 +922,25 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
           </>}
           {panel === 'worker-attendance' && <section className={`${sectionClass} xl:col-span-2`}>
             <h2 className="text-lg font-bold text-slate-900">Absensi</h2>
-            <p className="mt-1 text-sm text-slate-600">Tahan tombol selama 2,5 detik untuk mengonfirmasi. Lokasi hanya digunakan saat absensi dikirim; sistem tidak melacak lokasi secara terus-menerus.</p>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {workerAttendanceActions(workspace?.attendance || []).map((action) => (
+            <div className="mt-4 grid gap-4 rounded-xl bg-slate-50 p-4">
+              <label className="text-sm font-medium text-slate-700">Jenis absensi
+                <select className={fieldClass} value={selectedPunchEvent} onChange={(event) => setSelectedPunchEvent(event.target.value as HrAttendanceEvent)}>
+                  {workerAttendanceActions(workspace?.attendance || []).map((action) => (
+                    <option key={action.event} value={action.event}>{action.label}</option>
+                  ))}
+                </select>
+              </label>
+              {workerAttendanceActions(workspace?.attendance || []).map((action) => action.event === selectedPunchEvent && (
                 <HoldAttendanceButton
                   key={action.event}
                   event={action.event}
                   label={action.label}
-                  disabled={action.disabled || punchLoading}
+                  disabled={action.disabled && !action.completed || punchLoading}
                   busy={punchLoading}
-                  onConfirm={punchAttendance}
+                  onConfirm={confirmAttendance}
                 />
               ))}
             </div>
-            <AttendanceTable rows={ownAttendance} />
           </section>
           }
           {panel === 'worker-leave' && <section className={`${sectionClass} xl:col-span-2`}>
@@ -882,6 +965,34 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
               <div className="sm:col-span-2"><button className={buttonClass} disabled={saving}>{saving ? 'Mengirim...' : 'Ajukan permohonan'}</button></div>
             </form>
             <LeaveTable rows={ownLeaveRequests} employee={profile || currentUser} onPreview={(request) => openLeaveLetter(request, profile || currentUser)} />
+          </section>
+          }
+          {panel === 'worker-download-payslip' && <section className={`${sectionClass} xl:col-span-2`}>
+            <h2 className="text-lg font-bold text-slate-900">Slip Gaji</h2>
+            <p className="mt-1 text-sm text-slate-600">Unduh slip gaji milik pekerja berdasarkan periode yang tersedia.</p>
+            <div className="mt-4 grid gap-3 rounded-xl bg-slate-50 p-4 sm:grid-cols-3">
+              <label className="text-sm font-medium text-slate-700">Pilih bulan<select className={fieldClass} value={workerDownloadFilters.month} onChange={(event) => { setWorkerDownloadFilters({ ...workerDownloadFilters, month: Number(event.target.value) }); setWorkerPayslipShown(false); }}>{Array.from({ length: 12 }, (_, index) => index + 1).map((month) => <option key={month} value={month}>{new Intl.DateTimeFormat('id-ID', { month: 'long' }).format(new Date(2026, month - 1, 1))}</option>)}</select></label>
+              <label className="text-sm font-medium text-slate-700">Pilih tahun<select className={fieldClass} value={workerDownloadFilters.year} onChange={(event) => { setWorkerDownloadFilters({ ...workerDownloadFilters, year: Number(event.target.value) }); setWorkerPayslipShown(false); }}>{workerDownloadYears.map((year) => <option key={year} value={year}>{year}</option>)}</select></label>
+              <div className="flex items-end"><button type="button" className={buttonClass} onClick={() => setWorkerPayslipShown(true)}>Tampilkan</button></div>
+            </div>
+            {workerPayslipShown && <div className="mt-5">
+              <DocumentTable rows={workerPayslipDocuments} onDownload={downloadDocument} />
+              {!workerPayslipDocuments.length && <p className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-600">Belum ada slip gaji pada periode yang dipilih.</p>}
+            </div>}
+          </section>
+          }
+          {panel === 'worker-download-attendance' && <section className={`${sectionClass} xl:col-span-2`}>
+            <h2 className="text-lg font-bold text-slate-900">Download Absensi</h2>
+            <p className="mt-1 text-sm text-slate-600">Unduh seluruh riwayat absensi pribadi dalam format Excel.</p>
+            <div className="mt-4 grid gap-3 rounded-xl bg-slate-50 p-4 sm:grid-cols-3">
+              <label className="text-sm font-medium text-slate-700">Pilih bulan<select className={fieldClass} value={workerDownloadFilters.month} onChange={(event) => { setWorkerDownloadFilters({ ...workerDownloadFilters, month: Number(event.target.value) }); setWorkerAttendanceShown(false); }}>{Array.from({ length: 12 }, (_, index) => index + 1).map((month) => <option key={month} value={month}>{new Intl.DateTimeFormat('id-ID', { month: 'long' }).format(new Date(2026, month - 1, 1))}</option>)}</select></label>
+              <label className="text-sm font-medium text-slate-700">Pilih tahun<select className={fieldClass} value={workerDownloadFilters.year} onChange={(event) => { setWorkerDownloadFilters({ ...workerDownloadFilters, year: Number(event.target.value) }); setWorkerAttendanceShown(false); }}>{workerDownloadYears.map((year) => <option key={year} value={year}>{year}</option>)}</select></label>
+              <div className="flex items-end"><button type="button" className={buttonClass} onClick={() => setWorkerAttendanceShown(true)}>Tampilkan</button></div>
+            </div>
+            {workerAttendanceShown && <div className="mt-5">
+              <AttendanceTable rows={filteredWorkerAttendance} />
+              <div className="mt-4 flex justify-end"><button type="button" className={buttonClass} disabled={!filteredWorkerAttendance.length} onClick={() => void downloadOwnAttendance(filteredWorkerAttendance)}>Download Excel</button></div>
+            </div>}
           </section>
           }
         </div>
@@ -922,10 +1033,10 @@ const AttendanceTable: React.FC<{ rows: HrAttendance[] }> = ({ rows }) => (
       <tbody>{rows.map((row) => <tr key={row.id} className="border-b border-slate-100">
         {rows.some((item) => item.employeeName) && <td className="p-2 font-medium text-slate-800">{row.employeeName}</td>}
         <td className="p-2">{formatDateDisplay(row.date)}</td>
-        <td className="p-2">{formatAttendanceTime(row.checkInAt || row.checkIn)}{locationText(row.checkInLatitude, row.checkInLongitude, row.checkInAccuracyMeters)}</td>
-        <td className="p-2">{formatAttendanceTime(row.overtimeCheckInAt)}{locationText(row.overtimeCheckInLatitude, row.overtimeCheckInLongitude, row.overtimeCheckInAccuracyMeters)}</td>
-        <td className="p-2">{formatAttendanceTime(row.checkOutAt || row.checkOut)}{locationText(row.checkOutLatitude, row.checkOutLongitude, row.checkOutAccuracyMeters)}</td>
-        <td className="p-2">{formatAttendanceTime(row.overtimeCheckOutAt)}{locationText(row.overtimeCheckOutLatitude, row.overtimeCheckOutLongitude, row.overtimeCheckOutAccuracyMeters)}</td>
+        <td className="p-2">{formatAttendanceTime(row.checkInAt || row.checkIn)}</td>
+        <td className="p-2">{formatAttendanceTime(row.overtimeCheckInAt)}</td>
+        <td className="p-2">{formatAttendanceTime(row.checkOutAt || row.checkOut)}</td>
+        <td className="p-2">{formatAttendanceTime(row.overtimeCheckOutAt)}</td>
         <td className="p-2 text-slate-600">{row.note || '—'}</td>
       </tr>)}</tbody>
     </table>
@@ -1036,11 +1147,23 @@ const workerAttendanceActions = (rows: HrAttendance[]) => {
   const overtimeCheckedOut = !!record?.overtimeCheckOutAt;
   const onLeave = record?.status === 'LEAVE';
   return [
-    { event: 'CHECK_IN' as const, label: 'Absen Datang', disabled: checkedIn || onLeave },
-    { event: 'CHECK_OUT' as const, label: 'Absen Pulang', disabled: !checkedIn || checkedOut || onLeave },
-    { event: 'OVERTIME_CHECK_IN' as const, label: 'Absen Lembur Datang', disabled: !checkedIn || !checkedOut || overtimeCheckedIn || onLeave },
-    { event: 'OVERTIME_CHECK_OUT' as const, label: 'Absen Lembur Pulang', disabled: !overtimeCheckedIn || overtimeCheckedOut || onLeave },
+    { event: 'CHECK_IN' as const, label: 'Absen Datang', disabled: checkedIn || onLeave, completed: checkedIn },
+    { event: 'CHECK_OUT' as const, label: 'Absen Pulang', disabled: !checkedIn || checkedOut || onLeave, completed: checkedOut },
+    { event: 'OVERTIME_CHECK_IN' as const, label: 'Absen Lembur Datang', disabled: !checkedIn || !checkedOut || overtimeCheckedIn || onLeave, completed: overtimeCheckedIn },
+    { event: 'OVERTIME_CHECK_OUT' as const, label: 'Absen Lembur Pulang', disabled: !overtimeCheckedIn || overtimeCheckedOut || onLeave, completed: overtimeCheckedOut },
   ];
+};
+
+const workerAttendanceRecordedTime = (rows: HrAttendance[], event: HrAttendanceEvent): string => {
+  const record = rows.find((row) => row.date === todayISO());
+  if (!record) return '—';
+  const value = {
+    CHECK_IN: record.checkInAt || record.checkIn,
+    OVERTIME_CHECK_IN: record.overtimeCheckInAt,
+    CHECK_OUT: record.checkOutAt || record.checkOut,
+    OVERTIME_CHECK_OUT: record.overtimeCheckOutAt,
+  }[event];
+  return formatAttendanceTime(value);
 };
 
 const AttendanceReportTable: React.FC<{ rows: HrAttendanceReportRow[] }> = ({ rows }) => (
@@ -1146,13 +1269,21 @@ const HoldAttendanceButton: React.FC<HoldAttendanceButtonProps> = ({ event, labe
         if (keyEvent.key === ' ' || keyEvent.key === 'Enter') stop();
       }}
       onContextMenu={(eventContext) => eventContext.preventDefault()}
-      className="flex min-h-28 touch-none items-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+      className="relative mx-auto h-24 w-24 touch-none rounded-full disabled:cursor-not-allowed disabled:opacity-60"
       aria-label={`${label}. Sentuh dan tahan selama dua setengah detik untuk absensi.`}
+      style={{ background: `conic-gradient(#2563eb ${progress * 3.6}deg, #dbeafe 0deg)` }}
     >
-      <span className="grid h-16 w-16 shrink-0 place-items-center rounded-full p-1" style={{ background: `conic-gradient(#2563eb ${progress}%, #dbeafe ${progress}% 100%)` }}>
-        <span className="grid h-full w-full place-items-center rounded-full bg-white text-xs font-bold text-blue-800">{progress ? `${Math.ceil(progress)}%` : 'TAHAN'}</span>
+      <span className="absolute inset-[6px] flex items-center justify-center rounded-full bg-white text-sm font-black text-blue-700 shadow-sm">
+        {progress > 0 ? `${Math.ceil(progress)}%` : (
+          <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+            <path d="M12 11V7" strokeLinecap="round" />
+            <path d="M9.5 11V6.5a2.5 2.5 0 0 1 5 0V11" strokeLinecap="round" />
+            <path d="M7.5 13v-1.5a1.5 1.5 0 0 1 3 0V13" strokeLinecap="round" />
+            <path d="M13.5 11.5a1.5 1.5 0 0 1 3 0V14" strokeLinecap="round" />
+            <path d="M7.5 13v2a4.5 4.5 0 0 0 9 0v-1" strokeLinecap="round" />
+          </svg>
+        )}
       </span>
-      <span><b className="block text-sm font-bold text-slate-900">{label}</b><small className="mt-1 block text-xs text-slate-600">{disabled ? 'Belum tersedia / sudah dicatat' : busy ? 'Mengirim absensi...' : 'Tahan 2,5 detik untuk mengonfirmasi'}</small></span>
     </button>
   );
 };
@@ -1164,6 +1295,12 @@ const leaveTypeLabel = (type: HrLeaveRequest['type']) => ({
   OTHER: 'Izin lainnya',
 }[type]);
 
+const leaveStatusLabel = (status: HrLeaveRequest['status']) => ({
+  PENDING: 'Pending HR',
+  APPROVED: 'Disetujui',
+  REJECTED: 'Ditolak',
+}[status]);
+
 const LeaveTable: React.FC<{
   rows: HrLeaveRequest[];
   employee?: { name: string; position?: string | null };
@@ -1171,7 +1308,11 @@ const LeaveTable: React.FC<{
 }> = ({ rows, employee, onPreview }) => (
   <div className="mt-5 space-y-2">
     {rows.map((request) => <div key={request.id} className="rounded-lg border border-slate-200 p-3 text-sm">
-      <div className="flex flex-wrap justify-between gap-2"><b>{leaveTypeLabel(request.type)} · {request.status}</b><span className="text-xs text-slate-500">{formatDateDisplay(request.startDate)} – {formatDateDisplay(request.endDate)}</span></div>
+      <div className="flex flex-wrap justify-between gap-2"><b>{leaveTypeLabel(request.type)} · {leaveStatusLabel(request.status)}</b><span className="text-xs text-slate-500">{formatDateDisplay(request.startDate)} – {formatDateDisplay(request.endDate)}</span></div>
+      <div className="mt-2 grid gap-1 text-xs text-slate-500">
+        <span>Tanggal dibuat surat: {formatDateDisplay(request.createdAt)}</span>
+        <span>Status permohonan: {leaveStatusLabel(request.status)}</span>
+      </div>
       <p className="mt-1 text-slate-600">{request.reason}</p>
       {request.reviewNote && <p className="mt-1 text-xs text-slate-500">Catatan HR: {request.reviewNote}</p>}
       {onPreview && <div className="mt-3 flex gap-2">

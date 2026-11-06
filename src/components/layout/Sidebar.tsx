@@ -23,6 +23,7 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
   const [accountsReceivableOpen,setAccountsReceivableOpen]=useState(false);
   const [accountsPayableOpen,setAccountsPayableOpen]=useState(false);
   const [financePaymentOpen,setFinancePaymentOpen]=useState(false);
+  const [workerDownloadOpen,setWorkerDownloadOpen]=useState(false);
   const item=(x:NavItem) => {
     const Icon = x.icon;
     return (
@@ -71,6 +72,13 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
           {item({label:'Profil Saya',tab:'WORKER_WORKSPACE',icon:Users})}
           {item({label:'Absensi',tab:'WORKER_ATTENDANCE',icon:ClipboardCheck})}
           {item({label:'Surat Permohonan Ijin',tab:'WORKER_LEAVE_REQUEST',icon:FileText})}
+          <button type="button" className="maritim-nav-group-title maritim-nav-group-toggle" aria-expanded={workerDownloadOpen} onClick={()=>setWorkerDownloadOpen((open)=>!open)}>
+            <ArrowDownToLine/><span>Download data</span>{workerDownloadOpen?<ChevronDown/>:<ChevronRight/>}
+          </button>
+          {workerDownloadOpen && <div className="maritim-subnav maritim-subnav-static">
+            {item({label:'Slip Gaji',tab:'WORKER_DOWNLOAD_PAYSLIP',icon:Wallet})}
+            {item({label:'Absensi',tab:'WORKER_DOWNLOAD_ATTENDANCE',icon:ClipboardCheck})}
+          </div>}
         </>}
 
         {currentRole==='ADMIN' && <>
