@@ -483,12 +483,17 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
         accuracy: position.coords.accuracy,
       });
       if (navigator.vibrate) navigator.vibrate(80);
-      if (await reload()) setNotice(`${attendanceEventLabel(event)} berhasil dicatat pada ${result.occurredAt}.`);
+      if (await reload()) setNotice(`${attendanceEventLabel(result.event)} berhasil dicatat pada ${result.occurredAt}.`);
       const lateCheckIn = event === 'CHECK_IN' && attendanceTimeMinutes(result.occurredAt) > 540;
+      const isOperationalHoliday = [0, 6].includes(new Date().getDay());
       const attendanceTime = formatAttendanceTime(result.occurredAt);
       setAttendanceSuccess({
-        title: lateCheckIn ? 'Anda absen datang telat' : 'Absensi berhasil',
-        message: event === 'CHECK_IN'
+        title: lateCheckIn && !isOperationalHoliday ? 'Anda absen datang telat' : 'Absensi berhasil',
+        message: result.event === 'OVERTIME_CHECK_IN'
+          ? `Anda sudah melakukan presensi lembur datang jam ${attendanceTime}.`
+          : result.event === 'OVERTIME_CHECK_OUT'
+            ? `Anda sudah melakukan presensi lembur pulang jam ${attendanceTime}. Selamat beristirahat ya.`
+            : event === 'CHECK_IN'
           ? lateCheckIn ? `Anda sudah melakukan presensi Absen datang jam ${attendanceTime}. Mohon gunakan waktu yang tersedia.` : `Anda sudah melakukan presensi Absen datang jam ${attendanceTime}.`
           : event === 'CHECK_OUT'
             ? `Anda sudah melakukan presensi Absen pulang jam ${attendanceTime}. Selamat beristirahat ya.`

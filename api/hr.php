@@ -109,11 +109,20 @@ function hrLoadWorkspace(PDO $pdo, array $user): array
         $attendance = $pdo->query(
             'SELECT a.id, a.user_id AS userId, u.name AS employeeName, a.attendance_date AS date,
                     a.status, a.check_in AS checkIn, a.check_out AS checkOut, a.note,
-                    COALESCE(a.check_in_at, a.check_in) AS checkInAt, a.check_in_latitude AS checkInLatitude,
-                    a.check_in_longitude AS checkInLongitude, a.check_in_accuracy_meters AS checkInAccuracyMeters,
-                    a.overtime_check_in_at AS overtimeCheckInAt, a.overtime_check_in_latitude AS overtimeCheckInLatitude,
-                    a.overtime_check_in_longitude AS overtimeCheckInLongitude, a.overtime_check_in_accuracy_meters AS overtimeCheckInAccuracyMeters,
-                    COALESCE(a.check_out_at, a.check_out) AS checkOutAt, a.check_out_latitude AS checkOutLatitude,
+                    CASE WHEN DAYOFWEEK(a.attendance_date) IN (1, 7) THEN NULL ELSE COALESCE(a.check_in_at, a.check_in) END AS checkInAt,
+                    CASE WHEN DAYOFWEEK(a.attendance_date) IN (1, 7) THEN NULL ELSE a.check_in_latitude END AS checkInLatitude,
+                    CASE WHEN DAYOFWEEK(a.attendance_date) IN (1, 7) THEN NULL ELSE a.check_in_longitude END AS checkInLongitude,
+                    CASE WHEN DAYOFWEEK(a.attendance_date) IN (1, 7) THEN NULL ELSE a.check_in_accuracy_meters END AS checkInAccuracyMeters,
+                    COALESCE(a.overtime_check_in_at,
+                        CASE WHEN DAYOFWEEK(a.attendance_date) IN (1, 7) THEN COALESCE(a.check_in_at, a.check_in) END) AS overtimeCheckInAt,
+                    COALESCE(a.overtime_check_in_latitude,
+                        CASE WHEN DAYOFWEEK(a.attendance_date) IN (1, 7) THEN a.check_in_latitude END) AS overtimeCheckInLatitude,
+                    COALESCE(a.overtime_check_in_longitude,
+                        CASE WHEN DAYOFWEEK(a.attendance_date) IN (1, 7) THEN a.check_in_longitude END) AS overtimeCheckInLongitude,
+                    COALESCE(a.overtime_check_in_accuracy_meters,
+                        CASE WHEN DAYOFWEEK(a.attendance_date) IN (1, 7) THEN a.check_in_accuracy_meters END) AS overtimeCheckInAccuracyMeters,
+                    CASE WHEN DAYOFWEEK(a.attendance_date) IN (1, 7) THEN NULL ELSE COALESCE(a.check_out_at, a.check_out) END AS checkOutAt,
+                    CASE WHEN DAYOFWEEK(a.attendance_date) IN (1, 7) THEN NULL ELSE a.check_out_latitude END AS checkOutLatitude,
                     a.check_out_longitude AS checkOutLongitude, a.check_out_accuracy_meters AS checkOutAccuracyMeters,
                     a.overtime_check_out_at AS overtimeCheckOutAt, a.overtime_check_out_latitude AS overtimeCheckOutLatitude,
                     a.overtime_check_out_longitude AS overtimeCheckOutLongitude, a.overtime_check_out_accuracy_meters AS overtimeCheckOutAccuracyMeters,
@@ -316,9 +325,16 @@ try {
                     a.overtime_check_in_at AS overtimeCheckInAt, a.overtime_check_in_latitude AS overtimeCheckInLatitude,
                     a.overtime_check_in_longitude AS overtimeCheckInLongitude, a.overtime_check_in_accuracy_meters AS overtimeCheckInAccuracyMeters,
                     COALESCE(a.check_out_at, a.check_out) AS checkOutAt, a.check_out_latitude AS checkOutLatitude,
-                    a.check_out_longitude AS checkOutLongitude, a.check_out_accuracy_meters AS checkOutAccuracyMeters,
-                    a.overtime_check_out_at AS overtimeCheckOutAt, a.overtime_check_out_latitude AS overtimeCheckOutLatitude,
-                    a.overtime_check_out_longitude AS overtimeCheckOutLongitude, a.overtime_check_out_accuracy_meters AS overtimeCheckOutAccuracyMeters
+                    CASE WHEN DAYOFWEEK(a.attendance_date) IN (1, 7) THEN NULL ELSE a.check_out_longitude END AS checkOutLongitude,
+                    CASE WHEN DAYOFWEEK(a.attendance_date) IN (1, 7) THEN NULL ELSE a.check_out_accuracy_meters END AS checkOutAccuracyMeters,
+                    COALESCE(a.overtime_check_out_at,
+                        CASE WHEN DAYOFWEEK(a.attendance_date) IN (1, 7) THEN COALESCE(a.check_out_at, a.check_out) END) AS overtimeCheckOutAt,
+                    COALESCE(a.overtime_check_out_latitude,
+                        CASE WHEN DAYOFWEEK(a.attendance_date) IN (1, 7) THEN a.check_out_latitude END) AS overtimeCheckOutLatitude,
+                    COALESCE(a.overtime_check_out_longitude,
+                        CASE WHEN DAYOFWEEK(a.attendance_date) IN (1, 7) THEN a.check_out_longitude END) AS overtimeCheckOutLongitude,
+                    COALESCE(a.overtime_check_out_accuracy_meters,
+                        CASE WHEN DAYOFWEEK(a.attendance_date) IN (1, 7) THEN a.check_out_accuracy_meters END) AS overtimeCheckOutAccuracyMeters
              FROM hr_attendance a
              JOIN users u ON u.id = a.user_id AND u.role = \'PEKERJA\'
              LEFT JOIN hr_employee_records er ON er.user_id = u.id
@@ -740,6 +756,12 @@ try {
         $workerId = (string) $user['id'];
         $today = date('Y-m-d');
         $now = date('Y-m-d H:i:s');
+        $operationalHoliday = in_array((int) date('N'), [6, 7], true);
+        if ($operationalHoliday && $event === 'CHECK_IN') {
+            $event = 'OVERTIME_CHECK_IN';
+        } elseif ($operationalHoliday && $event === 'CHECK_OUT') {
+            $event = 'OVERTIME_CHECK_OUT';
+        }
         $columns = [
             'CHECK_IN' => ['check_in_at', 'check_in', 'check_in_latitude', 'check_in_longitude', 'check_in_accuracy_meters', 'ABSEN_DATANG'],
             'OVERTIME_CHECK_IN' => ['overtime_check_in_at', null, 'overtime_check_in_latitude', 'overtime_check_in_longitude', 'overtime_check_in_accuracy_meters', 'ABSEN_LEMBUR_DATANG'],
@@ -768,7 +790,7 @@ try {
             $pdo->rollBack();
             jsonResponse(['error' => 'Absen datang harus dicatat sebelum absen pulang.'], 409);
         }
-        if ($event === 'OVERTIME_CHECK_IN' && ($attendance['check_in_at'] === null || $attendance['check_out_at'] === null)) {
+        if ($event === 'OVERTIME_CHECK_IN' && !$operationalHoliday && ($attendance['check_in_at'] === null || $attendance['check_out_at'] === null)) {
             $pdo->rollBack();
             jsonResponse(['error' => 'Absen lembur datang hanya dapat dilakukan setelah absen datang dan absen pulang.'], 409);
         }
