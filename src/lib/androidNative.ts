@@ -24,7 +24,7 @@ interface LgmNativePlugin {
   openPdf(options: { fileName: string; contentBase64: string }): Promise<void>;
   openFile(options: { fileName: string; mimeType: string; contentBase64: string }): Promise<void>;
   downloadBase64(options: { fileName: string; mimeType: string; contentBase64: string }): Promise<void>;
-  printHtml(options: { title: string; html: string }): Promise<void>;
+  previewHtml(options: { title: string; html: string }): Promise<void>;
 }
 
 const LgmNative = registerPlugin<LgmNativePlugin>('LgmNative');
@@ -56,7 +56,7 @@ export const androidNative = {
   async downloadBase64(fileName: string, mimeType: string, contentBase64: string): Promise<void> {
     await LgmNative.downloadBase64({ fileName, mimeType, contentBase64 });
   },
-  async printHtml(title: string, html: string): Promise<void> {
-    await LgmNative.printHtml({ title, html });
+  async previewHtml(title: string, html: string): Promise<void> {
+    await LgmNative.previewHtml({ title, html });
   },
 };

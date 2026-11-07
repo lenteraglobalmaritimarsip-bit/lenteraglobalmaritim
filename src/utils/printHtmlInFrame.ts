@@ -11,9 +11,9 @@ export const printHtmlInFrame = (
   if (activePrintFrames.has(frame)) return false;
 
   if (isAndroidApp()) {
-    void androidNative.printHtml(fileName, html).catch((printError) => {
-      console.error('Android print failed:', printError);
-      window.alert(printError instanceof Error ? printError.message : 'Dokumen gagal dibuka untuk dicetak.');
+    void androidNative.previewHtml(fileName, html).catch((previewError) => {
+      console.error('Android document preview failed:', previewError);
+      window.alert(previewError instanceof Error ? previewError.message : 'Dokumen gagal dibuka untuk dicetak.');
     });
     return true;
   }
@@ -78,9 +78,9 @@ export const printHtmlInFrame = (
 
 export const printHtmlDocument = (html: string, title: string): void => {
   if (isAndroidApp()) {
-    void androidNative.printHtml(title, html).catch((printError) => {
-      console.error('Android print failed:', printError);
-      window.alert(printError instanceof Error ? printError.message : 'Dokumen gagal dibuka untuk dicetak.');
+    void androidNative.previewHtml(title, html).catch((previewError) => {
+      console.error('Android document preview failed:', previewError);
+      window.alert(previewError instanceof Error ? previewError.message : 'Dokumen gagal dibuka untuk dicetak.');
     });
     return;
   }

@@ -6,7 +6,7 @@ import { dataApi } from '../../lib/dataApi';
 import { apiAuth } from '../../lib/api';
 import { printPaymentVoucher } from '../../utils/voucherPrint';
 import { printHtmlDocument } from '../../utils/printHtmlInFrame';
-import { isAndroidApp } from '../../lib/androidNative';
+import { androidNative, isAndroidApp } from '../../lib/androidNative';
 import { formatDateDisplay } from '../../utils/date';
 import { getPublicLogoUrl } from '../../utils/logo';
 import { getPaymentVoucherPaymentEvents } from '../../utils/paymentVoucherHistory';
@@ -320,6 +320,20 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
     const dataUrl = voucher.paymentProofDataUrl;
     if (!dataUrl) {
       setError(`Bukti pembayaran untuk voucher ${voucher.requestNumber} belum diunggah.`);
+      return;
+    }
+    if (isAndroidApp()) {
+      const match = /^data:(image\/(?:png|jpeg|webp));base64,(.+)$/i.exec(dataUrl);
+      if (!match) {
+        setError('Format bukti pembayaran tidak didukung untuk dibuka di Android.');
+        return;
+      }
+      const fileExtension = match[1].toLowerCase() === 'image/png' ? 'png' : match[1].toLowerCase() === 'image/webp' ? 'webp' : 'jpg';
+      const fileName = `bukti-pembayaran-${voucher.requestNumber.replace(/[^a-zA-Z0-9_-]/g, '-')}.${fileExtension}`;
+      void androidNative.openFile(fileName, match[1].toLowerCase(), match[2]).catch((openError) => {
+        console.error('Android payment proof open failed:', openError);
+        setError(openError instanceof Error ? openError.message : 'Bukti pembayaran gagal dibuka.');
+      });
       return;
     }
     const proofWindow = window.open('', '_blank');

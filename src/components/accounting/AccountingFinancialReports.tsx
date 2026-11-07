@@ -5,7 +5,8 @@ import { AccountingBalanceSheetReport, AccountingFinancialReportLine, Accounting
 import { loadAccountingBalanceSheet, loadAccountingMonthlyProfitLoss, loadAccountingProfitLoss } from '../../lib/api';
 import { todayISO } from '../../utils/date';
 import { getPublicLogoUrl } from '../../utils/logo';
-import { androidNative, isAndroidApp } from '../../lib/androidNative';
+import { isAndroidApp } from '../../lib/androidNative';
+import { printHtmlDocument } from '../../utils/printHtmlInFrame';
 
 const formatIdr = (amount: number) => new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -32,11 +33,7 @@ const printAccountingReport = () => {
     report.closest('.accounting-balance-sheet-view, .accounting-profit-detail-view')?.querySelectorAll('style') ?? [],
   ).map((style) => style.outerHTML).join('');
   const html = `<!doctype html><html><head><meta charset="utf-8">${document.head.innerHTML}${reportStyles}</head><body>${report.outerHTML}</body></html>`;
-  void androidNative.printHtml(document.title || 'Laporan Akuntansi', html)
-    .catch((printError) => {
-      console.error('Android report print failed:', printError);
-      window.alert(printError instanceof Error ? printError.message : 'Laporan gagal dicetak.');
-    });
+  printHtmlDocument(html, document.title || 'Laporan Akuntansi');
 };
 
 const ReportLines: React.FC<{ rows: AccountingFinancialReportLine[] }> = ({ rows }) => (

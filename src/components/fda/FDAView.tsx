@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getPublicLogoUrl } from '../../utils/logo';
 import { printHtmlDocument, printHtmlInFrame } from '../../utils/printHtmlInFrame';
-import { isAndroidApp } from '../../lib/androidNative';
+import { androidNative, isAndroidApp } from '../../lib/androidNative';
 import { paymentFooterPrintStyles } from '../../utils/paymentFooterPrintStyles';
 import {
   FileCheck2,
@@ -1405,6 +1405,20 @@ export const FDAView: React.FC<FDAViewProps> = ({
     if (!pdfUploadMeta?.dataUrl) {
       setMsg('Belum ada file PDF FDA yang dapat dilihat.');
       setTimeout(() => setMsg(null), 3000);
+      return;
+    }
+    if (isAndroidApp()) {
+      const match = /^data:application\/pdf;base64,(.+)$/i.exec(pdfUploadMeta.dataUrl);
+      if (!match) {
+        setMsg('File PDF FDA tidak valid untuk dibuka di Android.');
+        setTimeout(() => setMsg(null), 3000);
+        return;
+      }
+      void androidNative.openPdf(pdfUploadMeta.fileName, match[1]).catch((openError) => {
+        console.error('Android FDA PDF open failed:', openError);
+        setMsg(openError instanceof Error ? openError.message : 'File PDF FDA gagal dibuka.');
+        setTimeout(() => setMsg(null), 5000);
+      });
       return;
     }
     setShowPdfPreview(true);

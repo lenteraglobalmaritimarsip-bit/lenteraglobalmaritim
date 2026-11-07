@@ -9,6 +9,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.graphics.Color;
+import android.app.Dialog;
 import android.print.PrintAttributes;
 import android.print.PrintJob;
 import android.print.PrintManager;
@@ -19,6 +20,12 @@ import android.security.keystore.KeyProperties;
 import android.util.Base64;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.biometric.BiometricManager;
@@ -254,7 +261,7 @@ public class LgmNativePlugin extends Plugin {
     }
 
     @PluginMethod
-    public void printHtml(PluginCall call) {
+    public void previewHtml(PluginCall call) {
         String html = call.getString("html", "");
         String title = call.getString("title", "Dokumen LGM")
                 .replaceAll("[^A-Za-z0-9._ -]", "_")
@@ -270,44 +277,108 @@ public class LgmNativePlugin extends Plugin {
         }
         activity.runOnUiThread(() -> {
             try {
-                PrintManager printManager = (PrintManager) activity.getSystemService(Context.PRINT_SERVICE);
-                if (printManager == null) throw new IllegalStateException("Layanan cetak Android tidak tersedia.");
                 String jobName = title.isEmpty() ? "Dokumen LGM" : title;
+                float density = activity.getResources().getDisplayMetrics().density;
+                Dialog dialog = new Dialog(activity);
+                LinearLayout content = new LinearLayout(activity);
+                content.setOrientation(LinearLayout.VERTICAL);
+                content.setBackgroundColor(Color.WHITE);
+
+                LinearLayout toolbar = new LinearLayout(activity);
+                toolbar.setGravity(Gravity.CENTER_VERTICAL);
+                toolbar.setPadding((int) (12 * density), 0, (int) (8 * density), 0);
+                toolbar.setBackgroundColor(Color.WHITE);
+                TextView documentTitle = new TextView(activity);
+                documentTitle.setText(jobName);
+                documentTitle.setTextColor(Color.rgb(23, 32, 51));
+                documentTitle.setTextSize(15);
+                documentTitle.setMaxLines(1);
+                documentTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                toolbar.addView(documentTitle, new LinearLayout.LayoutParams(0, (int) (56 * density), 1));
+
+                Button closeButton = new Button(activity);
+                closeButton.setText("Tutup");
+                toolbar.addView(closeButton, new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        (int) (48 * density)
+                ));
+                Button printButton = new Button(activity);
+                printButton.setText("Cetak / PDF");
+                printButton.setEnabled(false);
+                toolbar.addView(printButton, new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        (int) (48 * density)
+                ));
+
+                TextView loadingStatus = new TextView(activity);
+                loadingStatus.setText("Memuat hasil dokumen...");
+                loadingStatus.setTextColor(Color.DKGRAY);
+                loadingStatus.setGravity(Gravity.CENTER);
+                content.addView(toolbar, new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        (int) (56 * density)
+                ));
+                content.addView(loadingStatus, new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        (int) (36 * density)
+                ));
+
                 WebView printWebView = new WebView(activity);
                 printWebView.setBackgroundColor(Color.WHITE);
                 printWebView.getSettings().setJavaScriptEnabled(false);
                 printWebView.getSettings().setAllowFileAccess(false);
                 printWebView.getSettings().setAllowContentAccess(false);
-                printWebView.setWebViewClient(new WebViewClient() {
-                    private boolean printStarted;
-
-                    @Override
-                    public void onPageFinished(WebView view, String url) {
-                        if (printStarted) return;
-                        printStarted = true;
-                        view.postDelayed(() -> {
-                            if (activity.isFinishing() || activity.isDestroyed()) {
-                                view.destroy();
-                                call.reject("Aplikasi ditutup sebelum dialog cetak dibuka.");
-                                return;
-                            }
-                            try {
-                                PrintJob job = printManager.print(
-                                        jobName,
-                                        view.createPrintDocumentAdapter(jobName),
-                                        new PrintAttributes.Builder()
-                                                .setColorMode(PrintAttributes.COLOR_MODE_COLOR)
-                                                .build()
-                                );
-                                call.resolve();
-                                monitorPrintJob(job, view);
-                            } catch (Exception error) {
-                                view.destroy();
-                                call.reject("Dialog cetak Android gagal dibuka.", error);
-                            }
-                        }, 500);
+                printWebView.getSettings().setBuiltInZoomControls(true);
+                printWebView.getSettings().setDisplayZoomControls(false);
+                content.addView(printWebView, new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        0,
+                        1
+                ));
+                dialog.setContentView(content);
+                dialog.setCancelable(true);
+                boolean[] printing = {false};
+                dialog.setOnDismissListener(ignored -> {
+                    if (!printing[0]) printWebView.destroy();
+                });
+                closeButton.setOnClickListener(ignored -> dialog.dismiss());
+                printButton.setOnClickListener(ignored -> {
+                    try {
+                        PrintManager printManager = (PrintManager) activity.getSystemService(Context.PRINT_SERVICE);
+                        if (printManager == null) throw new IllegalStateException("Layanan cetak Android tidak tersedia.");
+                        PrintJob job = printManager.print(
+                                jobName,
+                                printWebView.createPrintDocumentAdapter(jobName),
+                                new PrintAttributes.Builder()
+                                        .setColorMode(PrintAttributes.COLOR_MODE_COLOR)
+                                        .build()
+                        );
+                        printing[0] = true;
+                        dialog.dismiss();
+                        monitorPrintJob(job, printWebView);
+                    } catch (Exception error) {
+                        Toast.makeText(activity, "Dialog cetak gagal dibuka: " + error.getMessage(), Toast.LENGTH_LONG).show();
                     }
                 });
+                printWebView.setWebViewClient(new WebViewClient() {
+                    @Override
+                    public void onPageFinished(WebView view, String url) {
+                        printButton.setEnabled(true);
+                        loadingStatus.setVisibility(View.GONE);
+                    }
+
+                    @Override
+                    public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                        return true;
+                    }
+                });
+                dialog.show();
+                if (dialog.getWindow() != null) {
+                    dialog.getWindow().setLayout(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                    );
+                }
                 printWebView.loadDataWithBaseURL(
                         "https://lenteraglobalmaritim.agency/",
                         html,
@@ -315,8 +386,9 @@ public class LgmNativePlugin extends Plugin {
                         "UTF-8",
                         null
                 );
+                call.resolve();
             } catch (Exception error) {
-                call.reject("Dokumen gagal disiapkan untuk dicetak.", error);
+                call.reject("Dokumen gagal dibuka untuk dilihat atau dicetak.", error);
             }
         });
     }

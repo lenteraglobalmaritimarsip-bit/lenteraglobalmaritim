@@ -144,8 +144,8 @@ export const SalesDashboardView:React.FC<SalesDashboardViewProps>=({jobCalls,onN
             <div style={{width:34,height:34,borderRadius:9,background:'rgba(255,255,255,.18)',display:'grid',placeItems:'center'}}><Icon size={17}/></div>
             <span style={{background:'#fff',color:c.cls==='orange'?'#d67b00':'#1670bd',borderRadius:999,padding:'4px 9px',fontSize:9,fontWeight:850}}>{c.label}</span>
           </div>
-          <div style={{fontSize:28,fontWeight:900,marginTop:11,lineHeight:1}}>{c.value}</div>
-          <div style={{fontSize:10,opacity:.78,marginTop:7}}>{c.note}</div>
+          <div style={{fontSize:'clamp(1.2rem, 1.8vw, 2.1rem)',fontWeight:900,marginTop:11,lineHeight:1,whiteSpace:'normal',overflowWrap:'anywhere',wordBreak:'break-word'}}>{c.value}</div>
+          <div style={{fontSize:10,opacity:.78,marginTop:7,lineHeight:1.35}}>{c.note}</div>
         </div>
       })}
     </div>
