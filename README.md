@@ -130,9 +130,33 @@ Semua transaksi ditautkan ke Job/Vessel Call ID yang sama:
 ## UI Update
 The portal now opens in the SALES workspace with a light enterprise dashboard inspired by the provided LGM Keagenan reference: blue top header, navy left navigation, KPI cards, inquiry/quotation panels, active vessel calls and quick actions. Other modules retain their functions and are visually skinned to the same light workspace.
 
+## Payroll / Slip Gaji
+
+Role **HR Administrasi** dan **Finance** dapat mengunggah rekap payroll melalui menu **Payroll / Slip Gaji**.
+
+### Format dan proses unggah
+
+- Gunakan file Excel `.xlsx` atau `.xls` yang memiliki baris header dengan kolom `NOMOR PEKERJA` dan `NAMA`. Header `NIK` masih diterima sebagai alias untuk workbook lama.
+- Isi kolom payroll lain menggunakan header pada workbook, contohnya `GAJI POKOK`, `GAJI BRUTO`, `TOTAL POTONGAN`, `TAKE HOME PAY`, `SLIP NO`, `PERIODE`, dan kolom absensi.
+- Pilih bulan pada **Periode gaji** sebelum menyimpan. Bulan yang dipilih di form menjadi periode batch di database; nilai `PERIODE` pada workbook disimpan sebagai rincian slip dan tidak mengganti periode batch.
+- Periksa preview dan jumlah pekerja, lalu pilih **Simpan draft** atau **Finalisasi**. Nomor pekerja tidak wajib sudah tercatat di master HR saat mengunggah. Nomor pekerja yang sama lebih dari sekali dalam satu workbook ditolak.
+- Setiap periode hanya memiliki satu batch. Untuk mengunggah ulang periode yang sudah tersimpan, gunakan **Hapus & unggah ulang** pada riwayat payroll, konfirmasi dengan mengetik periode, lalu unggah workbook kembali. Penghapusan permanen menghapus slip dan PDF periode tersebut, tetapi tidak menghapus batch dari periode lain. Aksi penghapusan dicatat di audit log.
+- Slip PDF format A4 portrait tersedia untuk batch berstatus **FINAL**. Akses pekerja dicocokkan berdasarkan nomor pekerja pada akun HR dan kolom `NOMOR PEKERJA` di slip. PDF memakai tanda tangan Finance dari `public/TTD_FINANCE.png`.
+
+### Database dan deployment
+
+- Tabel `payroll_slips` menyimpan kolom payroll dengan nama header Excel, termasuk `NOMOR PEKERJA`. Tabel batch menggunakan periode format `YYYY-MM`.
+- Pada instalasi baru, gunakan tabel payroll di `database/schema.sql`.
+- Untuk database lama dengan kolom payroll snake_case, backup database terlebih dahulu. Jika detail payroll belum lengkap, jalankan `database/migrations/20261107_add_payroll_slip_details.sql` sesuai kondisi kolom, kemudian jalankan `database/migrations/20261107_rename_payroll_columns_to_excel_headers.sql` satu kali.
+- Sebelum migrasi, periksa `SHOW COLUMNS FROM payroll_slips;`. Migrasi rename hanya untuk tabel yang masih memiliki kolom lama seperti `employee_number`, `employee_name`, dan `slip_number`. Jika `NOMOR PEKERJA` sudah ada, migrasi rename sudah selesai—jangan jalankan lagi. Migrasi mengubah nama kolom dan mempertahankan data, tetapi merupakan migrasi satu kali dan tidak aman untuk diulang.
+- Jika migrasi berhenti dengan error di tengah jalan, jangan jalankan ulang seluruh file. Periksa kolom aktual dengan `SHOW COLUMNS FROM payroll_slips;` dan sesuaikan migrasi berdasarkan kondisi tabel.
+- Setelah perubahan aplikasi, unggah frontend hasil `npm run build` (isi folder `dist`) dan file API `api/payroll.php` ke hosting. Notice dari phpMyAdmin yang menyebut `vendor/phpmyadmin/...` adalah peringatan UI phpMyAdmin, bukan pesan dari endpoint payroll.
+
 ## Login & Active User
 Login memakai akun di tabel `users` (PHP session + CSRF). Akun admin pertama dibuat lewat `api/create_admin.php`
-(password acak 8 digit dicetak satu kali); akun role lain dibuat di **Admin > Users**. Role **HR Administrasi** mengelola administrasi pekerja lintas cabang (biodata, kontrak/status, dokumen, riwayat, kehadiran, dan persetujuan cuti/perubahan profil). Menu **Absensi Kehadiran** menyediakan rekap berdasarkan tahun/bulan/semua data, branch, atau nama pekerja, serta unduhan Excel. Role **Pekerja** hanya dapat melihat profil/dokumennya sendiri, mengajukan cuti/izin, meminta perubahan profil untuk disetujui HR, dan mencatat empat jenis absensi dengan menahan tombol 2,5 detik. Lokasi hanya diambil saat pekerja mengirim absensi setelah memberikan izin lokasi perangkat; aplikasi tidak melacak lokasi terus-menerus. Absensi memerlukan HTTPS dan izin lokasi browser/Android. Payroll tidak termasuk. Pada database lama, backup lalu jalankan `database/migrations/20261106_add_hr_worker_roles.sql` lalu `database/migrations/20261107_add_hr_attendance_events.sql` sebelum deployment atau membuat akun role baru. Jika migrasi role HR 20261106 sudah dijalankan sebelumnya, cukup jalankan migrasi 20261107. Migrasi menambah tabel/kolom HR tanpa menghapus data lama. Buat akun pekerja di Admin > Users dengan branch yang sesuai; HR Administrasi adalah role pusat tanpa branch akun.
+(password acak 8 digit dicetak satu kali); akun role lain dibuat di **Admin > Users**. Role **HR Administrasi** mengelola administrasi pekerja lintas cabang (biodata, kontrak/status, dokumen, riwayat, kehadiran, dan persetujuan cuti/perubahan profil). Menu **Absensi Kehadiran** menyediakan rekap berdasarkan tahun/bulan/semua data, branch, atau nama pekerja, serta unduhan Excel. Role HR Administrasi adalah role pusat tanpa branch akun.
+
+Role **Pekerja** hanya dapat melihat profil/dokumennya sendiri, mengajukan cuti/izin, meminta perubahan profil untuk disetujui HR, dan mencatat empat jenis absensi dengan menahan tombol 2,5 detik. Lokasi hanya diambil saat pekerja mengirim absensi setelah memberikan izin lokasi perangkat; aplikasi tidak melacak lokasi terus-menerus. Absensi memerlukan HTTPS dan izin lokasi browser/Android. Pada database lama, backup lalu jalankan `database/migrations/20261106_add_hr_worker_roles.sql` lalu `database/migrations/20261107_add_hr_attendance_events.sql` sebelum deployment atau membuat akun role baru. Jika migrasi role HR 20261106 sudah dijalankan sebelumnya, cukup jalankan migrasi 20261107. Migrasi menambah tabel/kolom HR tanpa menghapus data lama. Buat akun pekerja di Admin > Users dengan branch yang sesuai; HR Administrasi adalah role pusat tanpa branch akun.
 User aktif tampil di header dan dapat logout.
 PROJECT INI SUDAHH LIVE DI HOSTINGER https://lenteraglobalmaritim.agency/
 

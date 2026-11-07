@@ -5,6 +5,7 @@ import { Pencil } from 'lucide-react';
 import { AuthAccount } from '../../auth';
 import {
   hrApi,
+  listWorkerPayrollSlips,
   HrAttendance,
   HrAttendanceEvent,
   HrAttendanceReportRow,
@@ -15,9 +16,10 @@ import {
   HrLeaveRequest,
   HrProfileChangeRequest,
   HrWorkspace,
+  WorkerPayrollSlip,
 } from '../../lib/api';
 import { formatDateDisplay, formatDateTimeWib, todayISO } from '../../utils/date';
-import { getPublicLogoUrl } from '../../utils/logo';
+import { getPublicLogoUrl, getPublicPayrollSignatureUrl } from '../../utils/logo';
 
 type HrPanel = 'employees' | 'requests' | 'leave-approval' | 'attendance' | 'documents' | 'history' | 'worker-profile' | 'worker-attendance' | 'worker-leave' | 'worker-download-payslip' | 'worker-download-attendance';
 
@@ -121,6 +123,8 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
   });
   const [workerAttendanceShown, setWorkerAttendanceShown] = useState(false);
   const [workerPayslipShown, setWorkerPayslipShown] = useState(false);
+  const [workerPayrollSlips, setWorkerPayrollSlips] = useState<WorkerPayrollSlip[]>([]);
+  const [workerPayrollLoading, setWorkerPayrollLoading] = useState(false);
   const [reportFilters, setReportFilters] = useState({
     year: Number(todayISO().slice(0, 4)),
     month: Number(todayISO().slice(5, 7)),
@@ -251,6 +255,315 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
     } catch (downloadError) {
       setError(downloadError instanceof Error ? downloadError.message : 'Dokumen gagal diunduh.');
     }
+  };
+
+  const showWorkerPayroll = async () => {
+    setWorkerPayrollLoading(true);
+    setWorkerPayslipShown(true);
+    setError('');
+    try {
+      const period = `${workerDownloadFilters.year}-${String(workerDownloadFilters.month).padStart(2, '0')}`;
+      setWorkerPayrollSlips(await listWorkerPayrollSlips(period));
+    } catch (loadError) {
+      setWorkerPayrollSlips([]);
+      setError(loadError instanceof Error ? loadError.message : 'Slip gaji gagal dimuat.');
+    } finally {
+      setWorkerPayrollLoading(false);
+    }
+  };
+
+  const downloadWorkerPayrollPdf = async (slip: WorkerPayrollSlip) => {
+    const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+    const currency = (value: number) => value === 0
+      ? '-'
+      : new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(value);
+    const number = (value: number) => new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(value);
+    const logoDataUrl = await imageUrlToDataUrl(getPublicLogoUrl());
+    const signatureDataUrl = await imageUrlToDataUrl(getPublicPayrollSignatureUrl());
+    if (!logoDataUrl || !signatureDataUrl) throw new Error('Logo atau tanda tangan Finance gagal dimuat untuk PDF.');
+    const formatDate = (value: string) => {
+      if (!value) return '-';
+      const date = value ? new Date(`${value.slice(0, 10)}T00:00:00`) : new Date();
+      return Number.isNaN(date.getTime())
+        ? '-'
+        : new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }).format(date);
+    };
+    const periodDate = new Date(`${slip.period}-01T00:00:00`);
+    const periodLabel = Number.isNaN(periodDate.getTime())
+      ? slip.period
+      : new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(periodDate);
+    const colors = {
+      navy: [18, 53, 107] as const,
+      blue: [42, 111, 176] as const,
+      sky: [232, 241, 250] as const,
+      orange: [242, 163, 58] as const,
+      flame: [217, 83, 30] as const,
+      green: [30, 158, 106] as const,
+      mint: [230, 246, 238] as const,
+      peach: [253, 236, 228] as const,
+      ink: [29, 36, 51] as const,
+      muted: [123, 132, 151] as const,
+      line: [227, 232, 240] as const,
+      bg: [246, 248, 251] as const,
+      white: [255, 255, 255] as const,
+    };
+    const fill = (color: readonly [number, number, number]) => pdf.setFillColor(...color);
+    const textColor = (color: readonly [number, number, number]) => pdf.setTextColor(...color);
+    const roundedCard = (x: number, y: number, width: number, height: number, color: readonly [number, number, number] = colors.white) => {
+      fill(color);
+      pdf.setDrawColor(...colors.line);
+      pdf.roundedRect(x, y, width, height, 3, 3, 'FD');
+    };
+
+    fill(colors.white);
+    pdf.rect(0, 0, 210, 297, 'F');
+    fill(colors.navy);
+    pdf.rect(0, 0, 210, 38, 'F');
+    fill(colors.blue);
+    pdf.rect(112, 0, 98, 38, 'F');
+    fill(colors.orange);
+    pdf.rect(0, 38, 84, 2, 'F');
+    fill(colors.flame);
+    pdf.rect(84, 38, 72, 2, 'F');
+    fill(colors.navy);
+    pdf.rect(156, 38, 54, 2, 'F');
+    fill(colors.white);
+    pdf.roundedRect(13, 8, 23, 23, 4, 4, 'F');
+    pdf.addImage(logoDataUrl, 'JPEG', 16, 11, 17, 17);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(11);
+    textColor(colors.white);
+    pdf.text('PT. LENTERA GLOBAL MARITIM', 42, 16);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(7);
+    pdf.text('Shipping Agency & Workplace', 42, 21);
+    pdf.text('Gedung Sarana Square Lt. 3C, Jl. Tebet Barat IV No. 20', 42, 26);
+    pdf.text('Jakarta Selatan 12830  |  Phone: 021 3882 5393', 42, 30);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(16);
+    pdf.text('SALARY SLIP', 197, 18, { align: 'right' });
+    pdf.setFontSize(7);
+    pdf.text(periodLabel.toUpperCase(), 197, 26, { align: 'right' });
+    pdf.setFont('helvetica', 'normal');
+    pdf.text('FINAL PAYROLL', 197, 31, { align: 'right' });
+
+    roundedCard(14, 47, 182, 32, colors.bg);
+    fill(colors.blue);
+    pdf.circle(27, 63, 8, 'F');
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(11);
+    textColor(colors.white);
+    pdf.text((slip.employeeName.trim()[0] || 'P').toUpperCase(), 27, 66.5, { align: 'center' });
+    textColor(colors.ink);
+    pdf.setFontSize(11);
+    pdf.text(slip.employeeName, 40, 56, { maxWidth: 75 });
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(7.5);
+    textColor(colors.muted);
+    pdf.text(slip.position || '-', 40, 61);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(7);
+    fill(colors.sky);
+    pdf.roundedRect(40, 65, 66, 6, 3, 3, 'F');
+    textColor(colors.navy);
+    pdf.text(slip.branch || '-', 43, 69, { maxWidth: 60 });
+    pdf.setDrawColor(...colors.line);
+    pdf.line(111, 51, 111, 75);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(6.5);
+    textColor(colors.muted);
+    pdf.text('NIK', 117, 55);
+    pdf.text('TANGGAL MASUK', 117, 64);
+    pdf.text('STATUS PAJAK', 117, 73);
+    pdf.text('NOMOR SLIP', 157, 55);
+    pdf.text('BANK', 157, 64);
+    pdf.text('NO. REKENING', 157, 73);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(7);
+    textColor(colors.ink);
+    pdf.text(slip.employeeNumber, 117, 59);
+    pdf.text(formatDate(slip.dateJoined), 117, 68);
+    pdf.text(slip.taxStatus || '-', 117, 77);
+    pdf.text(slip.slipNumber || '-', 157, 59);
+    pdf.text(slip.bankName || '-', 157, 68);
+    pdf.text(slip.bankAccountNumber || '-', 157, 77, { maxWidth: 36 });
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(7.5);
+    textColor(colors.navy);
+    pdf.text('RINGKASAN PRESENSI', 14, 87);
+    const attendance = [
+      ['MASUK', slip.attendancePresent, colors.blue],
+      ['SAKIT', slip.attendanceSick, colors.orange],
+      ['IZIN', slip.attendanceLeave, [142, 124, 195] as const],
+      ['CUTI', slip.attendanceAnnualLeave, colors.green],
+      ['ALFA', slip.attendanceAbsent, colors.flame],
+      ['OFF', slip.attendanceOff, colors.muted],
+    ] as Array<[string, number, readonly [number, number, number]]>;
+    const attendanceY = 90;
+    attendance.forEach(([label, value, color], index) => {
+      const x = 14 + index * 30.7;
+      roundedCard(x, attendanceY, 28.5, 17, colors.white);
+      fill(color);
+      pdf.roundedRect(x, attendanceY, 28.5, 1.5, 1, 1, 'F');
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(6);
+      textColor(colors.muted);
+      pdf.text(label, x + 14.25, attendanceY + 7, { align: 'center' });
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(10);
+      textColor(colors.ink);
+      pdf.text(number(value), x + 14.25, attendanceY + 14, { align: 'center' });
+    });
+
+    const cardY = 112;
+    const cardHeight = 55;
+    const cardWidth = 88;
+    const leftX = 14;
+    const rightX = 108;
+    const cardHeader = (x: number, label: string, color: readonly [number, number, number]) => {
+      roundedCard(x, cardY, cardWidth, cardHeight);
+      fill(color);
+      pdf.roundedRect(x, cardY, cardWidth, 8, 3, 3, 'F');
+      pdf.rect(x, cardY + 5, cardWidth, 3, 'F');
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(7.5);
+      textColor(colors.white);
+      pdf.text(label, x + 4, cardY + 5.5);
+    };
+    const drawMoneyRows = (x: number, rows: Array<[string, number]>, totalLabel: string, totalValue: number, totalFill: readonly [number, number, number], totalText: readonly [number, number, number]) => {
+      const startY = cardY + 13;
+      rows.forEach(([label, value], index) => {
+        const y = startY + index * 4.1;
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(6.8);
+        textColor(colors.ink);
+        pdf.text(label, x + 4, y, { maxWidth: 51 });
+        pdf.text('Rp', x + 65, y, { align: 'right' });
+        pdf.setFont('helvetica', value === 0 ? 'normal' : 'bold');
+        textColor(value === 0 ? colors.muted : colors.ink);
+        pdf.text(currency(value), x + 84, y, { align: 'right' });
+      });
+      fill(totalFill);
+      pdf.roundedRect(x + 2.5, cardY + cardHeight - 8.5, cardWidth - 5, 6.5, 1.5, 1.5, 'F');
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(6.8);
+      textColor(totalText);
+      pdf.text(totalLabel, x + 4, cardY + cardHeight - 4.2);
+      pdf.text('Rp', x + 65, cardY + cardHeight - 4.2, { align: 'right' });
+      pdf.text(number(totalValue), x + 84, cardY + cardHeight - 4.2, { align: 'right' });
+    };
+    cardHeader(leftX, 'PENDAPATAN', colors.green);
+    drawMoneyRows(leftX, [
+      ['Gaji Pokok', slip.basicSalary],
+      ['Tunjangan Makan', slip.meals],
+      ['Tunjangan Transport', slip.transport],
+      ['Tunjangan Jabatan', slip.positionAllowance],
+      ['Lembur', slip.overtime],
+      ['THR', slip.thr],
+      ['Tunjangan PPh 21', slip.taxAllowance],
+    ], 'Total Pendapatan Diterima', slip.totalIncomeReceived, colors.mint, [18, 114, 76]);
+    cardHeader(rightX, 'POTONGAN KARYAWAN', colors.flame);
+    drawMoneyRows(rightX, [
+      ['BPJS TK - Perusahaan', slip.deductionBpjsTkEmployer],
+      ['BPJS Kesehatan - Perusahaan', slip.deductionBpjsHealthEmployer],
+      ['BPJS TK - Karyawan', slip.deductionBpjsTkEmployee],
+      ['BPJS Kesehatan - Karyawan', slip.deductionBpjsHealthEmployee],
+      ['PPh 21', slip.deductionPph21],
+      ['Potongan / Pinjaman', slip.deductionLoan],
+      ['Tidak Hadir / Terlambat', slip.deductionAbsence],
+      ['Potongan THR', slip.deductionThr],
+    ], 'Total Potongan', slip.deductions, colors.peach, [163, 36, 27]);
+
+    roundedCard(14, 172, 182, 28, colors.sky);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(7.5);
+    textColor(colors.navy);
+    pdf.text('BENEFIT YANG DIBAYAR PERUSAHAAN', 18, 178);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(5.8);
+    textColor(colors.muted);
+    pdf.text(`Upah BPJS: Rp ${number(slip.bpjsWage)}  |  Total BPJS TK: Rp ${number(slip.bpjsEmployerTotal)}`, 192, 178, { align: 'right' });
+    const benefits = [
+      ['JHT', slip.jhtEmployer],
+      ['JKM', slip.jkmEmployer],
+      ['JKK', slip.jkkEmployer],
+      ['JP', slip.jpEmployer],
+      ['BPJS Kesehatan', slip.bpjsHealthEmployer],
+      ['Total Benefit', slip.employerBenefitsTotal],
+    ] as Array<[string, number]>;
+    benefits.forEach(([label, value], index) => {
+      const x = 18 + index * 29.2;
+      const total = index === benefits.length - 1;
+      const tileColor = total ? colors.navy : colors.white;
+      const borderColor = total ? colors.navy : colors.line;
+      fill(tileColor);
+      pdf.setDrawColor(borderColor[0], borderColor[1], borderColor[2]);
+      pdf.roundedRect(x, 182, 27, 13, 2, 2, 'FD');
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(5.5);
+      textColor(total ? [191, 211, 236] : colors.muted);
+      pdf.text(label, x + 13.5, 187, { align: 'center', maxWidth: 25 });
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(6.5);
+      textColor(total ? colors.white : colors.ink);
+      pdf.text(number(value), x + 13.5, 192, { align: 'center' });
+    });
+
+    fill(colors.flame);
+    pdf.roundedRect(14, 205, 110, 31, 4, 4, 'F');
+    fill(colors.orange);
+    pdf.rect(14, 205, 27, 31, 'F');
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(7);
+    textColor(colors.white);
+    pdf.text('TAKE HOME PAY', 45, 213);
+    pdf.setFontSize(19);
+    pdf.text('Rp', 45, 229);
+    pdf.text(number(slip.takeHomePay), 119, 229, { align: 'right' });
+    roundedCard(130, 205, 66, 14, colors.mint);
+    roundedCard(130, 222, 66, 14, colors.peach);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(6);
+    textColor(colors.muted);
+    pdf.text('GAJI BRUTO', 135, 211);
+    pdf.text('TOTAL POTONGAN', 135, 228);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(8);
+    textColor([18, 114, 76]);
+    pdf.text(`Rp ${number(slip.grossIncome)}`, 191, 216, { align: 'right' });
+    textColor([163, 36, 27]);
+    pdf.text(`Rp ${number(slip.deductions)}`, 191, 233, { align: 'right' });
+
+    pdf.setFont('helvetica', 'italic');
+    pdf.setFontSize(7);
+    textColor(colors.muted);
+    pdf.text('Terbilang:', 14, 243);
+    pdf.setFont('helvetica', 'bolditalic');
+    textColor(colors.ink);
+    pdf.text(slip.terbilang || `${number(slip.takeHomePay)} Rupiah`, 34, 243, { maxWidth: 160 });
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(6.5);
+    textColor(colors.muted);
+    pdf.text(`Transfer payroll: ${slip.bankName || '-'}  |  Rekening ${slip.bankAccountNumber || '-'}`, 14, 249, { maxWidth: 182 });
+
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(7.5);
+    textColor(colors.ink);
+    pdf.text('Penerima,', 57, 259, { align: 'center' });
+    pdf.text(`Jakarta, ${formatDate(todayISO())}`, 158, 255, { align: 'center' });
+    pdf.text('Finance', 158, 260, { align: 'center' });
+    pdf.addImage(signatureDataUrl, 'JPEG', 140, 261, 36, 22);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text(slip.employeeName, 57, 283, { align: 'center', maxWidth: 75 });
+    pdf.text('PT. Lentera Global Maritim', 158, 283, { align: 'center' });
+    fill(colors.navy);
+    pdf.rect(0, 289, 210, 8, 'F');
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(6);
+    textColor(colors.white);
+    pdf.text('PT. LENTERA GLOBAL MARITIM  |  CONFIDENTIAL PAYROLL DOCUMENT', 105, 294, { align: 'center' });
+    pdf.save(`Slip-Gaji-${slip.period}-${slip.employeeNumber}.pdf`);
   };
 
   const saveEmployee = (event: React.FormEvent) => {
@@ -1114,11 +1427,27 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
             <div className="mt-4 grid gap-3 rounded-xl bg-slate-50 p-4 sm:grid-cols-3">
               <label className="text-sm font-medium text-slate-700">Pilih bulan<select className={fieldClass} value={workerDownloadFilters.month} onChange={(event) => { setWorkerDownloadFilters({ ...workerDownloadFilters, month: Number(event.target.value) }); setWorkerPayslipShown(false); }}>{Array.from({ length: 12 }, (_, index) => index + 1).map((month) => <option key={month} value={month}>{new Intl.DateTimeFormat('id-ID', { month: 'long' }).format(new Date(2026, month - 1, 1))}</option>)}</select></label>
               <label className="text-sm font-medium text-slate-700">Pilih tahun<select className={fieldClass} value={workerDownloadFilters.year} onChange={(event) => { setWorkerDownloadFilters({ ...workerDownloadFilters, year: Number(event.target.value) }); setWorkerPayslipShown(false); }}>{workerDownloadYears.map((year) => <option key={year} value={year}>{year}</option>)}</select></label>
-              <div className="flex items-end"><button type="button" className={buttonClass} onClick={() => setWorkerPayslipShown(true)}>Tampilkan</button></div>
+              <div className="flex items-end"><button type="button" className={buttonClass} disabled={workerPayrollLoading} onClick={() => void showWorkerPayroll()}>{workerPayrollLoading ? 'Memuat...' : 'Tampilkan'}</button></div>
             </div>
             {workerPayslipShown && <div className="mt-5">
-              <DocumentTable rows={workerPayslipDocuments} onDownload={downloadDocument} />
-              {!workerPayslipDocuments.length && <p className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-600">Belum ada slip gaji pada periode yang dipilih.</p>}
+              {workerPayrollSlips.map((slip) => {
+                const formatMoney = (value: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(value);
+                return (
+                  <div key={`${slip.batchId}-${slip.employeeNumber}`} className="rounded-xl border border-slate-200 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div><p className="font-bold text-slate-900">Slip Gaji {slip.period}</p><p className="mt-1 text-sm text-slate-600">{slip.employeeName} · {slip.position || '-'}</p><p className="text-xs text-slate-500">{slip.slipNumber || slip.employeeNumber}</p></div>
+                      <button type="button" className={secondaryButtonClass} onClick={() => { void downloadWorkerPayrollPdf(slip).catch((downloadError) => setError(downloadError instanceof Error ? downloadError.message : 'PDF slip gaji gagal dibuat.')); }}>Unduh PDF</button>
+                    </div>
+                    <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
+                      <div className="flex justify-between rounded-lg bg-slate-50 px-3 py-2"><dt>Gaji pokok</dt><dd>{formatMoney(slip.basicSalary)}</dd></div>
+                      <div className="flex justify-between rounded-lg bg-slate-50 px-3 py-2"><dt>Pengurangan</dt><dd>{formatMoney(slip.deductions)}</dd></div>
+                      <div className="flex justify-between rounded-lg bg-slate-50 px-3 py-2"><dt>Gaji bruto</dt><dd>{formatMoney(slip.grossIncome)}</dd></div>
+                      <div className="flex justify-between rounded-lg bg-blue-50 px-3 py-2 font-bold text-blue-900"><dt>Take home pay</dt><dd>{formatMoney(slip.takeHomePay)}</dd></div>
+                    </dl>
+                  </div>
+                );
+              })}
+              {!workerPayrollLoading && !workerPayrollSlips.length && <p className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-600">Belum ada slip gaji final pada periode yang dipilih.</p>}
             </div>}
           </section>
           }
@@ -1590,11 +1919,12 @@ const LeaveTable: React.FC<{
 );
 
 const imageUrlToDataUrl = async (url: string): Promise<string | null> => {
+  let sourceUrl = '';
   try {
     const response = await fetch(url);
     if (!response.ok) return null;
     const blob = await response.blob();
-    const sourceUrl = URL.createObjectURL(blob);
+    sourceUrl = URL.createObjectURL(blob);
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {
       const nextImage = new Image();
       nextImage.onload = () => resolve(nextImage);
@@ -1609,10 +1939,11 @@ const imageUrlToDataUrl = async (url: string): Promise<string | null> => {
     context.fillStyle = '#ffffff';
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.drawImage(image, 0, 0);
-    URL.revokeObjectURL(sourceUrl);
     return canvas.toDataURL('image/jpeg', 0.92);
   } catch {
     return null;
+  } finally {
+    if (sourceUrl) URL.revokeObjectURL(sourceUrl);
   }
 };
 

@@ -27,6 +27,7 @@ import { AccountsPayableView } from './components/finance/AccountsPayableView';
 import { FinancialHistoryView } from './components/finance/FinancialHistoryView';
 import { FinanceRecapView } from './components/finance/FinanceRecapView';
 import { CashBalanceView } from './components/finance/CashBalanceView';
+import { FinancePayrollView } from './components/finance/FinancePayrollView';
 import { AccountingWorkspace } from './components/accounting/AccountingWorkspace';
 import { AccountingAssetsView } from './components/accounting/AccountingAssetsView';
 import { AccountingPostedJournalReport } from './components/accounting/AccountingPostedJournalReport';
@@ -850,6 +851,10 @@ export default function App() {
 
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_RECEIVABLE_HISTORY' && (
               <AccountsReceivableView mode="HISTORY" />
+            )}
+
+            {['FINANCE', 'HR_ADMINISTRASI'].includes(currentRole) && activeTab === 'FINANCE_PAYROLL' && (
+              <FinancePayrollView />
             )}
 
             {currentRole === 'FINANCE' && (activeTab === 'FINANCE_DASHBOARD' ||

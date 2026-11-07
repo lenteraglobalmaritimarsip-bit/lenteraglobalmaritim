@@ -67,6 +67,7 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
           {item({label:'Administrasi Pekerja',tab:'HR_WORKSPACE',icon:Users})}
           {item({label:'Absensi Kehadiran',tab:'HR_ATTENDANCE',icon:ClipboardCheck})}
           {item({label:'Surat Permohonan Masuk',tab:'HR_LEAVE_APPROVAL',icon:FileText})}
+          {item({label:'Payroll / Slip Gaji',tab:'FINANCE_PAYROLL',icon:Wallet})}
         </>}
         {currentRole==='PEKERJA' && <>
           {item({label:'Profil Saya',tab:'WORKER_WORKSPACE',icon:Users})}
@@ -135,6 +136,7 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
           {item({label:'Financial Overview',tab:'FINANCE_DASHBOARD',icon:LayoutDashboard})}
           {item({label:'Saldo Kas',tab:'FINANCE_CASH_BALANCE',icon:Wallet})}
           {item({label:'Rekap Keuangan',tab:'FINANCE_RECAP',icon:Calculator})}
+          {item({label:'Payroll / Slip Gaji',tab:'FINANCE_PAYROLL',icon:Wallet})}
           <button type="button" className="maritim-nav-group-title maritim-nav-group-toggle" aria-expanded={accountsReceivableOpen} onClick={()=>setAccountsReceivableOpen((open)=>!open)}>
             <CircleDollarSign/><span>Accounts Receivable</span>{accountsReceivableOpen?<ChevronDown/>:<ChevronRight/>}
           </button>

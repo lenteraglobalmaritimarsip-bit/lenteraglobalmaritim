@@ -4,6 +4,116 @@ import { AccountsReceivableEntry, AccountingAsset, AccountingBalanceSheetRespons
 const apiEnabled = import.meta.env.VITE_API_AUTH_ENABLED === 'true';
 let csrfToken = '';
 
+export interface PayrollSlip {
+  rowNumber: number;
+  employeeNumber: string;
+  name: string;
+  branch: string;
+  position: string;
+  dateJoined: string;
+  dateOfBirth: string;
+  bankName: string;
+  bankAccountNumber: string;
+  taxStatus: string;
+  spouseCount: number;
+  childrenCount: number;
+  basicSalary: number;
+  meals: number;
+  transport: number;
+  positionAllowance: number;
+  overtime: number;
+  thr: number;
+  taxAllowance: number;
+  totalIncomeReceived: number;
+  bpjsWage: number;
+  jhtEmployer: number;
+  jkmEmployer: number;
+  jkkEmployer: number;
+  jpEmployer: number;
+  bpjsEmployerTotal: number;
+  bpjsHealthEmployer: number;
+  employerBenefitsTotal: number;
+  grossIncome: number;
+  deductionBpjsTkEmployer: number;
+  deductionBpjsHealthEmployer: number;
+  deductionBpjsTkEmployee: number;
+  deductionBpjsHealthEmployee: number;
+  deductionPph21: number;
+  deductionLoan: number;
+  deductionAbsence: number;
+  deductionThr: number;
+  deductions: number;
+  takeHomePay: number;
+  terbilang: string;
+  slipNumber: string;
+  periodLabel: string;
+  attendancePresent: number;
+  attendanceSick: number;
+  attendanceLeave: number;
+  attendanceAnnualLeave: number;
+  attendanceAbsent: number;
+  attendanceOff: number;
+}
+
+export interface PayrollBatch {
+  id: string;
+  period: string;
+  fileName: string;
+  status: 'DRAFT' | 'FINAL';
+  slipCount: number;
+  createdAt: string;
+}
+
+export interface WorkerPayrollSlip {
+  batchId: string;
+  period: string;
+  rowNumber: number;
+  employeeNumber: string;
+  employeeName: string;
+  branch: string;
+  position: string;
+  dateJoined: string;
+  bankName: string;
+  bankAccountNumber: string;
+  taxStatus: string;
+  basicSalary: number;
+  meals: number;
+  transport: number;
+  positionAllowance: number;
+  overtime: number;
+  thr: number;
+  taxAllowance: number;
+  totalIncomeReceived: number;
+  bpjsWage: number;
+  jhtEmployer: number;
+  jkmEmployer: number;
+  jkkEmployer: number;
+  jpEmployer: number;
+  bpjsEmployerTotal: number;
+  bpjsHealthEmployer: number;
+  employerBenefitsTotal: number;
+  grossIncome: number;
+  deductionBpjsTkEmployer: number;
+  deductionBpjsHealthEmployer: number;
+  deductionBpjsTkEmployee: number;
+  deductionBpjsHealthEmployee: number;
+  deductionPph21: number;
+  deductionLoan: number;
+  deductionAbsence: number;
+  deductionThr: number;
+  deductions: number;
+  takeHomePay: number;
+  terbilang: string;
+  slipNumber: string;
+  periodLabel: string;
+  attendancePresent: number;
+  attendanceSick: number;
+  attendanceLeave: number;
+  attendanceAnnualLeave: number;
+  attendanceAbsent: number;
+  attendanceOff: number;
+}
+
 interface ApiErrorPayload { error?: string; }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -750,3 +860,34 @@ export const hrApi = {
     await request<{ ok: boolean }>('hr.php?action=review-profile-change', { method: 'POST', body: JSON.stringify(input) });
   },
 };
+
+export async function listPayrollBatches(): Promise<PayrollBatch[]> {
+  const result = await request<{ batches: PayrollBatch[] }>('payroll.php');
+  return result.batches;
+}
+
+export async function savePayrollBatch(input: {
+  period: string;
+  fileName: string;
+  status: 'DRAFT' | 'FINAL';
+  rows: PayrollSlip[];
+}): Promise<PayrollBatch> {
+  const result = await request<{ batch: PayrollBatch }>('payroll.php', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return result.batch;
+}
+
+export async function deletePayrollPeriod(period: string, confirmPeriod: string): Promise<{ deletedSlipCount: number }> {
+  return request<{ ok: boolean; period: string; deletedSlipCount: number }>('payroll.php', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'delete-period', period, confirmPeriod }),
+  });
+}
+
+export async function listWorkerPayrollSlips(period: string): Promise<WorkerPayrollSlip[]> {
+  const query = new URLSearchParams({ period });
+  const result = await request<{ slips: WorkerPayrollSlip[] }>(`payroll.php?${query.toString()}`);
+  return result.slips;
+}
