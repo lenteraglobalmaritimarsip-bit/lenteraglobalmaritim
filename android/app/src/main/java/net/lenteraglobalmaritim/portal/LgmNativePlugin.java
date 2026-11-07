@@ -328,6 +328,8 @@ public class LgmNativePlugin extends Plugin {
                 printWebView.getSettings().setJavaScriptEnabled(false);
                 printWebView.getSettings().setAllowFileAccess(false);
                 printWebView.getSettings().setAllowContentAccess(false);
+                printWebView.getSettings().setUseWideViewPort(true);
+                printWebView.getSettings().setLoadWithOverviewMode(true);
                 printWebView.getSettings().setBuiltInZoomControls(true);
                 printWebView.getSettings().setDisplayZoomControls(false);
                 content.addView(printWebView, new LinearLayout.LayoutParams(
@@ -350,6 +352,7 @@ public class LgmNativePlugin extends Plugin {
                                 jobName,
                                 printWebView.createPrintDocumentAdapter(jobName),
                                 new PrintAttributes.Builder()
+                                        .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
                                         .setColorMode(PrintAttributes.COLOR_MODE_COLOR)
                                         .build()
                         );
@@ -381,7 +384,7 @@ public class LgmNativePlugin extends Plugin {
                 }
                 printWebView.loadDataWithBaseURL(
                         "https://lenteraglobalmaritim.agency/",
-                        html,
+                        withMobilePreviewStyles(html),
                         "text/html",
                         "UTF-8",
                         null
@@ -391,6 +394,35 @@ public class LgmNativePlugin extends Plugin {
                 call.reject("Dokumen gagal dibuka untuk dilihat atau dicetak.", error);
             }
         });
+    }
+
+    private String withMobilePreviewStyles(String html) {
+        String previewStyles = "<style>@page{size:A4 portrait}" +
+                "@media print{" +
+                ".a4-page-frame{display:block!important;position:fixed!important;top:10mm!important;right:10mm!important;bottom:10mm!important;left:10mm!important;width:auto!important;height:auto!important;margin:0!important;border:.3mm solid #1f2937!important;box-sizing:border-box!important;pointer-events:none!important;z-index:9999!important;background:transparent!important}" +
+                ".a4-frame-line{display:none!important}" +
+                "body{width:auto!important;max-width:none!important;height:auto!important;min-height:0!important;margin:0!important;padding:13mm!important;box-sizing:border-box!important}" +
+                ".office-footer{position:fixed!important;left:13mm!important;right:13mm!important;bottom:12mm!important;inset:auto 13mm 12mm!important;transform:none!important;width:auto!important;max-width:none!important;margin:0 auto!important;z-index:10!important}" +
+                "}" +
+                "@media screen{" +
+                "html{width:100%!important;min-width:0!important}" +
+                "body{box-sizing:border-box!important;width:auto!important;min-width:0!important;max-width:100%!important;height:auto!important;min-height:0!important;margin:0!important;padding:14px!important;overflow-x:hidden!important;font-size:14px!important}" +
+                "body *{box-sizing:border-box!important;max-width:100%!important;font-size:max(12px,1em)!important}" +
+                "body table{width:100%!important;min-width:0!important}" +
+                "body img{max-width:100%!important;height:auto!important;object-fit:contain}" +
+                ".a4-page-frame,.a4-frame-line{display:none!important;visibility:hidden!important}" +
+                ".office-footer{position:static!important;left:auto!important;right:auto!important;bottom:auto!important;transform:none!important;width:100%!important;max-width:100%!important;margin:16px auto!important}" +
+                "}</style>";
+        int headEnd = html.toLowerCase(java.util.Locale.ROOT).lastIndexOf("</head>");
+        if (headEnd >= 0) return html.substring(0, headEnd) + previewStyles + html.substring(headEnd);
+        int htmlStart = html.toLowerCase(java.util.Locale.ROOT).indexOf("<html");
+        if (htmlStart >= 0) {
+            int htmlTagEnd = html.indexOf('>', htmlStart);
+            if (htmlTagEnd >= 0) {
+                return html.substring(0, htmlTagEnd + 1) + "<head>" + previewStyles + "</head>" + html.substring(htmlTagEnd + 1);
+            }
+        }
+        return "<!doctype html><html><head>" + previewStyles + "</head><body>" + html + "</body></html>";
     }
 
     private void monitorPrintJob(PrintJob job, WebView webView) {
