@@ -547,8 +547,13 @@ export interface HrAttendance {
 export interface HrAttendanceReportRow {
   date: string;
   employeeName: string;
+  employeeNumber?: string | null;
   userId: string;
   branchName: string | null;
+  position?: string | null;
+  department?: string | null;
+  status?: 'PRESENT' | 'ABSENT' | 'REMOTE' | 'LEAVE' | null;
+  leaveType?: 'ANNUAL' | 'SICK' | 'PERSONAL' | 'OTHER' | null;
   checkInAt: string | null;
   checkInLatitude: number | string | null;
   checkInLongitude: number | string | null;
@@ -686,6 +691,16 @@ export const hrApi = {
   }): Promise<void> {
     await request<{ ok: boolean }>('hr.php?action=save-attendance', { method: 'POST', body: JSON.stringify(input) });
   },
+  async saveAttendanceEdit(input: {
+    userId: string;
+    date: string;
+    checkIn: string;
+    overtimeCheckIn: string;
+    checkOut: string;
+    overtimeCheckOut: string;
+  }): Promise<void> {
+    await request<{ ok: boolean }>('hr.php?action=save-attendance-edit', { method: 'POST', body: JSON.stringify(input) });
+  },
   async attendanceReport(input: {
     year: number;
     month: number;
@@ -693,6 +708,7 @@ export const hrApi = {
     branchId?: string;
     name?: string;
     date?: string;
+    filterMode?: 'TODAY' | 'CUSTOM_DATE' | 'MONTH' | 'YEAR';
   }): Promise<HrAttendanceReportRow[]> {
     const query = new URLSearchParams({
       action: 'attendance-report',
@@ -703,6 +719,7 @@ export const hrApi = {
     if (input.branchId) query.set('branchId', input.branchId);
     if (input.name) query.set('name', input.name);
     if (input.date) query.set('date', input.date);
+    if (input.filterMode) query.set('filterMode', input.filterMode);
     const result = await request<{ rows: HrAttendanceReportRow[] }>(`hr.php?${query.toString()}`);
     return result.rows;
   },

@@ -140,6 +140,7 @@ button{ cursor:pointer; }
   box-shadow:0 2px 8px rgba(0,0,0,.15);
 }
 .maritim-brand-name{font-size:17px;font-weight:850;letter-spacing:-.25px}
+.maritim-brand-name-mobile{display:none}
 .maritim-brand-sub{font-size:10px;opacity:.7;margin-top:1px}
 .maritim-header-center{display:flex;align-items:center;gap:10px;flex:1;justify-content:center}
 .maritim-job-picker{
@@ -242,6 +243,8 @@ button{ cursor:pointer; }
 }
 .admin-master-actions{max-width:100%;}
 @media(max-width:900px){
+  .maritim-brand-name-desktop{display:none}
+  .maritim-brand-name-mobile{display:inline}
   .admin-master-actions{width:100%;justify-content:flex-start;}
   .admin-master-actions button{min-height:38px;}
 }

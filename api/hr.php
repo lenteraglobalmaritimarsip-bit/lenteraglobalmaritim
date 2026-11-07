@@ -254,6 +254,16 @@ try {
             }
             $startDate = $parsedDate;
             $endDate = (new DateTimeImmutable($parsedDate))->modify('+1 day')->format('Y-m-d');
+        } else {
+            $filterMode = hrString($_GET['filterMode'] ?? null, 'Mode filter');
+            if ($filterMode === 'YEAR') {
+                $startDate = sprintf('%04d-01-01', (int) $yearRaw);
+                $endDate = sprintf('%04d-01-01', (int) $yearRaw + 1);
+            } elseif ($filterMode === 'MONTH') {
+                $selectedMonthStart = new DateTimeImmutable($startDate);
+                $startDate = $selectedMonthStart->modify('-1 month')->modify('+25 days')->format('Y-m-d');
+                $endDate = $selectedMonthStart->modify('+25 days')->format('Y-m-d');
+            }
         }
         $where = ['a.attendance_date >= :start_date', 'a.attendance_date < :end_date'];
         $params = ['start_date' => $startDate, 'end_date' => $endDate];
@@ -281,7 +291,10 @@ try {
             $userParams['employee_name'] = '%' . addcslashes($name, '\\%_') . '%';
         }
         $userQuery = $pdo->prepare(
-            'SELECT u.id AS userId, u.name AS employeeName, COALESCE(b.code, u.branch_name) AS branchName
+            'SELECT u.id AS userId, u.name AS employeeName, COALESCE(b.code, u.branch_name) AS branchName,
+                    COALESCE(er.position, u.position) AS position,
+                    COALESCE(er.department, u.department) AS department,
+                    er.employee_number AS employeeNumber
              FROM users u
              LEFT JOIN hr_employee_records er ON er.user_id = u.id
              LEFT JOIN branches b ON b.id = COALESCE(er.branch_id, u.branch_id)
@@ -294,6 +307,10 @@ try {
         $attendanceQuery = $pdo->prepare(
             'SELECT a.attendance_date AS date, u.name AS employeeName, u.id AS userId,
                     COALESCE(b.code, u.branch_name) AS branchName,
+                    COALESCE(er.position, u.position) AS position,
+                    COALESCE(er.department, u.department) AS department,
+                    er.employee_number AS employeeNumber,
+                    a.status, a.note,
                     COALESCE(a.check_in_at, a.check_in) AS checkInAt, a.check_in_latitude AS checkInLatitude,
                     a.check_in_longitude AS checkInLongitude, a.check_in_accuracy_meters AS checkInAccuracyMeters,
                     a.overtime_check_in_at AS overtimeCheckInAt, a.overtime_check_in_latitude AS overtimeCheckInLatitude,
@@ -315,6 +332,19 @@ try {
             $attendanceByKey[(string) $attendance['userId'] . ':' . substr((string) $attendance['date'], 0, 10)] = $attendance;
         }
 
+        $leaveQuery = $pdo->prepare(
+            "SELECT user_id AS userId, leave_type AS leaveType, starts_on AS startDate, ends_on AS endDate
+             FROM hr_leave_requests
+             WHERE status = 'APPROVED'
+               AND starts_on < :end_date
+               AND ends_on >= :start_date"
+        );
+        $leaveQuery->execute(['start_date' => $startDate, 'end_date' => $endDate]);
+        $approvedLeaves = [];
+        foreach ($leaveQuery->fetchAll() as $leave) {
+            $approvedLeaves[(string) $leave['userId'] . ':' . (string) $leave['startDate'] . ':' . (string) $leave['endDate']] = $leave;
+        }
+
         $rows = [];
         $cursor = new DateTimeImmutable($startDate);
         $last = (new DateTimeImmutable($endDate))->modify('-1 day');
@@ -329,8 +359,19 @@ try {
                 if (isset($attendanceByKey[$key])) {
                     $rows[] = $attendanceByKey[$key];
                 } else {
+                    $leave = null;
+                    foreach ($approvedLeaves as $leaveKey => $candidate) {
+                        [$leaveUserId, $leaveStartDate, $leaveEndDate] = explode(':', $leaveKey);
+                        if ($leaveUserId === (string) $employee['userId'] && $date >= $leaveStartDate && $date <= $leaveEndDate) {
+                            $leave = $candidate;
+                            break;
+                        }
+                    }
                     $rows[] = array_merge($employee, [
                         'date' => $date,
+                        'status' => $leave ? 'LEAVE' : null,
+                        'leaveType' => $leave ? $leave['leaveType'] : null,
+                        'note' => null,
                         'checkInAt' => null, 'checkInLatitude' => null, 'checkInLongitude' => null, 'checkInAccuracyMeters' => null,
                         'overtimeCheckInAt' => null, 'overtimeCheckInLatitude' => null, 'overtimeCheckInLongitude' => null, 'overtimeCheckInAccuracyMeters' => null,
                         'checkOutAt' => null, 'checkOutLatitude' => null, 'checkOutLongitude' => null, 'checkOutAccuracyMeters' => null,
@@ -623,6 +664,61 @@ try {
         ]);
         hrRecordHistory($pdo, $user, $workerId, 'ATTENDANCE_UPDATED', 'Data kehadiran tanggal ' . $date . ' diperbarui.', $before, $after);
         $pdo->commit();
+        jsonResponse(['ok' => true]);
+    }
+
+    if ($action === 'save-attendance-edit') {
+        requireMethod('POST');
+        hrRequireRole($user, 'HR_ADMINISTRASI');
+        requireCsrfToken();
+        $body = requestJson();
+        $workerId = hrString($body['userId'] ?? null, 'Akun pekerja');
+        $date = hrDateValue($body['date'] ?? null, 'Tanggal kehadiran', false);
+        $fields = [
+            'checkIn' => hrString($body['checkIn'] ?? null, 'Absen datang'),
+            'overtimeCheckIn' => hrString($body['overtimeCheckIn'] ?? null, 'Lembur datang'),
+            'checkOut' => hrString($body['checkOut'] ?? null, 'Absen pulang'),
+            'overtimeCheckOut' => hrString($body['overtimeCheckOut'] ?? null, 'Lembur pulang'),
+        ];
+        foreach ($fields as $value) {
+            if ($value !== '' && !preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $value)) {
+                jsonResponse(['error' => 'Format waktu absensi tidak valid.'], 400);
+            }
+        }
+        if ($workerId === '' || !hrWorkerExists($pdo, $workerId)) {
+            jsonResponse(['error' => 'Pekerja tidak valid.'], 400);
+        }
+        $attendanceId = hrNewId('HRA');
+        $existing = $pdo->prepare('SELECT id, status FROM hr_attendance WHERE user_id = :user_id AND attendance_date = :date LIMIT 1');
+        $existing->execute(['user_id' => $workerId, 'date' => $date]);
+        $record = $existing->fetch() ?: null;
+        if ($record) $attendanceId = (string) $record['id'];
+        $status = $record && $record['status'] ? (string) $record['status'] : ($fields['checkIn'] !== '' ? 'PRESENT' : 'ABSENT');
+        $toDateTime = static function (string $time) use ($date): ?string {
+            return $time === '' ? null : $date . ' ' . $time . ':00';
+        };
+        $upsert = $pdo->prepare(
+            'INSERT INTO hr_attendance
+             (id, user_id, attendance_date, status, check_in, check_in_at, overtime_check_in_at,
+              check_out, check_out_at, overtime_check_out_at, updated_by_id, updated_by_name)
+             VALUES (:id, :user_id, :date, :status, :check_in, :check_in_at, :overtime_check_in_at,
+              :check_out, :check_out_at, :overtime_check_out_at, :actor_id, :actor_name)
+             ON DUPLICATE KEY UPDATE status = VALUES(status), check_in = VALUES(check_in),
+              check_in_at = VALUES(check_in_at), overtime_check_in_at = VALUES(overtime_check_in_at),
+              check_out = VALUES(check_out), check_out_at = VALUES(check_out_at),
+              overtime_check_out_at = VALUES(overtime_check_out_at),
+              updated_by_id = VALUES(updated_by_id), updated_by_name = VALUES(updated_by_name)'
+        );
+        $upsert->execute([
+            'id' => $attendanceId, 'user_id' => $workerId, 'date' => $date, 'status' => $status,
+            'check_in' => $fields['checkIn'] !== '' ? $fields['checkIn'] . ':00' : null,
+            'check_in_at' => $toDateTime($fields['checkIn']),
+            'overtime_check_in_at' => $toDateTime($fields['overtimeCheckIn']),
+            'check_out' => $fields['checkOut'] !== '' ? $fields['checkOut'] . ':00' : null,
+            'check_out_at' => $toDateTime($fields['checkOut']),
+            'overtime_check_out_at' => $toDateTime($fields['overtimeCheckOut']),
+            'actor_id' => $user['id'], 'actor_name' => $user['name'],
+        ]);
         jsonResponse(['ok' => true]);
     }
 

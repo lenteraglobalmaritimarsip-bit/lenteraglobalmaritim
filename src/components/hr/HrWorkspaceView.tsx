@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import ExcelJS from 'exceljs';
 import { jsPDF } from 'jspdf';
+import { Pencil } from 'lucide-react';
 import { AuthAccount } from '../../auth';
 import {
   hrApi,
@@ -126,7 +127,7 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
     category: 'ALL' as 'ALL' | 'BRANCH' | 'EMPLOYEE',
     branchId: '',
     name: '',
-    dateMode: 'TODAY' as 'TODAY' | 'CUSTOM',
+    filterMode: 'TODAY' as 'TODAY' | 'CUSTOM_DATE' | 'MONTH' | 'YEAR',
     date: todayISO(),
   });
   const [reportRows, setReportRows] = useState<HrAttendanceReportRow[] | null>(null);
@@ -134,6 +135,13 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
   const [punchLoading, setPunchLoading] = useState(false);
   const [selectedPunchEvent, setSelectedPunchEvent] = useState<HrAttendanceEvent>('CHECK_IN');
   const [attendanceSuccess, setAttendanceSuccess] = useState<{ title: string; message: string } | null>(null);
+  const [attendanceEditRow, setAttendanceEditRow] = useState<HrAttendanceReportRow | null>(null);
+  const [attendanceEditDraft, setAttendanceEditDraft] = useState({
+    checkIn: '',
+    overtimeCheckIn: '',
+    checkOut: '',
+    overtimeCheckOut: '',
+  });
 
   const reload = useCallback(async (showLoading = false): Promise<boolean> => {
     if (showLoading) setLoading(true);
@@ -281,9 +289,41 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
     void runMutation(() => hrApi.saveAttendance({ userId: selectedUserId, ...attendanceForm }), 'Data kehadiran berhasil disimpan.');
   };
 
+  const openAttendanceEdit = (row: HrAttendanceReportRow) => {
+    setAttendanceEditRow(row);
+    setAttendanceEditDraft({
+      checkIn: attendanceInputTime(row.checkInAt),
+      overtimeCheckIn: attendanceInputTime(row.overtimeCheckInAt),
+      checkOut: attendanceInputTime(row.checkOutAt),
+      overtimeCheckOut: attendanceInputTime(row.overtimeCheckOutAt),
+    });
+  };
+
+  const saveAttendanceEdit = async () => {
+    if (!attendanceEditRow) return;
+    setReportLoading(true);
+    try {
+      await hrApi.saveAttendanceEdit({
+        userId: attendanceEditRow.userId,
+        date: attendanceEditRow.date,
+        checkIn: attendanceEditDraft.checkIn,
+        overtimeCheckIn: attendanceEditDraft.overtimeCheckIn,
+        checkOut: attendanceEditDraft.checkOut,
+        overtimeCheckOut: attendanceEditDraft.overtimeCheckOut,
+      });
+      await submitAttendanceReport({ preventDefault: () => undefined } as React.FormEvent);
+      setAttendanceEditRow(null);
+      setNotice('Data koreksi absensi berhasil disimpan.');
+    } catch (editError) {
+      setError(editError instanceof Error ? editError.message : 'Koreksi absensi gagal disimpan.');
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
   const submitAttendanceReport = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (reportFilters.dateMode === 'CUSTOM' && !reportFilters.date) {
+    if (reportFilters.filterMode === 'CUSTOM_DATE' && !reportFilters.date) {
       setError('Pilih tanggal yang ingin ditampilkan.');
       return;
     }
@@ -302,7 +342,8 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
       const rows = await hrApi.attendanceReport({
         ...reportFilters,
         name: reportFilters.name.trim(),
-        date: reportFilters.dateMode === 'TODAY' ? todayISO() : reportFilters.date,
+        date: reportFilters.filterMode === 'TODAY' ? todayISO() : reportFilters.filterMode === 'CUSTOM_DATE' ? reportFilters.date : undefined,
+        filterMode: reportFilters.filterMode,
       });
       const today = todayISO();
       const elapsedRows = rows.filter((row) => row.date <= today);
@@ -323,6 +364,10 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
       sheet.columns = [
         { header: 'Tanggal Absen', key: 'date', width: 16 },
         { header: 'Nama pekerja', key: 'employeeName', width: 28 },
+        { header: 'Nomor pekerja', key: 'employeeNumber', width: 18 },
+        { header: 'Jabatan', key: 'position', width: 24 },
+        { header: 'Branch', key: 'branchName', width: 18 },
+        { header: 'Departemen', key: 'department', width: 24 },
         { header: 'Absen Datang', key: 'checkInAt', width: 22 },
         { header: 'Lokasi Absen Datang', key: 'checkInLocation', width: 30 },
         { header: 'Lembur Datang', key: 'overtimeCheckInAt', width: 22 },
@@ -334,16 +379,79 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
         { header: 'Keterangan', key: 'note', width: 34 },
       ];
       reportRows.forEach((row) => sheet.addRow(attendanceExportRow(row)));
+      const summarySheet = workbook.addWorksheet('Ringkasan Kehadiran');
+      summarySheet.columns = [
+        { header: 'Nama Pekerja', key: 'employeeName', width: 28 },
+        { header: 'Nomor Pekerja', key: 'employeeNumber', width: 18 },
+        { header: 'Jabatan', key: 'position', width: 24 },
+        { header: 'Branch', key: 'branchName', width: 18 },
+        { header: 'Departemen', key: 'department', width: 24 },
+        { header: 'Jumlah Kehadiran', key: 'present', width: 20 },
+        { header: 'Sakit', key: 'sick', width: 12 },
+        { header: 'Cuti/Izin', key: 'leave', width: 12 },
+        { header: 'Tidak Absen', key: 'absent', width: 16 },
+      ];
+      attendanceSummary(reportRows).forEach((summary) => summarySheet.addRow(summary));
+      summarySheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      summarySheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF17365D' } };
+      summarySheet.views = [{ state: 'frozen', ySplit: 1 }];
+      summarySheet.autoFilter = { from: 'A1', to: 'I1' };
+      const overtimeRows = reportRows.filter((row) => row.overtimeCheckInAt || row.overtimeCheckOutAt);
+      const overtimeSheet = workbook.addWorksheet('Data Pekerja Lembur');
+      overtimeSheet.columns = [
+        { header: 'Tanggal Absen', key: 'date', width: 16 },
+        { header: 'Nama Pekerja', key: 'employeeName', width: 28 },
+        { header: 'Nomor Pekerja', key: 'employeeNumber', width: 18 },
+        { header: 'Jabatan', key: 'position', width: 24 },
+        { header: 'Branch', key: 'branchName', width: 18 },
+        { header: 'Departemen', key: 'department', width: 24 },
+        { header: 'Lembur Datang', key: 'overtimeCheckInAt', width: 22 },
+        { header: 'Lokasi Lembur Datang', key: 'overtimeCheckInLocation', width: 30 },
+        { header: 'Lembur Pulang', key: 'overtimeCheckOutAt', width: 22 },
+        { header: 'Lokasi Lembur Pulang', key: 'overtimeCheckOutLocation', width: 30 },
+        { header: 'Durasi Lembur', key: 'duration', width: 18 },
+      ];
+      overtimeRows.forEach((row) => overtimeSheet.addRow({
+        ...attendanceExportRow(row),
+        overtimeCheckInLocation: locationExportValue(row.overtimeCheckInLatitude, row.overtimeCheckInLongitude, row.overtimeCheckInAccuracyMeters),
+        overtimeCheckOutLocation: locationExportValue(row.overtimeCheckOutLatitude, row.overtimeCheckOutLongitude, row.overtimeCheckOutAccuracyMeters),
+        duration: overtimeDuration(row),
+      }));
+      overtimeSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      overtimeSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF17365D' } };
+      overtimeSheet.views = [{ state: 'frozen', ySplit: 1 }];
+      overtimeSheet.autoFilter = { from: 'A1', to: 'K1' };
+      const overtimeSummarySheet = workbook.addWorksheet('Ringkasan Lembur');
+      overtimeSummarySheet.columns = [
+        { header: 'Nama Pekerja', key: 'employeeName', width: 28 },
+        { header: 'Nomor Pekerja', key: 'employeeNumber', width: 18 },
+        { header: 'Jabatan', key: 'position', width: 24 },
+        { header: 'Branch', key: 'branchName', width: 18 },
+        { header: 'Departemen', key: 'department', width: 24 },
+        { header: 'Jumlah Hari Lembur', key: 'days', width: 20 },
+        { header: 'Jumlah Jam Lembur', key: 'hours', width: 20 },
+      ];
+      overtimeSummary(overtimeRows).forEach((summary) => overtimeSummarySheet.addRow(summary));
+      overtimeSummarySheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      overtimeSummarySheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF17365D' } };
+      overtimeSummarySheet.views = [{ state: 'frozen', ySplit: 1 }];
+      overtimeSummarySheet.autoFilter = { from: 'A1', to: 'G1' };
       sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
       sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF17365D' } };
       sheet.views = [{ state: 'frozen', ySplit: 1 }];
-      sheet.autoFilter = { from: 'A1', to: 'J1' };
+      sheet.autoFilter = { from: 'A1', to: 'O1' };
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = URL.createObjectURL(blob);
       const link = window.document.createElement('a');
       link.href = url;
-      const reportDate = reportFilters.dateMode === 'TODAY' ? todayISO() : reportFilters.date;
+      const reportDate = reportFilters.filterMode === 'TODAY'
+        ? todayISO()
+        : reportFilters.filterMode === 'CUSTOM_DATE'
+          ? reportFilters.date
+          : reportFilters.filterMode === 'MONTH'
+            ? `${reportFilters.year}-${String(reportFilters.month).padStart(2, '0')}`
+            : String(reportFilters.year);
       link.download = `absensi-${reportDate || `${reportFilters.year}-${String(reportFilters.month).padStart(2, '0')}`}-${reportFilters.category.toLowerCase()}.xlsx`;
       link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -795,27 +903,29 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
           {panel === 'attendance' && (
             <section className={sectionClass}>
               <h2 className="text-lg font-bold text-slate-900">Absensi Kehadiran</h2>
-              <p className="mt-1 text-sm text-slate-600">Tarik data absensi berdasarkan tahun, bulan, dan cakupan pekerja, lalu unduh hasilnya ke Excel.</p>
+              <p className="mt-1 text-sm text-slate-600">Tarik data absensi berdasarkan periode, tahun, bulan, dan cakupan pekerja, lalu unduh hasilnya ke Excel. Periode Bulan menggunakan siklus tanggal 26 bulan sebelumnya sampai tanggal 25.</p>
               <form onSubmit={submitAttendanceReport} className="mt-4 grid gap-3 rounded-xl bg-slate-50 p-4 md:grid-cols-3">
-                <label className="text-sm font-medium text-slate-700">Pilih tanggal
-                  <select className={fieldClass} value={reportFilters.dateMode} onChange={(e) => setReportFilters({ ...reportFilters, dateMode: e.target.value as typeof reportFilters.dateMode })}>
-                    <option value="TODAY">Hari Ini (TODAY)</option>
-                    <option value="CUSTOM">Tanggal pilihan</option>
+                <label className="text-sm font-medium text-slate-700">Filter data
+                  <select className={fieldClass} value={reportFilters.filterMode} onChange={(e) => setReportFilters({ ...reportFilters, filterMode: e.target.value as typeof reportFilters.filterMode })}>
+                    <option value="TODAY">Hari Ini (Today)</option>
+                    <option value="CUSTOM_DATE">Pilih Tanggal</option>
+                    <option value="MONTH">Bulan</option>
+                    <option value="YEAR">Tahun</option>
                   </select>
                 </label>
-                {reportFilters.dateMode === 'CUSTOM' && <label className="text-sm font-medium text-slate-700">Tanggal
+                {reportFilters.filterMode === 'CUSTOM_DATE' && <label className="text-sm font-medium text-slate-700">Pilih tanggal
                   <input required type="date" max={todayISO()} className={fieldClass} value={reportFilters.date} onChange={(e) => setReportFilters({ ...reportFilters, date: e.target.value })} />
                 </label>}
-                <label className="text-sm font-medium text-slate-700">Pilih tahun
+                {(reportFilters.filterMode === 'MONTH' || reportFilters.filterMode === 'YEAR') && <label className="text-sm font-medium text-slate-700">Pilih tahun
                   <select className={fieldClass} value={reportFilters.year} onChange={(e) => setReportFilters({ ...reportFilters, year: Number(e.target.value) })}>
                     {attendanceYears(workspace?.attendance || []).map((year) => <option key={year} value={year}>{year}</option>)}
                   </select>
-                </label>
-                <label className="text-sm font-medium text-slate-700">Pilih bulan
+                </label>}
+                {reportFilters.filterMode === 'MONTH' && <label className="text-sm font-medium text-slate-700">Pilih bulan
                   <select className={fieldClass} value={reportFilters.month} onChange={(e) => setReportFilters({ ...reportFilters, month: Number(e.target.value) })}>
                     {Array.from({ length: 12 }, (_, index) => index + 1).map((month) => <option key={month} value={month}>{new Intl.DateTimeFormat('id-ID', { month: 'long' }).format(new Date(2026, month - 1, 1))}</option>)}
                   </select>
-                </label>
+                </label>}
                 <label className="text-sm font-medium text-slate-700">Pilih kategori
                   <select className={fieldClass} value={reportFilters.category} onChange={(e) => setReportFilters({ ...reportFilters, category: e.target.value as typeof reportFilters.category })}>
                     <option value="ALL">Semua Data</option><option value="BRANCH">Branch</option><option value="EMPLOYEE">Nama Pekerja</option>
@@ -848,7 +958,32 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
               {reportRows && (
                 <div className="mt-7 border-t border-slate-200 pt-5">
                   <h3 className="font-semibold text-slate-900">Informasi Data Kehadiran</h3>
-                  <AttendanceReportTable rows={reportRows} />
+                  <AttendanceReportTable rows={reportRows} onEdit={openAttendanceEdit} />
+                  <AttendanceSummaryTable rows={reportRows} />
+                </div>
+              )}
+              {attendanceEditRow && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true">
+                  <div className="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl">
+                    <h3 className="font-semibold text-slate-900">Edit Absensi - {attendanceEditRow.employeeName}</h3>
+                    <p className="mt-1 text-sm text-slate-600">{formatDateDisplay(attendanceEditRow.date)}</p>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      {([
+                        ['checkIn', 'Absen Datang'],
+                        ['overtimeCheckIn', 'Lembur Datang'],
+                        ['checkOut', 'Absen Pulang'],
+                        ['overtimeCheckOut', 'Lembur Pulang'],
+                      ] as const).map(([field, label]) => (
+                        <label key={field} className="text-sm font-medium text-slate-700">{label}
+                          <input type="time" className={fieldClass} value={attendanceEditDraft[field]} onChange={(event) => setAttendanceEditDraft({ ...attendanceEditDraft, [field]: event.target.value })} />
+                        </label>
+                      ))}
+                    </div>
+                    <div className="mt-5 flex justify-end gap-2">
+                      <button type="button" className={secondaryButtonClass} onClick={() => setAttendanceEditRow(null)}>Batal</button>
+                      <button type="button" className={buttonClass} disabled={reportLoading} onClick={() => void saveAttendanceEdit()}>{reportLoading ? 'Menyimpan...' : 'Simpan'}</button>
+                    </div>
+                  </div>
                 </div>
               )}
             </section>
@@ -931,14 +1066,15 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
                 </select>
               </label>
               {workerAttendanceActions(workspace?.attendance || []).map((action) => action.event === selectedPunchEvent && (
-                <HoldAttendanceButton
-                  key={action.event}
-                  event={action.event}
-                  label={action.label}
-                  disabled={action.disabled && !action.completed || punchLoading}
-                  busy={punchLoading}
-                  onConfirm={confirmAttendance}
-                />
+                <div key={action.event} className="mt-[38px] flex w-full justify-center sm:mt-[38px]">
+                  <HoldAttendanceButton
+                    event={action.event}
+                    label={action.label}
+                    disabled={action.disabled && !action.completed || punchLoading}
+                    busy={punchLoading}
+                    onConfirm={confirmAttendance}
+                  />
+                </div>
               ))}
             </div>
           </section>
@@ -1050,6 +1186,12 @@ const formatAttendanceTime = (value: string | null | undefined): string => {
   return date.length >= 16 ? date.slice(11, 19) : date;
 };
 
+const attendanceInputTime = (value: string | null | undefined): string => {
+  if (!value) return '';
+  const formatted = formatAttendanceTime(value);
+  return formatted === '—' ? '' : formatted.slice(0, 5);
+};
+
 const locationText = (
   latitude: number | string | null | undefined,
   longitude: number | string | null | undefined,
@@ -1079,6 +1221,10 @@ const locationExportValue = (
 const attendanceExportRow = (row: HrAttendanceReportRow) => ({
   date: row.date,
   employeeName: row.employeeName,
+  employeeNumber: row.employeeNumber || '',
+  position: row.position || '',
+  branchName: row.branchName || '',
+  department: row.department || '',
   checkInAt: formatAttendanceTime(row.checkInAt),
   checkInLocation: locationExportValue(row.checkInLatitude, row.checkInLongitude, row.checkInAccuracyMeters),
   overtimeCheckInAt: formatAttendanceTime(row.overtimeCheckInAt),
@@ -1089,6 +1235,111 @@ const attendanceExportRow = (row: HrAttendanceReportRow) => ({
   overtimeCheckOutLocation: locationExportValue(row.overtimeCheckOutLatitude, row.overtimeCheckOutLongitude, row.overtimeCheckOutAccuracyMeters),
   note: attendanceStatus(row).join('; '),
 });
+
+const overtimeDuration = (row: HrAttendanceReportRow): string => {
+  const start = attendanceTimeMinutes(row.overtimeCheckInAt);
+  const end = attendanceTimeMinutes(row.overtimeCheckOutAt);
+  if (start === null || end === null) return '-';
+  const minutes = end >= start ? end - start : 1440 - start + end;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return `${hours} jam${remainder ? ` ${remainder} menit` : ''}`;
+};
+
+const overtimeSummary = (rows: HrAttendanceReportRow[]) => {
+  const employees = new Map<string, {
+    employeeName: string;
+    employeeNumber: string;
+    position: string;
+    branchName: string;
+    department: string;
+    days: number;
+    hours: string;
+    totalMinutes: number;
+  }>();
+  rows.forEach((row) => {
+    const employee = employees.get(row.userId) || {
+      employeeName: row.employeeName,
+      employeeNumber: row.employeeNumber || '',
+      position: row.position || '',
+      branchName: row.branchName || '',
+      department: row.department || '',
+      days: 0,
+      hours: '',
+      totalMinutes: 0,
+    };
+    const start = attendanceTimeMinutes(row.overtimeCheckInAt);
+    const end = attendanceTimeMinutes(row.overtimeCheckOutAt);
+    if (start !== null && end !== null) employee.totalMinutes += end >= start ? end - start : 1440 - start + end;
+    employee.days += 1;
+    employees.set(row.userId, employee);
+  });
+  return [...employees.values()].map((employee) => ({
+    ...employee,
+    hours: `${(employee.totalMinutes / 60).toFixed(2)} jam`,
+  }));
+};
+
+const attendanceSummary = (rows: HrAttendanceReportRow[]) => {
+  const employees = new Map<string, {
+    employeeName: string;
+    employeeNumber: string;
+    position: string;
+    branchName: string;
+    department: string;
+    present: number;
+    sick: number;
+    leave: number;
+    absent: number;
+  }>();
+  rows.forEach((row) => {
+    const employee = employees.get(row.userId) || {
+      employeeName: row.employeeName,
+      employeeNumber: row.employeeNumber || '',
+      position: row.position || '',
+      branchName: row.branchName || '',
+      department: row.department || '',
+      present: 0,
+      sick: 0,
+      leave: 0,
+      absent: 0,
+    };
+    if (row.leaveType === 'SICK') employee.sick += 1;
+    else if (row.status === 'LEAVE') employee.leave += 1;
+    else if (row.status === 'ABSENT' || row.checkInAt === null && attendanceStatus(row).includes('Anda tidak absen datang')) employee.absent += 1;
+    else if (row.checkInAt || row.status === 'PRESENT' || row.status === 'REMOTE') employee.present += 1;
+    employees.set(row.userId, employee);
+  });
+  return [...employees.values()];
+};
+
+const AttendanceSummaryTable: React.FC<{ rows: HrAttendanceReportRow[] }> = ({ rows }) => (
+  <div className="mt-5 overflow-x-auto rounded-xl border border-slate-200">
+    <h4 className="bg-slate-50 px-4 py-3 font-semibold text-slate-900">Ringkasan Kehadiran Pekerja</h4>
+    <table className="w-full text-left text-sm">
+      <thead className="bg-slate-100 text-xs uppercase text-slate-600">
+        <tr>
+          {['Nama Pekerja', 'Nomor Pekerja', 'Jabatan', 'Branch', 'Departemen', 'Jumlah Kehadiran', 'Sakit', 'Cuti/Izin', 'Tidak Absen'].map((heading) => <th key={heading} className="px-4 py-3">{heading}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        {attendanceSummary(rows).map((summary) => (
+          <tr key={summary.employeeName} className="border-t border-slate-100">
+            <td className="px-4 py-3 font-semibold">{summary.employeeName}</td>
+            <td className="px-4 py-3">{summary.employeeNumber || '-'}</td>
+            <td className="px-4 py-3">{summary.position || '-'}</td>
+            <td className="px-4 py-3">{summary.branchName || '-'}</td>
+            <td className="px-4 py-3">{summary.department || '-'}</td>
+            <td className="px-4 py-3">{summary.present}</td>
+            <td className="px-4 py-3">{summary.sick}</td>
+            <td className="px-4 py-3">{summary.leave}</td>
+            <td className="px-4 py-3">{summary.absent}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+);
 
 const attendanceTimeMinutes = (value: string | null | undefined): number | null => {
   if (!value) return null;
@@ -1166,17 +1417,21 @@ const workerAttendanceRecordedTime = (rows: HrAttendance[], event: HrAttendanceE
   return formatAttendanceTime(value);
 };
 
-const AttendanceReportTable: React.FC<{ rows: HrAttendanceReportRow[] }> = ({ rows }) => (
+const AttendanceReportTable: React.FC<{ rows: HrAttendanceReportRow[]; onEdit: (row: HrAttendanceReportRow) => void }> = ({ rows, onEdit }) => (
   <div className="mt-5 rounded-xl border border-slate-200">
     <table className="w-full table-fixed text-left text-[11px]">
       <thead className="bg-slate-100 text-[11px] uppercase text-slate-600">
         <tr>
-          {['Tanggal Absen', 'Nama pekerja', 'Absen Datang', 'Lokasi Absen Datang', 'Lembur Datang', 'Lokasi Lembur Datang', 'Absen Pulang', 'Lokasi Absen Pulang', 'Lembur Pulang', 'Lokasi Lembur Pulang', 'Keterangan'].map((heading) => <th key={heading} className="break-words p-2">{heading}</th>)}
+          {['Tanggal Absen', 'Nama pekerja', 'Nomor pekerja', 'Jabatan', 'Branch', 'Departemen', 'Absen Datang', 'Lokasi Absen Datang', 'Lembur Datang', 'Lokasi Lembur Datang', 'Absen Pulang', 'Lokasi Absen Pulang', 'Lembur Pulang', 'Lokasi Lembur Pulang', 'Keterangan', 'Aksi'].map((heading) => <th key={heading} className="break-words p-2">{heading}</th>)}
         </tr>
       </thead>
       <tbody>{rows.map((row) => <tr key={`${row.userId}-${row.date}`} className="border-t border-slate-100">
         <td className="break-words p-2">{formatDateDisplay(row.date)}</td>
         <td className="break-words p-2 font-semibold">{row.employeeName}</td>
+        <td className="break-words p-2">{row.employeeNumber || '-'}</td>
+        <td className="break-words p-2">{row.position || '-'}</td>
+        <td className="break-words p-2">{row.branchName || '-'}</td>
+        <td className="break-words p-2">{row.department || '-'}</td>
         <td className={`break-words p-2 ${attendanceStatus(row).some((note) => note.includes('telat') || note.includes('tidak absen datang')) ? 'font-bold text-red-600' : ''}`}>{formatAttendanceTime(row.checkInAt)}</td>
         <td className="break-words p-2">{locationText(row.checkInLatitude, row.checkInLongitude, row.checkInAccuracyMeters) || '—'}</td>
         <td className="break-words p-2">{formatAttendanceTime(row.overtimeCheckInAt)}</td>
@@ -1187,6 +1442,11 @@ const AttendanceReportTable: React.FC<{ rows: HrAttendanceReportRow[] }> = ({ ro
         <td className="break-words p-2">{locationText(row.overtimeCheckOutLatitude, row.overtimeCheckOutLongitude, row.overtimeCheckOutAccuracyMeters) || '—'}</td>
         <td className="break-words p-2 font-bold">
           {attendanceStatus(row).map((note) => <span key={note} className={`block ${note !== 'Hadir' && note !== 'Libur Operasional' ? 'text-red-600' : 'text-slate-700'}`}>{note}</span>)}
+        </td>
+        <td className="p-2">
+          <button type="button" className="rounded-lg border border-slate-300 p-1.5 text-blue-700 hover:bg-blue-50" onClick={() => onEdit(row)} aria-label={`Edit absensi ${row.employeeName}`} title="Edit absensi">
+            <Pencil className="h-4 w-4" />
+          </button>
         </td>
       </tr>)}</tbody>
     </table>
@@ -1269,7 +1529,7 @@ const HoldAttendanceButton: React.FC<HoldAttendanceButtonProps> = ({ event, labe
         if (keyEvent.key === ' ' || keyEvent.key === 'Enter') stop();
       }}
       onContextMenu={(eventContext) => eventContext.preventDefault()}
-      className="relative mx-auto h-24 w-24 touch-none rounded-full disabled:cursor-not-allowed disabled:opacity-60"
+      className="relative mx-auto h-28 w-28 touch-none rounded-full transition-transform duration-150 active:scale-110 disabled:cursor-not-allowed disabled:opacity-60 sm:h-24 sm:w-24 sm:active:scale-105"
       aria-label={`${label}. Sentuh dan tahan selama dua setengah detik untuk absensi.`}
       style={{ background: `conic-gradient(#2563eb ${progress * 3.6}deg, #dbeafe 0deg)` }}
     >
