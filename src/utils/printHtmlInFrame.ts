@@ -1,3 +1,5 @@
+import { androidNative, isAndroidApp } from '../lib/androidNative';
+
 const activePrintFrames = new WeakSet<HTMLIFrameElement>();
 const frameLoadTimeoutMs = 3000;
 
@@ -7,6 +9,14 @@ export const printHtmlInFrame = (
   fileName: string,
 ): boolean => {
   if (activePrintFrames.has(frame)) return false;
+
+  if (isAndroidApp()) {
+    void androidNative.printHtml(fileName, html).catch((printError) => {
+      console.error('Android print failed:', printError);
+      window.alert(printError instanceof Error ? printError.message : 'Dokumen gagal dibuka untuk dicetak.');
+    });
+    return true;
+  }
 
   activePrintFrames.add(frame);
   const originalTitle = document.title;
@@ -64,4 +74,21 @@ export const printHtmlInFrame = (
   frame.srcdoc = html;
 
   return true;
+};
+
+export const printHtmlDocument = (html: string, title: string): void => {
+  if (isAndroidApp()) {
+    void androidNative.printHtml(title, html).catch((printError) => {
+      console.error('Android print failed:', printError);
+      window.alert(printError instanceof Error ? printError.message : 'Dokumen gagal dibuka untuk dicetak.');
+    });
+    return;
+  }
+  const popup = window.open('', '_blank');
+  if (!popup) {
+    window.alert('Popup diblokir. Izinkan popup browser untuk mencetak dokumen.');
+    return;
+  }
+  popup.document.write(html);
+  popup.document.close();
 };

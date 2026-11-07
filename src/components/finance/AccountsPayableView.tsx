@@ -5,6 +5,8 @@ import { db } from '../../db/storage';
 import { dataApi } from '../../lib/dataApi';
 import { apiAuth } from '../../lib/api';
 import { printPaymentVoucher } from '../../utils/voucherPrint';
+import { printHtmlDocument } from '../../utils/printHtmlInFrame';
+import { isAndroidApp } from '../../lib/androidNative';
 import { formatDateDisplay } from '../../utils/date';
 import { getPublicLogoUrl } from '../../utils/logo';
 import { getPaymentVoucherPaymentEvents } from '../../utils/paymentVoucherHistory';
@@ -434,8 +436,8 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
       ),
     })).filter((entry) => entry.amount > 0);
     const printVoucherNumber = printVoucher.voucherNumber || db.getNextFinanceVoucherNumber(printDate, printVoucher.branchName || db.getActorBranch());
-    const printWindow = window.open('', '_blank', 'width=1100,height=800');
-    if (!printWindow) {
+    const printWindow = isAndroidApp() ? null : window.open('', '_blank', 'width=1100,height=800');
+    if (!isAndroidApp() && !printWindow) {
       setError('Popup diblokir; buka kembali dan lanjutkan dengan form ini.');
       return;
     }
@@ -556,9 +558,13 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
         </body>
       </html>
     `;
-    printWindow.document.write(body);
-    printWindow.document.close();
-    if (autoPrint) printWindow.onload = () => { printWindow.focus(); printWindow.print(); };
+    if (isAndroidApp()) {
+      printHtmlDocument(body, `Payment Voucher ${printVoucher.requestNumber}`);
+    } else if (printWindow) {
+      printWindow.document.write(body);
+      printWindow.document.close();
+      if (autoPrint) printWindow.onload = () => { printWindow.focus(); printWindow.print(); };
+    }
   };
 
   const vouchers = useMemo<AccountsPayableRow[]>(() => {

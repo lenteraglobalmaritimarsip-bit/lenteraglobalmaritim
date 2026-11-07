@@ -1,8 +1,10 @@
 import { AuthAccount } from '../auth';
 import { AccountsReceivableEntry, AccountingAsset, AccountingBalanceSheetResponse, AccountingInboxItem, AccountingMonthlyProfitLossResponse, AccountingPostedJournalRow, AccountingProfitLossResponse, BankAccount, Branch, ChartOfAccount, FdaReceivableEntry, FinanceJournalLine, ReceivableInvoiceOption, ReceivableInvoiceType, ReceivablePaymentType, ReceivableSubjectData } from '../types';
+import { androidNative } from './androidNative';
 
 const apiEnabled = import.meta.env.VITE_API_AUTH_ENABLED === 'true';
 let csrfToken = '';
+const authTabSessionKey = 'lgm-authenticated-tab';
 
 export interface PayrollSlip {
   rowNumber: number;
@@ -195,7 +197,56 @@ export const apiAuth = {
       body: JSON.stringify({ username, password }),
     });
     csrfToken = result.csrfToken;
+    sessionStorage.setItem(authTabSessionKey, 'active');
     return toAccount(result.user);
+  },
+  async biometricState() {
+    return androidNative.biometricState();
+  },
+  async enableBiometric(username: string): Promise<void> {
+    const key = await androidNative.prepareBiometricKey();
+    const challengeResult = await request<{ challenge: { challengeId: string; signedMessage: string } }>(
+      'auth.php?action=biometric-enrollment-challenge',
+      { method: 'POST', body: JSON.stringify({ deviceId: key.deviceId }) },
+    );
+    const signature = await androidNative.signBiometricMessage(challengeResult.challenge.signedMessage);
+    await request<{ ok: boolean }>('auth.php?action=biometric-enroll', {
+      method: 'POST',
+      body: JSON.stringify({
+        deviceId: key.deviceId,
+        challengeId: challengeResult.challenge.challengeId,
+        publicKey: key.publicKey,
+        signature,
+      }),
+    });
+    await androidNative.rememberBiometricAccount(username);
+  },
+  async loginWithBiometric(username: string, deviceId: string): Promise<AuthAccount> {
+    const challengeResult = await request<{ challenge: { challengeId: string; signedMessage: string } }>(
+      'auth.php?action=biometric-challenge',
+      { method: 'POST', body: JSON.stringify({ username, deviceId }) },
+    );
+    const signature = await androidNative.signBiometricMessage(challengeResult.challenge.signedMessage);
+    const result = await request<{ user: Record<string, unknown>; csrfToken: string }>(
+      'auth.php?action=biometric-login',
+      {
+        method: 'POST',
+        body: JSON.stringify({ deviceId, challengeId: challengeResult.challenge.challengeId, signature }),
+      },
+    );
+    csrfToken = result.csrfToken;
+    sessionStorage.setItem(authTabSessionKey, 'active');
+    return toAccount(result.user);
+  },
+  async restoreSession(): Promise<AuthAccount | null> {
+    const continuingTabSession = sessionStorage.getItem(authTabSessionKey) === 'active';
+    const account = await this.me();
+    if (!continuingTabSession && account) {
+      await this.logout();
+      return null;
+    }
+    sessionStorage.setItem(authTabSessionKey, 'active');
+    return account;
   },
   async me(): Promise<AuthAccount | null> {
     try {
@@ -208,8 +259,12 @@ export const apiAuth = {
     }
   },
   async logout(): Promise<void> {
-    await request<{ ok: boolean }>('auth.php?action=logout', { method: 'POST', body: '{}' });
-    csrfToken = '';
+    sessionStorage.removeItem(authTabSessionKey);
+    try {
+      await request<{ ok: boolean }>('auth.php?action=logout', { method: 'POST', body: '{}' });
+    } finally {
+      csrfToken = '';
+    }
   },
   async changePassword(oldPassword: string, newPassword: string): Promise<void> {
     await request<{ ok: boolean }>('auth.php?action=change-password', {
@@ -605,6 +660,8 @@ export interface HrEmployee {
   contractDurationYears: number | null;
   nik: string | null;
   npwp: string | null;
+  bpjsKetenagakerjaan: string | null;
+  bpjsKesehatan: string | null;
   payrollAccountNumber: string | null;
   payrollBankName: string | null;
   hasRecord: boolean;
@@ -688,15 +745,28 @@ export interface HrLeaveRequest {
   id: string;
   userId?: string;
   employeeName?: string;
-  type: 'ANNUAL' | 'SICK' | 'PERSONAL' | 'OTHER';
+  type: 'ANNUAL' | 'BUSINESS_TRAVEL' | 'SICK' | 'PERSONAL' | 'OTHER';
   startDate: string;
   endDate: string;
+  durationDays: number | null;
+  destinationCity: string | null;
+  transportMode: 'CAR' | 'PLANE' | 'TRAIN' | 'PUBLIC_BUS' | null;
   reason: string;
   status: HrLeaveStatus;
   reviewNote: string | null;
   createdAt: string;
   reviewedByName?: string | null;
   reviewedAt?: string | null;
+}
+
+export interface HrLeaveVerification {
+  id: string;
+  type: HrLeaveRequest['type'];
+  startDate: string;
+  endDate: string;
+  submittedAt: string;
+  status: HrLeaveStatus;
+  employeeName: string;
 }
 
 export interface HrProfileChangeRequest {
@@ -759,11 +829,18 @@ export interface HrEmployeeSave {
   contractDurationYears: string;
   nik: string;
   npwp: string;
+  bpjsKetenagakerjaan: string;
+  bpjsKesehatan: string;
   payrollAccountNumber: string;
   payrollBankName: string;
 }
 
 export const hrApi = {
+  async verifyLeaveRequest(id: string): Promise<HrLeaveVerification> {
+    const query = new URLSearchParams({ action: 'verify-leave', id });
+    const result = await request<{ verification: HrLeaveVerification }>(`hr.php?${query.toString()}`);
+    return result.verification;
+  },
   async loadWorkspace(): Promise<HrWorkspace> {
     if (!apiEnabled) throw new Error('Workspace HR memerlukan koneksi API aktif.');
     return request<HrWorkspace>('hr.php?action=workspace');
@@ -844,7 +921,14 @@ export const hrApi = {
       body: JSON.stringify(input),
     });
   },
-  async requestLeave(input: { type: HrLeaveRequest['type']; startDate: string; endDate: string; reason: string }): Promise<void> {
+  async requestLeave(input: {
+    type: HrLeaveRequest['type'];
+    startDate: string;
+    endDate: string;
+    destinationCity: string;
+    transportMode: NonNullable<HrLeaveRequest['transportMode']> | '';
+    reason: string;
+  }): Promise<void> {
     await request<{ ok: boolean }>('hr.php?action=request-leave', { method: 'POST', body: JSON.stringify(input) });
   },
   async reviewLeave(input: { id: string; decision: 'APPROVED' | 'REJECTED'; note: string }): Promise<void> {

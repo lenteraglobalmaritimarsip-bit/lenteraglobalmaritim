@@ -401,7 +401,8 @@ button{ cursor:pointer; }
     min-width:0!important;
   }
   .worker-workspace [data-worker-photo-frame]{
-    width:min(190px,72vw)!important;
+    width:100%!important;
+    max-width:min(360px,100%)!important;
     margin-inline:auto;
   }
   .worker-workspace .worker-profile-details{
@@ -430,7 +431,10 @@ button{ cursor:pointer; }
 
 /* Employee photo frame — Lentera blue portrait 4 × 6 */
 /* Worker profile information follows a clean label / colon / value layout. */
-.worker-profile-details{margin-top:2px}
+.worker-profile-details{margin-top:2px;font-size:12px;line-height:1}
+.worker-profile-details .worker-profile-detail,
+.worker-profile-details dt,
+.worker-profile-details dd{font-size:12px;line-height:1}
 .worker-workspace .worker-profile-layout{column-gap:28px}
 .worker-profile-detail{
   display:grid;
@@ -450,7 +454,8 @@ button{ cursor:pointer; }
     grid-template-columns:minmax(105px,135px) 10px minmax(0,1fr);
     gap:6px;
     padding:6px 0;
-    font-size:13px;
+    font-size:12px;
+    line-height:1;
   }
 }
 

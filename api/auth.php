@@ -21,9 +21,190 @@ function recordAuthAudit(?array $user, string $action, string $description): voi
     ]);
 }
 
+function biometricDeviceId(mixed $value): string
+{
+    $deviceId = is_string($value) ? strtolower(trim($value)) : '';
+    if (!preg_match('/^[a-f0-9]{32}$/', $deviceId)) jsonResponse(['error' => 'Identitas perangkat tidak valid.'], 400);
+    return $deviceId;
+}
+
+function createBiometricChallenge(PDO $pdo, string $userId, string $deviceId, string $purpose): array
+{
+    $pdo->exec('DELETE FROM auth_biometric_challenges WHERE expires_at < UTC_TIMESTAMP(3) - INTERVAL 1 DAY');
+    $rateLimit = $pdo->prepare(
+        'SELECT COUNT(*) FROM auth_biometric_challenges
+         WHERE user_id = :user_id AND device_id = :device_id
+           AND created_at >= UTC_TIMESTAMP(3) - INTERVAL 10 MINUTE'
+    );
+    $rateLimit->execute(['user_id' => $userId, 'device_id' => $deviceId]);
+    if ((int) $rateLimit->fetchColumn() >= 10) {
+        jsonResponse(['error' => 'Terlalu banyak percobaan biometrik. Coba lagi beberapa menit lagi.'], 429);
+    }
+
+    $challengeId = bin2hex(random_bytes(16));
+    $challenge = bin2hex(random_bytes(32));
+    $signedMessage = implode('|', ['LGM-BIOMETRIC', $purpose, $challengeId, $challenge, $userId, $deviceId]);
+    $insert = $pdo->prepare(
+        'INSERT INTO auth_biometric_challenges
+         (id, user_id, device_id, purpose, challenge_value, expires_at)
+         VALUES (:id, :user_id, :device_id, :purpose, :challenge, UTC_TIMESTAMP(3) + INTERVAL 2 MINUTE)'
+    );
+    $insert->execute([
+        'id' => $challengeId,
+        'user_id' => $userId,
+        'device_id' => $deviceId,
+        'purpose' => $purpose,
+        'challenge' => $challenge,
+    ]);
+    return ['challengeId' => $challengeId, 'signedMessage' => $signedMessage];
+}
+
+function verifyBiometricSignature(string $publicKeyDerBase64, string $message, string $signatureBase64): bool
+{
+    $publicKeyDer = base64_decode($publicKeyDerBase64, true);
+    $signature = base64_decode($signatureBase64, true);
+    if ($publicKeyDer === false || $signature === false || strlen($publicKeyDer) > 1024 || strlen($signature) > 256) return false;
+    $pem = "-----BEGIN PUBLIC KEY-----\n" . chunk_split(base64_encode($publicKeyDer), 64, "\n") . "-----END PUBLIC KEY-----\n";
+    $publicKey = openssl_pkey_get_public($pem);
+    if ($publicKey === false) return false;
+    return openssl_verify($message, $signature, $publicKey, OPENSSL_ALGO_SHA256) === 1;
+}
+
 $action = $_GET['action'] ?? '';
 
 try {
+    if ($action === 'biometric-enrollment-challenge') {
+        requireMethod('POST');
+        $user = requireAuthenticatedUser();
+        requireCsrfToken();
+        $deviceId = biometricDeviceId(requestJson()['deviceId'] ?? null);
+        jsonResponse(['challenge' => createBiometricChallenge(db(), (string) $user['id'], $deviceId, 'ENROLL')]);
+    }
+
+    if ($action === 'biometric-enroll') {
+        requireMethod('POST');
+        $user = requireAuthenticatedUser();
+        requireCsrfToken();
+        $body = requestJson();
+        $deviceId = biometricDeviceId($body['deviceId'] ?? null);
+        $challengeId = is_string($body['challengeId'] ?? null) ? strtolower(trim($body['challengeId'])) : '';
+        $publicKey = is_string($body['publicKey'] ?? null) ? trim($body['publicKey']) : '';
+        $signature = is_string($body['signature'] ?? null) ? trim($body['signature']) : '';
+        if (!preg_match('/^[a-f0-9]{32}$/', $challengeId) || $publicKey === '' || strlen($publicKey) > 1400 || $signature === '') {
+            jsonResponse(['error' => 'Data pendaftaran biometrik tidak valid.'], 400);
+        }
+
+        $pdo = db();
+        $pdo->beginTransaction();
+        $query = $pdo->prepare(
+            'SELECT challenge_value FROM auth_biometric_challenges
+             WHERE id = :id AND user_id = :user_id AND device_id = :device_id
+               AND purpose = \'ENROLL\' AND consumed_at IS NULL AND expires_at > UTC_TIMESTAMP(3)
+             LIMIT 1 FOR UPDATE'
+        );
+        $query->execute(['id' => $challengeId, 'user_id' => $user['id'], 'device_id' => $deviceId]);
+        $challengeValue = $query->fetchColumn();
+        if (!is_string($challengeValue)) {
+            $pdo->rollBack();
+            jsonResponse(['error' => 'Tantangan pendaftaran kedaluwarsa. Ulangi proses login biometrik.'], 409);
+        }
+        $updateChallenge = $pdo->prepare('UPDATE auth_biometric_challenges SET consumed_at = UTC_TIMESTAMP(3) WHERE id = :id AND consumed_at IS NULL');
+        $updateChallenge->execute(['id' => $challengeId]);
+        $message = implode('|', ['LGM-BIOMETRIC', 'ENROLL', $challengeId, $challengeValue, $user['id'], $deviceId]);
+        if (!verifyBiometricSignature($publicKey, $message, $signature)) {
+            $pdo->commit();
+            jsonResponse(['error' => 'Verifikasi kunci biometrik gagal.'], 401);
+        }
+        $saveCredential = $pdo->prepare(
+            'INSERT INTO auth_biometric_credentials (user_id, device_id, public_key_der)
+             VALUES (:user_id, :device_id, :public_key)
+             ON DUPLICATE KEY UPDATE public_key_der = VALUES(public_key_der), created_at = UTC_TIMESTAMP(3)'
+        );
+        $saveCredential->execute(['user_id' => $user['id'], 'device_id' => $deviceId, 'public_key' => $publicKey]);
+        recordAuthAudit($user, 'BIOMETRIC_ENROLLED', 'Login biometrik perangkat diaktifkan.');
+        $pdo->commit();
+        jsonResponse(['ok' => true]);
+    }
+
+    if ($action === 'biometric-challenge') {
+        requireMethod('POST');
+        $body = requestJson();
+        $username = is_string($body['username'] ?? null) ? trim($body['username']) : '';
+        $deviceId = biometricDeviceId($body['deviceId'] ?? null);
+        if ($username === '' || strlen($username) > 100) jsonResponse(['error' => 'Biometrik tidak tersedia untuk perangkat ini.'], 401);
+        $pdo = db();
+        $query = $pdo->prepare(
+            'SELECT u.id FROM users u
+             JOIN auth_biometric_credentials c ON c.user_id = u.id
+             WHERE u.username = :username AND u.status = \'ACTIVE\' AND c.device_id = :device_id
+             LIMIT 1'
+        );
+        $query->execute(['username' => $username, 'device_id' => $deviceId]);
+        $userId = $query->fetchColumn();
+        if (!is_string($userId)) jsonResponse(['error' => 'Biometrik tidak tersedia untuk perangkat ini.'], 401);
+        jsonResponse(['challenge' => createBiometricChallenge($pdo, $userId, $deviceId, 'LOGIN')]);
+    }
+
+    if ($action === 'biometric-login') {
+        requireMethod('POST');
+        $body = requestJson();
+        $deviceId = biometricDeviceId($body['deviceId'] ?? null);
+        $challengeId = is_string($body['challengeId'] ?? null) ? strtolower(trim($body['challengeId'])) : '';
+        $signature = is_string($body['signature'] ?? null) ? trim($body['signature']) : '';
+        if (!preg_match('/^[a-f0-9]{32}$/', $challengeId) || $signature === '') {
+            jsonResponse(['error' => 'Data login biometrik tidak valid.'], 400);
+        }
+
+        $pdo = db();
+        $pdo->beginTransaction();
+        $query = $pdo->prepare(
+            'SELECT ch.challenge_value, u.id, u.name, u.email, u.username, u.role,
+                    u.department, u.branch_name, u.branch_id, u.position, u.phone, u.status,
+                    c.public_key_der
+             FROM auth_biometric_challenges ch
+             JOIN auth_biometric_credentials c ON c.user_id = ch.user_id AND c.device_id = ch.device_id
+             JOIN users u ON u.id = ch.user_id
+             WHERE ch.id = :id AND ch.device_id = :device_id AND ch.purpose = \'LOGIN\'
+               AND ch.consumed_at IS NULL AND ch.expires_at > UTC_TIMESTAMP(3)
+             LIMIT 1 FOR UPDATE'
+        );
+        $query->execute(['id' => $challengeId, 'device_id' => $deviceId]);
+        $user = $query->fetch();
+        if (!$user) {
+            $pdo->rollBack();
+            jsonResponse(['error' => 'Login biometrik gagal atau tantangan telah kedaluwarsa.'], 401);
+        }
+        $consume = $pdo->prepare('UPDATE auth_biometric_challenges SET consumed_at = UTC_TIMESTAMP(3) WHERE id = :id AND consumed_at IS NULL');
+        $consume->execute(['id' => $challengeId]);
+        $message = implode('|', ['LGM-BIOMETRIC', 'LOGIN', $challengeId, $user['challenge_value'], $user['id'], $deviceId]);
+        if (!verifyBiometricSignature((string) $user['public_key_der'], $message, $signature)) {
+            recordAuthAudit($user, 'LOGIN_FAILED', 'Verifikasi login biometrik gagal.');
+            $pdo->commit();
+            jsonResponse(['error' => 'Login biometrik gagal.'], 401);
+        }
+        if ($user['status'] !== 'ACTIVE') {
+            $pdo->commit();
+            jsonResponse(['error' => 'Akun tidak aktif. Hubungi administrator.'], 401);
+        }
+        if ($user['role'] === 'PEKERJA') {
+            $employment = $pdo->prepare('SELECT employment_status FROM hr_employee_records WHERE user_id = :id LIMIT 1');
+            $employment->execute(['id' => $user['id']]);
+            if ($employment->fetchColumn() === 'RESIGNED') {
+                $pdo->commit();
+                jsonResponse(['error' => 'Akun pekerja telah dinonaktifkan karena status kerja berakhir.'], 401);
+            }
+        }
+        $resetAttempts = $pdo->prepare('UPDATE users SET failed_login_attempts = 0, locked_at = NULL WHERE id = :id');
+        $resetAttempts->execute(['id' => $user['id']]);
+        recordAuthAudit($user, 'LOGIN', 'User berhasil login dengan biometrik.');
+        $pdo->commit();
+        session_regenerate_id(true);
+        unset($user['public_key_der'], $user['challenge_value']);
+        $_SESSION['user'] = $user;
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+        jsonResponse(['user' => $user, 'csrfToken' => $_SESSION['csrf_token']]);
+    }
+
     if ($action === 'login') {
         requireMethod('POST');
         $body = requestJson();

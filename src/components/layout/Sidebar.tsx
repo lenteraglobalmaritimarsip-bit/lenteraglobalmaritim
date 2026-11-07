@@ -72,7 +72,7 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
         {currentRole==='PEKERJA' && <>
           {item({label:'Profil Saya',tab:'WORKER_WORKSPACE',icon:Users})}
           {item({label:'Absensi',tab:'WORKER_ATTENDANCE',icon:ClipboardCheck})}
-          {item({label:'Surat Permohonan Ijin',tab:'WORKER_LEAVE_REQUEST',icon:FileText})}
+          {item({label:'Surat Permohonan',tab:'WORKER_LEAVE_REQUEST',icon:FileText})}
           <button type="button" className="maritim-nav-group-title maritim-nav-group-toggle" aria-expanded={workerDownloadOpen} onClick={()=>setWorkerDownloadOpen((open)=>!open)}>
             <ArrowDownToLine/><span>Download data</span>{workerDownloadOpen?<ChevronDown/>:<ChevronRight/>}
           </button>

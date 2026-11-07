@@ -36,9 +36,11 @@ import { AccountingBalanceSheetView, AccountingProfitDetailView, AccountingProfi
 import { AccountingDashboard } from './components/accounting/AccountingDashboard';
 import { DirectorActivityLogView } from './components/director/DirectorActivityLogView';
 import { HrWorkspaceView } from './components/hr/HrWorkspaceView';
+import { LeaveVerificationView } from './components/hr/LeaveVerificationView';
 import { AuthAccount } from './auth';
 import { LoginView } from './components/auth/LoginView';
 import { apiAuth } from './lib/api';
+import { androidNative, isAndroidApp } from './lib/androidNative';
 import { getBranchByValue } from './branches';
 
 const syncCurrentUserFromMaster = (account: AuthAccount | null): AuthAccount | null => {
@@ -90,6 +92,7 @@ const getDefaultTabForRole = (role: UserRole): ActiveTab => {
 };
 
 let resetJobsPromise: Promise<void> | null = null;
+let authRestorePromise: Promise<AuthAccount | null> | null = null;
 
 const branchKey = (branch?: string) => (branch || '').trim().toLocaleLowerCase();
 
@@ -109,8 +112,114 @@ export default function App() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [loginToast, setLoginToast] = useState<string | null>(null);
   const [saveToast, setSaveToast] = useState<string | null>(null);
+  const leaveVerificationId = new URLSearchParams(window.location.search).get('verifikasi');
 
   useEffect(() => { const fn = () => setShowProfileModal(true); window.addEventListener('lgm:open-profile', fn); return () => window.removeEventListener('lgm:open-profile', fn); }, []);
+
+  useEffect(() => {
+    if (!isAndroidApp()) return;
+    const pendingDownloads = new WeakSet<HTMLAnchorElement>();
+    const originalAnchorClick = HTMLAnchorElement.prototype.click;
+    const saveGeneratedFile = (link: HTMLAnchorElement): boolean => {
+      const href = link.href;
+      if (!link.hasAttribute('download') || (!href.startsWith('blob:') && !href.startsWith('data:'))) return false;
+      if (pendingDownloads.has(link)) return true;
+      pendingDownloads.add(link);
+      void fetch(href)
+        .then((response) => {
+          if (!response.ok) throw new Error(`File gagal dimuat (HTTP ${response.status}).`);
+          return response.blob();
+        })
+        .then(async (blob) => {
+          const reader = new FileReader();
+          const contentBase64 = await new Promise<string>((resolve, reject) => {
+            reader.onload = () => {
+              const result = String(reader.result || '');
+              const separator = result.indexOf(',');
+              if (separator < 0) reject(new Error('File hasil unduhan tidak valid.'));
+              else resolve(result.slice(separator + 1));
+            };
+            reader.onerror = () => reject(new Error('File hasil unduhan gagal dibaca.'));
+            reader.readAsDataURL(blob);
+          });
+          await androidNative.downloadBase64(
+            link.download || 'unduhan',
+            blob.type || 'application/octet-stream',
+            contentBase64,
+          );
+        })
+        .catch((downloadError) => {
+          console.error('Android file download failed:', downloadError);
+          setSaveToast(downloadError instanceof Error ? downloadError.message : 'Unduhan gagal disimpan.');
+          window.setTimeout(() => setSaveToast(null), 8000);
+        })
+        .finally(() => pendingDownloads.delete(link));
+      return true;
+    };
+    const patchedAnchorClick = function (this: HTMLAnchorElement) {
+      if (saveGeneratedFile(this)) return;
+      originalAnchorClick.call(this);
+    };
+    HTMLAnchorElement.prototype.click = patchedAnchorClick;
+
+    const handleNativeFileAction = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const link = target.closest<HTMLAnchorElement>('a[href]');
+      if (!link) return;
+      if (saveGeneratedFile(link)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      const href = link.href;
+      let isSameOriginPdf = false;
+      try {
+        const url = new URL(href, window.location.href);
+        isSameOriginPdf = url.origin === window.location.origin
+          && /\.pdf$/i.test(url.pathname)
+          && link.target === '_blank';
+      } catch {
+        return;
+      }
+      if (!isSameOriginPdf) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void fetch(href, { credentials: 'same-origin' })
+        .then((response) => {
+          if (!response.ok) throw new Error(`File gagal dimuat (HTTP ${response.status}).`);
+          return response.blob();
+        })
+        .then(async (blob) => {
+          const reader = new FileReader();
+          const contentBase64 = await new Promise<string>((resolve, reject) => {
+            reader.onload = () => {
+              const result = String(reader.result || '');
+              const separator = result.indexOf(',');
+              if (separator < 0) reject(new Error('File hasil unduhan tidak valid.'));
+              else resolve(result.slice(separator + 1));
+            };
+            reader.onerror = () => reject(new Error('File hasil unduhan gagal dibaca.'));
+            reader.readAsDataURL(blob);
+          });
+          const pathFileName = new URL(href, window.location.href).pathname.split('/').pop() || 'unduhan.pdf';
+          const fileName = link.download || decodeURIComponent(pathFileName);
+          await androidNative.openPdf(fileName, contentBase64);
+        })
+        .catch((downloadError) => {
+          console.error('Android file action failed:', downloadError);
+          setSaveToast(downloadError instanceof Error ? downloadError.message : 'Unduhan gagal disimpan.');
+          window.setTimeout(() => setSaveToast(null), 8000);
+        });
+    };
+    document.addEventListener('click', handleNativeFileAction, true);
+    return () => {
+      document.removeEventListener('click', handleNativeFileAction, true);
+      if (HTMLAnchorElement.prototype.click === patchedAnchorClick) {
+        HTMLAnchorElement.prototype.click = originalAnchorClick;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const closeMobileNav = (event: KeyboardEvent) => {
@@ -193,7 +302,8 @@ export default function App() {
   useEffect(() => {
     if (!apiAuth.enabled) return;
     let cancelled = false;
-    void apiAuth.me()
+    authRestorePromise ??= apiAuth.restoreSession();
+    void authRestorePromise
       .then((account) => {
         if (cancelled) return;
         if (account) {
@@ -358,6 +468,7 @@ export default function App() {
       : voucher.requestBy.trim().toLocaleLowerCase() === currentUser?.name.trim().toLocaleLowerCase(),
   );
 
+  if (leaveVerificationId) return <LeaveVerificationView requestId={leaveVerificationId} />;
   if (!authReady) return <div className="lgm-splash"><div className="lgm-splash-inner"><div className="lgm-spinner" /><span>Memeriksa sesi...</span></div></div>;
   if (!currentUser) return <LoginView onLogin={handleLogin} />;
   if (!databaseReady) return <div className="lgm-splash"><div className="lgm-splash-inner">{!databaseError && <div className="lgm-spinner" />}{databaseError ? <div role="alert" className="lgm-splash-error">Database XAMPP gagal dimuat: {databaseError}</div> : <span>Memuat database XAMPP...</span>}</div></div>;

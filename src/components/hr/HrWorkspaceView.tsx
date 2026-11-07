@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import ExcelJS from 'exceljs';
 import { jsPDF } from 'jspdf';
+import QRCode from 'qrcode';
 import { Pencil } from 'lucide-react';
 import { AuthAccount } from '../../auth';
 import {
@@ -20,6 +21,7 @@ import {
 } from '../../lib/api';
 import { formatDateDisplay, formatDateTimeWib, todayISO } from '../../utils/date';
 import { getPublicLogoUrl, getPublicPayrollSignatureUrl } from '../../utils/logo';
+import { androidNative, isAndroidApp } from '../../lib/androidNative';
 
 type HrPanel = 'employees' | 'requests' | 'leave-approval' | 'attendance' | 'documents' | 'history' | 'worker-profile' | 'worker-attendance' | 'worker-leave' | 'worker-download-payslip' | 'worker-download-attendance';
 
@@ -45,6 +47,8 @@ const emptyEmployeeForm: HrEmployeeSave = {
   contractDurationYears: '',
   nik: '',
   npwp: '',
+  bpjsKetenagakerjaan: '',
+  bpjsKesehatan: '',
   payrollAccountNumber: '',
   payrollBankName: '',
 };
@@ -52,6 +56,18 @@ const emptyEmployeeForm: HrEmployeeSave = {
 const formatFileSize = (bytes: number) => bytes < 1024 * 1024
   ? `${Math.max(1, Math.round(bytes / 1024))} KB`
   : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+
+const calculateRequestDuration = (type: HrLeaveRequest['type'], startDate: string, endDate: string) => {
+  if (!startDate || !endDate || endDate < startDate) return 0;
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  let days = 0;
+  for (const date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
+    if (['ANNUAL', 'PERSONAL', 'OTHER'].includes(type) && (date.getDay() === 0 || date.getDay() === 6)) continue;
+    days += 1;
+  }
+  return days;
+};
 
 const employeeFormFrom = (employee: HrEmployee): HrEmployeeSave => ({
   userId: employee.userId,
@@ -77,6 +93,8 @@ const employeeFormFrom = (employee: HrEmployee): HrEmployeeSave => ({
   contractDurationYears: employee.contractDurationYears === null ? '' : String(employee.contractDurationYears),
   nik: employee.nik || '',
   npwp: employee.npwp || '',
+  bpjsKetenagakerjaan: employee.bpjsKetenagakerjaan || '',
+  bpjsKesehatan: employee.bpjsKesehatan || '',
   payrollAccountNumber: employee.payrollAccountNumber || '',
   payrollBankName: employee.payrollBankName || '',
 });
@@ -101,6 +119,7 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
   const [panel, setPanel] = useState<HrPanel>(initialPanel);
   const [selectedUserId, setSelectedUserId] = useState('');
   const [employeeForm, setEmployeeForm] = useState<HrEmployeeSave>(emptyEmployeeForm);
+  const [employeeFormOpen, setEmployeeFormOpen] = useState(false);
   const [employeePhotoPreview, setEmployeePhotoPreview] = useState<string>('');
   const [attendanceForm, setAttendanceForm] = useState({
     date: todayISO(),
@@ -113,6 +132,8 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
     type: 'ANNUAL' as HrLeaveRequest['type'],
     startDate: '',
     endDate: '',
+    destinationCity: '',
+    transportMode: '' as NonNullable<HrLeaveRequest['transportMode']> | '',
     reason: '',
   });
   const [workerPhotoPreview, setWorkerPhotoPreview] = useState('');
@@ -220,6 +241,24 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
     setEmployeePhotoPreview(employee.photoDataBase64 && employee.photoMimeType
       ? `data:${employee.photoMimeType};base64,${employee.photoDataBase64}`
       : '');
+    setEmployeeFormOpen(true);
+    window.requestAnimationFrame(() => {
+      document.getElementById('employee-administration-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  const addEmployeeRecord = () => {
+    const employee = employees.find((item) => !item.hasRecord);
+    if (!employee) {
+      setError('Akun pekerja baru perlu dibuat Admin di menu Users terlebih dahulu.');
+      return;
+    }
+    setSelectedUserId(employee.userId);
+    setEmployeeForm(employeeFormFrom(employee));
+    setEmployeePhotoPreview(employee.photoDataBase64 && employee.photoMimeType
+      ? `data:${employee.photoMimeType};base64,${employee.photoDataBase64}`
+      : '');
+    setEmployeeFormOpen(true);
     window.requestAnimationFrame(() => {
       document.getElementById('employee-administration-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
@@ -563,12 +602,75 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
     pdf.setFontSize(6);
     textColor(colors.white);
     pdf.text('PT. LENTERA GLOBAL MARITIM  |  CONFIDENTIAL PAYROLL DOCUMENT', 105, 294, { align: 'center' });
-    pdf.save(`Slip-Gaji-${slip.period}-${slip.employeeNumber}.pdf`);
+    const fileName = `Slip-Gaji-${slip.period}-${slip.employeeNumber}.pdf`;
+    if (isAndroidApp()) {
+      const contentBase64 = pdf.output('datauristring').split(',', 2)[1];
+      if (!contentBase64) throw new Error('Isi PDF slip gaji gagal dibuat.');
+      await androidNative.downloadBase64(fileName, 'application/pdf', contentBase64);
+    } else {
+      pdf.save(fileName);
+    }
   };
 
   const saveEmployee = (event: React.FormEvent) => {
     event.preventDefault();
     void runMutation(() => hrApi.saveEmployee(employeeForm), 'Data pekerja berhasil disimpan.');
+  };
+
+  const downloadEmployeeExcel = async () => {
+    try {
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet('Informasi Data Pekerja');
+      sheet.columns = [
+        { header: 'NO. PEKERJA', key: 'employeeNumber', width: 20 },
+        { header: 'NAMA', key: 'name', width: 30 },
+        { header: 'JABATAN', key: 'position', width: 26 },
+        { header: 'BRANCH', key: 'branch', width: 20 },
+        { header: 'KONTRAK', key: 'contract', width: 18 },
+        { header: 'MULAI', key: 'contractStart', width: 16 },
+        { header: 'BERAKHIR', key: 'contractEnd', width: 16 },
+        { header: 'BPJS TENAGA KERJA', key: 'bpjsKetenagakerjaan', width: 24 },
+        { header: 'BPJS KESEHATAN', key: 'bpjsKesehatan', width: 22 },
+        { header: 'STATUS', key: 'status', width: 18 },
+      ];
+      employees.forEach((employee) => sheet.addRow({
+        employeeNumber: employee.employeeNumber || '',
+        name: employee.name,
+        position: employee.position || '',
+        branch: employee.branchName || '',
+        contract: ({
+          PERMANENT: 'Tetap',
+          CONTRACT: 'Kontrak',
+          PROBATION: 'Probation',
+          INTERNSHIP: 'Magang',
+          OTHER: 'Lainnya',
+        } as Record<string, string>)[employee.contractType || ''] || '',
+        contractStart: employee.contractStart || '',
+        contractEnd: employee.contractEnd || '',
+        bpjsKetenagakerjaan: employee.bpjsKetenagakerjaan || '',
+        bpjsKesehatan: employee.bpjsKesehatan || '',
+        status: employee.employmentStatus === 'ACTIVE'
+          ? 'Aktif'
+          : employee.employmentStatus === 'ON_LEAVE'
+            ? 'Cuti'
+            : employee.employmentStatus === 'RESIGNED'
+              ? 'Berakhir / resign'
+              : 'Belum lengkap',
+      }));
+      sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF17365D' } };
+      sheet.views = [{ state: 'frozen', ySplit: 1 }];
+      sheet.autoFilter = { from: 'A1', to: 'J1' };
+      const buffer = await workbook.xlsx.writeBuffer();
+      const url = URL.createObjectURL(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      const link = window.document.createElement('a');
+      link.href = url;
+      link.download = `data-pekerja-${todayISO()}.xlsx`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : 'Data pekerja gagal diekspor ke Excel.');
+    }
   };
 
   const uploadDocument = (event: React.FormEvent<HTMLFormElement>) => {
@@ -951,7 +1053,7 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
   const description = isAttendancePanel
     ? 'Informasi dan rekap kehadiran pekerja seluruh cabang.'
     : isLeaveApprovalPanel
-    ? 'Tinjau, lihat, dan putuskan surat permohonan cuti atau izin dari pekerja.'
+    ? 'Tinjau, lihat, dan putuskan surat permohonan dari pekerja.'
     : isHr
     ? 'Kelola data pekerja, dokumen, kontrak, mutasi, dan persetujuan untuk seluruh cabang.'
     : 'Lihat profil, dokumen, kehadiran, dan ajukan cuti atau perubahan data diri.';
@@ -1010,8 +1112,21 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
 
           {panel === 'employees' && (
             <section className={sectionClass}>
-              <h2 className="text-lg font-bold text-slate-900">Data Pekerja</h2>
-              <p className="mt-1 text-sm text-slate-600">Akun role Pekerja dikelola Admin di menu Users; HR melengkapi administrasi pekerja di sini.</p>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900">Informasi Data Pekerja</h2>
+                  <p className="mt-1 text-sm text-slate-600">Ringkasan hasil entri administrasi pekerja dan akses untuk memperbarui data.</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" className={buttonClass} onClick={() => void downloadEmployeeExcel()}>Download Excel</button>
+                  <button type="button" className={buttonClass} onClick={addEmployeeRecord}>Tambah pekerja</button>
+                </div>
+              </div>
+              {employeeFormOpen && <>
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-4">
+                <h3 className="font-bold text-slate-900">Data administrasi pekerja</h3>
+                <button type="button" className={secondaryButtonClass} onClick={() => setEmployeeFormOpen(false)}>Kembali ke daftar</button>
+              </div>
               <div className="mt-4 grid gap-5 xl:grid-cols-[minmax(220px,0.7fr)_minmax(0,1.8fr)]">
                 <div>
                   <label className="text-sm font-semibold text-slate-700">Pilih pekerja</label>
@@ -1027,13 +1142,12 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
                     <div data-employee-photo-frame className="mx-auto flex aspect-[2/3] w-full max-w-[240px] items-center justify-center overflow-hidden rounded-lg border-[3px] border-blue-700 bg-white shadow-[0_8px_22px_rgba(29,78,216,0.22)]">
                       {employeePhotoPreview
                         ? <img src={employeePhotoPreview} alt={`Foto ${selectedEmployee?.name || 'pekerja'}`} className="h-full w-full object-cover" />
-                        : <span className="px-4 text-xs text-slate-400">Foto 4 × 6</span>}
+                        : <span className="px-4 text-xs text-slate-400">Foto pekerja</span>}
                     </div>
                     <label className={`${secondaryButtonClass} mt-3 inline-block cursor-pointer`}>
                       Upload photo
                       <input type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" className="hidden" onChange={(event) => selectEmployeePhoto(event.target.files?.[0])} />
                     </label>
-                    <p className="mt-2 text-[11px] text-slate-500">JPG/PNG, rasio portrait 4 × 6, maks. 2 MB.</p>
                   </div>
                   <div className="mt-4 max-h-[34rem] space-y-2 overflow-auto">
                     {employees.map((employee) => (
@@ -1071,6 +1185,8 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
                   <label className="text-sm font-medium text-slate-700">Kota kelahiran<input className={fieldClass} value={employeeForm.birthCity} onChange={(e) => setEmployeeForm({ ...employeeForm, birthCity: e.target.value })} /></label>
                   <label className="text-sm font-medium text-slate-700">NIK<input className={fieldClass} inputMode="numeric" value={employeeForm.nik} onChange={(e) => setEmployeeForm({ ...employeeForm, nik: e.target.value })} /></label>
                   <label className="text-sm font-medium text-slate-700">NPWP<input className={fieldClass} value={employeeForm.npwp} onChange={(e) => setEmployeeForm({ ...employeeForm, npwp: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">BPJS Tenaga Kerja<input className={fieldClass} value={employeeForm.bpjsKetenagakerjaan} onChange={(e) => setEmployeeForm({ ...employeeForm, bpjsKetenagakerjaan: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">BPJS Kesehatan<input className={fieldClass} value={employeeForm.bpjsKesehatan} onChange={(e) => setEmployeeForm({ ...employeeForm, bpjsKesehatan: e.target.value })} /></label>
                   <label className="text-sm font-medium text-slate-700">Jenis kelamin
                     <select className={fieldClass} value={employeeForm.gender} onChange={(e) => setEmployeeForm({ ...employeeForm, gender: e.target.value as HrEmployeeSave['gender'] })}>
                       <option value="">Tidak dicatat</option><option value="MALE">Laki-laki</option><option value="FEMALE">Perempuan</option><option value="OTHER">Lainnya</option>
@@ -1095,10 +1211,8 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
                   </div>
                 </form>
               </div>
-              <div className="mt-6 border-t border-slate-200 pt-5">
-                <h3 className="text-base font-bold text-slate-900">Informasi Data Pekerja</h3>
-                <p className="mt-1 text-sm text-slate-500">Ringkasan hasil entri administrasi pekerja dan akses untuk memperbarui data.</p>
-                <div className="mt-3 overflow-x-auto">
+              </>}
+              <div className="mt-4 overflow-x-auto">
                   <table className="w-full min-w-[980px] text-left text-sm">
                     <thead>
                       <tr className="border-b border-slate-200 text-xs uppercase text-slate-500">
@@ -1109,6 +1223,8 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
                         <th className="px-2 py-3">Kontrak</th>
                         <th className="px-2 py-3">Mulai</th>
                         <th className="px-2 py-3">Berakhir</th>
+                        <th className="px-2 py-3">BPJS Tenaga Kerja</th>
+                        <th className="px-2 py-3">BPJS Kesehatan</th>
                         <th className="px-2 py-3">Status</th>
                         <th className="px-2 py-3 text-center">Aksi</th>
                       </tr>
@@ -1123,6 +1239,8 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
                           <td className="px-2 py-3 text-slate-600">{employee.contractType || '-'}</td>
                           <td className="whitespace-nowrap px-2 py-3 text-slate-600">{formatDateDisplay(employee.contractStart)}</td>
                           <td className="whitespace-nowrap px-2 py-3 text-slate-600">{formatDateDisplay(employee.contractEnd)}</td>
+                          <td className="px-2 py-3 text-slate-600">{employee.bpjsKetenagakerjaan || '-'}</td>
+                          <td className="px-2 py-3 text-slate-600">{employee.bpjsKesehatan || '-'}</td>
                           <td className="px-2 py-3">
                             <span className={`rounded-full px-2 py-1 text-xs font-semibold ${employee.employmentStatus === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : employee.employmentStatus === 'RESIGNED' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
                               {employee.employmentStatus === 'ACTIVE' ? 'Aktif' : employee.employmentStatus === 'ON_LEAVE' ? 'Cuti' : employee.employmentStatus === 'RESIGNED' ? 'Berakhir / resign' : 'Belum lengkap'}
@@ -1146,7 +1264,6 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
                     </tbody>
                   </table>
                   {!employees.length && <p className="py-4 text-sm text-slate-500">Belum ada data pekerja.</p>}
-                </div>
               </div>
             </section>
           )}
@@ -1191,6 +1308,9 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
                     <div className="mt-2 grid gap-1 text-xs text-slate-500">
                       <span>Tanggal dibuat surat: {formatDateDisplay(request.createdAt)}</span>
                       <span>Status permohonan: {leaveStatusLabel(request.status)}</span>
+                      <span>Lama hari: {request.durationDays || calculateRequestDuration(request.type, request.startDate, request.endDate)} hari</span>
+                      {request.destinationCity && <span>Kota tujuan: {request.destinationCity}</span>}
+                      {request.transportMode && <span>Kendaraan: {transportModeLabel(request.transportMode)}</span>}
                     </div>
                     <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{request.reason}</p>
                     {request.reviewNote && <p className="mt-2 text-xs text-slate-500">Catatan HR: {request.reviewNote}</p>}
@@ -1334,16 +1454,25 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
             </div>
             <div className="worker-profile-layout mt-5 grid gap-5 md:grid-cols-[240px_1fr]">
               <div className="flex flex-col items-center">
-                <div data-worker-photo-frame className="aspect-[2/3] w-full max-w-[240px] overflow-hidden rounded-lg border-[3px] border-blue-700 bg-white shadow-[0_8px_22px_rgba(29,78,216,0.22)]">
-                  {workerPhotoPreview
-                    ? <img src={workerPhotoPreview} alt={`Foto ${profile?.name || currentUser.name}`} className="h-full w-full object-cover" />
-                    : <div className="grid h-full place-items-center px-4 text-center text-sm text-slate-400">Foto pekerja 4 × 6</div>}
+                <div data-worker-photo-frame className="w-full max-w-[240px] overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-[0_8px_22px_rgba(15,23,42,0.12)]">
+                  <div className="mb-3 flex h-12 shrink-0 items-center justify-between border-b border-slate-100 pb-2">
+                    <img src={getPublicLogoUrl()} alt="Logo Lentera Global Maritim" className="h-9 w-9 object-contain" />
+                    <span className="font-serif text-xl font-bold italic tracking-wide text-blue-900">it's Me</span>
+                  </div>
+                  <div className="aspect-[2/3] w-full overflow-hidden rounded-md bg-slate-100">
+                    {workerPhotoPreview
+                      ? <img src={workerPhotoPreview} alt={`Foto ${profile?.name || currentUser.name}`} className="h-full w-full object-cover" />
+                      : <div className="grid h-full place-items-center px-4 text-center text-sm text-slate-400">Foto pekerja</div>}
+                  </div>
+                  <div className="shrink-0 pt-3 text-center">
+                    <p className="truncate text-sm font-bold uppercase tracking-wide text-slate-900">{profile?.name || currentUser.name}</p>
+                    <p className="mt-1 truncate text-xs font-medium text-slate-500">{profile?.employeeNumber || 'Nomor pekerja belum tersedia'}</p>
+                  </div>
                 </div>
                 <label className={`${secondaryButtonClass} mt-3 cursor-pointer text-center`}>
                   Ganti Foto Profil
                   <input type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" className="hidden" onChange={(event) => selectWorkerPhoto(event.target.files?.[0])} />
                 </label>
-                <p className="mt-2 text-center text-[11px] text-slate-500">JPG/PNG portrait 4 × 6, maks. 2 MB</p>
               </div>
             <dl className="worker-profile-details content-start text-[12px]">
               {[
@@ -1398,8 +1527,8 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
           </section>
           }
           {panel === 'worker-leave' && <section className={`${sectionClass} xl:col-span-2`}>
-            <h2 className="text-lg font-bold text-slate-900">Surat Permohonan Ijin</h2>
-            <p className="mt-1 text-sm text-slate-600">Ajukan cuti atau izin, lalu lihat dan unduh surat permohonan dalam format PDF.</p>
+            <h2 className="text-lg font-bold text-slate-900">Surat Permohonan</h2>
+            <p className="mt-1 text-sm text-slate-600">Isi rincian permohonan. Surat dapat dilihat dan diunduh setelah diajukan.</p>
             <form onSubmit={(event) => {
               event.preventDefault();
               if (leaveForm.endDate < leaveForm.startDate) {
@@ -1408,14 +1537,33 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
               }
               void runMutation(async () => {
                 await hrApi.requestLeave(leaveForm);
-                setLeaveForm({ type: 'ANNUAL', startDate: '', endDate: '', reason: '' });
-              }, 'Pengajuan cuti/izin dikirim kepada HR.');
-            }} className="mt-4 grid gap-3 rounded-xl bg-slate-50 p-4 sm:grid-cols-2">
-              <label className="text-sm font-medium text-slate-700">Jenis permohonan<select className={fieldClass} value={leaveForm.type} onChange={(e) => setLeaveForm({ ...leaveForm, type: e.target.value as HrLeaveRequest['type'] })}><option value="ANNUAL">Cuti tahunan</option><option value="SICK">Sakit</option><option value="PERSONAL">Izin pribadi</option><option value="OTHER">Izin lainnya</option></select></label>
-              <span />
+                setLeaveForm({ type: 'ANNUAL', startDate: '', endDate: '', destinationCity: '', transportMode: '', reason: '' });
+              }, 'Surat permohonan dikirim kepada HR.');
+            }} className="mt-4 grid gap-3 rounded-xl bg-slate-50 p-4 sm:grid-cols-2 [&_label]:!text-[12px] [&_input]:!text-[12px] [&_select]:!text-[12px] [&_textarea]:!text-[12px] [font-family:Arial,sans-serif]">
+              <label className="text-sm font-medium text-slate-700">Jenis Permohonan
+                <select className={fieldClass} value={leaveForm.type} onChange={(e) => {
+                  const type = e.target.value as HrLeaveRequest['type'];
+                  setLeaveForm({ ...leaveForm, type, destinationCity: type === 'ANNUAL' || type === 'BUSINESS_TRAVEL' ? leaveForm.destinationCity : '', transportMode: type === 'BUSINESS_TRAVEL' ? leaveForm.transportMode : '' });
+                }}>
+                  <option value="ANNUAL">Cuti Tahunan</option>
+                  <option value="BUSINESS_TRAVEL">Perjalanan Dinas</option>
+                  <option value="SICK">Sakit</option>
+                  <option value="PERSONAL">Izin Pribadi</option>
+                  <option value="OTHER">Izin Lainnya</option>
+                </select>
+              </label>
+              <label className="text-sm font-medium text-slate-700">Lama Hari
+                <input readOnly className={`${fieldClass} bg-slate-100`} value={calculateRequestDuration(leaveForm.type, leaveForm.startDate, leaveForm.endDate)} />
+              </label>
               <label className="text-sm font-medium text-slate-700">Tanggal mulai<input required type="date" className={fieldClass} value={leaveForm.startDate} onChange={(e) => setLeaveForm({ ...leaveForm, startDate: e.target.value })} /></label>
               <label className="text-sm font-medium text-slate-700">Tanggal selesai<input required type="date" min={leaveForm.startDate || undefined} className={fieldClass} value={leaveForm.endDate} onChange={(e) => setLeaveForm({ ...leaveForm, endDate: e.target.value })} /></label>
-              <label className="text-sm font-medium text-slate-700 sm:col-span-2">Alasan permohonan<textarea required rows={4} maxLength={2000} className={fieldClass} value={leaveForm.reason} onChange={(e) => setLeaveForm({ ...leaveForm, reason: e.target.value })} /></label>
+              {(leaveForm.type === 'ANNUAL' || leaveForm.type === 'BUSINESS_TRAVEL') && <label className="text-sm font-medium text-slate-700">Kota Tujuan<input required maxLength={120} className={fieldClass} value={leaveForm.destinationCity} onChange={(e) => setLeaveForm({ ...leaveForm, destinationCity: e.target.value })} /></label>}
+              {leaveForm.type === 'BUSINESS_TRAVEL' && <label className="text-sm font-medium text-slate-700">Kendaraan yang Digunakan
+                <select required className={fieldClass} value={leaveForm.transportMode} onChange={(e) => setLeaveForm({ ...leaveForm, transportMode: e.target.value as NonNullable<HrLeaveRequest['transportMode']> | '' })}>
+                  <option value="">Pilih kendaraan</option><option value="CAR">Mobil</option><option value="PLANE">Pesawat</option><option value="TRAIN">Kereta Api</option><option value="PUBLIC_BUS">Bus umum</option>
+                </select>
+              </label>}
+              <label className="text-sm font-medium text-slate-700 sm:col-span-2">Keperluan Permohonan<textarea required rows={4} maxLength={2000} className={fieldClass} value={leaveForm.reason} onChange={(e) => setLeaveForm({ ...leaveForm, reason: e.target.value })} /></label>
               <div className="sm:col-span-2"><button className={buttonClass} disabled={saving}>{saving ? 'Mengirim...' : 'Ajukan permohonan'}</button></div>
             </form>
             <LeaveTable rows={ownLeaveRequests} employee={profile || currentUser} onPreview={(request) => openLeaveLetter(request, profile || currentUser)} />
@@ -1841,53 +1989,64 @@ const HoldAttendanceButton: React.FC<HoldAttendanceButtonProps> = ({ event, labe
   }, []);
 
   return (
-    <button
-      type="button"
-      disabled={disabled || busy}
-      onPointerDown={(pointerEvent) => {
-        if (pointerEvent.button !== undefined && pointerEvent.button !== 0) return;
-        pointerEvent.preventDefault();
-        begin();
-        try { pointerEvent.currentTarget.setPointerCapture(pointerEvent.pointerId); } catch { /* Pointer capture is optional on older mobile browsers. */ }
-      }}
-      onPointerUp={stop}
-      onPointerCancel={stop}
-      onPointerLeave={stop}
-      onKeyDown={(keyEvent) => {
-        if ((keyEvent.key === ' ' || keyEvent.key === 'Enter') && !keyEvent.repeat) {
-          keyEvent.preventDefault();
+    <div className="flex flex-col items-center gap-2">
+      <button
+        type="button"
+        disabled={disabled || busy}
+        onPointerDown={(pointerEvent) => {
+          if (pointerEvent.button !== undefined && pointerEvent.button !== 0) return;
+          pointerEvent.preventDefault();
           begin();
-        }
-      }}
-      onKeyUp={(keyEvent) => {
-        if (keyEvent.key === ' ' || keyEvent.key === 'Enter') stop();
-      }}
-      onContextMenu={(eventContext) => eventContext.preventDefault()}
-      className="relative mx-auto h-28 w-28 touch-none rounded-full transition-transform duration-150 active:scale-110 disabled:cursor-not-allowed disabled:opacity-60 sm:h-24 sm:w-24 sm:active:scale-105"
-      aria-label={`${label}. Sentuh dan tahan selama dua setengah detik untuk absensi.`}
-      style={{ background: `conic-gradient(#2563eb ${progress * 3.6}deg, #dbeafe 0deg)` }}
-    >
-      <span className="absolute inset-[6px] flex items-center justify-center rounded-full bg-white text-sm font-black text-blue-700 shadow-sm">
-        {progress > 0 ? `${Math.ceil(progress)}%` : (
-          <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-            <path d="M12 11V7" strokeLinecap="round" />
-            <path d="M9.5 11V6.5a2.5 2.5 0 0 1 5 0V11" strokeLinecap="round" />
-            <path d="M7.5 13v-1.5a1.5 1.5 0 0 1 3 0V13" strokeLinecap="round" />
-            <path d="M13.5 11.5a1.5 1.5 0 0 1 3 0V14" strokeLinecap="round" />
-            <path d="M7.5 13v2a4.5 4.5 0 0 0 9 0v-1" strokeLinecap="round" />
-          </svg>
-        )}
-      </span>
-    </button>
+          try { pointerEvent.currentTarget.setPointerCapture(pointerEvent.pointerId); } catch { /* Pointer capture is optional on older mobile browsers. */ }
+        }}
+        onPointerUp={stop}
+        onPointerCancel={stop}
+        onPointerLeave={stop}
+        onKeyDown={(keyEvent) => {
+          if ((keyEvent.key === ' ' || keyEvent.key === 'Enter') && !keyEvent.repeat) {
+            keyEvent.preventDefault();
+            begin();
+          }
+        }}
+        onKeyUp={(keyEvent) => {
+          if (keyEvent.key === ' ' || keyEvent.key === 'Enter') stop();
+        }}
+        onContextMenu={(eventContext) => eventContext.preventDefault()}
+        className="relative mx-auto h-36 w-36 touch-none rounded-full transition-transform duration-150 active:scale-105 disabled:cursor-not-allowed disabled:opacity-60 sm:h-40 sm:w-40"
+        aria-label={`${label}. Sentuh dan tahan selama dua setengah detik untuk absensi.`}
+        style={{ background: `conic-gradient(#2563eb ${progress * 3.6}deg, #dbeafe 0deg)` }}
+      >
+        <span className="absolute inset-2 flex items-center justify-center rounded-full bg-white text-2xl font-black text-blue-700 shadow-sm">
+          {progress > 0 ? `${Math.ceil(progress)}%` : (
+            <svg className="h-10 w-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+              <path d="M12 11V7" strokeLinecap="round" />
+              <path d="M9.5 11V6.5a2.5 2.5 0 0 1 5 0V11" strokeLinecap="round" />
+              <path d="M7.5 13v-1.5a1.5 1.5 0 0 1 3 0V13" strokeLinecap="round" />
+              <path d="M13.5 11.5a1.5 1.5 0 0 1 3 0V14" strokeLinecap="round" />
+              <path d="M7.5 13v2a4.5 4.5 0 0 0 9 0v-1" strokeLinecap="round" />
+            </svg>
+          )}
+        </span>
+      </button>
+      <span className="text-sm font-bold tracking-wide text-blue-800">Hold Me</span>
+    </div>
   );
 };
 
 const leaveTypeLabel = (type: HrLeaveRequest['type']) => ({
-  ANNUAL: 'Cuti tahunan',
-  SICK: 'Izin sakit',
-  PERSONAL: 'Izin pribadi',
-  OTHER: 'Izin lainnya',
+  ANNUAL: 'Cuti Tahunan',
+  BUSINESS_TRAVEL: 'Perjalanan Dinas',
+  SICK: 'Sakit',
+  PERSONAL: 'Izin Pribadi',
+  OTHER: 'Izin Lainnya',
 }[type]);
+
+const transportModeLabel = (mode: NonNullable<HrLeaveRequest['transportMode']>) => ({
+  CAR: 'Mobil',
+  PLANE: 'Pesawat',
+  TRAIN: 'Kereta Api',
+  PUBLIC_BUS: 'Bus umum',
+}[mode]);
 
 const leaveStatusLabel = (status: HrLeaveRequest['status']) => ({
   PENDING: 'Pending HR',
@@ -1897,7 +2056,13 @@ const leaveStatusLabel = (status: HrLeaveRequest['status']) => ({
 
 const LeaveTable: React.FC<{
   rows: HrLeaveRequest[];
-  employee?: { name: string; position?: string | null };
+  employee?: {
+    name: string;
+    position?: string | null;
+    employeeNumber?: string | null;
+    nik?: string | null;
+    department?: string | null;
+  };
   onPreview?: (request: HrLeaveRequest) => void;
 }> = ({ rows, employee, onPreview }) => (
   <div className="mt-5 space-y-2">
@@ -1906,6 +2071,9 @@ const LeaveTable: React.FC<{
       <div className="mt-2 grid gap-1 text-xs text-slate-500">
         <span>Tanggal dibuat surat: {formatDateDisplay(request.createdAt)}</span>
         <span>Status permohonan: {leaveStatusLabel(request.status)}</span>
+        <span>Lama hari: {request.durationDays || calculateRequestDuration(request.type, request.startDate, request.endDate)} hari</span>
+        {request.destinationCity && <span>Kota tujuan: {request.destinationCity}</span>}
+        {request.transportMode && <span>Kendaraan: {transportModeLabel(request.transportMode)}</span>}
       </div>
       <p className="mt-1 text-slate-600">{request.reason}</p>
       {request.reviewNote && <p className="mt-1 text-xs text-slate-500">Catatan HR: {request.reviewNote}</p>}
@@ -1947,69 +2115,148 @@ const imageUrlToDataUrl = async (url: string): Promise<string | null> => {
   }
 };
 
-const createLeaveLetterPdf = async (request: HrLeaveRequest, employee?: { name: string; position?: string | null }) => {
+const createLeaveLetterPdf = async (request: HrLeaveRequest, employee?: {
+  name: string;
+  position?: string | null;
+  employeeNumber?: string | null;
+  nik?: string | null;
+  department?: string | null;
+}) => {
   const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
   const pageWidth = 210;
   const logoDataUrl = await imageUrlToDataUrl(getPublicLogoUrl());
+  const verificationUrl = new URL('/', window.location.origin);
+  verificationUrl.searchParams.set('verifikasi', request.id);
+  const verificationQr = await QRCode.toDataURL(verificationUrl.toString(), {
+    errorCorrectionLevel: 'M',
+    margin: 1,
+    width: 256,
+  });
 
   if (logoDataUrl) pdf.addImage(logoDataUrl, 'JPEG', 24, 10, 27, 20);
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(17);
   pdf.text('PT. LENTERA GLOBAL MARITIM', 165, 17, { align: 'right' });
   pdf.setFont('helvetica', 'normal');
-  pdf.setFontSize(10);
+  pdf.setFontSize(9);
   pdf.text('Seamless Agent, Global Reach', 165, 23, { align: 'right' });
   pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(14);
+  pdf.setFontSize(12);
   pdf.setFillColor(38, 99, 235);
   pdf.rect(20, 35, 170, 11, 'F');
   pdf.setTextColor(255, 255, 255);
-  pdf.text('SURAT PERMOHONAN IZIN / CUTI', pageWidth / 2, 42, { align: 'center' });
+  pdf.text('SURAT PERMOHONAN', pageWidth / 2, 42, { align: 'center' });
   pdf.setTextColor(0, 0, 0);
   pdf.setFont('helvetica', 'normal');
-  pdf.setFontSize(11);
-  pdf.text('Yang bertanda tangan di bawah ini:', 20, 64);
-  pdf.text(`Nama                 : ${employee?.name || '-'}`, 20, 74);
-  pdf.text(`Jabatan              : ${employee?.position || '-'}`, 20, 81);
-  pdf.text(`Jenis Permohonan     : ${leaveTypeLabel(request.type)}`, 20, 88);
-  pdf.text('Dengan hormat, bermaksud mengajukan permohonan izin/cuti pada:', 20, 101);
-  pdf.text(`Tanggal mulai   : ${formatDateDisplay(request.startDate)}`, 20, 111);
-  pdf.text(`Tanggal selesai : ${formatDateDisplay(request.endDate)}`, 20, 118);
-  pdf.text('Alasan:', 20, 130);
-  pdf.setFontSize(10);
-  const reasonLines = pdf.splitTextToSize(request.reason, 170);
-  pdf.text(reasonLines, 20, 137);
+  pdf.setFontSize(9);
+  let y = 55;
+  const addText = (text: string, gapAfter = 2) => {
+    const lines = pdf.splitTextToSize(text, 170) as string[];
+    for (const line of lines) {
+      if (y > 259) {
+        pdf.addPage();
+        y = 20;
+      }
+      pdf.text(line, 20, y);
+      y += 5;
+    }
+    y += gapAfter;
+  };
+  const duration = request.durationDays || calculateRequestDuration(request.type, request.startDate, request.endDate);
+  const durationUnit = ['ANNUAL', 'PERSONAL', 'OTHER'].includes(request.type) ? 'Hari kerja' : 'Hari';
+  const employeeNumber = employee?.employeeNumber;
+  const nik = employee?.nik;
+  const department = employee?.department;
+  addText(`Perihal: Permohonan ${leaveTypeLabel(request.type)} - ${employee?.name || '-'}`);
+  addText('Kepada Yth.');
+  addText('Bagian HRD / Personalia');
+  addText('PT. Lentera Global Maritim');
+  addText('Di Tempat');
+  addText('Dengan hormat,');
+  addText('Saya yang bertanda tangan di bawah ini:');
+  addText(`- Nama: ${employee?.name || '-'}`, 0);
+  addText(`- NIK / No. Karyawan: ${nik || employeeNumber || '-'}`, 0);
+  addText(`- Jabatan: ${employee?.position || '-'}`, 0);
+  addText(`- Departemen: ${department || '-'}`);
+  addText(`Bersama surat ini, saya bermaksud mengajukan permohonan ${leaveTypeLabel(request.type)} dengan rincian sebagai berikut:`);
+  addText(`- Tanggal Mulai: ${formatDateDisplay(request.startDate)}`, 0);
+  addText(`- Tanggal Selesai: ${formatDateDisplay(request.endDate)}`, 0);
+  addText(`- Lama Hari: ${duration} ${durationUnit}`, 0);
+  if (request.destinationCity) addText(`- Kota Tujuan: ${request.destinationCity}`, 0);
+  if (request.transportMode) addText(`- Kendaraan yang Digunakan: ${transportModeLabel(request.transportMode)}`, 0);
+  addText(`- Keperluan${request.type === 'BUSINESS_TRAVEL' ? ' / Agenda Dinas' : ''}: ${request.reason}`);
+  if (request.type === 'ANNUAL') {
+    addText('Selama menjalankan cuti, saya akan memastikan seluruh tanggung jawab pekerjaan telah diserahterimakan dengan baik atau didelegasikan kepada rekan kerja satu tim.');
+  } else if (request.type === 'BUSINESS_TRAVEL') {
+    addText('Sehubungan dengan penugasan ini, saya memohon bantuan bagian HRD/GA terkait akomodasi dan administrasi perjalanan yang diperlukan.');
+  } else if (request.type === 'SICK') {
+    addText('Sebagai bukti pendukung, saya melampirkan Surat Keterangan Sakit dari Dokter/Rumah Sakit bersamaan dengan formulir ini.');
+  } else if (request.type === 'PERSONAL') {
+    addText('Saya memohon maaf atas ketidakhadiran saya pada tanggal tersebut karena adanya urusan mendesak yang tidak dapat ditinggalkan.');
+  } else {
+    addText('Demikian permohonan izin ini saya sampaikan atas situasi/kondisi khusus di atas.');
+  }
+  addText('Demikian permohonan ini saya ajukan. Atas perhatian, pengertian, dan persetujuan dari Bapak/Ibu HRD, saya ucapkan terima kasih.');
+  if (y > 205) {
+    pdf.addPage();
+    y = 30;
+  }
+  y = Math.max(y + 7, 205);
+  pdf.text(`Jakarta, ${formatDateDisplay(request.createdAt)}`, 145, y, { align: 'center' });
+  pdf.text('Hormat Saya,', 145, y + 7, { align: 'center' });
+  pdf.text(`( ${employee?.name || '-'} )`, 145, y + 27, { align: 'center' });
+  pdf.addImage(verificationQr, 'PNG', 24, y - 5, 24, 24);
+  pdf.setFontSize(7);
+  pdf.text('Pindai untuk verifikasi', 36, y + 22, { align: 'center' });
 
-  const ySignature = 205;
-  pdf.setFontSize(11);
-  pdf.text(`Jakarta, ${formatDateDisplay(new Date())}`, 145, ySignature, { align: 'center' });
-  pdf.text('Pemohon,', 145, ySignature + 7, { align: 'center' });
-  pdf.text(employee?.name || '-', 145, ySignature + 29, { align: 'center' });
-
-  pdf.setDrawColor(148, 163, 184);
-  pdf.setLineWidth(0.3);
-  pdf.line(20, 270, 190, 270);
-  pdf.setFont('helvetica', 'normal');
-  pdf.setFontSize(8);
-  pdf.text('Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan', pageWidth / 2, 276, { align: 'center' });
-  pdf.text('Kota Adm Jakarta Selatan, DKI Jakarta - 12810', pageWidth / 2, 280, { align: 'center' });
-  pdf.setTextColor(220, 38, 38);
-  pdf.text('email : maritim@lentera-global.com / web : www.lentera-global.com', pageWidth / 2, 284, { align: 'center' });
+  for (let page = 1; page <= pdf.getNumberOfPages(); page += 1) {
+    pdf.setPage(page);
+    pdf.setDrawColor(148, 163, 184);
+    pdf.setLineWidth(0.3);
+    pdf.line(20, 270, 190, 270);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(7);
+    pdf.text('Sarana Square Lt. 3C-D, Jl. Tebet Barat IV No. 20, Jakarta Selatan', pageWidth / 2, 276, { align: 'center' });
+    pdf.text('Kota Adm Jakarta Selatan, DKI Jakarta - 12810', pageWidth / 2, 280, { align: 'center' });
+    pdf.setTextColor(220, 38, 38);
+    pdf.text('email : maritim@lentera-global.com / web : www.lentera-global.com', pageWidth / 2, 284, { align: 'center' });
+    pdf.setTextColor(0, 0, 0);
+  }
   return pdf;
 };
 
 const downloadLeaveLetter = async (request: HrLeaveRequest, employee?: { name: string; position?: string | null }) => {
-  (await createLeaveLetterPdf(request, employee)).save(`surat-permohonan-${request.id}.pdf`);
+  const pdf = await createLeaveLetterPdf(request, employee);
+  const fileName = `surat-permohonan-${request.id}.pdf`;
+  if (isAndroidApp()) {
+    const contentBase64 = pdf.output('datauristring').split(',', 2)[1];
+    if (!contentBase64) throw new Error('Isi PDF surat gagal dibuat.');
+    await androidNative.downloadBase64(fileName, 'application/pdf', contentBase64);
+  } else {
+    pdf.save(fileName);
+  }
 };
 
 const openLeaveLetter = (request: HrLeaveRequest, employee?: { name: string; position?: string | null }) => {
+  const fileName = `surat-permohonan-${request.id}.pdf`;
+  if (isAndroidApp()) {
+    void createLeaveLetterPdf(request, employee)
+      .then(async (pdf) => {
+        const contentBase64 = pdf.output('datauristring').split(',', 2)[1];
+        if (!contentBase64) throw new Error('Isi PDF surat gagal dibuat.');
+        await androidNative.openPdf(fileName, contentBase64);
+      })
+      .catch((openError) => {
+        window.alert(openError instanceof Error ? openError.message : 'PDF surat gagal dibuka.');
+      });
+    return;
+  }
   const popup = window.open('', '_blank');
   if (!popup) {
     window.alert('Izinkan popup browser untuk membuka surat permohonan.');
     return;
   }
 
-  const fileName = `surat-permohonan-${request.id}.pdf`;
   void createLeaveLetterPdf(request, employee).then((pdf) => {
     const pdfData = pdf.output('datauristring');
     popup.document.title = `Surat Permohonan - ${employee?.name || '-'}`;
@@ -2021,7 +2268,7 @@ const openLeaveLetter = (request: HrLeaveRequest, employee?: { name: string; pos
         iframe{display:block;width:100%;height:calc(100% - 57px);border:0;background:#fff}
       </style>
       <header><a href="${pdfData}" download="${fileName}">Download PDF</a></header>
-      <iframe title="Surat Permohonan Ijin" src="${pdfData}"></iframe>
+      <iframe title="Surat Permohonan" src="${pdfData}"></iframe>
     `;
     popup.document.close();
   });

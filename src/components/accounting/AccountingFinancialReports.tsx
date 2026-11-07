@@ -5,6 +5,7 @@ import { AccountingBalanceSheetReport, AccountingFinancialReportLine, Accounting
 import { loadAccountingBalanceSheet, loadAccountingMonthlyProfitLoss, loadAccountingProfitLoss } from '../../lib/api';
 import { todayISO } from '../../utils/date';
 import { getPublicLogoUrl } from '../../utils/logo';
+import { androidNative, isAndroidApp } from '../../lib/androidNative';
 
 const formatIdr = (amount: number) => new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -14,6 +15,29 @@ const formatIdr = (amount: number) => new Intl.NumberFormat('en-US', {
 }).format(amount || 0);
 
 const reportNote = 'Berdasarkan jurnal POSTED. Saldo awal atau data historis yang belum dijurnal belum tercakup.';
+
+const printAccountingReport = () => {
+  if (!isAndroidApp()) {
+    window.print();
+    return;
+  }
+  const report = document.querySelector<HTMLElement>(
+    '.accounting-balance-sheet-print, .accounting-profit-detail-print',
+  );
+  if (!report) {
+    window.alert('Data laporan belum siap untuk dicetak. Muat laporan terlebih dahulu.');
+    return;
+  }
+  const reportStyles = Array.from(
+    report.closest('.accounting-balance-sheet-view, .accounting-profit-detail-view')?.querySelectorAll('style') ?? [],
+  ).map((style) => style.outerHTML).join('');
+  const html = `<!doctype html><html><head><meta charset="utf-8">${document.head.innerHTML}${reportStyles}</head><body>${report.outerHTML}</body></html>`;
+  void androidNative.printHtml(document.title || 'Laporan Akuntansi', html)
+    .catch((printError) => {
+      console.error('Android report print failed:', printError);
+      window.alert(printError instanceof Error ? printError.message : 'Laporan gagal dicetak.');
+    });
+};
 
 const ReportLines: React.FC<{ rows: AccountingFinancialReportLine[] }> = ({ rows }) => (
   <div className="overflow-x-auto">
@@ -321,7 +345,7 @@ export const AccountingBalanceSheetView: React.FC = () => {
           <div className="mt-1 text-xs font-semibold text-slate-600">{scopeLabel(scope, branches, branchId)}</div>
         </div>
         <div className="flex gap-2">
-          <button type="button" onClick={() => window.print()} title="Cetak atau simpan sebagai PDF" className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+          <button type="button" onClick={printAccountingReport} title="Cetak atau simpan sebagai PDF" className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">
             <Printer size={15} /> Cetak / PDF
           </button>
           <button type="button" onClick={() => void refresh()} disabled={loading} title="Muat ulang laporan" aria-label="Muat ulang Neraca" className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
@@ -693,7 +717,7 @@ export const AccountingProfitDetailView: React.FC = () => {
           <p className="mt-1 text-xs text-slate-500">Tahun {year} · {scopeLabel(scope, branches, branchId)}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => window.print()} disabled={!reports || loading} title="Cetak atau simpan sebagai PDF" className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+          <button type="button" onClick={printAccountingReport} disabled={!reports || loading} title="Cetak atau simpan sebagai PDF" className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
             <Printer size={15} /> Cetak / PDF
           </button>
           <button type="button" onClick={() => void downloadExcel()} disabled={!reports || loading} className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">

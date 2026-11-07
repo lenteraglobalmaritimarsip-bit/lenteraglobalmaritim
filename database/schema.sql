@@ -45,6 +45,28 @@ CREATE TABLE users (
   CONSTRAINT fk_users_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE auth_biometric_credentials (
+  user_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  device_id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  public_key_der VARCHAR(1400) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (user_id, device_id),
+  CONSTRAINT fk_biometric_credential_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE auth_biometric_challenges (
+  id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  user_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  device_id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  purpose ENUM('ENROLL', 'LOGIN') NOT NULL,
+  challenge_value CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  expires_at DATETIME(3) NOT NULL,
+  consumed_at DATETIME(3),
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  INDEX idx_biometric_challenge_rate (user_id, device_id, created_at),
+  CONSTRAINT fk_biometric_challenge_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE user_app_data (
   user_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   data_key VARCHAR(40) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -829,6 +851,8 @@ CREATE TABLE hr_employee_records (
   contract_duration_years DECIMAL(4,1),
   nik VARCHAR(20),
   npwp VARCHAR(30),
+  bpjs_ketenagakerjaan VARCHAR(30),
+  bpjs_kesehatan VARCHAR(30),
   payroll_account_number VARCHAR(50),
   payroll_bank_name VARCHAR(100),
   position VARCHAR(120),
@@ -974,9 +998,12 @@ CREATE TABLE hr_attendance (
 CREATE TABLE hr_leave_requests (
   id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
   user_id VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-  leave_type ENUM('ANNUAL', 'SICK', 'PERSONAL', 'OTHER') NOT NULL,
+  leave_type ENUM('ANNUAL', 'BUSINESS_TRAVEL', 'SICK', 'PERSONAL', 'OTHER') NOT NULL,
   starts_on DATE NOT NULL,
   ends_on DATE NOT NULL,
+  duration_days SMALLINT UNSIGNED,
+  destination_city VARCHAR(120),
+  transport_mode ENUM('CAR', 'PLANE', 'TRAIN', 'PUBLIC_BUS'),
   reason VARCHAR(2000) NOT NULL,
   status ENUM('PENDING', 'APPROVED', 'REJECTED') NOT NULL DEFAULT 'PENDING',
   review_note VARCHAR(1000),

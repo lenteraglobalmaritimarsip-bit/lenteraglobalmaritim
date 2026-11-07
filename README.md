@@ -153,10 +153,32 @@ Role **HR Administrasi** dan **Finance** dapat mengunggah rekap payroll melalui 
 - Setelah perubahan aplikasi, unggah frontend hasil `npm run build` (isi folder `dist`) dan file API `api/payroll.php` ke hosting. Notice dari phpMyAdmin yang menyebut `vendor/phpmyadmin/...` adalah peringatan UI phpMyAdmin, bukan pesan dari endpoint payroll.
 
 ## Login & Active User
-Login memakai akun di tabel `users` (PHP session + CSRF). Akun admin pertama dibuat lewat `api/create_admin.php`
+Login memakai akun di tabel `users` (PHP session + CSRF). Sesi aktif dipertahankan saat halaman yang sama dimuat ulang, tetapi tab baru setelah tab aplikasi ditutup meminta login kembali untuk semua role. Akun admin pertama dibuat lewat `api/create_admin.php`
 (password acak 8 digit dicetak satu kali); akun role lain dibuat di **Admin > Users**. Role **HR Administrasi** mengelola administrasi pekerja lintas cabang (biodata, kontrak/status, dokumen, riwayat, kehadiran, dan persetujuan cuti/perubahan profil). Menu **Absensi Kehadiran** menyediakan rekap berdasarkan tahun/bulan/semua data, branch, atau nama pekerja, serta unduhan Excel. Role HR Administrasi adalah role pusat tanpa branch akun.
 
 Role **Pekerja** hanya dapat melihat profil/dokumennya sendiri, mengajukan cuti/izin, meminta perubahan profil untuk disetujui HR, dan mencatat empat jenis absensi dengan menahan tombol 2,5 detik. Lokasi hanya diambil saat pekerja mengirim absensi setelah memberikan izin lokasi perangkat; aplikasi tidak melacak lokasi terus-menerus. Absensi memerlukan HTTPS dan izin lokasi browser/Android. Pada database lama, backup lalu jalankan `database/migrations/20261106_add_hr_worker_roles.sql` lalu `database/migrations/20261107_add_hr_attendance_events.sql` sebelum deployment atau membuat akun role baru. Jika migrasi role HR 20261106 sudah dijalankan sebelumnya, cukup jalankan migrasi 20261107. Migrasi menambah tabel/kolom HR tanpa menghapus data lama. Buat akun pekerja di Admin > Users dengan branch yang sesuai; HR Administrasi adalah role pusat tanpa branch akun.
+
+Administrasi pekerja HR mencatat nomor **BPJS Tenaga Kerja** dan **BPJS Kesehatan** pada form Biodata dan pekerjaan; keduanya ikut dalam tabel dan unduhan Excel Data Pekerja. Untuk database lama, backup lalu jalankan `database/migrations/20261107_add_hr_employee_bpjs.sql` satu kali sebelum mengunggah file API dan frontend terbaru. Instalasi baru sudah memiliki kolom tersebut di `database/schema.sql`.
+
+Menu pekerja **Surat Permohonan** mendukung Cuti Tahunan, Perjalanan Dinas, Sakit, Izin Pribadi, dan Izin Lainnya. Lama hari dihitung otomatis (hari kerja untuk cuti tahunan/izin pribadi/izin lainnya; hari kalender untuk perjalanan dinas/sakit). Form surat menggunakan Arial 12 px; kota tujuan wajib untuk cuti tahunan/perjalanan dinas, dan pilihan kendaraan wajib untuk perjalanan dinas. Surat PDF memuat biodata pekerja, rincian, dan redaksi sesuai kategori. Untuk database lama, backup lalu jalankan `database/migrations/20261107_extend_hr_leave_requests.sql` satu kali sebelum mengunggah API dan frontend. Kolom durasi lama dibiarkan NULL agar riwayat permohonan yang sudah ada tetap tampil dengan hitungan tanggal; status dan kategori historis tetap dipertahankan.
+
+PDF surat permohonan menyertakan QR verifikasi yang mengarah ke halaman publik portal. Kode verifikasi memakai ID acak kriptografis pada permohonan; endpoint publik hanya menampilkan nama karyawan, jenis permohonan, tanggal permohonan, rentang tanggal, dan status (tanpa alasan, NIK, atau data kontak). Halaman verifikasi tidak memerlukan login dan respons API tidak disimpan di cache. Fitur ini tidak memerlukan migrasi database; deploy `api/hr.php` dan folder `dist`.
+
+## Aplikasi Android
+
+Source Android Studio berada di folder `android/` dan memakai Capacitor sebagai wrapper portal web. Aplikasi membuka hanya `https://lenteraglobalmaritim.agency`; aplikasi memerlukan internet. Android WebView meneruskan unduhan URL HTTPS milik portal ke Download Manager, menyimpan hasil PDF/Excel yang dibuat browser ke folder Downloads, membuka PDF dan gambar dengan aplikasi perangkat, serta mengirim dokumen cetak ke dialog Print Android. Jalur cetak ini dipakai oleh dokumen Sales, FDA, Finance, Akunting, Manager Ops, dan Direksi.
+
+Login biometrik memakai kunci EC P-256 yang dibuat Android Keystore dan mewajibkan biometrik kuat setiap kali kunci dipakai. Private key tidak diekspor dan password tidak disimpan di perangkat. Server mengeluarkan tantangan acak satu kali yang kedaluwarsa dalam dua menit; API memverifikasi tanda tangan dan menerbitkan PHP session biasa. Pengguna mengaktifkan biometrik secara sukarela pada form login setelah login password. Perubahan biometrik/perangkat dapat mengharuskan login password untuk mendaftar ulang.
+
+### Membuka dan build project
+
+1. Pastikan Android Studio, Android SDK, JDK 17, dan Node.js tersedia.
+2. Pada database live, backup lalu jalankan `database/migrations/20261107_add_biometric_login.sql` satu kali.
+3. Unggah `api/auth.php` ke hosting.
+4. Jalankan `npm install`, lalu `npm run android:sync`.
+5. Buka Android Studio dengan `npm run android:open`, tunggu Gradle Sync, lalu pilih **Build > Build Bundle(s) / APK(s) > Build APK(s)**.
+
+`capacitor.config.ts` memuat URL portal produksi dan domain navigasi tepercaya. Jangan menambahkan domain yang tidak dikuasai ke `allowNavigation`; native bridge hanya boleh tersedia pada portal resmi. Simpan keystore penandatanganan aplikasi Android di luar repository dan buat backup aman. Untuk menguji biometrik diperlukan perangkat Android dengan screen lock dan biometrik kuat yang sudah terdaftar. Backup Android aplikasi dinonaktifkan agar preferensi identitas perangkat tidak dipulihkan ke perangkat lain.
 User aktif tampil di header dan dapat logout.
 PROJECT INI SUDAHH LIVE DI HOSTINGER https://lenteraglobalmaritim.agency/
 

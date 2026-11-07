@@ -26,10 +26,24 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
   const [loading, setLoading] = useState(false);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [newsError, setNewsError] = useState('');
+  const [biometricState, setBiometricState] = useState({ available: false, enrolled: false, username: '', deviceId: '' });
+  const [enableBiometric, setEnableBiometric] = useState(false);
   const loginInProgress = useRef(false);
 
   useEffect(() => {
     let active = true;
+    void apiAuth.biometricState().then((state) => {
+      if (!active) return;
+      setBiometricState({
+        available: state.available,
+        enrolled: state.enrolled,
+        username: state.username || '',
+        deviceId: state.deviceId || '',
+      });
+      if (state.enrolled && state.username) setUsername(state.username);
+    }).catch((stateError) => {
+      if (active) setError(stateError instanceof Error ? stateError.message : 'Status biometrik gagal diperiksa.');
+    });
     dataApi.loadNews()
       .then((items) => { if (active) setNews(items); })
       .catch((loadError: unknown) => {
@@ -55,9 +69,27 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
         loginInProgress.current = false;
         return;
       }
+      if (enableBiometric) {
+        await apiAuth.enableBiometric(username.trim());
+      }
       onLogin(account);
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : 'Login gagal.');
+      setLoading(false);
+      loginInProgress.current = false;
+    }
+  };
+
+  const loginWithBiometric = async () => {
+    if (loginInProgress.current || !biometricState.enrolled || !biometricState.username || !biometricState.deviceId) return;
+    loginInProgress.current = true;
+    setError('');
+    setLoading(true);
+    try {
+      const account = await apiAuth.loginWithBiometric(biometricState.username, biometricState.deviceId);
+      onLogin(account);
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : 'Login biometrik gagal.');
       setLoading(false);
       loginInProgress.current = false;
     }
@@ -193,11 +225,22 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin }) => {
               </button>
             </div>
 
+            {biometricState.available && !biometricState.enrolled && (
+              <label className="mb-3 flex items-start gap-2 text-xs text-slate-600">
+                <input type="checkbox" checked={enableBiometric} onChange={(event) => setEnableBiometric(event.target.checked)} />
+                <span>Aktifkan login sidik jari di perangkat ini. Password tidak disimpan; perangkat memakai kunci biometrik yang aman.</span>
+              </label>
+            )}
             {error && <div role="alert" className="lgm-login-error">{error}</div>}
             <button type="submit" className="lgm-login-submit" disabled={loading}>
               {loading ? 'Memverifikasi...' : 'Login ke Portal'}
               <ArrowRight size={18} />
             </button>
+            {biometricState.enrolled && (
+              <button type="button" className="lgm-login-submit mt-3" disabled={loading} onClick={() => void loginWithBiometric()}>
+                {loading ? 'Memverifikasi...' : 'Login dengan sidik jari'}
+              </button>
+            )}
           </form>
 
           <div className="lgm-login-footer">

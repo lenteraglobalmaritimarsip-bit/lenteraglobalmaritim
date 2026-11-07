@@ -3,6 +3,8 @@ import { db } from '../db/storage';
 import { formatDateDisplay } from './date';
 import { getPublicLogoUrl } from './logo';
 import { getPaymentVoucherPphLabel } from './paymentVoucherTax';
+import { isAndroidApp } from '../lib/androidNative';
+import { printHtmlDocument } from './printHtmlInFrame';
 
 const money = (value: number, currency: PaymentVoucher['currency'] = 'IDR') => currency === 'USD'
   ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value || 0)
@@ -134,7 +136,12 @@ export const printPaymentVoucher = (voucher: PrintableVoucher): string | null =>
     <tr><td class="space"></td><td class="space"></td><td class="space"></td></tr>
     <tr><td>( ${escapeHtml(requestBy)} )</td><td>( ${escapeHtml(checker || "                    ")} )</td><td>( ${escapeHtml(voucher.signerName || "                    ")} )</td></tr>
     </tbody></table>
-  </body></html>`;  const printWindow = window.open('', '_blank', 'width=1100,height=800');
+  </body></html>`;
+  if (isAndroidApp()) {
+    printHtmlDocument(html, `Payment Voucher ${requestNumber}`);
+    return null;
+  }
+  const printWindow = window.open('', '_blank', 'width=1100,height=800');
   if (!printWindow) return 'Pop-up diblokir browser. Izinkan pop-up untuk mencetak voucher.';
   printWindow.document.open();
   printWindow.document.write(html);

@@ -26,6 +26,8 @@ import { convertPrincipalReceiptAmount, getPrincipalReceiptSummary } from '../..
 import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateRangePicker';
 import { FormattedNumberInput } from '../shared/FormattedNumberInput';
 import { ApprovedSalesPdaTotal, listApprovedFdaPdaTotals } from '../../lib/api';
+import { androidNative, isAndroidApp } from '../../lib/androidNative';
+import { printHtmlDocument } from '../../utils/printHtmlInFrame';
 
 interface FinanceViewProps {
   initialTab?: 'DASHBOARD' | 'JOB_INVOICE_OPEN' | 'INVOICES' | 'AP' | 'AR' | 'REPORTS';
@@ -102,6 +104,13 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   const roundInvoiceAmount = (amount: number, currency: Currency) => {
     const precision = currency === 'IDR' ? 1 : 100;
     return Math.round((amount + Number.EPSILON) * precision) / precision;
+  };
+
+  const printInvoicePreview = () => {
+    const printFrame = invoicePreviewRef.current;
+    if (!printFrame?.contentDocument?.documentElement) return;
+    const html = `<!doctype html>${printFrame.contentDocument.documentElement.outerHTML}`;
+    printHtmlDocument(html, 'Principal Invoice');
   };
   const convertCurrency = (amount: number, from: Currency, to: Currency, exchangeRate: number) => {
     if (from === to) return to === 'IDR' ? Math.round(amount) : roundMoney(amount, 2);
@@ -554,6 +563,11 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       bytes[index] = binary.charCodeAt(index);
     }
 
+    if (isAndroidApp()) {
+      void androidNative.openPdf('invoice.pdf', base64Data)
+        .catch((openError) => window.alert(openError instanceof Error ? openError.message : 'PDF gagal dibuka.'));
+      return;
+    }
     const pdfUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
     const link = document.createElement('a');
     link.href = pdfUrl;
@@ -574,6 +588,11 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
       bytes[index] = binary.charCodeAt(index);
     }
 
+    if (isAndroidApp()) {
+      void androidNative.openFile('bukti-pembayaran', mimeType, dataUrl.slice(commaIndex + 1))
+        .catch((openError) => window.alert(openError instanceof Error ? openError.message : 'Bukti gagal dibuka.'));
+      return;
+    }
     const imageUrl = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
     const link = document.createElement('a');
     link.href = imageUrl;
@@ -768,7 +787,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => invoicePreviewRef.current?.contentWindow?.print()}
+                  onClick={printInvoicePreview}
                   className="rounded-lg bg-white px-3 py-1.5 text-sm font-bold text-slate-900 hover:bg-slate-100"
                 >
                   Print / Save PDF

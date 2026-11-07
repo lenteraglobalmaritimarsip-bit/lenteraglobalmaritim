@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getPublicLogoUrl } from '../../utils/logo';
-import { printHtmlInFrame } from '../../utils/printHtmlInFrame';
+import { printHtmlDocument, printHtmlInFrame } from '../../utils/printHtmlInFrame';
+import { isAndroidApp } from '../../lib/androidNative';
 import { paymentFooterPrintStyles } from '../../utils/paymentFooterPrintStyles';
 import {
   FileCheck2,
@@ -1351,6 +1352,10 @@ export const FDAView: React.FC<FDAViewProps> = ({
     if (getHtml) return centerFDAExportColumns(onePageHtml);
     if (print) {
       printFDAHtml(centerFDAExportColumns(onePageHtml));
+      return;
+    }
+    if (isAndroidApp()) {
+      printHtmlDocument(centerFDAExportColumns(onePageHtml), fdaNo);
       return;
     }
     const windowRef = window.open('', '_blank', 'width=900,height=1100');

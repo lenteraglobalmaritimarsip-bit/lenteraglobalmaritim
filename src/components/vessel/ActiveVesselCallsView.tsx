@@ -7,7 +7,7 @@ import { Customer, JobCall, User, Vessel } from '../../types';
 import { formatDateDisplay, formatInquiryDate, formatInquiryDateRange, isInquiryDateInRange } from '../../utils/date';
 import { InquiryDateRangePicker, InquiryDateRange } from '../shared/InquiryDateRangePicker';
 import { InquiryVesselDetails } from '../shared/InquiryVesselDetails';
-import { printHtmlInFrame } from '../../utils/printHtmlInFrame';
+import { printHtmlDocument, printHtmlInFrame } from '../../utils/printHtmlInFrame';
 
 interface Props {
   jobCalls: JobCall[];
@@ -220,10 +220,8 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,users =
       const st=getManagementStatus(j);
       return `<tr><td>${j.jobId}</td><td>${j.vesselName}</td><td>${j.customerName}</td><td>${j.portName}</td><td>${formatDateDisplay(j.eta, true)}</td><td>${formatDateDisplay(j.etd, true)}</td><td>${statusLabel[j.status]||j.status}</td><td>${st.find((status) => status.label === 'EPDA')?.value || '-'}</td><td>${st.find((status) => status.label === 'Manager Approval')?.value || '-'}</td><td>${st.find((status) => status.label === 'FDA')?.value || '-'}</td></tr>`;
     }).join('');
-    const win=window.open('','_blank','width=1400,height=900');
-    if(!win) return;
-    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Monitoring Vessel Calls - ${dateRangeText}</title><style>@page{size:A4 landscape;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#1f2937;margin:0}h1{font-size:18px;margin:0 0 4px}p{font-size:10px;color:#64748b;margin:0 0 14px}table{width:100%;border-collapse:collapse;font-size:8px}th{background:#eef3f9;text-align:left;padding:7px;border:1px solid #d5deea;letter-spacing:.05em}td{padding:7px;border:1px solid #dfe6ef;vertical-align:top}tr:nth-child(even){background:#fafcff}</style></head><body><h1>Monitoring Vessel Calls</h1><p>${dateRangeText} • ${rows.length} Vessel Call</p><table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table><script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}</script></body></html>`);
-    win.document.close();
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Monitoring Vessel Calls - ${dateRangeText}</title><style>@page{size:A4 landscape;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#1f2937;margin:0}h1{font-size:18px;margin:0 0 4px}p{font-size:10px;color:#64748b;margin:0 0 14px}table{width:100%;border-collapse:collapse;font-size:8px}th{background:#eef3f9;text-align:left;padding:7px;border:1px solid #d5deea;letter-spacing:.05em}td{padding:7px;border:1px solid #dfe6ef;vertical-align:top}tr:nth-child(even){background:#fafcff}</style></head><body><h1>Monitoring Vessel Calls</h1><p>${dateRangeText} • ${rows.length} Vessel Call</p><table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table><script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}</script></body></html>`;
+    printHtmlDocument(html, `Monitoring Vessel Calls - ${dateRangeText}`);
   };
 
   if (selectedJob) {

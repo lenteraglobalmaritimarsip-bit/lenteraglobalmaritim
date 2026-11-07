@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getPublicLogoUrl } from '../../utils/logo';
-import { printHtmlInFrame } from '../../utils/printHtmlInFrame';
+import { printHtmlDocument, printHtmlInFrame } from '../../utils/printHtmlInFrame';
+import { isAndroidApp } from '../../lib/androidNative';
 import { bankAccountPrintStyles } from '../../utils/bankAccountPrintStyles';
 import { FileSpreadsheet, Plus, Trash2, Save, Ship, Building, CheckCircle2, Download, Printer, Eye, Send, Pencil, Check, X } from 'lucide-react';
 import { JobCall, DisbursementItem, Currency, User, Vessel, Customer, FixTariff, ExpensesItem, formatPurposeOfCall } from '../../types';
@@ -1092,6 +1093,10 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
       const printFrame = documentPrintFrameRef.current;
       if (!printFrame) return;
       printHtmlInFrame(printFrame, buildPreviewHtml(), epdaNo.replace(/[\\/:*?"<>|]/g, '-'));
+      return;
+    }
+    if (isAndroidApp()) {
+      printHtmlDocument(buildPreviewHtml(), epdaNo.replace(/[\\/:*?"<>|]/g, '-'));
       return;
     }
     const preview = window.open('', '_blank', 'width=900,height=1100');

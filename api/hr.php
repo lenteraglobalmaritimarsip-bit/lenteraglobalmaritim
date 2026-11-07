@@ -83,7 +83,10 @@ function hrEmployeeQuery(): string
                    er.contract_type AS contractType,
                    er.contract_start AS contractStart, er.contract_end AS contractEnd,
                    er.contract_duration_years AS contractDurationYears,
-                   er.nik, er.npwp, er.payroll_account_number AS payrollAccountNumber,
+                   er.nik, er.npwp,
+                   er.bpjs_ketenagakerjaan AS bpjsKetenagakerjaan,
+                   er.bpjs_kesehatan AS bpjsKesehatan,
+                   er.payroll_account_number AS payrollAccountNumber,
                    er.payroll_bank_name AS payrollBankName,
                    TO_BASE64(er.photo_content) AS photoDataBase64,
                    er.photo_mime_type AS photoMimeType,
@@ -132,7 +135,9 @@ function hrLoadWorkspace(PDO $pdo, array $user): array
         )->fetchAll();
         $leaveRequests = $pdo->query(
             'SELECT l.id, l.user_id AS userId, u.name AS employeeName, l.leave_type AS type,
-                    l.starts_on AS startDate, l.ends_on AS endDate, l.reason, l.status,
+                    l.starts_on AS startDate, l.ends_on AS endDate, l.duration_days AS durationDays,
+                    l.destination_city AS destinationCity, l.transport_mode AS transportMode,
+                    l.reason, l.status,
                     l.review_note AS reviewNote, l.created_at AS createdAt,
                     l.reviewed_by_name AS reviewedByName, l.reviewed_at AS reviewedAt
              FROM hr_leave_requests l JOIN users u ON u.id = l.user_id
@@ -189,7 +194,9 @@ function hrLoadWorkspace(PDO $pdo, array $user): array
     );
     $attendanceQuery->execute(['user_id' => $user['id']]);
     $leaveQuery = $pdo->prepare(
-        'SELECT id, leave_type AS type, starts_on AS startDate, ends_on AS endDate, reason, status,
+        'SELECT id, leave_type AS type, starts_on AS startDate, ends_on AS endDate,
+                duration_days AS durationDays, destination_city AS destinationCity,
+                transport_mode AS transportMode, reason, status,
                 review_note AS reviewNote, created_at AS createdAt, reviewed_by_name AS reviewedByName,
                 reviewed_at AS reviewedAt
          FROM hr_leave_requests WHERE user_id = :user_id
@@ -233,6 +240,27 @@ function hrAuditEmployeeSnapshot(PDO $pdo, string $userId): ?array
 $action = (string) ($_GET['action'] ?? '');
 
 try {
+    if ($action === 'verify-leave') {
+        requireMethod('GET');
+        header('Cache-Control: no-store, private');
+        header('X-Robots-Tag: noindex, nofollow');
+        $id = hrString($_GET['id'] ?? null, 'Kode verifikasi');
+        if (!preg_match('/^HRL-[a-f0-9]{24}$/', $id)) {
+            jsonResponse(['error' => 'Surat tidak ditemukan atau kode verifikasi tidak valid.'], 404);
+        }
+        $query = db()->prepare(
+            'SELECT l.id, l.leave_type AS type, l.starts_on AS startDate, l.ends_on AS endDate,
+                    l.created_at AS submittedAt, l.status, u.name AS employeeName
+             FROM hr_leave_requests l
+             JOIN users u ON u.id = l.user_id
+             WHERE l.id = :id LIMIT 1'
+        );
+        $query->execute(['id' => $id]);
+        $request = $query->fetch();
+        if (!$request) jsonResponse(['error' => 'Surat tidak ditemukan atau kode verifikasi tidak valid.'], 404);
+        jsonResponse(['verification' => $request]);
+    }
+
     $user = requireAuthenticatedUser();
     $pdo = db();
 
@@ -451,6 +479,8 @@ try {
         $contractDurationYears = $contractDuration !== '' ? (float) str_replace(',', '.', $contractDuration) : null;
         $nik = hrString($body['nik'] ?? null, 'NIK');
         $npwp = hrString($body['npwp'] ?? null, 'NPWP');
+        $bpjsKetenagakerjaan = hrString($body['bpjsKetenagakerjaan'] ?? null, 'BPJS Tenaga Kerja');
+        $bpjsKesehatan = hrString($body['bpjsKesehatan'] ?? null, 'BPJS Kesehatan');
         $payrollAccountNumber = hrString($body['payrollAccountNumber'] ?? null, 'Nomor rekening payroll');
         $payrollBankName = hrString($body['payrollBankName'] ?? null, 'Bank payroll');
         $photoDataBase64 = isset($body['photoDataBase64']) ? (string) $body['photoDataBase64'] : '';
@@ -475,7 +505,8 @@ try {
             || !in_array($contractType, ['', 'PERMANENT', 'CONTRACT', 'PROBATION', 'INTERNSHIP', 'OTHER'], true)
             || strlen($address) > 10000 || strlen($emergencyName) > 150 || strlen($emergencyPhone) > 50
             || strlen($birthCity) > 120 || ($contractDurationYears !== null && ($contractDurationYears < 0 || $contractDurationYears > 99.9))
-            || strlen($nik) > 20 || strlen($npwp) > 30 || strlen($payrollAccountNumber) > 50 || strlen($payrollBankName) > 100) {
+            || strlen($nik) > 20 || strlen($npwp) > 30 || strlen($bpjsKetenagakerjaan) > 30
+            || strlen($bpjsKesehatan) > 30 || strlen($payrollAccountNumber) > 50 || strlen($payrollBankName) > 100) {
             jsonResponse(['error' => 'Periksa kembali data pekerja. Nomor pekerja, nama, email, jabatan, departemen, status, dan branch wajib valid.'], 400);
         }
         if ($contractStart !== null && $contractEnd !== null && $contractEnd < $contractStart) {
@@ -515,6 +546,8 @@ try {
             'contractDurationYears' => $contractDurationYears,
             'nik' => $nik !== '' ? $nik : null,
             'npwp' => $npwp !== '' ? $npwp : null,
+            'bpjsKetenagakerjaan' => $bpjsKetenagakerjaan !== '' ? $bpjsKetenagakerjaan : null,
+            'bpjsKesehatan' => $bpjsKesehatan !== '' ? $bpjsKesehatan : null,
             'payrollAccountNumber' => $payrollAccountNumber !== '' ? $payrollAccountNumber : null,
             'payrollBankName' => $payrollBankName !== '' ? $payrollBankName : null,
         ];
@@ -528,6 +561,8 @@ try {
             'contract_start' => $contractStart, 'contract_end' => $contractEnd,
             'contract_duration_years' => $contractDurationYears, 'nik' => $nik !== '' ? $nik : null,
             'npwp' => $npwp !== '' ? $npwp : null,
+            'bpjs_ketenagakerjaan' => $bpjsKetenagakerjaan !== '' ? $bpjsKetenagakerjaan : null,
+            'bpjs_kesehatan' => $bpjsKesehatan !== '' ? $bpjsKesehatan : null,
             'payroll_account_number' => $payrollAccountNumber !== '' ? $payrollAccountNumber : null,
             'payroll_bank_name' => $payrollBankName !== '' ? $payrollBankName : null,
             'position' => $position, 'department' => $department, 'branch_id' => $branchId,
@@ -546,12 +581,14 @@ try {
                 'INSERT INTO hr_employee_records
                  (user_id, employee_number, date_of_birth, gender, address, emergency_contact_name,
                   emergency_contact_phone, employment_status, contract_type, contract_start, contract_end,
-                   birth_city, contract_duration_years, nik, npwp, payroll_account_number, payroll_bank_name,
+                   birth_city, contract_duration_years, nik, npwp, bpjs_ketenagakerjaan, bpjs_kesehatan,
+                   payroll_account_number, payroll_bank_name,
                    position, department, branch_id, photo_content, photo_mime_type)
                  VALUES
                  (:user_id, :employee_number, :date_of_birth, :gender, :address, :emergency_contact_name,
                   :emergency_contact_phone, :employment_status, :contract_type, :contract_start, :contract_end,
-                  :birth_city, :contract_duration_years, :nik, :npwp, :payroll_account_number, :payroll_bank_name,
+                  :birth_city, :contract_duration_years, :nik, :npwp, :bpjs_ketenagakerjaan, :bpjs_kesehatan,
+                  :payroll_account_number, :payroll_bank_name,
                   :position, :department, :branch_id, :photo_content, :photo_mime_type)'
             );
             $insertRecord->execute([
@@ -839,27 +876,51 @@ try {
         hrRequireRole($user, 'PEKERJA');
         requireCsrfToken();
         $body = requestJson();
-        $type = hrString($body['type'] ?? null, 'Jenis cuti/izin');
+        $type = hrString($body['type'] ?? null, 'Jenis permohonan');
         $startDate = hrDateValue($body['startDate'] ?? null, 'Tanggal mulai', false);
         $endDate = hrDateValue($body['endDate'] ?? null, 'Tanggal akhir', false);
-        $reason = hrString($body['reason'] ?? null, 'Alasan cuti/izin');
-        if (!in_array($type, ['ANNUAL', 'SICK', 'PERSONAL', 'OTHER'], true)
-            || $endDate < $startDate || $reason === '' || strlen($reason) > 2000) {
-            jsonResponse(['error' => 'Periksa jenis, tanggal, dan alasan pengajuan cuti/izin.'], 400);
+        $destinationCity = hrString($body['destinationCity'] ?? null, 'Kota tujuan');
+        $transportMode = hrString($body['transportMode'] ?? null, 'Kendaraan yang digunakan');
+        $reason = hrString($body['reason'] ?? null, 'Keperluan permohonan');
+        $transportModes = ['CAR', 'PLANE', 'TRAIN', 'PUBLIC_BUS'];
+        $needsDestination = in_array($type, ['ANNUAL', 'BUSINESS_TRAVEL'], true);
+        $needsTransport = $type === 'BUSINESS_TRAVEL';
+        if (!in_array($type, ['ANNUAL', 'BUSINESS_TRAVEL', 'SICK', 'PERSONAL', 'OTHER'], true)
+            || $endDate < $startDate || $reason === '' || strlen($reason) > 2000
+            || ($needsDestination && ($destinationCity === '' || strlen($destinationCity) > 120))
+            || (!$needsDestination && $destinationCity !== '')
+            || ($needsTransport && !in_array($transportMode, $transportModes, true))
+            || (!$needsTransport && $transportMode !== '')) {
+            jsonResponse(['error' => 'Periksa jenis, tanggal, data tujuan/kendaraan, dan keperluan permohonan.'], 400);
         }
+        $start = new DateTimeImmutable($startDate);
+        $end = new DateTimeImmutable($endDate);
+        $durationDays = 0;
+        for ($day = $start; $day <= $end; $day = $day->modify('+1 day')) {
+            if (in_array($type, ['ANNUAL', 'PERSONAL', 'OTHER'], true) && (int) $day->format('N') >= 6) continue;
+            $durationDays++;
+        }
+        if ($durationDays < 1) jsonResponse(['error' => 'Rentang tanggal tidak memiliki hari kerja.'], 400);
         $id = hrNewId('HRL');
         $pdo->beginTransaction();
         $insert = $pdo->prepare(
             'INSERT INTO hr_leave_requests
-             (id, user_id, leave_type, starts_on, ends_on, reason, created_by_id, created_by_name)
-             VALUES (:id, :user_id, :type, :starts_on, :ends_on, :reason, :actor_id, :actor_name)'
+             (id, user_id, leave_type, starts_on, ends_on, duration_days, destination_city,
+              transport_mode, reason, created_by_id, created_by_name)
+             VALUES (:id, :user_id, :type, :starts_on, :ends_on, :duration_days, :destination_city,
+              :transport_mode, :reason, :actor_id, :actor_name)'
         );
         $insert->execute([
             'id' => $id, 'user_id' => $user['id'], 'type' => $type, 'starts_on' => $startDate,
-            'ends_on' => $endDate, 'reason' => $reason, 'actor_id' => $user['id'], 'actor_name' => $user['name'],
+            'ends_on' => $endDate, 'duration_days' => $durationDays,
+            'destination_city' => $destinationCity !== '' ? $destinationCity : null,
+            'transport_mode' => $transportMode !== '' ? $transportMode : null,
+            'reason' => $reason, 'actor_id' => $user['id'], 'actor_name' => $user['name'],
         ]);
         hrRecordHistory($pdo, $user, (string) $user['id'], 'LEAVE_REQUESTED', 'Pengajuan cuti/izin dikirim.', null, [
             'requestId' => $id, 'type' => $type, 'startDate' => $startDate, 'endDate' => $endDate,
+            'durationDays' => $durationDays, 'destinationCity' => $destinationCity ?: null,
+            'transportMode' => $transportMode ?: null, 'reason' => $reason,
         ]);
         $pdo->commit();
         jsonResponse(['ok' => true]);
