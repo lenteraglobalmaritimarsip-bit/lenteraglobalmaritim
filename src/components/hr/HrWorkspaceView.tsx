@@ -2150,41 +2150,62 @@ const createLeaveLetterPdf = async (request: HrLeaveRequest, employee?: {
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(9);
   let y = 55;
-  const addText = (text: string, gapAfter = 2) => {
-    const lines = pdf.splitTextToSize(text, 170) as string[];
+  const addText = (text: string, gapAfter = 0, x = 20, indent = 0) => {
+    const lines = pdf.splitTextToSize(text, 170 - indent) as string[];
     for (const line of lines) {
       if (y > 259) {
         pdf.addPage();
         y = 20;
       }
-      pdf.text(line, 20, y);
+      pdf.text(line, x + indent, y);
       y += 5;
     }
     y += gapAfter;
+  };
+  const addBulletField = (label: string, value: string | undefined, gapAfter = 0, indent = 0, labelWidth = 34) => {
+    const valueText = value || '-';
+    if (y > 259) {
+      pdf.addPage();
+      y = 20;
+    }
+    const bulletX = 20 + indent;
+    const labelX = 30 + indent;
+    const valueX = 30 + indent + labelWidth + 8;
+    pdf.text('- ', bulletX, y);
+    pdf.text(`${label}:`, labelX, y);
+    pdf.text(valueText, valueX, y);
+    y += 5;
+    y += gapAfter;
+  };
+  const addSectionBreak = (gap = 4) => {
+    y += gap;
   };
   const duration = request.durationDays || calculateRequestDuration(request.type, request.startDate, request.endDate);
   const durationUnit = ['ANNUAL', 'PERSONAL', 'OTHER'].includes(request.type) ? 'Hari kerja' : 'Hari';
   const employeeNumber = employee?.employeeNumber;
   const nik = employee?.nik;
   const department = employee?.department;
-  addText(`Perihal: Permohonan ${leaveTypeLabel(request.type)} - ${employee?.name || '-'}`);
-  addText('Kepada Yth.');
-  addText('Bagian HRD / Personalia');
-  addText('PT. Lentera Global Maritim');
-  addText('Di Tempat');
+  addText(`Perihal: Permohonan ${leaveTypeLabel(request.type)} - ${employee?.name || '-'}`, 0);
+  addText('Kepada Yth.', 0);
+  addText('Bagian HRD / Personalia', 0);
+  addText('PT. Lentera Global Maritim', 0);
+  addText('Di Tempat', 0);
+  addSectionBreak(4);
   addText('Dengan hormat,');
   addText('Saya yang bertanda tangan di bawah ini:');
-  addText(`- Nama: ${employee?.name || '-'}`, 0);
-  addText(`- NIK / No. Karyawan: ${nik || employeeNumber || '-'}`, 0);
-  addText(`- Jabatan: ${employee?.position || '-'}`, 0);
-  addText(`- Departemen: ${department || '-'}`);
+  addBulletField('Nama', employee?.name || '-', 0, 0, 30);
+  addBulletField('NIK / No. Karyawan', nik || employeeNumber || '-', 0, 0, 33);
+  addBulletField('Jabatan', employee?.position || '-', 0, 0, 30);
+  addBulletField('Departemen', department || '-', 0, 0, 30);
+  addSectionBreak(2);
   addText(`Bersama surat ini, saya bermaksud mengajukan permohonan ${leaveTypeLabel(request.type)} dengan rincian sebagai berikut:`);
-  addText(`- Tanggal Mulai: ${formatDateDisplay(request.startDate)}`, 0);
-  addText(`- Tanggal Selesai: ${formatDateDisplay(request.endDate)}`, 0);
-  addText(`- Lama Hari: ${duration} ${durationUnit}`, 0);
-  if (request.destinationCity) addText(`- Kota Tujuan: ${request.destinationCity}`, 0);
-  if (request.transportMode) addText(`- Kendaraan yang Digunakan: ${transportModeLabel(request.transportMode)}`, 0);
-  addText(`- Keperluan${request.type === 'BUSINESS_TRAVEL' ? ' / Agenda Dinas' : ''}: ${request.reason}`);
+  addBulletField('Tanggal Mulai', formatDateDisplay(request.startDate), 0, 0, 32);
+  addBulletField('Tanggal Selesai', formatDateDisplay(request.endDate), 0, 0, 32);
+  addBulletField('Lama Hari', `${duration} ${durationUnit}`, 0, 0, 32);
+  if (request.destinationCity) addBulletField('Kota Tujuan', request.destinationCity, 0, 0, 32);
+  if (request.transportMode) addBulletField('Kendaraan yang Digunakan', transportModeLabel(request.transportMode), 0, 0, 32);
+  addBulletField(`Keperluan${request.type === 'BUSINESS_TRAVEL' ? ' / Agenda Dinas' : ''}`, request.reason, 0, 0, 32);
+  addSectionBreak(2);
   if (request.type === 'ANNUAL') {
     addText('Selama menjalankan cuti, saya akan memastikan seluruh tanggung jawab pekerjaan telah diserahterimakan dengan baik atau didelegasikan kepada rekan kerja satu tim.');
   } else if (request.type === 'BUSINESS_TRAVEL') {
@@ -2196,12 +2217,14 @@ const createLeaveLetterPdf = async (request: HrLeaveRequest, employee?: {
   } else {
     addText('Demikian permohonan izin ini saya sampaikan atas situasi/kondisi khusus di atas.');
   }
+  addSectionBreak(3);
   addText('Demikian permohonan ini saya ajukan. Atas perhatian, pengertian, dan persetujuan dari Bapak/Ibu HRD, saya ucapkan terima kasih.');
   if (y > 205) {
     pdf.addPage();
     y = 30;
   }
   y = Math.max(y + 7, 205);
+  pdf.setLineHeightFactor(1);
   pdf.text(`Jakarta, ${formatDateDisplay(request.createdAt)}`, 145, y, { align: 'center' });
   pdf.text('Hormat Saya,', 145, y + 7, { align: 'center' });
   pdf.text(`( ${employee?.name || '-'} )`, 145, y + 27, { align: 'center' });
