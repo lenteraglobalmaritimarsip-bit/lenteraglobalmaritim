@@ -331,277 +331,195 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
     const periodLabel = Number.isNaN(periodDate.getTime())
       ? slip.period
       : new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(periodDate);
-    const colors = {
-      navy: [18, 53, 107] as const,
-      blue: [42, 111, 176] as const,
-      sky: [232, 241, 250] as const,
-      orange: [242, 163, 58] as const,
-      flame: [217, 83, 30] as const,
-      green: [30, 158, 106] as const,
-      mint: [230, 246, 238] as const,
-      peach: [253, 236, 228] as const,
-      ink: [29, 36, 51] as const,
-      muted: [123, 132, 151] as const,
-      line: [227, 232, 240] as const,
-      bg: [246, 248, 251] as const,
-      white: [255, 255, 255] as const,
-    };
+    const payrollIssueDate = /^\d{4}-\d{2}$/.test(slip.period) ? `${slip.period}-27` : todayISO();
+    const directorApprovalSlip = slip.employeeNumber === 'LGM-202512003';
+    const signerRole = directorApprovalSlip ? 'Direktur' : 'Finance';
+    const signerName = directorApprovalSlip ? 'Lailun Nifal Fahmi' : 'Diva Fitri Mellanie';
+    const uploadedPeriodLabel = slip.periodLabel.trim();
+    const periodYear = slip.period.match(/\d{4}/)?.[0] || '';
+    const payslipPeriod = uploadedPeriodLabel
+      ? /\b\d{4}\b/.test(uploadedPeriodLabel) ? uploadedPeriodLabel : `${uploadedPeriodLabel} ${periodYear}`.trim()
+      : periodLabel;
+    const navy = [31, 56, 100] as const;
+    const line = [191, 197, 210] as const;
+    const soft = [238, 242, 248] as const;
+    const green = [226, 239, 218] as const;
+    const ink = [27, 27, 27] as const;
+    const muted = [95, 107, 122] as const;
     const fill = (color: readonly [number, number, number]) => pdf.setFillColor(...color);
     const textColor = (color: readonly [number, number, number]) => pdf.setTextColor(...color);
-    const roundedCard = (x: number, y: number, width: number, height: number, color: readonly [number, number, number] = colors.white) => {
-      fill(color);
-      pdf.setDrawColor(...colors.line);
-      pdf.roundedRect(x, y, width, height, 3, 3, 'FD');
-    };
-
-    fill(colors.white);
-    pdf.rect(0, 0, 210, 297, 'F');
-    fill(colors.navy);
-    pdf.rect(0, 0, 210, 38, 'F');
-    fill(colors.blue);
-    pdf.rect(112, 0, 98, 38, 'F');
-    fill(colors.orange);
-    pdf.rect(0, 38, 84, 2, 'F');
-    fill(colors.flame);
-    pdf.rect(84, 38, 72, 2, 'F');
-    fill(colors.navy);
-    pdf.rect(156, 38, 54, 2, 'F');
-    fill(colors.white);
-    pdf.roundedRect(13, 8, 23, 23, 4, 4, 'F');
-    pdf.addImage(logoDataUrl, 'JPEG', 16, 11, 17, 17);
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(11);
-    textColor(colors.white);
-    pdf.text('PT. LENTERA GLOBAL MARITIM', 42, 16);
-    pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(7);
-    pdf.text('Shipping Agency & Workplace', 42, 21);
-    pdf.text('Gedung Sarana Square Lt. 3C, Jl. Tebet Barat IV No. 20', 42, 26);
-    pdf.text('Jakarta Selatan 12830  |  Phone: 021 3882 5393', 42, 30);
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(16);
-    pdf.text('SALARY SLIP', 197, 18, { align: 'right' });
-    pdf.setFontSize(7);
-    pdf.text(periodLabel.toUpperCase(), 197, 26, { align: 'right' });
-    pdf.setFont('helvetica', 'normal');
-    pdf.text('FINAL PAYROLL', 197, 31, { align: 'right' });
-
-    roundedCard(14, 47, 182, 32, colors.bg);
-    fill(colors.blue);
-    pdf.circle(27, 63, 8, 'F');
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(11);
-    textColor(colors.white);
-    pdf.text((slip.employeeName.trim()[0] || 'P').toUpperCase(), 27, 66.5, { align: 'center' });
-    textColor(colors.ink);
-    pdf.setFontSize(11);
-    pdf.text(slip.employeeName, 40, 56, { maxWidth: 75 });
-    pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(7.5);
-    textColor(colors.muted);
-    pdf.text(slip.position || '-', 40, 61);
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(7);
-    fill(colors.sky);
-    pdf.roundedRect(40, 65, 66, 6, 3, 3, 'F');
-    textColor(colors.navy);
-    pdf.text(slip.branch || '-', 43, 69, { maxWidth: 60 });
-    pdf.setDrawColor(...colors.line);
-    pdf.line(111, 51, 111, 75);
-    pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(6.5);
-    textColor(colors.muted);
-    pdf.text('NIK', 117, 55);
-    pdf.text('TANGGAL MASUK', 117, 64);
-    pdf.text('STATUS PAJAK', 117, 73);
-    pdf.text('NOMOR SLIP', 157, 55);
-    pdf.text('BANK', 157, 64);
-    pdf.text('NO. REKENING', 157, 73);
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(7);
-    textColor(colors.ink);
-    pdf.text(slip.employeeNumber, 117, 59);
-    pdf.text(formatDate(slip.dateJoined), 117, 68);
-    pdf.text(slip.taxStatus || '-', 117, 77);
-    pdf.text(slip.slipNumber || '-', 157, 59);
-    pdf.text(slip.bankName || '-', 157, 68);
-    pdf.text(slip.bankAccountNumber || '-', 157, 77, { maxWidth: 36 });
-
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(7.5);
-    textColor(colors.navy);
-    pdf.text('RINGKASAN PRESENSI', 14, 87);
-    const attendance = [
-      ['MASUK', slip.attendancePresent, colors.blue],
-      ['SAKIT', slip.attendanceSick, colors.orange],
-      ['IZIN', slip.attendanceLeave, [142, 124, 195] as const],
-      ['CUTI', slip.attendanceAnnualLeave, colors.green],
-      ['ALFA', slip.attendanceAbsent, colors.flame],
-      ['OFF', slip.attendanceOff, colors.muted],
-    ] as Array<[string, number, readonly [number, number, number]]>;
-    const attendanceY = 90;
-    attendance.forEach(([label, value, color], index) => {
-      const x = 14 + index * 30.7;
-      roundedCard(x, attendanceY, 28.5, 17, colors.white);
-      fill(color);
-      pdf.roundedRect(x, attendanceY, 28.5, 1.5, 1, 1, 'F');
-      pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(6);
-      textColor(colors.muted);
-      pdf.text(label, x + 14.25, attendanceY + 7, { align: 'center' });
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(10);
-      textColor(colors.ink);
-      pdf.text(number(value), x + 14.25, attendanceY + 14, { align: 'center' });
-    });
-
-    const cardY = 112;
-    const cardHeight = 55;
-    const cardWidth = 88;
-    const leftX = 14;
-    const rightX = 108;
-    const cardHeader = (x: number, label: string, color: readonly [number, number, number]) => {
-      roundedCard(x, cardY, cardWidth, cardHeight);
-      fill(color);
-      pdf.roundedRect(x, cardY, cardWidth, 8, 3, 3, 'F');
-      pdf.rect(x, cardY + 5, cardWidth, 3, 'F');
+    const drawSectionTitle = (x: number, y: number, width: number, title: string) => {
+      fill(navy);
+      pdf.rect(x, y, width, 7, 'F');
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(7.5);
-      textColor(colors.white);
-      pdf.text(label, x + 4, cardY + 5.5);
+      textColor([255, 255, 255]);
+      pdf.text(title, x + 3, y + 4.8);
     };
-    const drawMoneyRows = (x: number, rows: Array<[string, number]>, totalLabel: string, totalValue: number, totalFill: readonly [number, number, number], totalText: readonly [number, number, number]) => {
-      const startY = cardY + 13;
-      rows.forEach(([label, value], index) => {
-        const y = startY + index * 4.1;
-        pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(6.8);
-        textColor(colors.ink);
-        pdf.text(label, x + 4, y, { maxWidth: 51 });
-        pdf.text('Rp', x + 65, y, { align: 'right' });
-        pdf.setFont('helvetica', value === 0 ? 'normal' : 'bold');
-        textColor(value === 0 ? colors.muted : colors.ink);
-        pdf.text(currency(value), x + 84, y, { align: 'right' });
-      });
-      fill(totalFill);
-      pdf.roundedRect(x + 2.5, cardY + cardHeight - 8.5, cardWidth - 5, 6.5, 1.5, 1.5, 'F');
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(6.8);
-      textColor(totalText);
-      pdf.text(totalLabel, x + 4, cardY + cardHeight - 4.2);
-      pdf.text('Rp', x + 65, cardY + cardHeight - 4.2, { align: 'right' });
-      pdf.text(number(totalValue), x + 84, cardY + cardHeight - 4.2, { align: 'right' });
+    const drawAmountRow = (x: number, y: number, width: number, height: number, label: string, value: number, total = false) => {
+      if (total) {
+        fill(soft);
+        pdf.rect(x, y, width, height, 'F');
+      }
+      pdf.setDrawColor(...line);
+      pdf.setLineWidth(0.15);
+      pdf.rect(x, y, width, height);
+      pdf.setFont('helvetica', total ? 'bold' : 'normal');
+      pdf.setFontSize(7);
+      textColor(ink);
+      pdf.text(label, x + 3, y + height * 0.68, { maxWidth: width - 29 });
+      pdf.setFont('helvetica', total || value !== 0 ? 'bold' : 'normal');
+      pdf.text('Rp', x + width - 20, y + height * 0.68, { align: 'right' });
+      pdf.text(total ? number(value) : currency(value), x + width - 3, y + height * 0.68, { align: 'right' });
     };
-    cardHeader(leftX, 'PENDAPATAN', colors.green);
-    drawMoneyRows(leftX, [
-      ['Gaji Pokok', slip.basicSalary],
-      ['Tunjangan Makan', slip.meals],
-      ['Tunjangan Transport', slip.transport],
-      ['Tunjangan Jabatan', slip.positionAllowance],
-      ['Lembur', slip.overtime],
-      ['THR', slip.thr],
-      ['Tunjangan PPh 21', slip.taxAllowance],
-    ], 'Total Pendapatan Diterima', slip.totalIncomeReceived, colors.mint, [18, 114, 76]);
-    cardHeader(rightX, 'POTONGAN KARYAWAN', colors.flame);
-    drawMoneyRows(rightX, [
-      ['BPJS TK - Perusahaan', slip.deductionBpjsTkEmployer],
-      ['BPJS Kesehatan - Perusahaan', slip.deductionBpjsHealthEmployer],
-      ['BPJS TK - Karyawan', slip.deductionBpjsTkEmployee],
-      ['BPJS Kesehatan - Karyawan', slip.deductionBpjsHealthEmployee],
-      ['PPh 21', slip.deductionPph21],
-      ['Potongan / Pinjaman', slip.deductionLoan],
-      ['Tidak Hadir / Terlambat', slip.deductionAbsence],
-      ['Potongan THR', slip.deductionThr],
-    ], 'Total Potongan', slip.deductions, colors.peach, [163, 36, 27]);
 
-    roundedCard(14, 172, 182, 28, colors.sky);
+    fill([255, 255, 255]);
+    pdf.rect(0, 0, 210, 297, 'F');
+    pdf.addImage(logoDataUrl, 'JPEG', 14, 5, 17, 14);
     pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(7.5);
-    textColor(colors.navy);
-    pdf.text('BENEFIT YANG DIBAYAR PERUSAHAAN', 18, 178);
+    pdf.setFontSize(11);
+    textColor(navy);
+    pdf.text('PT LENTERA GLOBAL MARITIM', 37, 10.5);
     pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(5.8);
-    textColor(colors.muted);
-    pdf.text(`Upah BPJS: Rp ${number(slip.bpjsWage)}  |  Total BPJS TK: Rp ${number(slip.bpjsEmployerTotal)}`, 192, 178, { align: 'right' });
-    const benefits = [
-      ['JHT', slip.jhtEmployer],
-      ['JKM', slip.jkmEmployer],
-      ['JKK', slip.jkkEmployer],
-      ['JP', slip.jpEmployer],
-      ['BPJS Kesehatan', slip.bpjsHealthEmployer],
-      ['Total Benefit', slip.employerBenefitsTotal],
-    ] as Array<[string, number]>;
-    benefits.forEach(([label, value], index) => {
-      const x = 18 + index * 29.2;
-      const total = index === benefits.length - 1;
-      const tileColor = total ? colors.navy : colors.white;
-      const borderColor = total ? colors.navy : colors.line;
-      fill(tileColor);
-      pdf.setDrawColor(borderColor[0], borderColor[1], borderColor[2]);
-      pdf.roundedRect(x, 182, 27, 13, 2, 2, 'FD');
+    pdf.setFontSize(6.5);
+    textColor(muted);
+    pdf.text('Head Office - Tebet, Jakarta', 37, 15);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(15);
+    textColor(navy);
+    pdf.text('S A L A R Y   S L I P', 197, 18, { align: 'right' });
+    pdf.setDrawColor(...navy);
+    pdf.setLineWidth(0.8);
+    pdf.line(13, 25, 197, 25);
+
+    const drawIdentity = (x: number, y: number, label: string, value: string, labelWidth: number, valueWidth = 48) => {
       pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(5.5);
-      textColor(total ? [191, 211, 236] : colors.muted);
-      pdf.text(label, x + 13.5, 187, { align: 'center', maxWidth: 25 });
+      pdf.setFontSize(7.5);
+      textColor(muted);
+      pdf.text(label, x, y);
+      pdf.text(':', x + labelWidth, y);
       pdf.setFont('helvetica', 'bold');
+      textColor(ink);
+      pdf.text(value || '-', x + labelWidth + 2.5, y, { maxWidth: valueWidth });
+    };
+    drawIdentity(13, 33, 'ID - Nama', `${slip.employeeNumber} - ${slip.employeeName}`, 29, 62);
+    drawIdentity(13, 40, 'Periode', payslipPeriod, 29);
+    drawIdentity(13, 47, 'Cabang', slip.branch, 29);
+    drawIdentity(111, 33, 'Tgl Masuk', formatDate(slip.dateJoined), 29);
+    drawIdentity(111, 40, 'Slip No', slip.slipNumber || slip.employeeNumber, 29);
+    drawIdentity(111, 47, 'Tgl Terbit', formatDate(payrollIssueDate), 29);
+    drawIdentity(111, 54, 'Jabatan', slip.position, 29);
+
+    drawSectionTitle(13, 63, 184, 'PRESENSI');
+    const attendance = [
+      ['Masuk', slip.attendancePresent],
+      ['Sakit', slip.attendanceSick],
+      ['Izin', slip.attendanceLeave],
+      ['Cuti', slip.attendanceAnnualLeave],
+      ['Alfa', slip.attendanceAbsent],
+      ['Off', slip.attendanceOff],
+    ] as Array<[string, number]>;
+    const attendanceY = 70;
+    const attendanceWidth = 184 / attendance.length;
+    pdf.setLineWidth(0.15);
+    attendance.forEach(([label, value], index) => {
+      const x = 13 + index * attendanceWidth;
+      pdf.setDrawColor(...line);
+      pdf.rect(x, attendanceY, attendanceWidth, 12);
+      pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(6.5);
-      textColor(total ? colors.white : colors.ink);
-      pdf.text(number(value), x + 13.5, 192, { align: 'center' });
+      textColor(muted);
+      pdf.text(label, x + attendanceWidth / 2, attendanceY + 4.5, { align: 'center' });
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(8);
+      textColor(ink);
+      pdf.text(value === 0 ? '-' : number(value), x + attendanceWidth / 2, attendanceY + 9.5, { align: 'center' });
     });
 
-    fill(colors.flame);
-    pdf.roundedRect(14, 205, 110, 31, 4, 4, 'F');
-    fill(colors.orange);
-    pdf.rect(14, 205, 27, 31, 'F');
+    const tableY = 87;
+    const tableWidth = 90;
+    const leftX = 13;
+    const rightX = 107;
+    drawSectionTitle(leftX, tableY, tableWidth, 'PENDAPATAN');
+    drawSectionTitle(rightX, tableY, tableWidth, 'POTONGAN');
+    const incomeRows: Array<[string, number]> = [
+      ['Gaji Pokok', slip.basicSalary],
+      ['THR', slip.thr],
+      ['Tunjangan Jabatan', slip.positionAllowance],
+      ['Tunjangan Transport', slip.transport],
+      ['Tunjangan Makan', slip.meals],
+      ['Lembur', slip.overtime],
+      ['Tunjangan PPh 21', slip.taxAllowance],
+    ];
+    const deductionRows: Array<[string, number]> = [
+      ['Premi BPJS TK dibayar Perusahaan', slip.deductionBpjsTkEmployer],
+      ['Premi BPJS Kes. dibayar Perusahaan', slip.deductionBpjsHealthEmployer],
+      ['Premi BPJS TK Karyawan', slip.deductionBpjsTkEmployee],
+      ['Premi BPJS Kes. Karyawan', slip.deductionBpjsHealthEmployee],
+      ['PPh 21 Ditanggung Karyawan', slip.deductionPph21],
+      ['Potongan Karyawan', slip.deductionLoan],
+      ['Potongan Tidak Hadir / Telat', slip.deductionAbsence],
+      ['Potongan THR', slip.deductionThr],
+    ];
+    const amountRowHeight = 4.5;
+    incomeRows.forEach(([label, value], index) => drawAmountRow(leftX, tableY + 7 + index * amountRowHeight, tableWidth, amountRowHeight, label, value));
+    drawAmountRow(leftX, tableY + 7 + incomeRows.length * amountRowHeight, tableWidth, 5, 'Total Pendapatan', slip.totalIncomeReceived, true);
+    deductionRows.forEach(([label, value], index) => drawAmountRow(rightX, tableY + 7 + index * amountRowHeight, tableWidth, amountRowHeight, label, value));
+    drawAmountRow(rightX, tableY + 7 + deductionRows.length * amountRowHeight, tableWidth, 5, 'Total Potongan', slip.deductions, true);
+
+    const benefitsY = 140;
+    drawSectionTitle(13, benefitsY, 184, 'PENDAPATAN YANG TIDAK DITERIMA KARYAWAN');
+    const benefits: Array<[string, number]> = [
+      ['Premi JHT dibayar Perusahaan', slip.jhtEmployer],
+      ['Premi JKK dibayar Perusahaan', slip.jkkEmployer],
+      ['Premi JKM dibayar Perusahaan', slip.jkmEmployer],
+      ['Premi JP dibayar Perusahaan', slip.jpEmployer],
+      ['Premi BPJS Kesehatan dibayar Perusahaan', slip.bpjsHealthEmployer],
+      ['Total', slip.employerBenefitsTotal],
+    ];
+    benefits.forEach(([label, value], index) => drawAmountRow(13, benefitsY + 7 + index * 4.8, 184, 4.8, label, value, index === benefits.length - 1));
+
+    fill(green);
+    pdf.setDrawColor(...navy);
+    pdf.rect(13, 184, 184, 15, 'FD');
     pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(7);
-    textColor(colors.white);
-    pdf.text('TAKE HOME PAY', 45, 213);
-    pdf.setFontSize(19);
-    pdf.text('Rp', 45, 229);
-    pdf.text(number(slip.takeHomePay), 119, 229, { align: 'right' });
-    roundedCard(130, 205, 66, 14, colors.mint);
-    roundedCard(130, 222, 66, 14, colors.peach);
-    pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(6);
-    textColor(colors.muted);
-    pdf.text('GAJI BRUTO', 135, 211);
-    pdf.text('TOTAL POTONGAN', 135, 228);
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(8);
-    textColor([18, 114, 76]);
-    pdf.text(`Rp ${number(slip.grossIncome)}`, 191, 216, { align: 'right' });
-    textColor([163, 36, 27]);
-    pdf.text(`Rp ${number(slip.deductions)}`, 191, 233, { align: 'right' });
+    pdf.setFontSize(10);
+    textColor(navy);
+    pdf.text('TAKE HOME PAY', 18, 193.5);
+    pdf.setFontSize(15);
+    textColor(ink);
+    pdf.text(`Rp ${number(slip.takeHomePay)}`, 192, 194, { align: 'right' });
 
     pdf.setFont('helvetica', 'italic');
     pdf.setFontSize(7);
-    textColor(colors.muted);
-    pdf.text('Terbilang:', 14, 243);
+    textColor(muted);
+    pdf.text('Terbilang:', 13, 205);
     pdf.setFont('helvetica', 'bolditalic');
-    textColor(colors.ink);
-    pdf.text(slip.terbilang || `${number(slip.takeHomePay)} Rupiah`, 34, 243, { maxWidth: 160 });
+    textColor(ink);
+    pdf.text(slip.terbilang || `${number(slip.takeHomePay)} Rupiah`, 34, 205, { maxWidth: 160 });
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(6.5);
-    textColor(colors.muted);
-    pdf.text(`Transfer payroll: ${slip.bankName || '-'}  |  Rekening ${slip.bankAccountNumber || '-'}`, 14, 249, { maxWidth: 182 });
+    textColor(muted);
+    pdf.text('Gaji ditransfer ke rekening:', 13, 214);
+    pdf.text(`${slip.bankName || '-'}  |  No. Rekening ${slip.bankAccountNumber || '-'}  |  a.n. ${slip.employeeName}`, 13, 219, { maxWidth: 184 });
 
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(7.5);
-    textColor(colors.ink);
-    pdf.text('Penerima,', 57, 259, { align: 'center' });
-    pdf.text(`Jakarta, ${formatDate(todayISO())}`, 158, 255, { align: 'center' });
-    pdf.text('Finance', 158, 260, { align: 'center' });
-    pdf.addImage(signatureDataUrl, 'JPEG', 140, 261, 36, 22);
+    textColor(ink);
+    pdf.text('Penerima,', 57, 239, { align: 'center' });
+    pdf.text(`Jakarta, ${formatDate(payrollIssueDate)}`, 158, 235, { align: 'center' });
+    pdf.text(`${signerRole},`, 158, 240, { align: 'center' });
+    pdf.addImage(signatureDataUrl, 'JPEG', 140, 242, 36, 22);
     pdf.setFont('helvetica', 'bold');
-    pdf.text(slip.employeeName, 57, 283, { align: 'center', maxWidth: 75 });
-    pdf.text('PT. Lentera Global Maritim', 158, 283, { align: 'center' });
-    fill(colors.navy);
-    pdf.rect(0, 289, 210, 8, 'F');
+    pdf.text(slip.employeeName, 57, 269, { align: 'center', maxWidth: 75 });
+    pdf.text(signerName, 158, 269, { align: 'center' });
+    pdf.setDrawColor(...line);
+    pdf.line(13, 278, 197, 278);
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(6);
-    textColor(colors.white);
-    pdf.text('PT. LENTERA GLOBAL MARITIM  |  CONFIDENTIAL PAYROLL DOCUMENT', 105, 294, { align: 'center' });
+    textColor(muted);
+    pdf.text(`Dokumen ini dibuat otomatis dan bersifat rahasia | Tanggal cetak dokumen: ${formatDate(todayISO())}`, 13, 282);
+    pdf.text(slip.slipNumber || slip.employeeNumber, 197, 282, { align: 'right' });
     const fileName = `Slip-Gaji-${slip.period}-${slip.employeeNumber}.pdf`;
     if (isAndroidApp()) {
       const contentBase64 = pdf.output('datauristring').split(',', 2)[1];
