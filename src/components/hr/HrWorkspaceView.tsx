@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import ExcelJS from 'exceljs';
 import { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
-import { Pencil } from 'lucide-react';
+import { Download, Pencil } from 'lucide-react';
 import { AuthAccount } from '../../auth';
 import {
   hrApi,
@@ -138,6 +138,8 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
   });
   const [workerPhotoPreview, setWorkerPhotoPreview] = useState('');
   const [decisionNotes, setDecisionNotes] = useState<Record<string, string>>({});
+  const [selectedLeaveRequestId, setSelectedLeaveRequestId] = useState<string | null>(null);
+  const [leaveRequestMonth, setLeaveRequestMonth] = useState('');
   const [workerDownloadFilters, setWorkerDownloadFilters] = useState({
     year: Number(todayISO().slice(0, 4)),
     month: Number(todayISO().slice(5, 7)),
@@ -195,6 +197,11 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
     setPanel(initialPanel);
   }, [initialPanel]);
   const employees = workspace?.employees || [];
+  const leaveRequests = workspace?.leaveRequests || [];
+  const filteredLeaveRequests = leaveRequestMonth
+    ? leaveRequests.filter((request) => request.createdAt.slice(0, 7) === leaveRequestMonth)
+    : leaveRequests;
+  const selectedLeaveRequest = leaveRequests.find((request) => request.id === selectedLeaveRequestId) || null;
   const selectedEmployee = employees.find((employee) => employee.userId === selectedUserId);
   const branches = workspace?.branches || [];
   const pendingProfiles = (workspace?.profileRequests || []).filter((request) => request.status === 'PENDING').length;
@@ -794,6 +801,70 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
     }
   };
 
+  const downloadLeaveRequestsExcel = async () => {
+    try {
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet('Surat Permohonan');
+      sheet.columns = [
+        { header: 'No', key: 'number', width: 8 },
+        { header: 'Tanggal Surat Masuk', key: 'createdAt', width: 22 },
+        { header: 'Nama Pekerja', key: 'employeeName', width: 28 },
+        { header: 'Nomor Pekerja', key: 'employeeNumber', width: 20 },
+        { header: 'Jabatan', key: 'position', width: 24 },
+        { header: 'Branch', key: 'branch', width: 20 },
+        { header: 'Jenis Permohonan', key: 'type', width: 22 },
+        { header: 'Status', key: 'status', width: 18 },
+        { header: 'Tanggal Mulai', key: 'startDate', width: 18 },
+        { header: 'Tanggal Berakhir', key: 'endDate', width: 18 },
+        { header: 'Durasi Hari', key: 'duration', width: 14 },
+        { header: 'Kota Tujuan', key: 'destinationCity', width: 22 },
+        { header: 'Kendaraan', key: 'transportMode', width: 20 },
+        { header: 'Alasan', key: 'reason', width: 40 },
+        { header: 'Catatan HR', key: 'reviewNote', width: 36 },
+        { header: 'Diputus Oleh', key: 'reviewedBy', width: 24 },
+        { header: 'Tanggal Keputusan', key: 'reviewedAt', width: 22 },
+      ];
+      filteredLeaveRequests.forEach((request, index) => {
+        const employee = employees.find((item) => item.userId === request.userId);
+        sheet.addRow({
+          number: index + 1,
+          createdAt: formatDateDisplay(request.createdAt),
+          employeeName: request.employeeName || employee?.name || '-',
+          employeeNumber: employee?.employeeNumber || '-',
+          position: employee?.position || '-',
+          branch: employee?.branchName || '-',
+          type: leaveTypeLabel(request.type),
+          status: leaveStatusLabel(request.status),
+          startDate: formatDateDisplay(request.startDate),
+          endDate: formatDateDisplay(request.endDate),
+          duration: request.durationDays || calculateRequestDuration(request.type, request.startDate, request.endDate),
+          destinationCity: request.destinationCity || '-',
+          transportMode: request.transportMode ? transportModeLabel(request.transportMode) : '-',
+          reason: request.reason,
+          reviewNote: request.reviewNote || '-',
+          reviewedBy: request.reviewedByName || '-',
+          reviewedAt: request.reviewedAt ? formatDateTimeWib(request.reviewedAt) : '-',
+        });
+      });
+      sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF17365D' } };
+      sheet.views = [{ state: 'frozen', ySplit: 1 }];
+      sheet.autoFilter = { from: 'A1', to: 'Q1' };
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const link = window.document.createElement('a');
+      link.href = url;
+      link.download = `surat-permohonan-${leaveRequestMonth || 'semua-bulan'}-${todayISO()}.xlsx`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setError('');
+      setNotice('Data surat permohonan berhasil diunduh.');
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : 'File Excel surat permohonan gagal dibuat.');
+    }
+  };
+
   const punchAttendance = async (event: HrAttendanceEvent) => {
     if (!navigator.geolocation) {
       setError('Perangkat/browser ini tidak menyediakan layanan lokasi. Absensi memerlukan lokasi aktif.');
@@ -1217,43 +1288,105 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
           {panel === 'leave-approval' && (
             <section className={sectionClass}>
               <h2 className="text-lg font-bold text-slate-900">Surat Permohonan Masuk</h2>
-              <div className="mt-4 space-y-3">
-                {(workspace?.leaveRequests || []).map((request) => (
-                  <article key={request.id} className="rounded-xl border border-slate-200 p-4">
-                    <div className="flex flex-wrap justify-between gap-2">
-                      <h3 className="font-semibold text-slate-800">{request.employeeName} · {leaveTypeLabel(request.type)} · {leaveStatusLabel(request.status)}</h3>
-                      <span className="text-xs text-slate-500">{formatDateDisplay(request.startDate)} – {formatDateDisplay(request.endDate)}</span>
-                    </div>
-                    <div className="mt-2 grid gap-1 text-xs text-slate-500">
-                      <span>Tanggal dibuat surat: {formatDateDisplay(request.createdAt)}</span>
-                      <span>Status permohonan: {leaveStatusLabel(request.status)}</span>
-                      <span>Lama hari: {request.durationDays || calculateRequestDuration(request.type, request.startDate, request.endDate)} hari</span>
-                      {request.destinationCity && <span>Kota tujuan: {request.destinationCity}</span>}
-                      {request.transportMode && <span>Kendaraan: {transportModeLabel(request.transportMode)}</span>}
-                    </div>
-                    <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{request.reason}</p>
-                    {request.reviewNote && <p className="mt-2 text-xs text-slate-500">Catatan HR: {request.reviewNote}</p>}
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button type="button" className={secondaryButtonClass} onClick={() => {
-                        const employee = employees.find((item) => item.userId === request.userId);
-                        openLeaveLetter(request, employee || { name: request.employeeName || '-' });
-                      }}>Lihat surat</button>
-                      <button type="button" className={buttonClass} onClick={() => downloadLeaveLetter(
-                        request,
-                        employees.find((item) => item.userId === request.userId) || { name: request.employeeName || '-' },
-                      )}>Download PDF</button>
-                    </div>
-                    {request.status === 'PENDING' && (
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <input aria-label="Catatan keputusan surat permohonan" className={`${fieldClass} max-w-md`} placeholder="Catatan wajib jika menolak" value={decisionNotes[request.id] || ''} onChange={(e) => setDecisionNotes({ ...decisionNotes, [request.id]: e.target.value })} />
-                        <button className={buttonClass} disabled={saving} onClick={() => reviewLeave(request, 'APPROVED')}>Setujui</button>
-                        <button className={secondaryButtonClass} disabled={saving} onClick={() => reviewLeave(request, 'REJECTED')}>Tolak</button>
-                      </div>
-                    )}
-                  </article>
-                ))}
-                {!workspace?.leaveRequests.length && <p className="text-sm text-slate-500">Belum ada surat permohonan masuk.</p>}
+              <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
+                <label className="text-sm font-medium text-slate-700">Filter bulan surat masuk
+                  <input type="month" className={fieldClass} value={leaveRequestMonth} onChange={(event) => setLeaveRequestMonth(event.target.value)} />
+                </label>
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-xs text-slate-500">Menampilkan {filteredLeaveRequests.length} dari {leaveRequests.length} surat</span>
+                  <button type="button" className={`${buttonClass} inline-flex items-center gap-2`} disabled={!filteredLeaveRequests.length} onClick={() => void downloadLeaveRequestsExcel()}>
+                    <Download size={14} /> Download Excel
+                  </button>
+                </div>
               </div>
+              <div className="mt-4 max-h-[70vh] overflow-auto overscroll-contain rounded-xl border border-slate-200">
+                <table className="min-w-[900px] w-full border-collapse text-sm">
+                  <thead className="sticky top-0 z-10 bg-slate-50 text-left text-xs font-semibold uppercase text-slate-500">
+                    <tr>
+                      <th className="border-b border-slate-200 px-3 py-3">No</th>
+                      <th className="border-b border-slate-200 px-3 py-3">Tanggal Surat Masuk</th>
+                      <th className="border-b border-slate-200 px-3 py-3">Nama Pekerja</th>
+                      <th className="border-b border-slate-200 px-3 py-3">Jabatan</th>
+                      <th className="border-b border-slate-200 px-3 py-3">Branch</th>
+                      <th className="border-b border-slate-200 px-3 py-3">Nomor Pekerja</th>
+                      <th className="border-b border-slate-200 px-3 py-3">Jenis Permohonan</th>
+                      <th className="border-b border-slate-200 px-3 py-3">Status</th>
+                      <th className="border-b border-slate-200 px-3 py-3">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredLeaveRequests.map((request, index) => {
+                      const employee = employees.find((item) => item.userId === request.userId);
+                      return (
+                        <tr key={request.id} className="hover:bg-slate-50">
+                          <td className="whitespace-nowrap px-3 py-3 text-slate-500">{index + 1}</td>
+                          <td className="whitespace-nowrap px-3 py-3">{formatDateDisplay(request.createdAt)}</td>
+                          <td className="px-3 py-3 font-medium text-slate-800">{request.employeeName || employee?.name || '-'}</td>
+                          <td className="whitespace-nowrap px-3 py-3">{employee?.position || '-'}</td>
+                          <td className="whitespace-nowrap px-3 py-3">{employee?.branchName || '-'}</td>
+                          <td className="whitespace-nowrap px-3 py-3">{employee?.employeeNumber || '-'}</td>
+                          <td className="whitespace-nowrap px-3 py-3">{leaveTypeLabel(request.type)}</td>
+                          <td className="whitespace-nowrap px-3 py-3">
+                            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${request.status === 'PENDING' ? 'bg-amber-50 text-amber-700' : request.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                              {leaveStatusLabel(request.status)}
+                            </span>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-3">
+                            <button type="button" className={secondaryButtonClass} onClick={() => setSelectedLeaveRequestId(request.id)}>Lihat</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {!filteredLeaveRequests.length && (
+                      <tr><td colSpan={9} className="px-3 py-8 text-center text-sm text-slate-500">{leaveRequests.length ? 'Tidak ada surat pada bulan yang dipilih.' : 'Belum ada surat permohonan masuk.'}</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {selectedLeaveRequest && (
+                <div
+                  className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/50 p-4"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="leave-request-modal-title"
+                  onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedLeaveRequestId(null); }}
+                >
+                  <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-5 shadow-xl">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h3 id="leave-request-modal-title" className="text-lg font-bold text-slate-900">Detail Surat Permohonan</h3>
+                        <p className="mt-1 text-sm text-slate-600">{selectedLeaveRequest.employeeName || '-' } · {leaveTypeLabel(selectedLeaveRequest.type)}</p>
+                      </div>
+                      <button type="button" className={secondaryButtonClass} onClick={() => setSelectedLeaveRequestId(null)}>Tutup</button>
+                    </div>
+                    <dl className="mt-5 grid gap-4 sm:grid-cols-2">
+                      <div><dt className="text-xs font-medium text-slate-500">Nomor Pekerja</dt><dd className="mt-1 text-sm font-semibold text-slate-800">{employees.find((item) => item.userId === selectedLeaveRequest.userId)?.employeeNumber || '-'}</dd></div>
+                      <div><dt className="text-xs font-medium text-slate-500">Tanggal Surat Masuk</dt><dd className="mt-1 text-sm font-semibold text-slate-800">{formatDateDisplay(selectedLeaveRequest.createdAt)}</dd></div>
+                      <div><dt className="text-xs font-medium text-slate-500">Status</dt><dd className="mt-1 text-sm font-semibold text-slate-800">{leaveStatusLabel(selectedLeaveRequest.status)}</dd></div>
+                      <div><dt className="text-xs font-medium text-slate-500">Tanggal Permohonan</dt><dd className="mt-1 text-sm font-semibold text-slate-800">{formatDateDisplay(selectedLeaveRequest.startDate)} – {formatDateDisplay(selectedLeaveRequest.endDate)}</dd></div>
+                      <div><dt className="text-xs font-medium text-slate-500">Lama Hari</dt><dd className="mt-1 text-sm font-semibold text-slate-800">{selectedLeaveRequest.durationDays || calculateRequestDuration(selectedLeaveRequest.type, selectedLeaveRequest.startDate, selectedLeaveRequest.endDate)} hari</dd></div>
+                      {selectedLeaveRequest.destinationCity && <div><dt className="text-xs font-medium text-slate-500">Kota Tujuan</dt><dd className="mt-1 text-sm font-semibold text-slate-800">{selectedLeaveRequest.destinationCity}</dd></div>}
+                      {selectedLeaveRequest.transportMode && <div><dt className="text-xs font-medium text-slate-500">Kendaraan</dt><dd className="mt-1 text-sm font-semibold text-slate-800">{transportModeLabel(selectedLeaveRequest.transportMode)}</dd></div>}
+                    </dl>
+                    <div className="mt-5 rounded-lg bg-slate-50 p-4">
+                      <h4 className="text-xs font-semibold uppercase text-slate-500">Isi Surat</h4>
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-800">{selectedLeaveRequest.reason}</p>
+                    </div>
+                    {selectedLeaveRequest.reviewNote && <p className="mt-4 text-sm text-slate-600">Catatan HR: {selectedLeaveRequest.reviewNote}</p>}
+                    <div className="mt-5 flex flex-wrap justify-between gap-3 border-t border-slate-200 pt-4">
+                      <button type="button" className={secondaryButtonClass} onClick={() => void downloadLeaveLetter(
+                        selectedLeaveRequest,
+                        employees.find((item) => item.userId === selectedLeaveRequest.userId) || { name: selectedLeaveRequest.employeeName || '-' },
+                      )}>Download PDF</button>
+                      {selectedLeaveRequest.status === 'PENDING' && <div className="flex flex-wrap items-end gap-2">
+                        <input aria-label="Catatan keputusan surat permohonan" className={`${fieldClass} mb-0 max-w-xs`} placeholder="Catatan wajib jika menolak" value={decisionNotes[selectedLeaveRequest.id] || ''} onChange={(event) => setDecisionNotes({ ...decisionNotes, [selectedLeaveRequest.id]: event.target.value })} />
+                        <button type="button" className={buttonClass} disabled={saving} onClick={() => reviewLeave(selectedLeaveRequest, 'APPROVED')}>Setujui</button>
+                        <button type="button" className={secondaryButtonClass} disabled={saving} onClick={() => reviewLeave(selectedLeaveRequest, 'REJECTED')}>Tolak</button>
+                      </div>}
+                    </div>
+                  </div>
+                </div>
+              )}
             </section>
           )}
 
@@ -1566,10 +1699,11 @@ const DocumentTable: React.FC<{ rows: HrDocument[]; onDownload: (document: HrDoc
 const AttendanceTable: React.FC<{ rows: HrAttendance[] }> = ({ rows }) => (
   <div className="mt-4 overflow-x-auto">
     <table className="w-full min-w-[580px] text-left text-sm">
-      <thead><tr className="border-b border-slate-200 text-xs uppercase text-slate-500">{rows.some((row) => row.employeeName) && <th className="p-2">Pekerja</th>}<th className="p-2">Tanggal Absen</th><th className="p-2">Absen Datang</th><th className="p-2">Lembur Datang</th><th className="p-2">Absen Pulang</th><th className="p-2">Lembur Pulang</th><th className="p-2">Catatan HR</th></tr></thead>
+      <thead><tr className="border-b border-slate-200 text-xs uppercase text-slate-500">{rows.some((row) => row.employeeName) && <th className="p-2">Pekerja</th>}<th className="p-2">Tanggal Absen</th><th className="p-2">Status</th><th className="p-2">Absen Datang</th><th className="p-2">Lembur Datang</th><th className="p-2">Absen Pulang</th><th className="p-2">Lembur Pulang</th><th className="p-2">Catatan HR</th></tr></thead>
       <tbody>{rows.map((row) => <tr key={row.id} className="border-b border-slate-100">
         {rows.some((item) => item.employeeName) && <td className="p-2 font-medium text-slate-800">{row.employeeName}</td>}
         <td className="p-2">{formatDateDisplay(row.date)}</td>
+        <td className="p-2">{{ PRESENT: 'Hadir', ABSENT: 'Tidak hadir', REMOTE: 'Remote', LEAVE: 'Cuti/Izin' }[row.status]}</td>
         <td className="p-2">{formatAttendanceTime(row.checkInAt || row.checkIn)}</td>
         <td className="p-2">{formatAttendanceTime(row.overtimeCheckInAt)}</td>
         <td className="p-2">{formatAttendanceTime(row.checkOutAt || row.checkOut)}</td>
@@ -1751,6 +1885,9 @@ const attendanceTimeMinutes = (value: string | null | undefined): number | null 
 };
 
 const attendanceStatus = (row: HrAttendanceReportRow): string[] => {
+  if (row.status === 'LEAVE') {
+    return [row.leaveType ? `${leaveTypeLabel(row.leaveType)} disetujui HR` : 'Cuti/Izin'];
+  }
   const date = new Date(`${row.date}T12:00:00`);
   const day = date.getDay();
   if (day === 0 || day === 6) return ['Libur Operasional'];
@@ -1984,7 +2121,7 @@ const LeaveTable: React.FC<{
   };
   onPreview?: (request: HrLeaveRequest) => void;
 }> = ({ rows, employee, onPreview }) => (
-  <div className="mt-5 space-y-2">
+  <div className="mt-5 max-h-[60vh] space-y-2 overflow-y-auto overscroll-contain pr-2">
     {rows.map((request) => <div key={request.id} className="rounded-lg border border-slate-200 p-3 text-sm">
       <div className="flex flex-wrap justify-between gap-2"><b>{leaveTypeLabel(request.type)} · {leaveStatusLabel(request.status)}</b><span className="text-xs text-slate-500">{formatDateDisplay(request.startDate)} – {formatDateDisplay(request.endDate)}</span></div>
       <div className="mt-2 grid gap-1 text-xs text-slate-500">

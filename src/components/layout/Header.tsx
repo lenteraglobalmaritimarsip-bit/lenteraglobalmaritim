@@ -6,7 +6,7 @@ import {
 import { UserRole, JobCall, PaymentVoucher, ActiveTab, FdaReceivableEntry } from '../../types';
 import { AuthAccount, initials } from '../../auth';
 import { LogOut } from 'lucide-react';
-import { apiAuth, listPdaRevisionDrafts, listPendingPdaDrafts, loadFdaReceivableEntries, PdaDraft } from '../../lib/api';
+import { apiAuth, hrApi, HrPendingLeaveNotification, listPdaRevisionDrafts, listPendingPdaDrafts, loadFdaReceivableEntries, PdaDraft } from '../../lib/api';
 import { dataApi } from '../../lib/dataApi';
 
 interface HeaderProps {
@@ -49,6 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>([]);
   const [pendingPdaDrafts, setPendingPdaDrafts] = useState<PdaDraft[]>([]);
   const [pdaRevisionDrafts, setPdaRevisionDrafts] = useState<PdaDraft[]>([]);
+  const [pendingHrLeaveNotifications, setPendingHrLeaveNotifications] = useState<HrPendingLeaveNotification[]>([]);
   const [fdaReceivableNotifications, setFdaReceivableNotifications] = useState<FdaReceivableEntry[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -95,6 +96,35 @@ export const Header: React.FC<HeaderProps> = ({
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [currentRole]);
+
+  useEffect(() => {
+    if (currentRole !== 'HR_ADMINISTRASI') {
+      setPendingHrLeaveNotifications([]);
+      return;
+    }
+
+    let cancelled = false;
+    const refreshHrLeaveNotifications = () => {
+      void hrApi.listPendingLeaveNotifications()
+        .then((requests) => {
+          if (!cancelled) setPendingHrLeaveNotifications(requests);
+        })
+        .catch((error: unknown) => {
+          console.error('Gagal memuat notifikasi surat masuk untuk HR:', error);
+        });
+    };
+    refreshHrLeaveNotifications();
+    const intervalId = window.setInterval(refreshHrLeaveNotifications, 30000);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refreshHrLeaveNotifications();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
@@ -190,6 +220,31 @@ export const Header: React.FC<HeaderProps> = ({
           jobId: draft.jobId,
           tab: 'PDA_CREW_DETAIL',
           kind: 'WARNING',
+          requiresAction: true,
+        });
+      });
+    }
+
+    if (currentRole === 'HR_ADMINISTRASI') {
+      const leaveTypeLabels: Record<HrPendingLeaveNotification['type'], string> = {
+        ANNUAL: 'Cuti Tahunan',
+        BUSINESS_TRAVEL: 'Perjalanan Dinas',
+        SICK: 'Sakit',
+        PERSONAL: 'Izin Pribadi',
+        OTHER: 'Izin Lainnya',
+      };
+      const dateFormatter = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short' });
+      const formatLeaveDate = (value: string) => {
+        const date = new Date(`${value.slice(0, 10)}T00:00:00`);
+        return Number.isNaN(date.getTime()) ? value : dateFormatter.format(date);
+      };
+      pendingHrLeaveNotifications.forEach((request) => {
+        push({
+          id: `hr-leave-${request.id}`,
+          title: 'Surat permohonan masuk',
+          message: `${request.employeeName} · ${leaveTypeLabels[request.type]} · ${formatLeaveDate(request.startDate)}–${formatLeaveDate(request.endDate)} menunggu tinjauan HR.`,
+          tab: 'HR_LEAVE_APPROVAL',
+          kind: 'APPROVAL',
           requiresAction: true,
         });
       });
@@ -346,7 +401,7 @@ export const Header: React.FC<HeaderProps> = ({
       .slice(0, 30);
   })();
 
-  const visibleNotifications = notifications.filter(n => n.requiresAction || !readNotificationIds.includes(n.id));
+  const visibleNotifications = notifications.filter(n => !readNotificationIds.includes(n.id));
   const unreadCount = visibleNotifications.length;
   const persistReads = (ids: string[]) => {
     const next = Array.from(new Set(ids));

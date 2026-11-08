@@ -720,7 +720,7 @@ export interface HrAttendanceReportRow {
   position?: string | null;
   department?: string | null;
   status?: 'PRESENT' | 'ABSENT' | 'REMOTE' | 'LEAVE' | null;
-  leaveType?: 'ANNUAL' | 'SICK' | 'PERSONAL' | 'OTHER' | null;
+  leaveType?: 'ANNUAL' | 'BUSINESS_TRAVEL' | 'SICK' | 'PERSONAL' | 'OTHER' | null;
   checkInAt: string | null;
   checkInLatitude: number | string | null;
   checkInLongitude: number | string | null;
@@ -767,6 +767,14 @@ export interface HrLeaveVerification {
   submittedAt: string;
   status: HrLeaveStatus;
   employeeName: string;
+}
+
+export interface HrPendingLeaveNotification {
+  id: string;
+  employeeName: string;
+  type: HrLeaveRequest['type'];
+  startDate: string;
+  endDate: string;
 }
 
 export interface HrProfileChangeRequest {
@@ -844,6 +852,10 @@ export const hrApi = {
   async loadWorkspace(): Promise<HrWorkspace> {
     if (!apiEnabled) throw new Error('Workspace HR memerlukan koneksi API aktif.');
     return request<HrWorkspace>('hr.php?action=workspace');
+  },
+  async listPendingLeaveNotifications(): Promise<HrPendingLeaveNotification[]> {
+    if (!apiEnabled) throw new Error('Notifikasi surat masuk memerlukan koneksi API aktif.');
+    return request<HrPendingLeaveNotification[]>('hr.php?action=pending-leave-notifications');
   },
   async saveEmployee(input: HrEmployeeSave): Promise<void> {
     await request<{ ok: boolean }>('hr.php?action=save-employee', { method: 'POST', body: JSON.stringify(input) });

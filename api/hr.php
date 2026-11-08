@@ -193,6 +193,65 @@ function hrLoadWorkspace(PDO $pdo, array $user): array
          FROM hr_attendance WHERE user_id = :user_id ORDER BY attendance_date DESC'
     );
     $attendanceQuery->execute(['user_id' => $user['id']]);
+    $attendanceByDate = [];
+    foreach ($attendanceQuery->fetchAll() as $attendance) {
+        $attendanceByDate[substr((string) $attendance['date'], 0, 10)] = $attendance;
+    }
+    $leaveTypeLabels = [
+        'ANNUAL' => 'Cuti Tahunan',
+        'BUSINESS_TRAVEL' => 'Perjalanan Dinas',
+        'SICK' => 'Sakit',
+        'PERSONAL' => 'Izin Pribadi',
+        'OTHER' => 'Izin Lainnya',
+    ];
+    $approvedLeaveQuery = $pdo->prepare(
+        'SELECT id, leave_type AS type, starts_on AS startDate, ends_on AS endDate, reviewed_at AS reviewedAt
+         FROM hr_leave_requests WHERE user_id = :user_id AND status = \'APPROVED\'
+         ORDER BY starts_on DESC'
+    );
+    $approvedLeaveQuery->execute(['user_id' => $user['id']]);
+    $approvedLeaveByDate = [];
+    foreach ($approvedLeaveQuery->fetchAll() as $leave) {
+        $cursor = new DateTimeImmutable(substr((string) $leave['startDate'], 0, 10));
+        $lastDate = new DateTimeImmutable(substr((string) $leave['endDate'], 0, 10));
+        while ($cursor <= $lastDate) {
+            $date = $cursor->format('Y-m-d');
+            if (!isset($attendanceByDate[$date])) {
+                $approvedLeaveByDate[$date]['types'][$leave['type']] = $leaveTypeLabels[$leave['type']] ?? 'Cuti/Izin';
+                $approvedLeaveByDate[$date]['reviewedAt'] = $leave['reviewedAt'];
+            }
+            $cursor = $cursor->modify('+1 day');
+        }
+    }
+    foreach ($approvedLeaveByDate as $date => $leave) {
+        $attendanceByDate[$date] = [
+            'id' => 'LEAVE-' . $user['id'] . '-' . $date,
+            'date' => $date,
+            'status' => 'LEAVE',
+            'checkIn' => null,
+            'checkOut' => null,
+            'note' => 'Permohonan disetujui HR: ' . implode(', ', array_values($leave['types'])),
+            'checkInAt' => null,
+            'checkInLatitude' => null,
+            'checkInLongitude' => null,
+            'checkInAccuracyMeters' => null,
+            'overtimeCheckInAt' => null,
+            'overtimeCheckInLatitude' => null,
+            'overtimeCheckInLongitude' => null,
+            'overtimeCheckInAccuracyMeters' => null,
+            'checkOutAt' => null,
+            'checkOutLatitude' => null,
+            'checkOutLongitude' => null,
+            'checkOutAccuracyMeters' => null,
+            'overtimeCheckOutAt' => null,
+            'overtimeCheckOutLatitude' => null,
+            'overtimeCheckOutLongitude' => null,
+            'overtimeCheckOutAccuracyMeters' => null,
+            'updatedAt' => $leave['reviewedAt'] ?? '',
+        ];
+    }
+    $attendance = array_values($attendanceByDate);
+    usort($attendance, static fn (array $left, array $right): int => strcmp((string) $right['date'], (string) $left['date']));
     $leaveQuery = $pdo->prepare(
         'SELECT id, leave_type AS type, starts_on AS startDate, ends_on AS endDate,
                 duration_days AS durationDays, destination_city AS destinationCity,
@@ -216,7 +275,7 @@ function hrLoadWorkspace(PDO $pdo, array $user): array
     return [
         'profile' => $profile,
         'documents' => $documentsQuery->fetchAll(),
-        'attendance' => $attendanceQuery->fetchAll(),
+        'attendance' => $attendance,
         'leaveRequests' => $leaveQuery->fetchAll(),
         'profileRequests' => $profileRequests,
     ];
@@ -268,6 +327,19 @@ try {
         requireMethod('GET');
         hrRequireRole($user, 'HR_ADMINISTRASI', 'PEKERJA');
         jsonResponse(hrLoadWorkspace($pdo, $user));
+    }
+
+    if ($action === 'pending-leave-notifications') {
+        requireMethod('GET');
+        hrRequireRole($user, 'HR_ADMINISTRASI');
+        $query = $pdo->query(
+            'SELECT l.id, u.name AS employeeName, l.leave_type AS type,
+                    l.starts_on AS startDate, l.ends_on AS endDate
+             FROM hr_leave_requests l JOIN users u ON u.id = l.user_id
+             WHERE l.status = \'PENDING\'
+             ORDER BY l.created_at DESC'
+        );
+        jsonResponse($query->fetchAll());
     }
 
     if ($action === 'attendance-report') {
