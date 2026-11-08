@@ -20,7 +20,7 @@ import {
   WorkerPayrollSlip,
 } from '../../lib/api';
 import { formatDateDisplay, formatDateTimeWib, todayISO } from '../../utils/date';
-import { getPublicLogoUrl, getPublicPayrollSignatureUrl } from '../../utils/logo';
+import { getPublicDirectorSignatureUrl, getPublicLogoUrl, getPublicPayrollSignatureUrl } from '../../utils/logo';
 import { androidNative, isAndroidApp } from '../../lib/androidNative';
 
 type HrPanel = 'employees' | 'requests' | 'leave-approval' | 'attendance' | 'documents' | 'history' | 'worker-profile' | 'worker-attendance' | 'worker-leave' | 'worker-download-payslip' | 'worker-download-attendance';
@@ -313,13 +313,15 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
 
   const downloadWorkerPayrollPdf = async (slip: WorkerPayrollSlip) => {
     const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+    const directorApprovalSlip = slip.employeeNumber === 'LGM-202512003';
     const currency = (value: number) => value === 0
       ? '-'
       : new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(value);
     const number = (value: number) => new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(value);
     const logoDataUrl = await imageUrlToDataUrl(getPublicLogoUrl());
-    const signatureDataUrl = await imageUrlToDataUrl(getPublicPayrollSignatureUrl());
-    if (!logoDataUrl || !signatureDataUrl) throw new Error('Logo atau tanda tangan Finance gagal dimuat untuk PDF.');
+    const signatureUrl = directorApprovalSlip ? getPublicDirectorSignatureUrl() : getPublicPayrollSignatureUrl();
+    const signatureDataUrl = await imageUrlToDataUrl(signatureUrl);
+    if (!logoDataUrl || !signatureDataUrl) throw new Error('Logo atau tanda tangan penanggung jawab gagal dimuat untuk PDF.');
     const formatDate = (value: string) => {
       if (!value) return '-';
       const date = value ? new Date(`${value.slice(0, 10)}T00:00:00`) : new Date();
@@ -332,7 +334,6 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
       ? slip.period
       : new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(periodDate);
     const payrollIssueDate = /^\d{4}-\d{2}$/.test(slip.period) ? `${slip.period}-27` : todayISO();
-    const directorApprovalSlip = slip.employeeNumber === 'LGM-202512003';
     const signerRole = directorApprovalSlip ? 'Direktur' : 'Finance';
     const signerName = directorApprovalSlip ? 'Lailun Nifal Fahmi' : 'Diva Fitri Mellanie';
     const uploadedPeriodLabel = slip.periodLabel.trim();
