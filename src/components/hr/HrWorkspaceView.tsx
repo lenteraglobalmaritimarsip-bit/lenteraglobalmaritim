@@ -2054,7 +2054,15 @@ const AttendanceReportTable: React.FC<{ rows: HrAttendanceReportRow[]; onEdit: (
         <td className="break-words p-2">{formatAttendanceTime(row.overtimeCheckOutAt)}</td>
         <td className="break-words p-2">{locationText(row.overtimeCheckOutLatitude, row.overtimeCheckOutLongitude, row.overtimeCheckOutAccuracyMeters) || '—'}</td>
         <td className="break-words p-2 font-bold">
-          {attendanceStatus(row).map((note) => <span key={note} className={`block ${note !== 'Hadir' && note !== 'Libur Operasional' ? 'text-red-600' : 'text-slate-700'}`}>{note}</span>)}
+          {attendanceStatus(row).map((note) => {
+            const approvedLeave = note === 'Cuti/Izin' || note.endsWith(' disetujui HR');
+            const colorClass = approvedLeave
+              ? 'text-blue-600'
+              : note !== 'Hadir' && note !== 'Libur Operasional'
+                ? 'text-red-600'
+                : 'text-slate-700';
+            return <span key={note} className={`block ${colorClass}`}>{note}</span>;
+          })}
         </td>
         <td className="p-2">
           <button type="button" className="rounded-lg border border-slate-300 p-1.5 text-blue-700 hover:bg-blue-50" onClick={() => onEdit(row)} aria-label={`Edit absensi ${row.employeeName}`} title="Edit absensi">
@@ -2293,7 +2301,7 @@ const createLeaveLetterPdf = async (request: HrLeaveRequest, employee?: {
     }
     y += gapAfter;
   };
-  const addBulletField = (label: string, value: string | undefined, gapAfter = 0, indent = 0, labelWidth = 34) => {
+  const addBulletField = (label: string, value: string | undefined, gapAfter = 0, indent = 0) => {
     const valueText = value || '-';
     if (y > 259) {
       pdf.addPage();
@@ -2301,10 +2309,22 @@ const createLeaveLetterPdf = async (request: HrLeaveRequest, employee?: {
     }
     const bulletX = 20 + indent;
     const labelX = 30 + indent;
-    const valueX = 30 + indent + labelWidth + 8;
+    const colonX = 70 + indent;
+    const valueX = colonX + pdf.getTextWidth(': ');
+    const valueLines = pdf.splitTextToSize(valueText, pageWidth - 20 - valueX) as string[];
     pdf.text('- ', bulletX, y);
-    pdf.text(`${label}:`, labelX, y);
-    pdf.text(valueText, valueX, y);
+    pdf.text(label, labelX, y);
+    pdf.text(':', colonX, y);
+    valueLines.forEach((line, index) => {
+      if (index > 0) {
+        if (y > 259) {
+          pdf.addPage();
+          y = 20;
+        }
+        y += 5;
+      }
+      pdf.text(line, valueX, y);
+    });
     y += 5;
     y += gapAfter;
   };
@@ -2324,18 +2344,18 @@ const createLeaveLetterPdf = async (request: HrLeaveRequest, employee?: {
   addSectionBreak(4);
   addText('Dengan hormat,');
   addText('Saya yang bertanda tangan di bawah ini:');
-  addBulletField('Nama', employee?.name || '-', 0, 0, 30);
-  addBulletField('NIK / No. Karyawan', nik || employeeNumber || '-', 0, 0, 33);
-  addBulletField('Jabatan', employee?.position || '-', 0, 0, 30);
-  addBulletField('Departemen', department || '-', 0, 0, 30);
+  addBulletField('Nama', employee?.name || '-');
+  addBulletField('NIK / No. Karyawan', nik || employeeNumber || '-');
+  addBulletField('Jabatan', employee?.position || '-');
+  addBulletField('Departemen', department || '-');
   addSectionBreak(2);
   addText(`Bersama surat ini, saya bermaksud mengajukan permohonan ${leaveTypeLabel(request.type)} dengan rincian sebagai berikut:`);
-  addBulletField('Tanggal Mulai', formatDateDisplay(request.startDate), 0, 0, 32);
-  addBulletField('Tanggal Selesai', formatDateDisplay(request.endDate), 0, 0, 32);
-  addBulletField('Lama Hari', `${duration} ${durationUnit}`, 0, 0, 32);
-  if (request.destinationCity) addBulletField('Kota Tujuan', request.destinationCity, 0, 0, 32);
-  if (request.transportMode) addBulletField('Kendaraan yang Digunakan', transportModeLabel(request.transportMode), 0, 0, 32);
-  addBulletField(`Keperluan${request.type === 'BUSINESS_TRAVEL' ? ' / Agenda Dinas' : ''}`, request.reason, 0, 0, 32);
+  addBulletField('Tanggal Mulai', formatDateDisplay(request.startDate));
+  addBulletField('Tanggal Selesai', formatDateDisplay(request.endDate));
+  addBulletField('Lama Hari', `${duration} ${durationUnit}`);
+  if (request.destinationCity) addBulletField('Kota Tujuan', request.destinationCity);
+  if (request.transportMode) addBulletField('Kendaraan yang Digunakan', transportModeLabel(request.transportMode));
+  addBulletField(`Keperluan${request.type === 'BUSINESS_TRAVEL' ? ' / Agenda Dinas' : ''}`, request.reason);
   addSectionBreak(2);
   if (request.type === 'ANNUAL') {
     addText('Selama menjalankan cuti, saya akan memastikan seluruh tanggung jawab pekerjaan telah diserahterimakan dengan baik atau didelegasikan kepada rekan kerja satu tim.');
