@@ -845,6 +845,7 @@ CREATE TABLE hr_employee_records (
   emergency_contact_name VARCHAR(150),
   emergency_contact_phone VARCHAR(50),
   employment_status ENUM('ACTIVE', 'ON_LEAVE', 'RESIGNED') NOT NULL DEFAULT 'ACTIVE',
+  religion ENUM('Islam', 'Kristen Protestan', 'Katolik', 'Hindu', 'Buddha', 'Konghucu') NULL,
   contract_type ENUM('PERMANENT', 'CONTRACT', 'PROBATION', 'INTERNSHIP', 'OTHER'),
   contract_start DATE,
   contract_end DATE,

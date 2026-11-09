@@ -635,6 +635,7 @@ export async function updateAccountingAsset(assetId: string, input: {
 }
 
 export type HrEmploymentStatus = 'ACTIVE' | 'ON_LEAVE' | 'RESIGNED';
+export type HrReligion = 'Islam' | 'Kristen Protestan' | 'Katolik' | 'Hindu' | 'Buddha' | 'Konghucu';
 export type HrLeaveStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
 export interface HrEmployee {
@@ -654,6 +655,7 @@ export interface HrEmployee {
   emergencyContactName: string | null;
   emergencyContactPhone: string | null;
   employmentStatus: HrEmploymentStatus;
+  religion: HrReligion | null;
   contractType: 'PERMANENT' | 'CONTRACT' | 'PROBATION' | 'INTERNSHIP' | 'OTHER' | null;
   contractStart: string | null;
   contractEnd: string | null;
@@ -831,6 +833,7 @@ export interface HrEmployeeSave {
   photoDataBase64?: string;
   photoMimeType?: string;
   employmentStatus: HrEmploymentStatus;
+  religion: '' | HrReligion;
   contractType: '' | 'PERMANENT' | 'CONTRACT' | 'PROBATION' | 'INTERNSHIP' | 'OTHER';
   contractStart: string;
   contractEnd: string;

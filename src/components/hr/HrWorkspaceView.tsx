@@ -41,6 +41,7 @@ const emptyEmployeeForm: HrEmployeeSave = {
   emergencyContactName: '',
   emergencyContactPhone: '',
   employmentStatus: 'ACTIVE',
+  religion: '',
   contractType: '',
   contractStart: '',
   contractEnd: '',
@@ -87,6 +88,7 @@ const employeeFormFrom = (employee: HrEmployee): HrEmployeeSave => ({
   photoDataBase64: employee.photoDataBase64 || undefined,
   photoMimeType: employee.photoMimeType || undefined,
   employmentStatus: employee.employmentStatus || 'ACTIVE',
+  religion: employee.religion || '',
   contractType: employee.contractType || '',
   contractStart: employee.contractStart || '',
   contractEnd: employee.contractEnd || '',
@@ -98,6 +100,42 @@ const employeeFormFrom = (employee: HrEmployee): HrEmployeeSave => ({
   payrollAccountNumber: employee.payrollAccountNumber || '',
   payrollBankName: employee.payrollBankName || '',
 });
+
+const formatEmploymentTenure = (contractStart: string | null | undefined, reportDate = todayISO()): string => {
+  if (!contractStart) return '—';
+  const parseDate = (value: string) => {
+    const [year, month, day] = value.slice(0, 10).split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)
+      || date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+    return date;
+  };
+  const startDate = parseDate(contractStart);
+  const endDate = parseDate(reportDate);
+  if (!startDate || !endDate) return '—';
+  if (startDate > endDate) return 'Belum mulai';
+
+  const addMonthsClamped = (date: Date, months: number) => {
+    const monthIndex = date.getMonth() + months;
+    const year = date.getFullYear() + Math.floor(monthIndex / 12);
+    const month = monthIndex % 12;
+    const day = Math.min(date.getDate(), new Date(year, month + 1, 0).getDate());
+    return new Date(year, month, day);
+  };
+  let totalMonths = (endDate.getFullYear() - startDate.getFullYear()) * 12 + endDate.getMonth() - startDate.getMonth();
+  let monthAnchor = addMonthsClamped(startDate, totalMonths);
+  if (monthAnchor > endDate) {
+    totalMonths -= 1;
+    monthAnchor = addMonthsClamped(startDate, totalMonths);
+  }
+  const days = Math.round((Date.UTC(endDate.getFullYear(), endDate.getMonth(), endDate.getDate())
+    - Date.UTC(monthAnchor.getFullYear(), monthAnchor.getMonth(), monthAnchor.getDate())) / 86400000);
+  const years = Math.floor(totalMonths / 12);
+  const months = totalMonths % 12;
+  return [`${years} Tahun`, months ? `${months} Bulan` : '', days ? `${days} hari` : '']
+    .filter(Boolean)
+    .join(' ') || '0 hari';
+};
 
 const sectionClass = 'rounded-2xl border border-slate-200 bg-white p-5 shadow-sm';
 const fieldClass = 'mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800';
@@ -540,6 +578,18 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
 
   const saveEmployee = (event: React.FormEvent) => {
     event.preventDefault();
+    const form = event.currentTarget;
+    let firstInvalidField: HTMLInputElement | HTMLSelectElement | null = null;
+    form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input[required], select[required], textarea[required]').forEach((field) => {
+      field.setCustomValidity(field.value.trim() ? '' : 'Kolom ini wajib diisi.');
+      if (!firstInvalidField && !field.checkValidity()) firstInvalidField = field;
+    });
+    if (firstInvalidField) {
+      firstInvalidField.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      firstInvalidField.focus();
+      firstInvalidField.reportValidity();
+      return;
+    }
     void runMutation(() => hrApi.saveEmployee(employeeForm), 'Data pekerja berhasil disimpan.');
   };
 
@@ -557,7 +607,10 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
         { header: 'BERAKHIR', key: 'contractEnd', width: 16 },
         { header: 'BPJS TENAGA KERJA', key: 'bpjsKetenagakerjaan', width: 24 },
         { header: 'BPJS KESEHATAN', key: 'bpjsKesehatan', width: 22 },
-        { header: 'STATUS', key: 'status', width: 18 },
+        { header: 'BANK PAYROLL', key: 'payrollBankName', width: 22 },
+        { header: 'USIA BEKERJA', key: 'employmentTenure', width: 24 },
+        { header: 'STATUS KERJA', key: 'status', width: 18 },
+        { header: 'AGAMA', key: 'religion', width: 22 },
       ];
       employees.forEach((employee) => sheet.addRow({
         employeeNumber: employee.employeeNumber || '',
@@ -575,6 +628,9 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
         contractEnd: employee.contractEnd || '',
         bpjsKetenagakerjaan: employee.bpjsKetenagakerjaan || '',
         bpjsKesehatan: employee.bpjsKesehatan || '',
+        payrollBankName: employee.payrollBankName || '',
+        employmentTenure: formatEmploymentTenure(employee.contractStart),
+        religion: employee.religion || '',
         status: employee.employmentStatus === 'ACTIVE'
           ? 'Aktif'
           : employee.employmentStatus === 'ON_LEAVE'
@@ -586,7 +642,7 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
       sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
       sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF17365D' } };
       sheet.views = [{ state: 'frozen', ySplit: 1 }];
-      sheet.autoFilter = { from: 'A1', to: 'J1' };
+      sheet.autoFilter = { from: 'A1', to: 'M1' };
       const buffer = await workbook.xlsx.writeBuffer();
       const url = URL.createObjectURL(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
       const link = window.document.createElement('a');
@@ -1152,49 +1208,60 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
                   </div>
                 </div>
 
-                <form id="employee-administration-form" onSubmit={saveEmployee} className="scroll-mt-4 grid gap-3 sm:grid-cols-2">
+                <form id="employee-administration-form" noValidate onSubmit={saveEmployee} className="scroll-mt-4 grid gap-3 sm:grid-cols-2">
                   <h3 className="text-base font-bold text-slate-800 sm:col-span-2">Biodata dan pekerjaan</h3>
-                  <label className="text-sm font-medium text-slate-700">Nomor pekerja<input required className={fieldClass} value={employeeForm.employeeNumber} onChange={(e) => setEmployeeForm({ ...employeeForm, employeeNumber: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Nama lengkap<input required className={fieldClass} value={employeeForm.name} onChange={(e) => setEmployeeForm({ ...employeeForm, name: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Email<input required type="email" className={fieldClass} value={employeeForm.email} onChange={(e) => setEmployeeForm({ ...employeeForm, email: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Telepon<input className={fieldClass} value={employeeForm.phone} onChange={(e) => setEmployeeForm({ ...employeeForm, phone: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Jabatan<input required className={fieldClass} value={employeeForm.position} onChange={(e) => setEmployeeForm({ ...employeeForm, position: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Departemen<input required className={fieldClass} value={employeeForm.department} onChange={(e) => setEmployeeForm({ ...employeeForm, department: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Branch
+                  <label className="text-sm font-medium text-slate-700">Nomor pekerja<span className="text-red-600"> *</span><input required className={fieldClass} value={employeeForm.employeeNumber} onChange={(e) => setEmployeeForm({ ...employeeForm, employeeNumber: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Nama lengkap<span className="text-red-600"> *</span><input required className={fieldClass} value={employeeForm.name} onChange={(e) => setEmployeeForm({ ...employeeForm, name: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Email<span className="text-red-600"> *</span><input required type="email" className={fieldClass} value={employeeForm.email} onChange={(e) => setEmployeeForm({ ...employeeForm, email: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Telepon<span className="text-red-600"> *</span><input required className={fieldClass} value={employeeForm.phone} onChange={(e) => setEmployeeForm({ ...employeeForm, phone: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Jabatan<span className="text-red-600"> *</span><input required className={fieldClass} value={employeeForm.position} onChange={(e) => setEmployeeForm({ ...employeeForm, position: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Departemen<span className="text-red-600"> *</span><input required className={fieldClass} value={employeeForm.department} onChange={(e) => setEmployeeForm({ ...employeeForm, department: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Branch<span className="text-red-600"> *</span>
                     <select required className={fieldClass} value={employeeForm.branchId} onChange={(e) => setEmployeeForm({ ...employeeForm, branchId: e.target.value })}>
                       <option value="">Pilih branch</option>
                       {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.code} · {branch.name}</option>)}
                     </select>
                   </label>
-                  <label className="text-sm font-medium text-slate-700">Status kerja
-                    <select className={fieldClass} value={employeeForm.employmentStatus} onChange={(e) => setEmployeeForm({ ...employeeForm, employmentStatus: e.target.value as HrEmployeeSave['employmentStatus'] })}>
+                  <label className="text-sm font-medium text-slate-700">Status kerja<span className="text-red-600"> *</span>
+                    <select required className={fieldClass} value={employeeForm.employmentStatus} onChange={(e) => setEmployeeForm({ ...employeeForm, employmentStatus: e.target.value as HrEmployeeSave['employmentStatus'] })}>
                       <option value="ACTIVE">Aktif</option><option value="ON_LEAVE">Cuti</option><option value="RESIGNED">Berakhir / resign</option>
                     </select>
                   </label>
-                  <label className="text-sm font-medium text-slate-700">Tanggal lahir<input type="date" className={fieldClass} value={employeeForm.dateOfBirth} onChange={(e) => setEmployeeForm({ ...employeeForm, dateOfBirth: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Kota kelahiran<input className={fieldClass} value={employeeForm.birthCity} onChange={(e) => setEmployeeForm({ ...employeeForm, birthCity: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">NIK<input className={fieldClass} inputMode="numeric" value={employeeForm.nik} onChange={(e) => setEmployeeForm({ ...employeeForm, nik: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">NPWP<input className={fieldClass} value={employeeForm.npwp} onChange={(e) => setEmployeeForm({ ...employeeForm, npwp: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">BPJS Tenaga Kerja<input className={fieldClass} value={employeeForm.bpjsKetenagakerjaan} onChange={(e) => setEmployeeForm({ ...employeeForm, bpjsKetenagakerjaan: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">BPJS Kesehatan<input className={fieldClass} value={employeeForm.bpjsKesehatan} onChange={(e) => setEmployeeForm({ ...employeeForm, bpjsKesehatan: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Jenis kelamin
-                    <select className={fieldClass} value={employeeForm.gender} onChange={(e) => setEmployeeForm({ ...employeeForm, gender: e.target.value as HrEmployeeSave['gender'] })}>
-                      <option value="">Tidak dicatat</option><option value="MALE">Laki-laki</option><option value="FEMALE">Perempuan</option><option value="OTHER">Lainnya</option>
+                  <label className="text-sm font-medium text-slate-700">Agama<span className="text-red-600"> *</span>
+                    <select required className={fieldClass} value={employeeForm.religion} onChange={(e) => setEmployeeForm({ ...employeeForm, religion: e.target.value as HrEmployeeSave['religion'] })}>
+                      <option value="">Pilih agama</option>
+                      <option value="Islam">Islam</option>
+                      <option value="Kristen Protestan">Kristen Protestan</option>
+                      <option value="Katolik">Katolik</option>
+                      <option value="Hindu">Hindu</option>
+                      <option value="Buddha">Buddha</option>
+                      <option value="Konghucu">Konghucu</option>
                     </select>
                   </label>
-                  <label className="text-sm font-medium text-slate-700">Jenis kontrak
-                    <select className={fieldClass} value={employeeForm.contractType} onChange={(e) => setEmployeeForm({ ...employeeForm, contractType: e.target.value as HrEmployeeSave['contractType'] })}>
-                      <option value="">Belum ditentukan</option><option value="PERMANENT">Tetap</option><option value="CONTRACT">Kontrak</option><option value="PROBATION">Probation</option><option value="INTERNSHIP">Magang</option><option value="OTHER">Lainnya</option>
+                  <label className="text-sm font-medium text-slate-700">Tanggal lahir<span className="text-red-600"> *</span><input required type="date" className={fieldClass} value={employeeForm.dateOfBirth} onChange={(e) => setEmployeeForm({ ...employeeForm, dateOfBirth: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Kota kelahiran<span className="text-red-600"> *</span><input required className={fieldClass} value={employeeForm.birthCity} onChange={(e) => setEmployeeForm({ ...employeeForm, birthCity: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">NIK<span className="text-red-600"> *</span><input required className={fieldClass} inputMode="numeric" value={employeeForm.nik} onChange={(e) => setEmployeeForm({ ...employeeForm, nik: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">NPWP<span className="text-red-600"> *</span><input required className={fieldClass} value={employeeForm.npwp} onChange={(e) => setEmployeeForm({ ...employeeForm, npwp: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">BPJS Tenaga Kerja<span className="text-red-600"> *</span><input required className={fieldClass} value={employeeForm.bpjsKetenagakerjaan} onChange={(e) => setEmployeeForm({ ...employeeForm, bpjsKetenagakerjaan: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">BPJS Kesehatan<span className="text-red-600"> *</span><input required className={fieldClass} value={employeeForm.bpjsKesehatan} onChange={(e) => setEmployeeForm({ ...employeeForm, bpjsKesehatan: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Jenis kelamin<span className="text-red-600"> *</span>
+                    <select required className={fieldClass} value={employeeForm.gender} onChange={(e) => setEmployeeForm({ ...employeeForm, gender: e.target.value as HrEmployeeSave['gender'] })}>
+                      <option value="">Pilih jenis kelamin</option><option value="MALE">Laki-laki</option><option value="FEMALE">Perempuan</option><option value="OTHER">Lainnya</option>
                     </select>
                   </label>
-                  <label className="text-sm font-medium text-slate-700">Mulai kontrak<input type="date" className={fieldClass} value={employeeForm.contractStart} onChange={(e) => setEmployeeForm({ ...employeeForm, contractStart: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Akhir kontrak<input type="date" className={fieldClass} value={employeeForm.contractEnd} onChange={(e) => setEmployeeForm({ ...employeeForm, contractEnd: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Lama kontrak (tahun)<input type="number" min="0" max="99.9" step="0.1" className={fieldClass} value={employeeForm.contractDurationYears} onChange={(e) => setEmployeeForm({ ...employeeForm, contractDurationYears: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">No. Rekening Payroll<input className={fieldClass} inputMode="numeric" value={employeeForm.payrollAccountNumber} onChange={(e) => setEmployeeForm({ ...employeeForm, payrollAccountNumber: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Bank Payroll<input className={fieldClass} value={employeeForm.payrollBankName} onChange={(e) => setEmployeeForm({ ...employeeForm, payrollBankName: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700 sm:col-span-2">Alamat<textarea rows={2} className={fieldClass} value={employeeForm.address} onChange={(e) => setEmployeeForm({ ...employeeForm, address: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Kontak darurat<input className={fieldClass} value={employeeForm.emergencyContactName} onChange={(e) => setEmployeeForm({ ...employeeForm, emergencyContactName: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Telepon darurat<input className={fieldClass} value={employeeForm.emergencyContactPhone} onChange={(e) => setEmployeeForm({ ...employeeForm, emergencyContactPhone: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Jenis kontrak<span className="text-red-600"> *</span>
+                    <select required className={fieldClass} value={employeeForm.contractType} onChange={(e) => setEmployeeForm({ ...employeeForm, contractType: e.target.value as HrEmployeeSave['contractType'] })}>
+                      <option value="">Pilih jenis kontrak</option><option value="PERMANENT">Tetap</option><option value="CONTRACT">Kontrak</option><option value="PROBATION">Probation</option><option value="INTERNSHIP">Magang</option><option value="OTHER">Lainnya</option>
+                    </select>
+                  </label>
+                  <label className="text-sm font-medium text-slate-700">Mulai kontrak<span className="text-red-600"> *</span><input required type="date" className={fieldClass} value={employeeForm.contractStart} onChange={(e) => setEmployeeForm({ ...employeeForm, contractStart: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Akhir kontrak<span className="text-red-600"> *</span><input required type="date" className={fieldClass} value={employeeForm.contractEnd} onChange={(e) => setEmployeeForm({ ...employeeForm, contractEnd: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Lama kontrak (tahun)<span className="text-red-600"> *</span><input required type="number" min="0" max="99.9" step="0.1" className={fieldClass} value={employeeForm.contractDurationYears} onChange={(e) => setEmployeeForm({ ...employeeForm, contractDurationYears: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">No. Rekening Payroll<span className="text-red-600"> *</span><input required className={fieldClass} inputMode="numeric" value={employeeForm.payrollAccountNumber} onChange={(e) => setEmployeeForm({ ...employeeForm, payrollAccountNumber: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Bank Payroll<span className="text-red-600"> *</span><input required className={fieldClass} value={employeeForm.payrollBankName} onChange={(e) => setEmployeeForm({ ...employeeForm, payrollBankName: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700 sm:col-span-2">Alamat<span className="text-red-600"> *</span><textarea required rows={2} className={fieldClass} value={employeeForm.address} onChange={(e) => setEmployeeForm({ ...employeeForm, address: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Kontak darurat<span className="text-red-600"> *</span><input required className={fieldClass} value={employeeForm.emergencyContactName} onChange={(e) => setEmployeeForm({ ...employeeForm, emergencyContactName: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Telepon darurat<span className="text-red-600"> *</span><input required className={fieldClass} value={employeeForm.emergencyContactPhone} onChange={(e) => setEmployeeForm({ ...employeeForm, emergencyContactPhone: e.target.value })} /></label>
                   <div className="sm:col-span-2">
                     <button className={buttonClass} disabled={saving || !selectedUserId}>{saving ? 'Menyimpan...' : 'Simpan data pekerja'}</button>
                     {employeeForm.employmentStatus === 'RESIGNED' && <p className="mt-2 text-xs text-amber-800">Status ini akan memblokir login pekerja, tanpa menghapus riwayat atau data akun.</p>}
@@ -1203,7 +1270,7 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
               </div>
               </>}
               <div className="mt-4 overflow-x-auto">
-                  <table className="w-full min-w-[980px] text-left text-sm">
+                  <table className="w-full min-w-[1450px] text-left text-sm">
                     <thead>
                       <tr className="border-b border-slate-200 text-xs uppercase text-slate-500">
                         <th className="px-2 py-3">No. Pekerja</th>
@@ -1215,6 +1282,8 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
                         <th className="px-2 py-3">Berakhir</th>
                         <th className="px-2 py-3">BPJS Tenaga Kerja</th>
                         <th className="px-2 py-3">BPJS Kesehatan</th>
+                        <th className="px-2 py-3">Bank Payroll</th>
+                        <th className="px-2 py-3">Usia Bekerja</th>
                         <th className="px-2 py-3">Status</th>
                         <th className="px-2 py-3 text-center">Aksi</th>
                       </tr>
@@ -1231,6 +1300,8 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
                           <td className="whitespace-nowrap px-2 py-3 text-slate-600">{formatDateDisplay(employee.contractEnd)}</td>
                           <td className="px-2 py-3 text-slate-600">{employee.bpjsKetenagakerjaan || '-'}</td>
                           <td className="px-2 py-3 text-slate-600">{employee.bpjsKesehatan || '-'}</td>
+                          <td className="px-2 py-3 text-slate-600">{employee.payrollBankName || '-'}</td>
+                          <td className="whitespace-nowrap px-2 py-3 text-slate-600">{formatEmploymentTenure(employee.contractStart)}</td>
                           <td className="px-2 py-3">
                             <span className={`rounded-full px-2 py-1 text-xs font-semibold ${employee.employmentStatus === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : employee.employmentStatus === 'RESIGNED' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
                               {employee.employmentStatus === 'ACTIVE' ? 'Aktif' : employee.employmentStatus === 'ON_LEAVE' ? 'Cuti' : employee.employmentStatus === 'RESIGNED' ? 'Berakhir / resign' : 'Belum lengkap'}
@@ -1531,12 +1602,16 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
                 ['Nama', profile?.name || currentUser.name], ['Nomor pekerja', profile?.employeeNumber || 'Belum diisi HR'],
                 ['Email', profile?.email || currentUser.email], ['Telepon', profile?.phone || currentUser.phone || '—'],
                 ['Jabatan', profile?.position || currentUser.position || '—'], ['Departemen', profile?.department || currentUser.department || '—'],
-                ['Branch', profile?.branchName || currentUser.branch || '—'],                 ['Tanggal lahir', formatDateDisplay(profile?.dateOfBirth)],
-                ['Kota kelahiran', profile?.birthCity || '—'], ['NIK', profile?.nik || '—'], ['NPWP', profile?.npwp || '—'],
+                ['Branch', profile?.branchName || currentUser.branch || '—'], ['Usia bekerja', formatEmploymentTenure(profile?.contractStart)],
+                ['Tanggal lahir', formatDateDisplay(profile?.dateOfBirth)],
+                ['Kota kelahiran', profile?.birthCity || '—'], ['Agama', profile?.religion || '—'],
+                ['NIK', profile?.nik || '—'], ['NPWP', profile?.npwp || '—'],
+                ['BPJS Tenaga Kerja', profile?.bpjsKetenagakerjaan || '—'], ['BPJS Kesehatan', profile?.bpjsKesehatan || '—'],
                 ['Status kontrak', profile?.contractType || '—'], ['Masa kontrak', `${formatDateDisplay(profile?.contractStart)} sampai ${formatDateDisplay(profile?.contractEnd)}`],
                 ['Lama kontrak (tahun)', profile?.contractDurationYears ?? '—'], ['No. Rekening Payroll', profile?.payrollAccountNumber || '—'],
                 ['Bank Payroll', profile?.payrollBankName || '—'],
                 ['Alamat', profile?.address || '—'], ['Kontak darurat', profile?.emergencyContactName || '—'],
+                ['Telepon darurat', profile?.emergencyContactPhone || '—'],
               ].map(([label, value]) => (
                 <div key={label} className="worker-profile-detail">
                   <dt>{label}</dt>
@@ -1549,7 +1624,7 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
             </div>
           </section>
 
-          <section className={sectionClass}>
+          <section className={`${sectionClass} xl:col-span-2`}>
             <h2 className="text-lg font-bold text-slate-900">Dokumen Saya</h2>
             <DocumentTable rows={ownDocuments} onDownload={downloadDocument} />
           </section>

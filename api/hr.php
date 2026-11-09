@@ -80,6 +80,7 @@ function hrEmployeeQuery(): string
                    er.emergency_contact_name AS emergencyContactName,
                    er.emergency_contact_phone AS emergencyContactPhone,
                    COALESCE(er.employment_status, \'ACTIVE\') AS employmentStatus,
+                   er.religion,
                    er.contract_type AS contractType,
                    er.contract_start AS contractStart, er.contract_end AS contractEnd,
                    er.contract_duration_years AS contractDurationYears,
@@ -537,18 +538,21 @@ try {
         $department = hrString($body['department'] ?? null, 'Departemen');
         $branchIdRaw = hrString($body['branchId'] ?? null, 'Branch');
         $branchId = ctype_digit($branchIdRaw) ? (int) $branchIdRaw : 0;
-        $dateOfBirth = hrDateValue($body['dateOfBirth'] ?? null, 'Tanggal lahir');
+        $dateOfBirth = hrDateValue($body['dateOfBirth'] ?? null, 'Tanggal lahir', false);
         $birthCity = hrString($body['birthCity'] ?? null, 'Kota kelahiran');
-        $contractStart = hrDateValue($body['contractStart'] ?? null, 'Tanggal mulai kontrak');
-        $contractEnd = hrDateValue($body['contractEnd'] ?? null, 'Tanggal akhir kontrak');
+        $contractStart = hrDateValue($body['contractStart'] ?? null, 'Tanggal mulai kontrak', false);
+        $contractEnd = hrDateValue($body['contractEnd'] ?? null, 'Tanggal akhir kontrak', false);
         $gender = hrString($body['gender'] ?? null, 'Jenis kelamin');
         $employmentStatus = hrString($body['employmentStatus'] ?? null, 'Status kerja');
+        $religion = hrString($body['religion'] ?? null, 'Agama');
         $contractType = hrString($body['contractType'] ?? null, 'Jenis kontrak');
         $address = hrString($body['address'] ?? null, 'Alamat');
         $emergencyName = hrString($body['emergencyContactName'] ?? null, 'Nama kontak darurat');
         $emergencyPhone = hrString($body['emergencyContactPhone'] ?? null, 'Telepon kontak darurat');
         $contractDuration = hrString($body['contractDurationYears'] ?? null, 'Lama kontrak');
-        $contractDurationYears = $contractDuration !== '' ? (float) str_replace(',', '.', $contractDuration) : null;
+        $contractDurationYears = $contractDuration !== '' && is_numeric(str_replace(',', '.', $contractDuration))
+            ? (float) str_replace(',', '.', $contractDuration)
+            : null;
         $nik = hrString($body['nik'] ?? null, 'NIK');
         $npwp = hrString($body['npwp'] ?? null, 'NPWP');
         $bpjsKetenagakerjaan = hrString($body['bpjsKetenagakerjaan'] ?? null, 'BPJS Tenaga Kerja');
@@ -570,16 +574,23 @@ try {
 
         if ($employeeNumber === '' || strlen($employeeNumber) > 50 || $name === '' || strlen($name) > 150
             || !filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 255
-            || strlen($phone) > 50 || $position === '' || strlen($position) > 120
+            || $phone === '' || strlen($phone) > 50 || $position === '' || strlen($position) > 120
             || $department === '' || strlen($department) > 120
-            || !in_array($gender, ['', 'MALE', 'FEMALE', 'OTHER'], true)
+            || !in_array($gender, ['MALE', 'FEMALE', 'OTHER'], true)
             || !in_array($employmentStatus, ['ACTIVE', 'ON_LEAVE', 'RESIGNED'], true)
-            || !in_array($contractType, ['', 'PERMANENT', 'CONTRACT', 'PROBATION', 'INTERNSHIP', 'OTHER'], true)
-            || strlen($address) > 10000 || strlen($emergencyName) > 150 || strlen($emergencyPhone) > 50
-            || strlen($birthCity) > 120 || ($contractDurationYears !== null && ($contractDurationYears < 0 || $contractDurationYears > 99.9))
-            || strlen($nik) > 20 || strlen($npwp) > 30 || strlen($bpjsKetenagakerjaan) > 30
-            || strlen($bpjsKesehatan) > 30 || strlen($payrollAccountNumber) > 50 || strlen($payrollBankName) > 100) {
-            jsonResponse(['error' => 'Periksa kembali data pekerja. Nomor pekerja, nama, email, jabatan, departemen, status, dan branch wajib valid.'], 400);
+            || !in_array($religion, ['Islam', 'Kristen Protestan', 'Katolik', 'Hindu', 'Buddha', 'Konghucu'], true)
+            || !in_array($contractType, ['PERMANENT', 'CONTRACT', 'PROBATION', 'INTERNSHIP', 'OTHER'], true)
+            || $address === '' || strlen($address) > 10000
+            || $emergencyName === '' || strlen($emergencyName) > 150
+            || $emergencyPhone === '' || strlen($emergencyPhone) > 50
+            || $birthCity === '' || strlen($birthCity) > 120
+            || $contractDurationYears === null || $contractDurationYears < 0 || $contractDurationYears > 99.9
+            || $nik === '' || strlen($nik) > 20 || $npwp === '' || strlen($npwp) > 30
+            || $bpjsKetenagakerjaan === '' || strlen($bpjsKetenagakerjaan) > 30
+            || $bpjsKesehatan === '' || strlen($bpjsKesehatan) > 30
+            || $payrollAccountNumber === '' || strlen($payrollAccountNumber) > 50
+            || $payrollBankName === '' || strlen($payrollBankName) > 100) {
+            jsonResponse(['error' => 'Semua kolom data identitas dan pekerjaan wajib diisi dengan format yang valid.'], 400);
         }
         if ($contractStart !== null && $contractEnd !== null && $contractEnd < $contractStart) {
             jsonResponse(['error' => 'Tanggal akhir kontrak tidak boleh sebelum tanggal mulai.'], 400);
@@ -612,6 +623,7 @@ try {
             'emergencyContactName' => $emergencyName,
             'emergencyContactPhone' => $emergencyPhone,
             'employmentStatus' => $employmentStatus,
+            'religion' => $religion !== '' ? $religion : null,
             'contractType' => $contractType !== '' ? $contractType : null,
             'contractStart' => $contractStart,
             'contractEnd' => $contractEnd,
@@ -629,7 +641,8 @@ try {
             'gender' => $gender !== '' ? $gender : null, 'address' => $address !== '' ? $address : null,
             'emergency_contact_name' => $emergencyName !== '' ? $emergencyName : null,
             'emergency_contact_phone' => $emergencyPhone !== '' ? $emergencyPhone : null,
-            'employment_status' => $employmentStatus, 'contract_type' => $contractType !== '' ? $contractType : null,
+            'employment_status' => $employmentStatus, 'religion' => $religion !== '' ? $religion : null,
+            'contract_type' => $contractType !== '' ? $contractType : null,
             'contract_start' => $contractStart, 'contract_end' => $contractEnd,
             'contract_duration_years' => $contractDurationYears, 'nik' => $nik !== '' ? $nik : null,
             'npwp' => $npwp !== '' ? $npwp : null,
@@ -652,13 +665,13 @@ try {
             $insertRecord = $pdo->prepare(
                 'INSERT INTO hr_employee_records
                  (user_id, employee_number, date_of_birth, gender, address, emergency_contact_name,
-                  emergency_contact_phone, employment_status, contract_type, contract_start, contract_end,
+                  emergency_contact_phone, employment_status, religion, contract_type, contract_start, contract_end,
                    birth_city, contract_duration_years, nik, npwp, bpjs_ketenagakerjaan, bpjs_kesehatan,
                    payroll_account_number, payroll_bank_name,
                    position, department, branch_id, photo_content, photo_mime_type)
                  VALUES
                  (:user_id, :employee_number, :date_of_birth, :gender, :address, :emergency_contact_name,
-                  :emergency_contact_phone, :employment_status, :contract_type, :contract_start, :contract_end,
+                  :emergency_contact_phone, :employment_status, :religion, :contract_type, :contract_start, :contract_end,
                   :birth_city, :contract_duration_years, :nik, :npwp, :bpjs_ketenagakerjaan, :bpjs_kesehatan,
                   :payroll_account_number, :payroll_bank_name,
                   :position, :department, :branch_id, :photo_content, :photo_mime_type)'
