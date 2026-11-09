@@ -871,6 +871,11 @@ button{ cursor:pointer; }
 .admin-add-modal input:focus,.admin-add-modal select:focus,.admin-add-modal textarea:focus{border-color:#7c3aed;box-shadow:0 0 0 3px rgba(124,58,237,.08)}
 .admin-add-modal .master-data-cancel{background:#f8fafc;color:#52637a;border:1px solid #dbe3ef}
 .admin-add-modal .master-data-cancel:hover{background:#eef3f8;color:#334155}
+.admin-add-modal.inquiry-entry-modal label{color:#71829d;font-size:11px}
+.admin-add-modal.inquiry-entry-modal input,.admin-add-modal.inquiry-entry-modal select{background:#f5f7fa!important;color:#172033!important;border-color:#d8e2ef!important;border-radius:11px;padding:11px 12px}
+.admin-add-modal.inquiry-entry-modal input:focus,.admin-add-modal.inquiry-entry-modal select:focus{border-color:#9bb8f5!important;box-shadow:0 0 0 3px rgba(59,130,246,.08)}
+.admin-add-modal.inquiry-entry-modal input::placeholder{color:#9aa8b9!important}
+.admin-add-modal.inquiry-entry-modal .admin-modal-form{gap:16px}
 .admin-customer-modal>div:first-child{padding-bottom:7px;margin-bottom:9px}
 .admin-customer-modal{transform:translateY(18px)}
 .admin-customer-modal .master-edit-input{padding:7px 9px}

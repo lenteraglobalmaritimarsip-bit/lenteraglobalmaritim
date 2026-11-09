@@ -161,6 +161,20 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
   const [showVesselModal, setShowVesselModal] = useState(false);
   const [isSavingVessel, setIsSavingVessel] = useState(false);
   const [vesselFormError, setVesselFormError] = useState('');
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [isSavingCustomer, setIsSavingCustomer] = useState(false);
+  const [customerFormError, setCustomerFormError] = useState('');
+  const [newCustomer, setNewCustomer] = useState<Omit<Customer, 'id'>>({
+    code: '',
+    companyName: '',
+    country: 'Singapore',
+    type: 'PRINCIPAL',
+    contactPerson: '',
+    email: '',
+    phone: '',
+    address: '',
+    creditTermDays: 30,
+  });
   const [newVessel, setNewVessel] = useState<Omit<Vessel, 'id'>>({
     name: '',
     imoNumber: '',
@@ -457,6 +471,57 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
       setVesselFormError(error instanceof Error ? error.message : 'Data kapal gagal disimpan.');
     } finally {
       setIsSavingVessel(false);
+    }
+  };
+
+  const closeCustomerModal = () => {
+    if (isSavingCustomer) return;
+    setShowCustomerModal(false);
+    setCustomerFormError('');
+  };
+
+  const handleSaveCustomer = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (isSavingCustomer) return;
+    const code = newCustomer.code.trim();
+    const companyName = newCustomer.companyName.trim();
+    if (!code || !companyName) {
+      setCustomerFormError('Kode customer dan nama perusahaan wajib diisi.');
+      return;
+    }
+
+    setIsSavingCustomer(true);
+    setCustomerFormError('');
+    try {
+      const customer = await db.addCustomer({
+        ...newCustomer,
+        code,
+        companyName,
+        country: newCustomer.country.trim(),
+        contactPerson: newCustomer.contactPerson.trim(),
+        email: newCustomer.email.trim(),
+        phone: newCustomer.phone.trim(),
+        address: newCustomer.address.trim(),
+      });
+      setForm((currentForm) => ({ ...currentForm, customerId: customer.id }));
+      setMasterDataError('');
+      setNewCustomer({
+        code: '',
+        companyName: '',
+        country: 'Singapore',
+        type: 'PRINCIPAL',
+        contactPerson: '',
+        email: '',
+        phone: '',
+        address: '',
+        creditTermDays: 30,
+      });
+      setShowCustomerModal(false);
+      onDataSaved?.();
+    } catch (error) {
+      setCustomerFormError(error instanceof Error ? error.message : 'Data customer gagal disimpan.');
+    } finally {
+      setIsSavingCustomer(false);
     }
   };
 
@@ -766,19 +831,34 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                 </div>
                 <div>
                   <label className="text-slate-500 block mb-1 font-semibold">Customer / Principal / Charterer</label>
-                  <SearchableMasterSelect
-                    value={form.customerId}
-                    options={customers.map((customer) => ({
-                      id: customer.id,
-                      label: `${customer.companyName} (${customer.type})`,
-                    }))}
-                    placeholder="Cari customer / principal / charterer..."
-                    className="inquiry-required-field text-[13px]"
-                    onChange={(customerId) => {
-                      setMasterDataError('');
-                      setForm({ ...form, customerId });
-                    }}
-                  />
+                  <div className="flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <SearchableMasterSelect
+                        value={form.customerId}
+                        options={customers.map((customer) => ({
+                          id: customer.id,
+                          label: `${customer.companyName} (${customer.type})`,
+                        }))}
+                        placeholder="Cari customer / principal / charterer..."
+                        className="inquiry-required-field text-[13px]"
+                        onChange={(customerId) => {
+                          setMasterDataError('');
+                          setForm({ ...form, customerId });
+                        }}
+                      />
+                    </div>
+                    {currentUser.role === 'SALES' && (
+                      <button
+                        type="button"
+                        onClick={() => { setCustomerFormError(''); setShowCustomerModal(true); }}
+                        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-blue-600 bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:border-blue-700 hover:bg-blue-700"
+                      >
+                        <Plus className="h-4 w-4" />
+                        <span className="hidden sm:inline">Tambah Data Customer</span>
+                        <span className="sm:hidden">Tambah</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <label className="text-slate-500 block mb-1 font-semibold">Branch</label>
@@ -1046,28 +1126,74 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
         </section>
       )}
 
-      {showVesselModal && (
-        <div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4"
-          onMouseDown={(event) => { if (event.target === event.currentTarget) closeVesselModal(); }}
-        >
-          <section role="dialog" aria-modal="true" aria-labelledby="sales-add-vessel-title" className="admin-add-modal admin-modal-panel w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
-            <div className="mb-5 flex items-start justify-between gap-3 border-b border-slate-200 pb-4">
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-widest text-blue-600">Master Vessel</div>
-                <h2 id="sales-add-vessel-title" className="mt-1 text-lg font-black text-slate-900">Tambah Data Vessel</h2>
-                <p className="mt-1 text-xs text-slate-500">Data akan tersimpan di Master Vessel dan langsung dipilih untuk Inquiry ini.</p>
+      {showCustomerModal && (
+        <div className="fixed inset-0 z-[80] overflow-y-auto bg-white">
+          <section role="dialog" aria-modal="true" aria-labelledby="sales-add-customer-title" className="admin-add-modal inquiry-entry-modal min-h-screen w-full border-0 bg-white p-[18px] shadow-none">
+            <div className="mb-3 flex items-center justify-between border-b border-slate-300 pb-2">
+              <h3 id="sales-add-customer-title" className="text-base font-bold text-slate-900">Tambah Master: CUSTOMERS</h3>
+              <button
+                type="button"
+                onClick={closeCustomerModal}
+                aria-label="Tutup form customer"
+                disabled={isSavingCustomer}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form noValidate onSubmit={(event) => void handleSaveCustomer(event)} className="admin-modal-form space-y-4 text-xs text-slate-700">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="block text-slate-400">Kode Customer:<input type="text" required maxLength={100} value={newCustomer.code} onChange={(event) => setNewCustomer({ ...newCustomer, code: event.target.value })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 text-white" /></label>
+                <label className="block text-slate-400">Tipe Customer:
+                  <select value={newCustomer.type} onChange={(event) => setNewCustomer({ ...newCustomer, type: event.target.value as Customer['type'] })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 text-white">
+                    <option value="PRINCIPAL">PRINCIPAL</option>
+                    <option value="CHARTERER">CHARTERER</option>
+                    <option value="SHIPOWNER">SHIPOWNER</option>
+                  </select>
+                </label>
               </div>
-              <button type="button" onClick={closeVesselModal} aria-label="Tutup form vessel" disabled={isSavingVessel} className="rounded-lg bg-slate-100 p-2 text-slate-600 hover:bg-slate-200 disabled:opacity-50"><X className="h-5 w-5" /></button>
+              <label className="block text-slate-400">Nama Perusahaan:<input type="text" required maxLength={200} value={newCustomer.companyName} onChange={(event) => setNewCustomer({ ...newCustomer, companyName: event.target.value })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 text-white" /></label>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="block text-slate-400">Contact Person:<input type="text" maxLength={150} value={newCustomer.contactPerson} onChange={(event) => setNewCustomer({ ...newCustomer, contactPerson: event.target.value })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 text-white" /></label>
+                <label className="block text-slate-400">Email:<input type="email" maxLength={255} value={newCustomer.email} onChange={(event) => setNewCustomer({ ...newCustomer, email: event.target.value })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 text-white" /></label>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="block text-slate-400">Country:<input maxLength={100} value={newCustomer.country} onChange={(event) => setNewCustomer({ ...newCustomer, country: event.target.value })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 text-white" /></label>
+                <label className="block text-slate-400">Phone:<input maxLength={50} value={newCustomer.phone} onChange={(event) => setNewCustomer({ ...newCustomer, phone: event.target.value })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 text-white" /></label>
+              </div>
+              <label className="block text-slate-400">Address:<textarea rows={3} maxLength={2000} value={newCustomer.address} onChange={(event) => setNewCustomer({ ...newCustomer, address: event.target.value })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 text-white" /></label>
+              <label className="block text-slate-400 sm:max-w-sm">Credit Term (days):<input type="number" min="0" max="3650" value={newCustomer.creditTermDays} onChange={(event) => setNewCustomer({ ...newCustomer, creditTermDays: Number(event.target.value) })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 text-white" /></label>
+              {customerFormError && <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{customerFormError}</div>}
+              <div className="flex justify-end gap-2 border-t border-slate-300 pt-3">
+                <button type="button" onClick={closeCustomerModal} disabled={isSavingCustomer} className="master-data-cancel rounded-lg px-4 py-2 font-semibold">Batal</button>
+                <button type="submit" disabled={isSavingCustomer} className="master-data-submit rounded-lg px-4 py-2 text-xs font-semibold">{isSavingCustomer ? 'Menyimpan...' : 'Simpan ke Database'}</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {showVesselModal && (
+        <div className="fixed inset-0 z-[80] overflow-y-auto bg-white">
+          <section role="dialog" aria-modal="true" aria-labelledby="sales-add-vessel-title" className="admin-add-modal inquiry-entry-modal min-h-screen w-full border-0 bg-white p-[18px] shadow-none">
+            <div className="mb-3 flex items-center justify-between border-b border-slate-300 pb-2">
+              <h3 id="sales-add-vessel-title" className="text-base font-bold text-slate-900">Tambah Master: VESSELS</h3>
+              <button
+                type="button"
+                onClick={closeVesselModal}
+                aria-label="Tutup form vessel"
+                disabled={isSavingVessel}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+              >
+                <X className="h-5 w-5" />
+              </button>
             </div>
 
-            <form onSubmit={(event) => void handleSaveVessel(event)} className="admin-modal-form space-y-4 text-sm">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="grid gap-1.5 font-semibold text-slate-700">Vessel Name *
-                  <input required maxLength={200} value={newVessel.name} onChange={(event) => setNewVessel({ ...newVessel, name: event.target.value })} className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-800" />
-                </label>
-                <label className="grid gap-1.5 font-semibold text-slate-700">Vessel Type
-                  <select value={newVessel.vesselType} onChange={(event) => setNewVessel({ ...newVessel, vesselType: event.target.value as Vessel['vesselType'] })} className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-800">
+            <form noValidate onSubmit={(event) => void handleSaveVessel(event)} className="admin-modal-form space-y-4 text-xs text-slate-700">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="block text-slate-400">Nama Kapal (Vessel Name):<input type="text" required maxLength={200} placeholder="e.g. MV OCEAN STAR" value={newVessel.name} onChange={(event) => setNewVessel({ ...newVessel, name: event.target.value })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 font-mono text-white" /></label>
+                <label className="block text-slate-400">Tipe Kapal:
+                  <select value={newVessel.vesselType} onChange={(event) => setNewVessel({ ...newVessel, vesselType: event.target.value as Vessel['vesselType'] })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 text-white">
                     <option value="BULK CARRIER">BULK CARRIER</option>
                     <option value="CONTAINER">CONTAINER</option>
                     <option value="OIL TANKER">OIL TANKER</option>
@@ -1077,35 +1203,27 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                   </select>
                 </label>
               </div>
-              <div className="grid gap-3 sm:grid-cols-3">
-                <label className="grid gap-1.5 font-semibold text-slate-700">IMO Number
-                  <input maxLength={30} value={newVessel.imoNumber} onChange={(event) => setNewVessel({ ...newVessel, imoNumber: event.target.value })} className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-800" />
-                </label>
-                <label className="grid gap-1.5 font-semibold text-slate-700">Call Sign
-                  <input maxLength={50} value={newVessel.callSign} onChange={(event) => setNewVessel({ ...newVessel, callSign: event.target.value })} className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-800" />
-                </label>
-                <label className="grid gap-1.5 font-semibold text-slate-700">Flag
-                  <input maxLength={100} value={newVessel.flag} onChange={(event) => setNewVessel({ ...newVessel, flag: event.target.value })} className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-800" />
-                </label>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <label className="block text-slate-400">IMO Number:<input maxLength={30} value={newVessel.imoNumber} onChange={(event) => setNewVessel({ ...newVessel, imoNumber: event.target.value })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 font-mono text-white" /></label>
+                <label className="block text-slate-400">Call Sign:<input maxLength={50} value={newVessel.callSign} onChange={(event) => setNewVessel({ ...newVessel, callSign: event.target.value })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 font-mono text-white" /></label>
+                <label className="block text-slate-400">Flag:<input maxLength={100} value={newVessel.flag} onChange={(event) => setNewVessel({ ...newVessel, flag: event.target.value })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 text-white" /></label>
               </div>
-              <div className="grid gap-3 sm:grid-cols-3">
-                {([
-                  ['GRT', 'grt'],
-                  ['NRT', 'nrt'],
-                  ['DWT', 'dwt'],
-                  ['LOA (meter)', 'loa'],
-                  ['Beam (meter)', 'beam'],
-                  ['Year Built', 'yearBuilt'],
-                ] as const).map(([label, field]) => (
-                  <label key={field} className="grid gap-1.5 font-semibold text-slate-700">{label}
-                    <input type="number" min="0" step={field === 'dwt' || field === 'yearBuilt' ? '1' : '0.01'} value={newVessel[field]} onChange={(event) => setNewVessel({ ...newVessel, [field]: Number(event.target.value) })} className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal text-slate-800" />
-                  </label>
-                ))}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="block text-slate-400">GRT:<input type="number" min="0" step="0.01" value={newVessel.grt} onChange={(event) => setNewVessel({ ...newVessel, grt: Number(event.target.value) })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 font-mono text-white" /></label>
+                <label className="block text-slate-400">DWT:<input type="number" min="0" step="1" value={newVessel.dwt} onChange={(event) => setNewVessel({ ...newVessel, dwt: Number(event.target.value) })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 font-mono text-white" /></label>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="block text-slate-400">LOA (meter) — manual:<input type="number" min="0" step="0.01" required placeholder="Contoh: 180.50" value={newVessel.loa} onChange={(event) => setNewVessel({ ...newVessel, loa: Number(event.target.value) })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 font-mono text-white" /></label>
+                <label className="block text-slate-400">Beam (meter):<input type="number" min="0" step="0.01" value={newVessel.beam} onChange={(event) => setNewVessel({ ...newVessel, beam: Number(event.target.value) })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 font-mono text-white" /></label>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="block text-slate-400">NRT:<input type="number" min="0" step="0.01" value={newVessel.nrt} onChange={(event) => setNewVessel({ ...newVessel, nrt: Number(event.target.value) })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 font-mono text-white" /></label>
+                <label className="block text-slate-400">Year Built:<input type="number" min="0" step="1" value={newVessel.yearBuilt} onChange={(event) => setNewVessel({ ...newVessel, yearBuilt: Number(event.target.value) })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 font-mono text-white" /></label>
               </div>
               {vesselFormError && <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{vesselFormError}</div>}
-              <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
-                <button type="button" onClick={closeVesselModal} disabled={isSavingVessel} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50">Batal</button>
-                <button type="submit" disabled={isSavingVessel} className="rounded-lg border border-blue-600 bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:border-blue-700 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">{isSavingVessel ? 'Menyimpan...' : 'Simpan Vessel'}</button>
+              <div className="flex justify-end gap-2 border-t border-slate-300 pt-3">
+                <button type="button" onClick={closeVesselModal} disabled={isSavingVessel} className="master-data-cancel rounded-lg px-4 py-2 font-semibold">Batal</button>
+                <button type="submit" disabled={isSavingVessel} className="master-data-submit rounded-lg px-4 py-2 text-xs font-semibold">{isSavingVessel ? 'Menyimpan...' : 'Simpan ke Database'}</button>
               </div>
             </form>
           </section>
