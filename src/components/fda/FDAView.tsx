@@ -1787,7 +1787,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                   </div>
                   <div
                     style={{
-                      fontSize: 'clamp(1.2rem, 1.8vw, 2.1rem)',
+                      fontSize: '28px',
                       fontWeight: 900,
                       marginTop: 11,
                       lineHeight: 1,
