@@ -136,7 +136,6 @@ export const Sidebar: React.FC<SidebarProps> = ({currentRole,activeTab,onSelectT
           {item({label:'Financial Overview',tab:'FINANCE_DASHBOARD',icon:LayoutDashboard})}
           {item({label:'Saldo Kas',tab:'FINANCE_CASH_BALANCE',icon:Wallet})}
           {item({label:'Rekap Keuangan',tab:'FINANCE_RECAP',icon:Calculator})}
-          {item({label:'Payroll / Slip Gaji',tab:'FINANCE_PAYROLL',icon:Wallet})}
           <button type="button" className="maritim-nav-group-title maritim-nav-group-toggle" aria-expanded={accountsReceivableOpen} onClick={()=>setAccountsReceivableOpen((open)=>!open)}>
             <CircleDollarSign/><span>Accounts Receivable</span>{accountsReceivableOpen?<ChevronDown/>:<ChevronRight/>}
           </button>

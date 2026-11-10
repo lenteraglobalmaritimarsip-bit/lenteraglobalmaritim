@@ -15,6 +15,7 @@
 }
 
 *{ box-sizing:border-box; }
+
 html,body,#root{ min-height:100%; width:100%; margin:0; border:0; outline:0; }
 body{
   min-width:320px;
@@ -235,7 +236,7 @@ button{ cursor:pointer; }
 .finance-workspace :where(div, p, span, label, th, td, li, a, small, strong, b, em):not(button *):not(h1 *):not(h2 *):not(h3 *):not(h4 *):not(h5 *):not(h6 *):not([role="status"] *):not([role="alert"] *){
   font-size:11px !important;
 }
-.fda-workspace :where(div, p, span, label, th, td, li, a, small, strong, b, em):not(button *):not(h1 *):not(h2 *):not(h3 *):not(h4 *):not(h5 *):not(h6 *):not([role="status"] *):not([role="alert"] *){
+.fda-workspace :where(div, p, span, label, th, td, li, a, small, strong, b, em):not(button *):not(h1 *):not(h2 *):not(h3 *):not(h4 *):not(h5 *):not(h6 *):not([role="status"] *):not([role="alert"] *):not(.fda-dashboard-kpi-value){
   font-size:11px !important;
 }
 .fda-workspace :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea){

@@ -1786,8 +1786,9 @@ export const FDAView: React.FC<FDAViewProps> = ({
                     </span>
                   </div>
                   <div
+                    className="fda-dashboard-kpi-value"
                     style={{
-                      fontSize: '28px',
+                      fontSize: 'clamp(1.2rem, 1.8vw, 2.1rem)',
                       fontWeight: 900,
                       marginTop: 11,
                       lineHeight: 1,

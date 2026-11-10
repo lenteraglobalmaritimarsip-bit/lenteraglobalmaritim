@@ -967,7 +967,7 @@ export default function App() {
               <AccountsReceivableView mode="HISTORY" />
             )}
 
-            {['FINANCE', 'HR_ADMINISTRASI'].includes(currentRole) && activeTab === 'FINANCE_PAYROLL' && (
+            {currentRole === 'HR_ADMINISTRASI' && activeTab === 'FINANCE_PAYROLL' && (
               <FinancePayrollView />
             )}
 
