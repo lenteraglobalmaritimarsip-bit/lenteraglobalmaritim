@@ -63,7 +63,6 @@ export interface Vessel {
   id: string;
   name: string;
   imoNumber: string;
-  callSign: string;
   flag: string;
   vesselType: 'BULK CARRIER' | 'CONTAINER' | 'OIL TANKER' | 'GENERAL CARGO' | 'TUG & BARGE' | 'LNG CARRIER';
   grt: number;

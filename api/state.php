@@ -784,7 +784,6 @@ function applyNonAdminMasterData(array &$state, array $before, string $role): vo
         if (strlen($id) > 100 || $name === '' || strlen($name) > 200
             || !in_array($vesselType, ['BULK CARRIER', 'CONTAINER', 'OIL TANKER', 'GENERAL CARGO', 'TUG & BARGE', 'LNG CARRIER'], true)
             || strlen((string) ($vessel['imoNumber'] ?? '')) > 30
-            || strlen((string) ($vessel['callSign'] ?? '')) > 50
             || strlen((string) ($vessel['flag'] ?? '')) > 100
             || !$validNumbers) {
             jsonResponse(['error' => 'Data master Vessel tidak lengkap atau tidak valid'], 400);

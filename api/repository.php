@@ -167,7 +167,7 @@ function loadAppState(): array
     ], tableRows('customers'));
     $vessels = array_map(static fn (array $row): array => [
         'id' => $row['id'], 'name' => $row['name'], 'imoNumber' => $row['imo_number'],
-        'callSign' => $row['call_sign'], 'flag' => $row['flag'], 'vesselType' => $row['vessel_type'],
+        'flag' => $row['flag'], 'vesselType' => $row['vessel_type'],
         'grt' => (float) $row['grt'], 'nrt' => (float) $row['nrt'], 'dwt' => (float) $row['dwt'],
         'loa' => (float) $row['loa'], 'beam' => (float) $row['beam'], 'yearBuilt' => (int) ($row['year_built'] ?? 0),
     ], tableRows('vessels'));
@@ -688,7 +688,7 @@ function replaceAppState(array $state): void
             upsertRow($pdo, 'users', ['id' => (string) $row['id'], 'name' => (string) ($row['name'] ?? ''), 'email' => (string) ($row['email'] ?? ''), 'username' => $row['username'] ?? null, 'password_hash' => $passwordHash, 'role' => $row['role'] ?? 'SALES', 'department' => (string) ($row['department'] ?? ''), 'branch_name' => $row['branch'] ?? null, 'branch_id' => $row['branchId'] ?? branchIdFromValue($row['branch'] ?? null), 'position' => $row['position'] ?? null, 'phone' => $row['phone'] ?? null, 'status' => $status, 'failed_login_attempts' => $failedLoginAttempts, 'locked_at' => $lockedAt]);
         }
         foreach (($state['customers'] ?? []) as $row) upsertRow($pdo, 'customers', ['id' => $row['id'], 'code' => $row['code'], 'company_name' => $row['companyName'], 'country' => $row['country'], 'customer_type' => $row['type'], 'contact_person' => $row['contactPerson'], 'email' => $row['email'], 'phone' => $row['phone'], 'address' => $row['address'], 'credit_term_days' => $row['creditTermDays'] ?? 30]);
-        foreach (($state['vessels'] ?? []) as $row) upsertRow($pdo, 'vessels', ['id' => $row['id'], 'name' => $row['name'], 'imo_number' => $row['imoNumber'], 'call_sign' => $row['callSign'], 'flag' => $row['flag'], 'vessel_type' => $row['vesselType'], 'grt' => $row['grt'], 'nrt' => $row['nrt'], 'dwt' => $row['dwt'], 'loa' => $row['loa'], 'beam' => $row['beam'], 'year_built' => $row['yearBuilt'] ?: null]);
+        foreach (($state['vessels'] ?? []) as $row) upsertRow($pdo, 'vessels', ['id' => $row['id'], 'name' => $row['name'], 'imo_number' => $row['imoNumber'], 'flag' => $row['flag'], 'vessel_type' => $row['vesselType'], 'grt' => $row['grt'], 'nrt' => $row['nrt'], 'dwt' => $row['dwt'], 'loa' => $row['loa'], 'beam' => $row['beam'], 'year_built' => $row['yearBuilt'] ?: null]);
         foreach (($state['ports'] ?? []) as $row) upsertRow($pdo, 'ports', ['id' => $row['id'], 'code' => $row['code'], 'name' => $row['name'], 'country' => $row['country'], 'channel_depth_meters' => (int) round((float) ($row['channelDepthMeters'] ?? 0)), 'tide_restriction' => $row['tideRestriction'] ?? null, 'operating_hours' => $row['operatingHours'] ?? null]);
         $portNames = indexBy($state['ports'] ?? [], 'id');
         foreach (($state['zones'] ?? []) as $row) {

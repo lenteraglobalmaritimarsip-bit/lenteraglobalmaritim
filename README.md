@@ -110,6 +110,8 @@ database lama cukup menjalankan file yang diperlukan di `database/migrations/` s
 - Master Data
 - Job Hierarchy / Job Detail
 
+Master Vessel mencatat nama kapal, IMO Number, Flag, tipe, dan ukuran kapal; kolom Call Sign telah dihapus dari form lintas role dan struktur data. Untuk database lama, backup lalu jalankan `database/migrations/20261110_remove_vessel_call_sign.sql` sebelum mengunggah API dan frontend terbaru. Migrasi ini menghapus kolom `vessels.call_sign` beserta data di dalamnya.
+
 ## Struktur Job
 Semua transaksi ditautkan ke Job/Vessel Call ID yang sama:
 

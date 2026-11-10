@@ -162,7 +162,7 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,users =
     setSelectedDetailId(id);
   };
 
-  const exportHeaders = ['NO', 'VESSEL CALL', 'INQUIRY NO', 'TANGGAL INQUIRY', 'DIBUAT OLEH', 'BRANCH', 'VESSEL', 'IMO', 'CALL SIGN', 'FLAG', 'TYPE', 'GT', 'NT', 'LOA (M)', 'BEAM (M)', 'CARGO QUANTITY', 'SATUAN CARGO QUANTITY', 'CUSTOMER / PRINCIPAL', 'PELABUHAN', 'ETA', 'KETERANGAN ETA', 'ETD', 'KETERANGAN ETD', 'TUJUAN KUNJUNGAN', 'ESTIMASI DURASI (HARI)', 'CARGO / PURPOSE DETAILS', 'SPECIAL REQUIREMENTS', 'OVERALL STATUS', 'KESIMPULAN', 'EPDA', 'CREW CHANGE', 'MANAGER APPROVAL', 'OPERATIONAL DATA', 'FDA', 'FINANCE (AP / AR / INVOICE)', 'CLOSING'];
+  const exportHeaders = ['NO', 'VESSEL CALL', 'INQUIRY NO', 'TANGGAL INQUIRY', 'DIBUAT OLEH', 'BRANCH', 'VESSEL', 'IMO', 'FLAG', 'TYPE', 'GT', 'NT', 'LOA (M)', 'BEAM (M)', 'CARGO QUANTITY', 'SATUAN CARGO QUANTITY', 'CUSTOMER / PRINCIPAL', 'PELABUHAN', 'ETA', 'KETERANGAN ETA', 'ETD', 'KETERANGAN ETD', 'TUJUAN KUNJUNGAN', 'ESTIMASI DURASI (HARI)', 'CARGO / PURPOSE DETAILS', 'SPECIAL REQUIREMENTS', 'OVERALL STATUS', 'KESIMPULAN', 'EPDA', 'CREW CHANGE', 'MANAGER APPROVAL', 'OPERATIONAL DATA', 'FDA', 'FINANCE (AP / AR / INVOICE)', 'CLOSING'];
   const exportRows = rows.map((j, index) => {
     const vessel = vessels.find(v => v.id === j.vesselId);
     const statuses = getManagementStatus(j);
@@ -171,7 +171,7 @@ export const ActiveVesselCallsView: React.FC<Props> = ({jobCalls,vessels,users =
     const inquiry = safeInquiry(j);
     return [
       index + 1, j.jobId, inquiry.inquiryNo, formatInquiryDate(inquiry.date), owner.createdBy, owner.branch, j.vesselName,
-      vessel?.imoNumber || '-', vessel?.callSign || '-', vessel?.flag || '-', vessel?.vesselType || '-',
+      vessel?.imoNumber || '-', vessel?.flag || '-', vessel?.vesselType || '-',
       vessel?.grt ?? '-', vessel?.nrt ?? '-', vessel?.loa ?? '-', vessel?.beam ?? '-', inquiry.cargoQuantity ?? '-', inquiry.quantityUnit === 'MT' ? 'MT' : 'T', j.customerName,
       j.portName, formatDateDisplay(j.eta, true), inquiry.etaRemarks || '-', formatDateDisplay(j.etd, true), inquiry.etdRemarks || '-', (j.purposeOfCall || '').replace(/_/g, ' ') || '-',
       inquiry.estimatedDays, inquiry.cargoDetails, inquiry.specialRequirements || '-', statusLabel[j.status] || j.status,

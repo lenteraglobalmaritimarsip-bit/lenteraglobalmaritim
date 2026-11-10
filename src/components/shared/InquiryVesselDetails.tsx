@@ -89,7 +89,6 @@ export const InquiryVesselDetails: React.FC<Props> = ({
       <div>{detailRows([
         ['Vessel', valueOrDash(vesselName || vessel?.name)],
         ['IMO', valueOrDash(vessel?.imoNumber)],
-        ['Call Sign', valueOrDash(vessel?.callSign)],
         ['Flag', valueOrDash(vessel?.flag)],
         ['Cargo Quantity', `${cargoQuantity || 0} ${quantityUnit}`],
         ['Gross (GRT)', valueOrDash(vessel?.grt?.toLocaleString('en-US'))],

@@ -385,7 +385,6 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
   const [newVessel, setNewVessel] = useState<Partial<Vessel>>({
     name: '',
     imoNumber: '',
-    callSign: '',
     flag: 'Panama',
     vesselType: 'BULK CARRIER',
     grt: 30000,
@@ -1575,7 +1574,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 <tr>
                   <th className="p-3.5">No</th>
                   <th className="p-3.5">Vessel Name</th>
-                  <th className="p-3.5">IMO / Call Sign</th>
+                  <th className="p-3.5">IMO Number</th>
                   <th className="p-3.5">Flag</th>
                   <th className="p-3.5">Type</th>
                   <th className="p-3.5 text-right">GRT</th>
@@ -1592,7 +1591,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                       <td className="p-3.5 font-mono text-slate-500">{index + 1}</td>
                       <td className="p-3.5 font-bold text-slate-900 font-mono">{v.name}</td>
                       <td className="p-3.5 text-slate-600 font-mono">
-                        {v.imoNumber} <span className="text-slate-500">• {v.callSign}</span>
+                        {v.imoNumber}
                       </td>
                       <td className="p-3.5 text-slate-600">{v.flag}</td>
                       <td className="p-3.5">
@@ -2142,9 +2141,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     <label className="block"><span className="text-slate-500 font-semibold">Vessel Name</span><input required value={editMasterForm.name || ''} onChange={e=>setEditMasterForm({...editMasterForm,name:e.target.value})} className="master-edit-input" /></label>
                     <label className="block"><span className="text-slate-500 font-semibold">Vessel Type</span><select value={editMasterForm.vesselType || 'BULK CARRIER'} onChange={e=>setEditMasterForm({...editMasterForm,vesselType:e.target.value})} className="master-edit-input"><option>BULK CARRIER</option><option>CONTAINER</option><option>OIL TANKER</option><option>GENERAL CARGO</option><option>TUG & BARGE</option><option>LNG CARRIER</option></select></label>
                   </div>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 gap-3">
                     <label className="block"><span className="text-slate-500 font-semibold">IMO Number</span><input value={editMasterForm.imoNumber || ''} onChange={e=>setEditMasterForm({...editMasterForm,imoNumber:e.target.value})} className="master-edit-input" /></label>
-                    <label className="block"><span className="text-slate-500 font-semibold">Call Sign</span><input value={editMasterForm.callSign || ''} onChange={e=>setEditMasterForm({...editMasterForm,callSign:e.target.value})} className="master-edit-input" /></label>
                     <label className="block"><span className="text-slate-500 font-semibold">Flag</span><input value={editMasterForm.flag || ''} onChange={e=>setEditMasterForm({...editMasterForm,flag:e.target.value})} className="master-edit-input" /></label>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
@@ -2384,10 +2382,6 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                         onChange={(e) => setNewVessel({ ...newVessel, imoNumber: e.target.value })}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
                       />
-                    </div>
-                    <div>
-                      <label className="text-slate-400 block mb-1">Call Sign:</label>
-                      <input value={newVessel.callSign} onChange={(e) => setNewVessel({ ...newVessel, callSign: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono" />
                     </div>
                     <div>
                       <label className="text-slate-400 block mb-1">Flag:</label>

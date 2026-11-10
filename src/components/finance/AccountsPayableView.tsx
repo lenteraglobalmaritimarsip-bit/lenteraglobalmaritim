@@ -540,7 +540,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
             .totals td:last-child { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
             .totals .grand td { background: #fff; border: 0; color: #000; font-size: 8.5px; font-weight: 700; padding: 5px 4px; }
             .signatures { border-collapse: collapse; margin-top: 24px; page-break-inside: avoid; table-layout: fixed; width: 100%; }
-            .signatures th, .signatures td { border: 1px solid #94a3b8; text-align: center; width: 33.333%; }
+            .signatures th, .signatures td { border: 1px solid #94a3b8; text-align: center; width: 50%; }
             .signatures th { background: #f1f5f9; color: #334155; font-size: 9px; height: 26px; padding: 6px; text-transform: uppercase; }
             .signatures .name td { font-size: 9px; font-weight: 600; height: 100px; padding: 72px 6px 6px; vertical-align: bottom; }
             .watermark { bottom: 5mm; color: #94a3b8; font-size: 8px; left: 0; position: fixed; right: 0; text-align: center; }
@@ -583,8 +583,8 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
               <tr class="grand"><td>Total Payment (${escapeHtml(printCurrency)})</td><td>${formatPrintAmount(totals.totalPayment)}</td></tr>
             </tbody></table>
           </div>
-          <table class="signatures"><thead><tr><th>Checker</th><th>Signer</th><th>Mengetahui Pembukuan</th></tr></thead><tbody>
-            <tr class="name"><td>${escapeHtml(payer || '-')}</td><td>${escapeHtml(printVoucher.reviewedBy || '-')}</td><td>${escapeHtml(printAccountingSignerName || '-')}</td></tr>
+          <table class="signatures"><thead><tr><th>Checker</th><th>Signer</th></tr></thead><tbody>
+            <tr class="name"><td>${escapeHtml(payer || '-')}</td><td>${escapeHtml(printAccountingSignerName || '-')}</td></tr>
           </tbody></table>
           <div class="watermark">Dokumen asli dicetak dari sistem resmi PT Lentera Global Maritim. ${escapeHtml(printedAt)}</div>
         </body>
@@ -813,6 +813,20 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                 </label>
 
                 <label className="block text-[11px] font-semibold uppercase tracking-widest text-slate-500">
+                  Mengetahui Pembukuan
+                  <select
+                    required
+                    value={accountingSignerName}
+                    onChange={(event) => setAccountingSignerName(event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-violet-400"
+                  >
+                    <option value="">Pilih Direktur...</option>
+                    {directorUsers.map((user) => <option key={user.id} value={user.name}>{user.name}</option>)}
+                  </select>
+                  {directorUsers.length === 0 && <span className="mt-1 block normal-case text-rose-700">Tidak ada user Direktur aktif. Aktifkan akun Direktur sebelum memproses pembayaran.</span>}
+                </label>
+
+                <label className="block text-[11px] font-semibold uppercase tracking-widest text-slate-500">
                   Bukti Pembayaran (JPG/PNG, maks. 1 MB)
                   <input
                     type="file"
@@ -874,20 +888,6 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                 <label className="block text-[11px] font-semibold uppercase tracking-widest text-slate-500">
                   Payment Method
                   <input value="Bank Transfer" readOnly className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-800" />
-                </label>
-
-                <label className="block text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-                  Mengetahui Pembukuan
-                  <select
-                    required
-                    value={accountingSignerName}
-                    onChange={(event) => setAccountingSignerName(event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-violet-400"
-                  >
-                    <option value="">Pilih Direktur...</option>
-                    {directorUsers.map((user) => <option key={user.id} value={user.name}>{user.name}</option>)}
-                  </select>
-                  {directorUsers.length === 0 && <span className="mt-1 block normal-case text-rose-700">Tidak ada user Direktur aktif. Aktifkan akun Direktur sebelum memproses pembayaran.</span>}
                 </label>
 
                 <label className="block text-[11px] font-semibold uppercase tracking-widest text-slate-500">

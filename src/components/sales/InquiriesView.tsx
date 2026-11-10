@@ -178,7 +178,6 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
   const [newVessel, setNewVessel] = useState<Omit<Vessel, 'id'>>({
     name: '',
     imoNumber: '',
-    callSign: '',
     flag: 'Panama',
     vesselType: 'BULK CARRIER',
     grt: 30000,
@@ -455,7 +454,6 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
       setNewVessel({
         name: '',
         imoNumber: '',
-        callSign: '',
         flag: 'Panama',
         vesselType: 'BULK CARRIER',
         grt: 30000,
@@ -945,14 +943,6 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="text-slate-500 block mb-1 font-semibold">Call Sign</label>
-                  <input
-                    readOnly
-                    value={selectedVessel?.callSign || '-'}
-                    className="w-full h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-white font-mono"
-                  />
-                </div>
-                <div>
                   <label className="text-slate-500 block mb-1 font-semibold">Flag</label>
                   <input
                     readOnly
@@ -1203,9 +1193,8 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                   </select>
                 </label>
               </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="block text-slate-400">IMO Number:<input maxLength={30} value={newVessel.imoNumber} onChange={(event) => setNewVessel({ ...newVessel, imoNumber: event.target.value })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 font-mono text-white" /></label>
-                <label className="block text-slate-400">Call Sign:<input maxLength={50} value={newVessel.callSign} onChange={(event) => setNewVessel({ ...newVessel, callSign: event.target.value })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 font-mono text-white" /></label>
                 <label className="block text-slate-400">Flag:<input maxLength={100} value={newVessel.flag} onChange={(event) => setNewVessel({ ...newVessel, flag: event.target.value })} className="w-full rounded-lg border border-slate-800 bg-slate-950 p-2 text-white" /></label>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
