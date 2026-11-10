@@ -1542,9 +1542,6 @@ class DatabaseService {
     if (!approvedVoucherExists) {
       return { ok: false, message: `Payment Voucher untuk Job ${jobId} harus dibuat dan disetujui Manager OPS sebelum FDA dikirim.` };
     }
-    if (!(job.fda.finalBilledToPrincipal > 0) && !(job.quotation.epda.totalAmount > 0)) {
-      return { ok: false, message: 'EPDA belum memiliki Amount untuk diproses menjadi FDA.' };
-    }
     if (job.fda.approvalStatus === 'SUBMITTED') return { ok: false, message: 'FDA sedang menunggu approval Manager OPS.' };
     if (job.fda.fdaApproved || job.fda.approvalStatus === 'APPROVED') return { ok: false, message: 'FDA untuk Job ini sudah disetujui Manager.' };
     return { ok: true };

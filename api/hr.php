@@ -541,7 +541,7 @@ try {
         $dateOfBirth = hrDateValue($body['dateOfBirth'] ?? null, 'Tanggal lahir', false);
         $birthCity = hrString($body['birthCity'] ?? null, 'Kota kelahiran');
         $contractStart = hrDateValue($body['contractStart'] ?? null, 'Tanggal mulai kontrak', false);
-        $contractEnd = hrDateValue($body['contractEnd'] ?? null, 'Tanggal akhir kontrak', false);
+        $contractEnd = hrDateValue($body['contractEnd'] ?? null, 'Tanggal akhir kontrak');
         $gender = hrString($body['gender'] ?? null, 'Jenis kelamin');
         $employmentStatus = hrString($body['employmentStatus'] ?? null, 'Status kerja');
         $religion = hrString($body['religion'] ?? null, 'Agama');
@@ -581,8 +581,7 @@ try {
             || !in_array($religion, ['Islam', 'Kristen Protestan', 'Katolik', 'Hindu', 'Buddha', 'Konghucu'], true)
             || !in_array($contractType, ['PERMANENT', 'CONTRACT', 'PROBATION', 'INTERNSHIP', 'OTHER'], true)
             || $address === '' || strlen($address) > 10000
-            || $emergencyName === '' || strlen($emergencyName) > 150
-            || $emergencyPhone === '' || strlen($emergencyPhone) > 50
+            || strlen($emergencyName) > 150 || strlen($emergencyPhone) > 50
             || $birthCity === '' || strlen($birthCity) > 120
             || $contractDurationYears === null || $contractDurationYears < 0 || $contractDurationYears > 99.9
             || $nik === '' || strlen($nik) > 20 || $npwp === '' || strlen($npwp) > 30

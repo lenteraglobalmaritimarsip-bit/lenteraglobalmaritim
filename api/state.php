@@ -676,9 +676,57 @@ function normalizedMasterItem(string $key, array $item): array
 
 function applyNonAdminMasterData(array &$state, array $before, string $role): void
 {
-    foreach (['users', 'customers', 'ports', 'zones'] as $key) {
+    foreach (['users', 'ports', 'zones'] as $key) {
         $state[$key] = $before[$key];
     }
+    if ($role !== 'SALES') {
+        $state['customers'] = $before['customers'] ?? [];
+    } else {
+        $existingCustomers = [];
+        foreach ($before['customers'] ?? [] as $customer) {
+            $existingCustomers[(string) ($customer['id'] ?? '')] = $customer;
+        }
+        $incomingCustomers = is_array($state['customers'] ?? null) ? $state['customers'] : [];
+        $incomingCustomerIds = [];
+        $newCustomers = [];
+        foreach ($incomingCustomers as $customer) {
+            if (!is_array($customer)) jsonResponse(['error' => 'Data customer tidak valid'], 400);
+            $id = trim((string) ($customer['id'] ?? ''));
+            if ($id === '') jsonResponse(['error' => 'Customer ID is required'], 400);
+            if (isset($incomingCustomerIds[$id])) jsonResponse(['error' => 'Customer ID tidak boleh duplikat'], 400);
+            $incomingCustomerIds[$id] = true;
+            if (isset($existingCustomers[$id])) {
+                if (json_encode($existingCustomers[$id]) !== json_encode($customer)) {
+                    jsonResponse(['error' => 'Hanya Admin yang dapat mengubah atau menghapus master Customer'], 403);
+                }
+                continue;
+            }
+
+            $code = trim((string) ($customer['code'] ?? ''));
+            $companyName = trim((string) ($customer['companyName'] ?? ''));
+            $customerType = (string) ($customer['type'] ?? '');
+            $creditTermDays = $customer['creditTermDays'] ?? null;
+            if (strlen($id) > 100 || $code === '' || strlen($code) > 100
+                || $companyName === '' || strlen($companyName) > 200
+                || !in_array($customerType, ['PRINCIPAL', 'CHARTERER', 'SHIPOWNER'], true)
+                || strlen((string) ($customer['country'] ?? '')) > 100
+                || strlen((string) ($customer['contactPerson'] ?? '')) > 150
+                || strlen((string) ($customer['email'] ?? '')) > 255
+                || strlen((string) ($customer['phone'] ?? '')) > 50
+                || strlen((string) ($customer['address'] ?? '')) > 2000
+                || !is_numeric($creditTermDays) || !is_finite((float) $creditTermDays)
+                || (float) $creditTermDays < 0 || (float) $creditTermDays > 3650
+                || floor((float) $creditTermDays) !== (float) $creditTermDays) {
+                jsonResponse(['error' => 'Data master Customer tidak lengkap atau tidak valid'], 400);
+            }
+            $newCustomers[] = $customer;
+        }
+        if (array_diff_key($existingCustomers, $incomingCustomerIds)) {
+            jsonResponse(['error' => 'Hanya Admin yang dapat mengubah atau menghapus master Customer'], 403);
+        }
+        $state['customers'] = array_merge($before['customers'] ?? [], $newCustomers);
+    }
+
     $existingVessels = [];
     foreach ($before['vessels'] ?? [] as $vessel) {
         $existingVessels[(string) ($vessel['id'] ?? '')] = $vessel;

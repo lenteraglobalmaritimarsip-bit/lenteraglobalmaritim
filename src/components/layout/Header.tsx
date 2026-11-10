@@ -309,11 +309,11 @@ export const Header: React.FC<HeaderProps> = ({
             tab:'FDA_AMOUNT',
             kind:'WARNING',
           });
-        } else if (fdaStatus !== 'SUBMITTED' && !(job.fda?.finalBilledToPrincipal > 0)) {
+        } else if (fdaStatus !== 'SUBMITTED') {
             push({
               id:`fda-${job.jobId}`,
-              title:'FDA Amount perlu dikonfirmasi',
-              message:`${job.jobId} · ${job.vesselName} sudah Approved. Tinjau Amount EPDA dan kirim FDA.`,
+              title:'FDA siap dikirim ke Manager',
+              message:`${job.jobId} · ${job.vesselName} sudah Approved. Tinjau rincian biaya, termasuk jika tidak ada biaya, lalu kirim FDA.`,
               jobId:job.jobId,
               tab:'FDA_AMOUNT',
               kind:'WARNING'
