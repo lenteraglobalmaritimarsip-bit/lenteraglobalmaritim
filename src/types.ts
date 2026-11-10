@@ -390,6 +390,7 @@ export interface PaymentVoucherPaymentRecord {
   voucherNumber: string;
   journalNumber?: string;
   paidBy: string;
+  accountingSignerName?: string;
   paidAt: string;
   paidFromBankAccountId?: string;
   bankName: string;
@@ -435,6 +436,7 @@ export interface PaymentVoucher {
   reviewedBy?: string;
   reviewedAt?: string;
   paidBy?: string;
+  accountingSignerName?: string;
   paidAt?: string;
   paymentSurcharge?: number;
   paymentSurchargeCoaId?: string;

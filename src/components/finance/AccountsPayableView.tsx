@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, ChevronDown, ChevronRight, Eye, FileText, Printer, Search } from 'lucide-react';
-import { BankAccount, JobCall, PaymentVoucher } from '../../types';
+import { BankAccount, JobCall, PaymentVoucher, User } from '../../types';
 import { db } from '../../db/storage';
 import { dataApi } from '../../lib/dataApi';
 import { apiAuth } from '../../lib/api';
@@ -20,6 +20,7 @@ interface AccountsPayableViewProps {
   payer: string;
   bankAccounts?: BankAccount[];
   jobCalls: JobCall[];
+  directorUsers: User[];
 }
 
 interface PaymentFormDraft {
@@ -29,6 +30,7 @@ interface PaymentFormDraft {
   otherExpenses: string;
   paymentDescription: string;
   selectedBankId: string;
+  accountingSignerName: string;
 }
 
 interface AccountsPayableRow extends PaymentVoucher {
@@ -54,7 +56,7 @@ const formatDisplayDate = (value: string) => {
 const MAX_PAYMENT_PROOF_SIZE = 1024 * 1024;
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode = 'INPUT', paymentVouchers, payer, bankAccounts = [], jobCalls }) => {
+export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode = 'INPUT', paymentVouchers, payer, bankAccounts = [], jobCalls, directorUsers }) => {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -72,6 +74,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
   const [otherExpenses, setOtherExpenses] = useState('');
   const [paymentDescription, setPaymentDescription] = useState('');
   const [selectedBankId, setSelectedBankId] = useState('');
+  const [accountingSignerName, setAccountingSignerName] = useState('');
   const [paymentFormProof, setPaymentFormProof] = useState<{ name: string; dataUrl: string } | null>(null);
   const [isUploadingPaymentProof, setIsUploadingPaymentProof] = useState(false);
   const [startDate, setStartDate] = useState('');
@@ -121,6 +124,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
         setOtherExpenses(draft.otherExpenses || '');
         setPaymentDescription(draft.paymentDescription || '');
         setSelectedBankId(draft.selectedBankId || '');
+        setAccountingSignerName(draft.accountingSignerName || '');
       })
       .catch((error) => console.error('Gagal memuat draft form pembayaran:', error))
       .finally(() => { if (!cancelled) setDraftLoaded(true); });
@@ -142,6 +146,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
         ? defaultPaymentDescription(paymentFormVoucher)
         : initialPaymentDraft.paymentDescription);
       setSelectedBankId(initialPaymentDraft.selectedBankId);
+      setAccountingSignerName(initialPaymentDraft.accountingSignerName || '');
       return;
     }
     setPaymentDate(todayIso());
@@ -149,6 +154,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
     setOtherExpenses('');
     setPaymentDescription(defaultPaymentDescription(paymentFormVoucher));
     setSelectedBankId(compatibleBankAccounts[0]?.id || '');
+    setAccountingSignerName('');
   }, [paymentFormVoucherId, paymentFormVoucher, draftLoaded, initialPaymentDraft, compatibleBankAccounts]);
 
   useEffect(() => {
@@ -160,7 +166,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
 
   useEffect(() => {
     if (!draftLoaded || !paymentFormVoucherId || paymentFormVoucher?.status !== 'APPROVED') return;
-    const draft = { voucherId: paymentFormVoucherId, paymentDate, manualSurcharge, otherExpenses, paymentDescription, selectedBankId } satisfies PaymentFormDraft;
+    const draft = { voucherId: paymentFormVoucherId, paymentDate, manualSurcharge, otherExpenses, paymentDescription, selectedBankId, accountingSignerName } satisfies PaymentFormDraft;
     const timeoutId = window.setTimeout(() => {
       paymentDraftSaveTimeoutRef.current = null;
       paymentDraftSaveQueueRef.current = paymentDraftSaveQueueRef.current
@@ -175,7 +181,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
       window.clearTimeout(timeoutId);
       if (paymentDraftSaveTimeoutRef.current === timeoutId) paymentDraftSaveTimeoutRef.current = null;
     };
-  }, [draftLoaded, paymentFormVoucherId, paymentFormVoucher, paymentDate, manualSurcharge, otherExpenses, paymentDescription, selectedBankId]);
+  }, [draftLoaded, paymentFormVoucherId, paymentFormVoucher, paymentDate, manualSurcharge, otherExpenses, paymentDescription, selectedBankId, accountingSignerName]);
 
   useEffect(() => {
     if (!draftLoaded || !paymentFormVoucherId || !paymentFormVoucher || paymentFormVoucher.status === 'APPROVED') return;
@@ -237,6 +243,10 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
       setError(`Pembayaran diblokir: pilih rekening dengan mata uang ${paymentCurrency}.`);
       return;
     }
+    if (!directorUsers.some((user) => user.name === accountingSignerName)) {
+      setError('Pilih nama Direktur pada field Mengetahui Pembukuan sebelum memproses pembayaran.');
+      return;
+    }
     if (!window.confirm(`Tandai voucher ${paymentFormVoucher.requestNumber} sebagai sudah dibayar?`)) return;
     setError('');
     setMessage('');
@@ -248,6 +258,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
         description: paymentDescription,
         totalAmount: itemTotals.totalPayment,
         paidFromBankAccountId: selectedBank.id,
+        accountingSignerName,
         ...(paymentFormProof ? { paymentProofDataUrl: paymentFormProof.dataUrl } : {}),
       });
       setInitialPaymentDraft(null);
@@ -310,7 +321,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
     const printError = printPaymentVoucher({
       ...voucher,
       checkerName: voucher.reviewedBy,
-      signerName: voucher.reviewedBy,
+      signerName: voucher.status === 'PAID' ? voucher.accountingSignerName : voucher.reviewedBy,
       includeFinancePrintDetails: true,
     });
     setError(printError || '');
@@ -416,6 +427,13 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
         : hasMatchingDraft
           ? matchingDraft.paymentDescription || defaultPaymentDescription(printVoucher)
           : printVoucher.paymentDescription || defaultPaymentDescription(printVoucher);
+    const printAccountingSignerName = isPaid
+      ? printVoucher.accountingSignerName || ''
+      : useCurrentForm
+        ? accountingSignerName
+        : matchingDraft?.voucherId === printVoucher.id
+          ? matchingDraft.accountingSignerName || ''
+          : '';
     const printBankId = useCurrentForm
       ? selectedBankId
       : matchingDraft?.voucherId === printVoucher.id
@@ -522,7 +540,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
             .totals td:last-child { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
             .totals .grand td { background: #fff; border: 0; color: #000; font-size: 8.5px; font-weight: 700; padding: 5px 4px; }
             .signatures { border-collapse: collapse; margin-top: 24px; page-break-inside: avoid; table-layout: fixed; width: 100%; }
-            .signatures th, .signatures td { border: 1px solid #94a3b8; text-align: center; width: 50%; }
+            .signatures th, .signatures td { border: 1px solid #94a3b8; text-align: center; width: 33.333%; }
             .signatures th { background: #f1f5f9; color: #334155; font-size: 9px; height: 26px; padding: 6px; text-transform: uppercase; }
             .signatures .name td { font-size: 9px; font-weight: 600; height: 100px; padding: 72px 6px 6px; vertical-align: bottom; }
             .watermark { bottom: 5mm; color: #94a3b8; font-size: 8px; left: 0; position: fixed; right: 0; text-align: center; }
@@ -565,8 +583,8 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
               <tr class="grand"><td>Total Payment (${escapeHtml(printCurrency)})</td><td>${formatPrintAmount(totals.totalPayment)}</td></tr>
             </tbody></table>
           </div>
-          <table class="signatures"><thead><tr><th>Checker</th><th>Signer</th></tr></thead><tbody>
-            <tr class="name"><td>${escapeHtml(payer || '-')}</td><td>${escapeHtml(printVoucher.reviewedBy || '-')}</td></tr>
+          <table class="signatures"><thead><tr><th>Checker</th><th>Signer</th><th>Mengetahui Pembukuan</th></tr></thead><tbody>
+            <tr class="name"><td>${escapeHtml(payer || '-')}</td><td>${escapeHtml(printVoucher.reviewedBy || '-')}</td><td>${escapeHtml(printAccountingSignerName || '-')}</td></tr>
           </tbody></table>
           <div class="watermark">Dokumen asli dicetak dari sistem resmi PT Lentera Global Maritim. ${escapeHtml(printedAt)}</div>
         </body>
@@ -856,6 +874,20 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                 <label className="block text-[11px] font-semibold uppercase tracking-widest text-slate-500">
                   Payment Method
                   <input value="Bank Transfer" readOnly className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-800" />
+                </label>
+
+                <label className="block text-[11px] font-semibold uppercase tracking-widest text-slate-500">
+                  Mengetahui Pembukuan
+                  <select
+                    required
+                    value={accountingSignerName}
+                    onChange={(event) => setAccountingSignerName(event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-violet-400"
+                  >
+                    <option value="">Pilih Direktur...</option>
+                    {directorUsers.map((user) => <option key={user.id} value={user.name}>{user.name}</option>)}
+                  </select>
+                  {directorUsers.length === 0 && <span className="mt-1 block normal-case text-rose-700">Tidak ada user Direktur aktif. Aktifkan akun Direktur sebelum memproses pembayaran.</span>}
                 </label>
 
                 <label className="block text-[11px] font-semibold uppercase tracking-widest text-slate-500">

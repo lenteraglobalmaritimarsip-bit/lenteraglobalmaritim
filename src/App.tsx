@@ -452,6 +452,7 @@ export default function App() {
       ))
     ),
   );
+  const activeDirectorUsers = data.users.filter((user) => user.role === 'DIRECTOR' && user.status === 'ACTIVE');
   const branchBankAccounts = (data.bankAccounts || []).filter((account) =>
     currentBranchId && account.branchId
       ? account.branchId === currentBranchId
@@ -896,6 +897,7 @@ export default function App() {
                 payer={currentUser?.name || ''}
                 bankAccounts={branchBankAccounts}
                 jobCalls={roleVisibleJobCalls}
+                directorUsers={activeDirectorUsers}
               />
             )}
 
@@ -906,6 +908,7 @@ export default function App() {
                 payer={currentUser?.name || ''}
                 bankAccounts={branchBankAccounts}
                 jobCalls={roleVisibleJobCalls}
+                directorUsers={activeDirectorUsers}
               />
             )}
 

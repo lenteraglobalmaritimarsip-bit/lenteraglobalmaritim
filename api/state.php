@@ -254,8 +254,32 @@ function validatePaymentVoucherPaymentHistories(array $newState, array $oldState
         $oldVoucher = $oldVouchers[$id];
         $oldHistory = $oldVoucher['paymentHistory'] ?? [];
         $newHistory = $voucher['paymentHistory'] ?? [];
+        if (!is_array($oldHistory) || !is_array($newHistory)) {
+            return 'Payment history data is invalid.';
+        }
         if (json_encode($oldHistory) !== json_encode($newHistory)) {
-            return 'Payment history cannot be changed.';
+            $isNewPayment = ($oldVoucher['status'] ?? '') !== 'PAID'
+                && ($voucher['status'] ?? '') === 'PAID'
+                && count($newHistory) === count($oldHistory) + 1
+                && array_slice($newHistory, 0, count($oldHistory)) === $oldHistory;
+            if (!$isNewPayment) return 'Payment history cannot be changed.';
+
+            $payment = $newHistory[count($newHistory) - 1] ?? null;
+            $signerName = is_array($payment) ? trim((string) ($payment['accountingSignerName'] ?? '')) : '';
+            $activeDirector = false;
+            foreach ($oldState['users'] ?? [] as $user) {
+                if (($user['role'] ?? '') === 'DIRECTOR'
+                    && ($user['status'] ?? '') === 'ACTIVE'
+                    && ($user['name'] ?? '') === $signerName) {
+                    $activeDirector = true;
+                    break;
+                }
+            }
+            if (!$activeDirector
+                || ($payment['paidBy'] ?? '') !== ($voucher['paidBy'] ?? '')
+                || ($payment['paidAt'] ?? '') !== ($voucher['paidAt'] ?? '')) {
+                return 'A valid payment record with an active Director signer is required.';
+            }
         }
     }
     return null;

@@ -268,6 +268,7 @@ function loadAppState(): array
                         'approvalTargetUserId' => $row['approval_target_user_id'] ?? null, 'approvalTargetName' => $row['approval_target_name'] ?? '',
                         'managerNote' => $row['manager_note'] ?? '', 'reviewedBy' => $row['reviewed_by'] ?? '',
                         'reviewedAt' => !empty($row['reviewed_at']) ? appDateTime($row['reviewed_at']) : '', 'paidBy' => $row['paid_by'] ?? '',
+                        'accountingSignerName' => $paymentHistory ? ($paymentHistory[array_key_last($paymentHistory)]['accountingSignerName'] ?? '') : '',
                         'paidAt' => !empty($row['paid_at']) ? appDateTime($row['paid_at']) : '',
                         'paymentProofDataUrl' => $row['payment_proof_data_url'] ?? '',
                         'paymentSurcharge' => (float) ($row['payment_surcharge'] ?? 0),

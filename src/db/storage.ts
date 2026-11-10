@@ -11,6 +11,7 @@ import {
   ChartOfAccount,
   CashBalanceAdjustment,
   PaymentVoucher,
+  PaymentVoucherPaymentRecord,
   JobCall,
   Currency,
   UserRole,
@@ -1023,13 +1024,20 @@ class DatabaseService {
     id: string,
     payer: string,
     paymentDate?: string,
-    paymentDetails: { surcharge?: number; surchargeCoaId?: string; otherExpenses?: number; otherExpensesCoaId?: string; description?: string; totalAmount?: number; paidFromBankAccountId?: string; paymentProofDataUrl?: string; paymentJournalLines?: PaymentVoucher['paymentJournalLines']; items?: PaymentVoucher['items'] } = {},
+    paymentDetails: { surcharge?: number; surchargeCoaId?: string; otherExpenses?: number; otherExpensesCoaId?: string; description?: string; totalAmount?: number; paidFromBankAccountId?: string; accountingSignerName?: string; paymentProofDataUrl?: string; paymentJournalLines?: PaymentVoucher['paymentJournalLines']; items?: PaymentVoucher['items'] } = {},
   ): Promise<void> {
     const existing = (this.state.paymentVouchers || []).find((v) => v.id === id);
     if (!existing) throw new Error('Payment Voucher tidak ditemukan.');
     if (existing.status === 'PAID') throw new Error('Voucher ini sudah dibayar sebelumnya.');
     if (existing.status !== 'APPROVED') {
       throw new Error(`Voucher belum berstatus Disetujui (status saat ini: ${existing.status || 'PENDING_MANAGER'}).`);
+    }
+    const accountingSignerName = paymentDetails.accountingSignerName?.trim() || '';
+    const accountingSigner = this.state.users.find((user) =>
+      user.role === 'DIRECTOR' && user.status === 'ACTIVE' && user.name === accountingSignerName,
+    );
+    if (!accountingSigner) {
+      throw new Error('Pilih pejabat Direktur aktif pada field Mengetahui Pembukuan.');
     }
     const paymentCurrency = existing.currency || 'IDR';
     const paidFromBankAccount = (this.state.bankAccounts || []).find(
@@ -1053,12 +1061,31 @@ class DatabaseService {
     const otherExpenses = Number(paymentDetails.otherExpenses) || 0;
     const totalAmount = Number(paymentDetails.totalAmount) || existing.totalPaidAmount + surcharge + otherExpenses;
     const description = paymentDetails.description || '';
+    const paymentRecord: PaymentVoucherPaymentRecord = {
+      voucherNumber,
+      journalNumber: existing.journalNumber,
+      paidBy: payer,
+      accountingSignerName: accountingSigner.name,
+      paidAt,
+      paidFromBankAccountId: paymentDetails.paidFromBankAccountId,
+      bankName: existing.bankName,
+      accountNumber: existing.accountNumber,
+      paymentSurcharge: surcharge,
+      paymentSurchargeCoaId: paymentDetails.surchargeCoaId || '',
+      paymentOtherExpenses: otherExpenses,
+      paymentOtherExpensesCoaId: paymentDetails.otherExpensesCoaId || '',
+      paymentDescription: description,
+      paymentTotalAmount: totalAmount,
+      paymentProofDataUrl: paymentDetails.paymentProofDataUrl,
+      paymentJournalLines: paymentDetails.paymentJournalLines || [],
+    };
     this.state.paymentVouchers = this.state.paymentVouchers.map((v) => (v.id === id
       ? {
           ...v,
           voucherNumber,
           status: 'PAID' as const,
           paidBy: payer,
+          accountingSignerName: accountingSigner.name,
           paidAt,
           paymentSurcharge: surcharge,
           paymentSurchargeCoaId: paymentDetails.surchargeCoaId || '',
@@ -1070,6 +1097,7 @@ class DatabaseService {
           paymentJournalLines: paymentDetails.paymentJournalLines || [],
           ...(paymentDetails.items ? { items: paymentDetails.items } : {}),
           ...(paymentDetails.paymentProofDataUrl ? { paymentProofDataUrl: paymentDetails.paymentProofDataUrl } : {}),
+          paymentHistory: [...(v.paymentHistory || []), paymentRecord],
         }
       : v));
     this.audit(

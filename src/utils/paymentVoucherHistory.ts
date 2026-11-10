@@ -10,6 +10,7 @@ const currentPaymentRecord = (voucher: PaymentVoucher): PaymentVoucherPaymentRec
     voucherNumber: voucher.voucherNumber || '',
     journalNumber: voucher.journalNumber,
     paidBy: voucher.paidBy || '',
+    accountingSignerName: voucher.accountingSignerName,
     paidAt: voucher.paidAt,
     paidFromBankAccountId: voucher.paidFromBankAccountId,
     bankName: voucher.bankName,
@@ -35,6 +36,9 @@ export const getPaymentVoucherPaymentEvents = (voucher: PaymentVoucher): Payment
     }));
   const currentPayment = currentPaymentRecord(voucher);
   if (!currentPayment) return history;
+  if (history.some((payment) =>
+    payment.voucherNumber === currentPayment.voucherNumber && payment.paidAt === currentPayment.paidAt
+  )) return history;
   return [
     ...history,
     {
