@@ -439,7 +439,7 @@ export const Header: React.FC<HeaderProps> = ({
           <div>
             <div className="maritim-brand-name">
               <span className="maritim-brand-name-desktop">{companyName}</span>
-              <span className="maritim-brand-name-mobile">{companyName}</span>
+              <span className="maritim-brand-name-mobile">LENTERA GLOBAL</span>
             </div>
             <div className="maritim-brand-sub">SHIPPING AGENCY WORKSPACE</div>
           </div>

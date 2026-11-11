@@ -60,6 +60,22 @@ export const formatDateTimeWib = (value?: string | null): string => {
   return `${formattedDate}, ${formattedTime} WIB`;
 };
 
+export const formatTimeWib = (value?: string | null): string => {
+  if (!value) return '-';
+  const iso = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?:\:\d{2}(?:\.\d{3})?)?$/.test(value)
+    ? `${value.replace(' ', 'T')}Z`
+    : value;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '-';
+  const formattedTime = new Intl.DateTimeFormat('id-ID', {
+    timeZone: 'Asia/Jakarta',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(date);
+  return `${formattedTime} WIB`;
+};
+
 export const formatInquiryDate = (value?: string | Date | null): string =>
   formatDateDisplay(value);
 

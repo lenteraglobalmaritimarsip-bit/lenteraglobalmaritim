@@ -19,7 +19,7 @@ import {
   HrWorkspace,
   WorkerPayrollSlip,
 } from '../../lib/api';
-import { formatDateDisplay, formatDateTimeWib, todayISO } from '../../utils/date';
+import { formatDateDisplay, formatDateTimeWib, formatTimeWib, todayISO } from '../../utils/date';
 import { getPublicDirectorSignatureUrl, getPublicLgfManagingDirectorSignatureUrl, getPublicLgfPayrollSignatureUrl, getPublicLogoUrl, getPublicPayrollSignatureUrl } from '../../utils/logo';
 import { androidNative, isAndroidApp } from '../../lib/androidNative';
 
@@ -917,6 +917,7 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
       sheet.columns = [
         { header: 'No', key: 'number', width: 8 },
         { header: 'Tanggal Surat Masuk', key: 'createdAt', width: 22 },
+        { header: 'Jam Surat Masuk', key: 'createdTime', width: 18 },
         { header: 'Nama Pekerja', key: 'employeeName', width: 28 },
         { header: 'Nomor Pekerja', key: 'employeeNumber', width: 20 },
         { header: 'Jabatan', key: 'position', width: 24 },
@@ -938,6 +939,7 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
         sheet.addRow({
           number: index + 1,
           createdAt: formatDateDisplay(request.createdAt),
+          createdTime: formatTimeWib(request.createdAt),
           employeeName: request.employeeName || employee?.name || '-',
           employeeNumber: employee?.employeeNumber || '-',
           position: employee?.position || '-',
@@ -1425,11 +1427,12 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
                 </div>
               </div>
               <div className="mt-4 max-h-[70vh] overflow-auto overscroll-contain rounded-xl border border-slate-200">
-                <table className="min-w-[900px] w-full border-collapse text-sm">
+                <table className="min-w-[980px] w-full border-collapse text-sm">
                   <thead className="sticky top-0 z-10 bg-slate-50 text-left text-xs font-semibold uppercase text-slate-500">
                     <tr>
                       <th className="border-b border-slate-200 px-3 py-3">No</th>
                       <th className="border-b border-slate-200 px-3 py-3">Tanggal Surat Masuk</th>
+                      <th className="border-b border-slate-200 px-3 py-3">Jam Surat Masuk</th>
                       <th className="border-b border-slate-200 px-3 py-3">Nama Pekerja</th>
                       <th className="border-b border-slate-200 px-3 py-3">Jabatan</th>
                       <th className="border-b border-slate-200 px-3 py-3">Branch</th>
@@ -1446,6 +1449,7 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
                         <tr key={request.id} className="hover:bg-slate-50">
                           <td className="whitespace-nowrap px-3 py-3 text-slate-500">{index + 1}</td>
                           <td className="whitespace-nowrap px-3 py-3">{formatDateDisplay(request.createdAt)}</td>
+                          <td className="whitespace-nowrap px-3 py-3">{formatTimeWib(request.createdAt)}</td>
                           <td className="px-3 py-3 font-medium text-slate-800">{request.employeeName || employee?.name || '-'}</td>
                           <td className="whitespace-nowrap px-3 py-3">{employee?.position || '-'}</td>
                           <td className="whitespace-nowrap px-3 py-3">{employee?.branchName || '-'}</td>
@@ -1463,7 +1467,7 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
                       );
                     })}
                     {!filteredLeaveRequests.length && (
-                      <tr><td colSpan={9} className="px-3 py-8 text-center text-sm text-slate-500">{leaveRequests.length ? 'Tidak ada surat pada bulan yang dipilih.' : 'Belum ada surat permohonan masuk.'}</td></tr>
+                      <tr><td colSpan={10} className="px-3 py-8 text-center text-sm text-slate-500">{leaveRequests.length ? 'Tidak ada surat pada bulan yang dipilih.' : 'Belum ada surat permohonan masuk.'}</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -1486,7 +1490,7 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
                     </div>
                     <dl className="mt-5 grid gap-4 sm:grid-cols-2">
                       <div><dt className="text-xs font-medium text-slate-500">Nomor Pekerja</dt><dd className="mt-1 text-sm font-semibold text-slate-800">{employees.find((item) => item.userId === selectedLeaveRequest.userId)?.employeeNumber || '-'}</dd></div>
-                      <div><dt className="text-xs font-medium text-slate-500">Tanggal Surat Masuk</dt><dd className="mt-1 text-sm font-semibold text-slate-800">{formatDateDisplay(selectedLeaveRequest.createdAt)}</dd></div>
+                      <div><dt className="text-xs font-medium text-slate-500">Tanggal Surat Masuk</dt><dd className="mt-1 text-sm font-semibold text-slate-800">{formatDateDisplay(selectedLeaveRequest.createdAt)} · {formatTimeWib(selectedLeaveRequest.createdAt)}</dd></div>
                       <div><dt className="text-xs font-medium text-slate-500">Status</dt><dd className="mt-1 text-sm font-semibold text-slate-800">{leaveStatusLabel(selectedLeaveRequest.status)}</dd></div>
                       <div><dt className="text-xs font-medium text-slate-500">Tanggal Permohonan</dt><dd className="mt-1 text-sm font-semibold text-slate-800">{formatDateDisplay(selectedLeaveRequest.startDate)} – {formatDateDisplay(selectedLeaveRequest.endDate)}</dd></div>
                       <div><dt className="text-xs font-medium text-slate-500">Lama Hari</dt><dd className="mt-1 text-sm font-semibold text-slate-800">{selectedLeaveRequest.durationDays || calculateRequestDuration(selectedLeaveRequest.type, selectedLeaveRequest.startDate, selectedLeaveRequest.endDate)} hari</dd></div>
@@ -2269,7 +2273,7 @@ const LeaveTable: React.FC<{
     {rows.map((request) => <div key={request.id} className="rounded-lg border border-slate-200 p-3 text-sm">
       <div className="flex flex-wrap justify-between gap-2"><b>{leaveTypeLabel(request.type)} · {leaveStatusLabel(request.status)}</b><span className="text-xs text-slate-500">{formatDateDisplay(request.startDate)} – {formatDateDisplay(request.endDate)}</span></div>
       <div className="mt-2 grid gap-1 text-xs text-slate-500">
-        <span>Tanggal dibuat surat: {formatDateDisplay(request.createdAt)}</span>
+        <span>Tanggal dibuat surat: {formatDateDisplay(request.createdAt)} · {formatTimeWib(request.createdAt)}</span>
         <span>Status permohonan: {leaveStatusLabel(request.status)}</span>
         <span>Lama hari: {request.durationDays || calculateRequestDuration(request.type, request.startDate, request.endDate)} hari</span>
         {request.destinationCity && <span>Kota tujuan: {request.destinationCity}</span>}
@@ -2438,7 +2442,7 @@ const createLeaveLetterPdf = async (request: HrLeaveRequest, employee?: {
   }
   y = Math.max(y + 7, 205);
   pdf.setLineHeightFactor(1);
-  pdf.text(`Jakarta, ${formatDateDisplay(request.createdAt)}`, 145, y, { align: 'center' });
+  pdf.text(`Jakarta, ${formatDateDisplay(request.createdAt)} ${formatTimeWib(request.createdAt)}`, 145, y, { align: 'center' });
   pdf.text('Hormat Saya,', 145, y + 7, { align: 'center' });
   pdf.text(`( ${employee?.name || '-'} )`, 145, y + 27, { align: 'center' });
   pdf.addImage(verificationQr, 'PNG', 24, y - 5, 24, 24);
