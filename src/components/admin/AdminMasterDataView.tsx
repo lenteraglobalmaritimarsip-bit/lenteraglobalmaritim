@@ -44,6 +44,7 @@ import { formatDateDisplay } from '../../utils/date';
 import { expensesItemRatePatch, findMatchingExpensesItem, findMatchingFixTariff, fixTariffRatePatch } from '../../utils/masterDataIdentity';
 import { todayISO } from '../../utils/date';
 import { getBranchByValue, INITIAL_BRANCHES } from '../../branches';
+import { ROLE_LABELS } from '../../auth';
 
 interface AdminMasterDataViewProps {
   initialTab?: 'USERS' | 'CUSTOMERS' | 'VESSELS' | 'PORTS' | 'ZONES' | 'FIX_TARIFF' | 'EXPENSES_ITEM' | 'VENDOR_PARTNERS' | 'BANK_ACCOUNT' | 'CHART_OF_ACCOUNTS' | 'CASH_BALANCE_ADJUSTMENTS';
@@ -308,8 +309,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         role: editUserForm.role as UserRole,
         position: editUserForm.position,
         department: editUserForm.department || editingUser.department,
-        branch: ['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'].includes(editUserForm.role) ? '' : editUserForm.branch || editingUser.branch,
-        branchId: ['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'].includes(editUserForm.role) ? undefined : editUserForm.branchId || findBranch(editUserForm.branch || editingUser.branch)?.id,
+        branch: ['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI', 'HR_ADMINISTRASI_LGF'].includes(editUserForm.role) ? '' : editUserForm.branch || editingUser.branch,
+        branchId: ['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI', 'HR_ADMINISTRASI_LGF'].includes(editUserForm.role) ? undefined : editUserForm.branchId || findBranch(editUserForm.branch || editingUser.branch)?.id,
         email: editUserForm.email,
         phone: editUserForm.phone,
         status: editUserForm.status as User['status'],
@@ -936,7 +937,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
     setAddFormError('');
     try {
       if (activeTab === 'USERS') {
-        const branchIsRequired = !['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'].includes(newUser.role);
+        const branchIsRequired = !['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI', 'HR_ADMINISTRASI_LGF'].includes(newUser.role);
         if (!newUser.name?.trim() || !newUser.email?.trim() || !newUser.username?.trim() || !newUser.password || !newUser.position?.trim() || !newUser.role || !newUser.status || !newUser.department?.trim()
           || (branchIsRequired && (!newUser.branch?.trim() || !(newUser.branchId || findBranch(newUser.branch)?.id)))) {
           setAddFormError(`Lengkapi User, Password, Nama, Jabatan, Email, Role, Status, Departemen${branchIsRequired ? ', dan Branch' : ''} sebelum menyimpan.`);
@@ -948,7 +949,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
         }
         await db.addUser({
           ...newUser,
-          branchId: ['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'].includes(newUser.role) ? undefined : newUser.branchId || findBranch(newUser.branch)?.id,
+          branchId: ['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI', 'HR_ADMINISTRASI_LGF'].includes(newUser.role) ? undefined : newUser.branchId || findBranch(newUser.branch)?.id,
         } as Omit<User, 'id'>);
       } else if (activeTab === 'CUSTOMERS') {
         if (!newCustomer.companyName?.trim()) {
@@ -1429,7 +1430,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 <span className="font-semibold text-slate-600">Role</span>
                 <select required value={userForm.role || ''} onChange={(e) => {
                   const role = e.target.value as UserRole;
-                  updateUserForm(['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'].includes(role) ? { role, branch: '', branchId: undefined } : { role });
+                  updateUserForm(['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI', 'HR_ADMINISTRASI_LGF'].includes(role) ? { role, branch: '', branchId: undefined } : { role });
                 }} className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-slate-800">
                   <option value="">Pilih role</option>
                   <option value="ADMIN">ADMIN</option>
@@ -1441,6 +1442,8 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                   <option value="DIRECTOR">DIREKTUR</option>
                   <option value="HR_ADMINISTRASI">HR ADMINISTRASI</option>
                   <option value="PEKERJA">PEKERJA</option>
+                  <option value="HR_ADMINISTRASI_LGF">HR ADMINISTRASI LGF</option>
+                  <option value="PEKERJA_LGF">PEKERJA LGF</option>
                 </select>
               </label>
               <label className="block">
@@ -1461,10 +1464,10 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                 </select>
               </label>
               <label className="block">
-                <span className="font-semibold text-slate-600">Branch {['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'].includes(userForm.role) ? '(Pusat)' : ''}</span>
+                <span className="font-semibold text-slate-600">Branch {['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI', 'HR_ADMINISTRASI_LGF'].includes(userForm.role) ? '(Pusat)' : ''}</span>
                 <select
-                  required={!['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'].includes(userForm.role)}
-                  disabled={['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'].includes(userForm.role)}
+                  required={!['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI', 'HR_ADMINISTRASI_LGF'].includes(userForm.role)}
+                  disabled={['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI', 'HR_ADMINISTRASI_LGF'].includes(userForm.role)}
                   value={userForm.branchId || findBranch(userForm.branch)?.id || ''}
                   onChange={(e) => {
                     const branch = branches.find((item) => item.id === e.target.value);
@@ -1472,7 +1475,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                   }}
                   className="mt-1 w-full rounded-lg border border-slate-200 p-2.5 text-slate-800"
                 >
-                  <option value="">{['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'].includes(userForm.role) ? 'Tidak dibatasi ke satu branch' : 'Pilih branch'}</option>
+                  <option value="">{['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI', 'HR_ADMINISTRASI_LGF'].includes(userForm.role) ? 'Tidak dibatasi ke satu branch' : 'Pilih branch'}</option>
                   {activeBranches.map((branch) => (
                     <option key={branch.id} value={branch.id}>{branch.id} · {branch.code} · {branch.name}</option>
                   ))}
@@ -1537,7 +1540,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-100/70 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-200">
                 <tr>
-                  <th className="p-3.5">No</th><th className="p-3.5">User</th><th className="p-3.5">Nama Pemegang User</th><th className="p-3.5">Jabatan</th><th className="p-3.5">Email</th><th className="p-3.5">Branch</th><th className="p-3.5">Status</th><th className="p-3.5 text-right">Aksi</th>
+                  <th className="p-3.5">No</th><th className="p-3.5">User</th><th className="p-3.5">Nama Pemegang User</th><th className="p-3.5">Jabatan</th><th className="p-3.5">Email</th><th className="p-3.5">Branch</th><th className="p-3.5">Role User</th><th className="p-3.5">Status</th><th className="p-3.5 text-right">Aksi</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -1549,6 +1552,7 @@ export const AdminMasterDataView: React.FC<AdminMasterDataViewProps> = ({
                     <td className="p-3.5 text-slate-600">{u.position || u.department || '-'}</td>
                     <td className="p-3.5 text-slate-600">{u.email}</td>
                     <td className="p-3.5 text-slate-600">{branchLabel(u.branchId, u.branch)}</td>
+                    <td className="p-3.5 font-semibold text-slate-700">{ROLE_LABELS[u.role] || u.role}</td>
                     <td className="p-3.5"><button onClick={() => void updateUserStatus(u)} title={u.status === 'INACTIVE' ? 'Aktifkan akun dan reset penghitung login gagal' : 'Nonaktifkan akun'} className={`master-data-status px-2.5 py-1 rounded-md text-[10px] font-bold ${u.status==='ACTIVE'?'bg-emerald-50 text-emerald-600 hover:bg-emerald-100':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{u.status}</button></td>
                     <td className="p-3.5 text-right"><div className="flex items-center justify-end gap-1.5"><button onClick={() => openUserEditor(u)} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-violet-50 hover:text-violet-600 text-slate-500 transition" title="Edit User"><Edit2 className="w-3.5 h-3.5" /></button><button onClick={() => void deleteMasterRecord('User', () => db.deleteUser(u.id))} className="p-1.5 rounded bg-white border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-500 transition" title="Hapus User"><Trash2 className="w-3.5 h-3.5" /></button></div></td>
                   </tr>

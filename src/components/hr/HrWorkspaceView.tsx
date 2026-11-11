@@ -20,8 +20,10 @@ import {
   WorkerPayrollSlip,
 } from '../../lib/api';
 import { formatDateDisplay, formatDateTimeWib, todayISO } from '../../utils/date';
-import { getPublicDirectorSignatureUrl, getPublicLogoUrl, getPublicPayrollSignatureUrl } from '../../utils/logo';
+import { getPublicDirectorSignatureUrl, getPublicLgfManagingDirectorSignatureUrl, getPublicLgfPayrollSignatureUrl, getPublicLogoUrl, getPublicPayrollSignatureUrl } from '../../utils/logo';
 import { androidNative, isAndroidApp } from '../../lib/androidNative';
+
+const MAX_WORKER_PHOTO_SIZE_BYTES = 500 * 1024;
 
 type HrPanel = 'employees' | 'requests' | 'leave-approval' | 'attendance' | 'documents' | 'history' | 'worker-profile' | 'worker-attendance' | 'worker-leave' | 'worker-download-payslip' | 'worker-download-attendance';
 
@@ -148,7 +150,7 @@ interface Props {
 }
 
 export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) => {
-  const isHr = currentUser.role === 'HR_ADMINISTRASI';
+  const isHr = currentUser.role === 'HR_ADMINISTRASI' || currentUser.role === 'HR_ADMINISTRASI_LGF';
   const [workspace, setWorkspace] = useState<HrWorkspace | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -264,8 +266,8 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
       setError('Foto pekerja harus berformat JPG atau PNG.');
       return;
     }
-    if (file.size > 2 * 1024 * 1024) {
-      setError('Ukuran foto pekerja maksimum 2 MB.');
+    if (file.size > MAX_WORKER_PHOTO_SIZE_BYTES) {
+      setError('Ukuran foto pekerja maksimum 500 KB.');
       return;
     }
     const reader = new FileReader();
@@ -357,14 +359,42 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
   };
 
   const downloadWorkerPayrollPdf = async (slip: WorkerPayrollSlip) => {
-    const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
-    const directorApprovalSlip = slip.employeeNumber === 'LGM-202512003';
+    const employeeNumber = workspace?.profile?.employeeNumber?.trim() || '';
+    const payrollAccountLastFour = (workspace?.profile?.payrollAccountNumber || '').replace(/\D/g, '').slice(-4);
+    if (!employeeNumber || payrollAccountLastFour.length !== 4) {
+      throw new Error('Nomor pekerja atau rekening payroll belum lengkap di data HR. Hubungi HR untuk memperbarui data sebelum mengunduh slip gaji.');
+    }
+    const pdfPassword = `${employeeNumber}${payrollAccountLastFour}`;
+    const pdf = new jsPDF({
+      unit: 'mm',
+      format: 'a4',
+      orientation: 'portrait',
+      encryption: {
+        userPassword: pdfPassword,
+        ownerPassword: pdfPassword,
+        userPermissions: ['print'],
+      },
+    });
+    const lgfWorkerSlip = currentUser.role === 'PEKERJA_LGF';
+    const lgfDirectorSlip = lgfWorkerSlip && slip.employeeNumber === 'LGF-202512003';
+    const directorApprovalSlip = !lgfWorkerSlip && slip.employeeNumber === 'LGM-202512003';
+    const slipNumber = (() => {
+      if (!lgfWorkerSlip) return slip.slipNumber || slip.employeeNumber;
+      const periodMatch = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(slip.period);
+      if (!periodMatch || !Number.isInteger(slip.rowNumber) || slip.rowNumber < 1 || slip.rowNumber > 999) {
+        throw new Error('Periode atau nomor urut slip LGF tidak valid.');
+      }
+      return `LGF-${periodMatch[1].slice(-2)}${periodMatch[2]}-${String(slip.rowNumber).padStart(3, '0')}`;
+    })();
     const currency = (value: number) => value === 0
       ? '-'
       : new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(value);
     const number = (value: number) => new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(value);
     const logoDataUrl = await imageUrlToDataUrl(getPublicLogoUrl());
-    const signatureUrl = directorApprovalSlip ? getPublicDirectorSignatureUrl() : getPublicPayrollSignatureUrl();
+    const signatureUrl = lgfDirectorSlip
+      ? getPublicLgfManagingDirectorSignatureUrl()
+      : lgfWorkerSlip ? getPublicLgfPayrollSignatureUrl()
+      : directorApprovalSlip ? getPublicDirectorSignatureUrl() : getPublicPayrollSignatureUrl();
     const signatureDataUrl = await imageUrlToDataUrl(signatureUrl);
     if (!logoDataUrl || !signatureDataUrl) throw new Error('Logo atau tanda tangan penanggung jawab gagal dimuat untuk PDF.');
     const formatDate = (value: string) => {
@@ -379,8 +409,11 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
       ? slip.period
       : new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(periodDate);
     const payrollIssueDate = /^\d{4}-\d{2}$/.test(slip.period) ? `${slip.period}-27` : todayISO();
-    const signerRole = directorApprovalSlip ? 'Direktur' : 'Finance';
-    const signerName = directorApprovalSlip ? 'Lailun Nifal Fahmi' : 'Diva Fitri Mellanie';
+    const signerRole = directorApprovalSlip || lgfDirectorSlip ? 'Managing Director' : lgfWorkerSlip ? 'Finance LGF' : 'Finance';
+    const signerName = directorApprovalSlip
+      ? 'Lailun Nifal Fahmi'
+      : lgfDirectorSlip ? 'Yudhi Firmansyah'
+      : lgfWorkerSlip ? 'Atika Wigunastuti' : 'Diva Fitri Mellanie';
     const uploadedPeriodLabel = slip.periodLabel.trim();
     const periodYear = slip.period.match(/\d{4}/)?.[0] || '';
     const payslipPeriod = uploadedPeriodLabel
@@ -425,7 +458,7 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
     pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(11);
     textColor(navy);
-    pdf.text('PT LENTERA GLOBAL MARITIM', 37, 10.5);
+    pdf.text(lgfWorkerSlip ? 'PT LENTERA GLOBAL FORWARDING' : 'PT LENTERA GLOBAL MARITIM', 37, 10.5);
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(6.5);
     textColor(muted);
@@ -452,7 +485,7 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
     drawIdentity(13, 40, 'Periode', payslipPeriod, 29);
     drawIdentity(13, 47, 'Cabang', slip.branch, 29);
     drawIdentity(111, 33, 'Tgl Masuk', formatDate(slip.dateJoined), 29);
-    drawIdentity(111, 40, 'Slip No', slip.slipNumber || slip.employeeNumber, 29);
+    drawIdentity(111, 40, 'Slip No', slipNumber, 29);
     drawIdentity(111, 47, 'Tgl Terbit', formatDate(payrollIssueDate), 29);
     drawIdentity(111, 54, 'Jabatan', slip.position, 29);
 
@@ -565,7 +598,7 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
     pdf.setFontSize(6);
     textColor(muted);
     pdf.text(`Dokumen ini dibuat otomatis dan bersifat rahasia | Tanggal cetak dokumen: ${formatDate(todayISO())}`, 13, 282);
-    pdf.text(slip.slipNumber || slip.employeeNumber, 197, 282, { align: 'right' });
+    pdf.text(slipNumber, 197, 282, { align: 'right' });
     const fileName = `Slip-Gaji-${slip.period}-${slip.employeeNumber}.pdf`;
     if (isAndroidApp()) {
       const contentBase64 = pdf.output('datauristring').split(',', 2)[1];
@@ -578,18 +611,6 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
 
   const saveEmployee = (event: React.FormEvent) => {
     event.preventDefault();
-    const form = event.currentTarget;
-    let firstInvalidField: HTMLInputElement | HTMLSelectElement | null = null;
-    form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input[required], select[required], textarea[required]').forEach((field) => {
-      field.setCustomValidity(field.value.trim() ? '' : 'Kolom ini wajib diisi.');
-      if (!firstInvalidField && !field.checkValidity()) firstInvalidField = field;
-    });
-    if (firstInvalidField) {
-      firstInvalidField.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      firstInvalidField.focus();
-      firstInvalidField.reportValidity();
-      return;
-    }
     void runMutation(() => hrApi.saveEmployee(employeeForm), 'Data pekerja berhasil disimpan.');
   };
 
@@ -599,24 +620,59 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
       const sheet = workbook.addWorksheet('Informasi Data Pekerja');
       sheet.columns = [
         { header: 'NO. PEKERJA', key: 'employeeNumber', width: 20 },
-        { header: 'NAMA', key: 'name', width: 30 },
+        { header: 'NAMA LENGKAP', key: 'name', width: 30 },
+        { header: 'EMAIL', key: 'email', width: 30 },
+        { header: 'TELEPON', key: 'phone', width: 20 },
         { header: 'JABATAN', key: 'position', width: 26 },
+        { header: 'DEPARTEMEN', key: 'department', width: 24 },
         { header: 'BRANCH', key: 'branch', width: 20 },
-        { header: 'KONTRAK', key: 'contract', width: 18 },
+        { header: 'STATUS PEKERJAAN', key: 'status', width: 22 },
+        { header: 'JENIS KELAMIN', key: 'gender', width: 18 },
+        { header: 'TANGGAL LAHIR', key: 'dateOfBirth', width: 18 },
+        { header: 'KOTA KELAHIRAN', key: 'birthCity', width: 22 },
+        { header: 'AGAMA', key: 'religion', width: 22 },
+        { header: 'ALAMAT', key: 'address', width: 40 },
+        { header: 'KONTAK DARURAT', key: 'emergencyContactName', width: 26 },
+        { header: 'TELEPON DARURAT', key: 'emergencyContactPhone', width: 22 },
+        { header: 'JENIS KONTRAK', key: 'contract', width: 20 },
         { header: 'MULAI', key: 'contractStart', width: 16 },
         { header: 'BERAKHIR', key: 'contractEnd', width: 16 },
+        { header: 'LAMA KONTRAK (TAHUN)', key: 'contractDurationYears', width: 24 },
+        { header: 'USIA BEKERJA', key: 'employmentTenure', width: 24 },
+        { header: 'NIK', key: 'nik', width: 22 },
+        { header: 'NPWP', key: 'npwp', width: 22 },
         { header: 'BPJS TENAGA KERJA', key: 'bpjsKetenagakerjaan', width: 24 },
         { header: 'BPJS KESEHATAN', key: 'bpjsKesehatan', width: 22 },
         { header: 'BANK PAYROLL', key: 'payrollBankName', width: 22 },
-        { header: 'USIA BEKERJA', key: 'employmentTenure', width: 24 },
-        { header: 'STATUS KERJA', key: 'status', width: 18 },
-        { header: 'AGAMA', key: 'religion', width: 22 },
+        { header: 'NO. REKENING PAYROLL', key: 'payrollAccountNumber', width: 26 },
+        { header: 'KELENGKAPAN DATA HR', key: 'recordStatus', width: 22 },
       ];
       employees.forEach((employee) => sheet.addRow({
         employeeNumber: employee.employeeNumber || '',
         name: employee.name,
+        email: employee.email || '',
+        phone: employee.phone || '',
         position: employee.position || '',
+        department: employee.department || '',
         branch: employee.branchName || '',
+        status: employee.employmentStatus === 'ACTIVE'
+          ? 'Aktif'
+          : employee.employmentStatus === 'ON_LEAVE'
+            ? 'Cuti'
+            : employee.employmentStatus === 'RESIGNED'
+              ? 'Berakhir / resign'
+              : 'Belum lengkap',
+        gender: ({
+          MALE: 'Laki-laki',
+          FEMALE: 'Perempuan',
+          OTHER: 'Lainnya',
+        } as Record<string, string>)[employee.gender || ''] || '',
+        dateOfBirth: employee.dateOfBirth || '',
+        birthCity: employee.birthCity || '',
+        religion: employee.religion || '',
+        address: employee.address || '',
+        emergencyContactName: employee.emergencyContactName || '',
+        emergencyContactPhone: employee.emergencyContactPhone || '',
         contract: ({
           PERMANENT: 'Tetap',
           CONTRACT: 'Kontrak',
@@ -626,23 +682,20 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
         } as Record<string, string>)[employee.contractType || ''] || '',
         contractStart: employee.contractStart || '',
         contractEnd: employee.contractEnd || '',
+        contractDurationYears: employee.contractDurationYears ?? '',
+        employmentTenure: formatEmploymentTenure(employee.contractStart),
+        nik: employee.nik || '',
+        npwp: employee.npwp || '',
         bpjsKetenagakerjaan: employee.bpjsKetenagakerjaan || '',
         bpjsKesehatan: employee.bpjsKesehatan || '',
         payrollBankName: employee.payrollBankName || '',
-        employmentTenure: formatEmploymentTenure(employee.contractStart),
-        religion: employee.religion || '',
-        status: employee.employmentStatus === 'ACTIVE'
-          ? 'Aktif'
-          : employee.employmentStatus === 'ON_LEAVE'
-            ? 'Cuti'
-            : employee.employmentStatus === 'RESIGNED'
-              ? 'Berakhir / resign'
-              : 'Belum lengkap',
+        payrollAccountNumber: employee.payrollAccountNumber || '',
+        recordStatus: employee.hasRecord ? 'Lengkap' : 'Belum lengkap',
       }));
       sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
       sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF17365D' } };
       sheet.views = [{ state: 'frozen', ySplit: 1 }];
-      sheet.autoFilter = { from: 'A1', to: 'M1' };
+      sheet.autoFilter = { from: 'A1', to: `${sheet.getColumn(sheet.columns.length).letter}1` };
       const buffer = await workbook.xlsx.writeBuffer();
       const url = URL.createObjectURL(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
       const link = window.document.createElement('a');
@@ -1075,8 +1128,8 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
       setError('Foto pekerja harus berformat JPG atau PNG.');
       return;
     }
-    if (file.size > 2 * 1024 * 1024) {
-      setError('Ukuran foto pekerja maksimum 2 MB.');
+    if (file.size > MAX_WORKER_PHOTO_SIZE_BYTES) {
+      setError('Ukuran foto pekerja maksimum 500 KB.');
       return;
     }
     const reader = new FileReader();
@@ -1191,7 +1244,7 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
                         : <span className="px-4 text-xs text-slate-400">Foto pekerja</span>}
                     </div>
                     <label className={`${secondaryButtonClass} mt-3 inline-block cursor-pointer`}>
-                      Upload photo
+                      Upload photo (maks. 500 KB)
                       <input type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" className="hidden" onChange={(event) => selectEmployeePhoto(event.target.files?.[0])} />
                     </label>
                   </div>
@@ -1210,25 +1263,26 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
 
                 <form id="employee-administration-form" noValidate onSubmit={saveEmployee} className="scroll-mt-4 grid gap-3 sm:grid-cols-2">
                   <h3 className="text-base font-bold text-slate-800 sm:col-span-2">Biodata dan pekerjaan</h3>
-                  <label className="text-sm font-medium text-slate-700">Nomor pekerja<span className="text-red-600"> *</span><input required className={fieldClass} value={employeeForm.employeeNumber} onChange={(e) => setEmployeeForm({ ...employeeForm, employeeNumber: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Nama lengkap<span className="text-red-600"> *</span><input required className={fieldClass} value={employeeForm.name} onChange={(e) => setEmployeeForm({ ...employeeForm, name: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Email<span className="text-red-600"> *</span><input required type="email" className={fieldClass} value={employeeForm.email} onChange={(e) => setEmployeeForm({ ...employeeForm, email: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Telepon<span className="text-red-600"> *</span><input required className={fieldClass} value={employeeForm.phone} onChange={(e) => setEmployeeForm({ ...employeeForm, phone: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Jabatan<span className="text-red-600"> *</span><input required className={fieldClass} value={employeeForm.position} onChange={(e) => setEmployeeForm({ ...employeeForm, position: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Departemen<span className="text-red-600"> *</span><input required className={fieldClass} value={employeeForm.department} onChange={(e) => setEmployeeForm({ ...employeeForm, department: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Branch<span className="text-red-600"> *</span>
-                    <select required className={fieldClass} value={employeeForm.branchId} onChange={(e) => setEmployeeForm({ ...employeeForm, branchId: e.target.value })}>
+                  <p className="text-xs text-slate-500 sm:col-span-2">Kolom administrasi dapat dikosongkan. Nama dan email akun tetap dipertahankan, dan branch mengikuti branch akun pekerja jika tidak dipilih.</p>
+                  <label className="text-sm font-medium text-slate-700">Nomor pekerja<input className={fieldClass} value={employeeForm.employeeNumber} onChange={(e) => setEmployeeForm({ ...employeeForm, employeeNumber: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Nama lengkap<input className={fieldClass} value={employeeForm.name} onChange={(e) => setEmployeeForm({ ...employeeForm, name: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Email<input type="email" className={fieldClass} value={employeeForm.email} onChange={(e) => setEmployeeForm({ ...employeeForm, email: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Telepon<input className={fieldClass} value={employeeForm.phone} onChange={(e) => setEmployeeForm({ ...employeeForm, phone: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Jabatan<input className={fieldClass} value={employeeForm.position} onChange={(e) => setEmployeeForm({ ...employeeForm, position: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Departemen<input className={fieldClass} value={employeeForm.department} onChange={(e) => setEmployeeForm({ ...employeeForm, department: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Branch
+                    <select className={fieldClass} value={employeeForm.branchId} onChange={(e) => setEmployeeForm({ ...employeeForm, branchId: e.target.value })}>
                       <option value="">Pilih branch</option>
                       {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.code} · {branch.name}</option>)}
                     </select>
                   </label>
-                  <label className="text-sm font-medium text-slate-700">Status kerja<span className="text-red-600"> *</span>
-                    <select required className={fieldClass} value={employeeForm.employmentStatus} onChange={(e) => setEmployeeForm({ ...employeeForm, employmentStatus: e.target.value as HrEmployeeSave['employmentStatus'] })}>
+                  <label className="text-sm font-medium text-slate-700">Status kerja
+                    <select className={fieldClass} value={employeeForm.employmentStatus} onChange={(e) => setEmployeeForm({ ...employeeForm, employmentStatus: e.target.value as HrEmployeeSave['employmentStatus'] })}>
                       <option value="ACTIVE">Aktif</option><option value="ON_LEAVE">Cuti</option><option value="RESIGNED">Berakhir / resign</option>
                     </select>
                   </label>
-                  <label className="text-sm font-medium text-slate-700">Agama<span className="text-red-600"> *</span>
-                    <select required className={fieldClass} value={employeeForm.religion} onChange={(e) => setEmployeeForm({ ...employeeForm, religion: e.target.value as HrEmployeeSave['religion'] })}>
+                  <label className="text-sm font-medium text-slate-700">Agama
+                    <select className={fieldClass} value={employeeForm.religion} onChange={(e) => setEmployeeForm({ ...employeeForm, religion: e.target.value as HrEmployeeSave['religion'] })}>
                       <option value="">Pilih agama</option>
                       <option value="Islam">Islam</option>
                       <option value="Kristen Protestan">Kristen Protestan</option>
@@ -1238,28 +1292,28 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
                       <option value="Konghucu">Konghucu</option>
                     </select>
                   </label>
-                  <label className="text-sm font-medium text-slate-700">Tanggal lahir<span className="text-red-600"> *</span><input required type="date" className={fieldClass} value={employeeForm.dateOfBirth} onChange={(e) => setEmployeeForm({ ...employeeForm, dateOfBirth: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Kota kelahiran<span className="text-red-600"> *</span><input required className={fieldClass} value={employeeForm.birthCity} onChange={(e) => setEmployeeForm({ ...employeeForm, birthCity: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">NIK<span className="text-red-600"> *</span><input required className={fieldClass} inputMode="numeric" value={employeeForm.nik} onChange={(e) => setEmployeeForm({ ...employeeForm, nik: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">NPWP<span className="text-red-600"> *</span><input required className={fieldClass} value={employeeForm.npwp} onChange={(e) => setEmployeeForm({ ...employeeForm, npwp: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">BPJS Tenaga Kerja<span className="text-red-600"> *</span><input required className={fieldClass} value={employeeForm.bpjsKetenagakerjaan} onChange={(e) => setEmployeeForm({ ...employeeForm, bpjsKetenagakerjaan: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">BPJS Kesehatan<span className="text-red-600"> *</span><input required className={fieldClass} value={employeeForm.bpjsKesehatan} onChange={(e) => setEmployeeForm({ ...employeeForm, bpjsKesehatan: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Jenis kelamin<span className="text-red-600"> *</span>
-                    <select required className={fieldClass} value={employeeForm.gender} onChange={(e) => setEmployeeForm({ ...employeeForm, gender: e.target.value as HrEmployeeSave['gender'] })}>
+                  <label className="text-sm font-medium text-slate-700">Tanggal lahir<input type="date" className={fieldClass} value={employeeForm.dateOfBirth} onChange={(e) => setEmployeeForm({ ...employeeForm, dateOfBirth: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Kota kelahiran<input className={fieldClass} value={employeeForm.birthCity} onChange={(e) => setEmployeeForm({ ...employeeForm, birthCity: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">NIK<input inputMode="numeric" className={fieldClass} value={employeeForm.nik} onChange={(e) => setEmployeeForm({ ...employeeForm, nik: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">NPWP<input className={fieldClass} value={employeeForm.npwp} onChange={(e) => setEmployeeForm({ ...employeeForm, npwp: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">BPJS Tenaga Kerja<input className={fieldClass} value={employeeForm.bpjsKetenagakerjaan} onChange={(e) => setEmployeeForm({ ...employeeForm, bpjsKetenagakerjaan: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">BPJS Kesehatan<input className={fieldClass} value={employeeForm.bpjsKesehatan} onChange={(e) => setEmployeeForm({ ...employeeForm, bpjsKesehatan: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Jenis kelamin
+                    <select className={fieldClass} value={employeeForm.gender} onChange={(e) => setEmployeeForm({ ...employeeForm, gender: e.target.value as HrEmployeeSave['gender'] })}>
                       <option value="">Pilih jenis kelamin</option><option value="MALE">Laki-laki</option><option value="FEMALE">Perempuan</option><option value="OTHER">Lainnya</option>
                     </select>
                   </label>
-                  <label className="text-sm font-medium text-slate-700">Jenis kontrak<span className="text-red-600"> *</span>
-                    <select required className={fieldClass} value={employeeForm.contractType} onChange={(e) => setEmployeeForm({ ...employeeForm, contractType: e.target.value as HrEmployeeSave['contractType'] })}>
+                  <label className="text-sm font-medium text-slate-700">Jenis kontrak
+                    <select className={fieldClass} value={employeeForm.contractType} onChange={(e) => setEmployeeForm({ ...employeeForm, contractType: e.target.value as HrEmployeeSave['contractType'] })}>
                       <option value="">Pilih jenis kontrak</option><option value="PERMANENT">Tetap</option><option value="CONTRACT">Kontrak</option><option value="PROBATION">Probation</option><option value="INTERNSHIP">Magang</option><option value="OTHER">Lainnya</option>
                     </select>
                   </label>
-                  <label className="text-sm font-medium text-slate-700">Mulai kontrak<span className="text-red-600"> *</span><input required type="date" className={fieldClass} value={employeeForm.contractStart} onChange={(e) => setEmployeeForm({ ...employeeForm, contractStart: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Mulai kontrak<input type="date" className={fieldClass} value={employeeForm.contractStart} onChange={(e) => setEmployeeForm({ ...employeeForm, contractStart: e.target.value })} /></label>
                   <label className="text-sm font-medium text-slate-700">Akhir kontrak<input type="date" className={fieldClass} value={employeeForm.contractEnd} onChange={(e) => setEmployeeForm({ ...employeeForm, contractEnd: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Lama kontrak (tahun)<span className="text-red-600"> *</span><input required type="number" min="0" max="99.9" step="0.1" className={fieldClass} value={employeeForm.contractDurationYears} onChange={(e) => setEmployeeForm({ ...employeeForm, contractDurationYears: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">No. Rekening Payroll<span className="text-red-600"> *</span><input required className={fieldClass} inputMode="numeric" value={employeeForm.payrollAccountNumber} onChange={(e) => setEmployeeForm({ ...employeeForm, payrollAccountNumber: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700">Bank Payroll<span className="text-red-600"> *</span><input required className={fieldClass} value={employeeForm.payrollBankName} onChange={(e) => setEmployeeForm({ ...employeeForm, payrollBankName: e.target.value })} /></label>
-                  <label className="text-sm font-medium text-slate-700 sm:col-span-2">Alamat<span className="text-red-600"> *</span><textarea required rows={2} className={fieldClass} value={employeeForm.address} onChange={(e) => setEmployeeForm({ ...employeeForm, address: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Lama kontrak (tahun)<input type="number" min="0" max="99.9" step="0.1" className={fieldClass} value={employeeForm.contractDurationYears} onChange={(e) => setEmployeeForm({ ...employeeForm, contractDurationYears: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">No. Rekening Payroll<input className={fieldClass} inputMode="numeric" value={employeeForm.payrollAccountNumber} onChange={(e) => setEmployeeForm({ ...employeeForm, payrollAccountNumber: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700">Bank Payroll<input className={fieldClass} value={employeeForm.payrollBankName} onChange={(e) => setEmployeeForm({ ...employeeForm, payrollBankName: e.target.value })} /></label>
+                  <label className="text-sm font-medium text-slate-700 sm:col-span-2">Alamat<textarea rows={2} className={fieldClass} value={employeeForm.address} onChange={(e) => setEmployeeForm({ ...employeeForm, address: e.target.value })} /></label>
                   <label className="text-sm font-medium text-slate-700">Kontak darurat<input className={fieldClass} value={employeeForm.emergencyContactName} onChange={(e) => setEmployeeForm({ ...employeeForm, emergencyContactName: e.target.value })} /></label>
                   <label className="text-sm font-medium text-slate-700">Telepon darurat<input className={fieldClass} value={employeeForm.emergencyContactPhone} onChange={(e) => setEmployeeForm({ ...employeeForm, emergencyContactPhone: e.target.value })} /></label>
                   <div className="sm:col-span-2">
@@ -1448,6 +1502,7 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
                       <button type="button" className={secondaryButtonClass} onClick={() => void downloadLeaveLetter(
                         selectedLeaveRequest,
                         employees.find((item) => item.userId === selectedLeaveRequest.userId) || { name: selectedLeaveRequest.employeeName || '-' },
+                        currentUser.role === 'HR_ADMINISTRASI_LGF' ? 'PT. LENTERA GLOBAL FORWARDING' : 'PT. LENTERA GLOBAL MARITIM',
                       )}>Download PDF</button>
                       {selectedLeaveRequest.status === 'PENDING' && <div className="flex flex-wrap items-end gap-2">
                         <input aria-label="Catatan keputusan surat permohonan" className={`${fieldClass} mb-0 max-w-xs`} placeholder="Catatan wajib jika menolak" value={decisionNotes[selectedLeaveRequest.id] || ''} onChange={(event) => setDecisionNotes({ ...decisionNotes, [selectedLeaveRequest.id]: event.target.value })} />
@@ -1593,7 +1648,7 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
                   </div>
                 </div>
                 <label className={`${secondaryButtonClass} mt-3 cursor-pointer text-center`}>
-                  Ganti Foto Profil
+                  Ganti Foto Profil (maks. 500 KB)
                   <input type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" className="hidden" onChange={(event) => selectWorkerPhoto(event.target.files?.[0])} />
                 </label>
               </div>
@@ -1693,12 +1748,18 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
               <label className="text-sm font-medium text-slate-700 sm:col-span-2">Keperluan Permohonan<textarea required rows={4} maxLength={2000} className={fieldClass} value={leaveForm.reason} onChange={(e) => setLeaveForm({ ...leaveForm, reason: e.target.value })} /></label>
               <div className="sm:col-span-2"><button className={buttonClass} disabled={saving}>{saving ? 'Mengirim...' : 'Ajukan permohonan'}</button></div>
             </form>
-            <LeaveTable rows={ownLeaveRequests} employee={profile || currentUser} onPreview={(request) => openLeaveLetter(request, profile || currentUser)} />
+            <LeaveTable
+              rows={ownLeaveRequests}
+              employee={profile || currentUser}
+              companyName={currentUser.role === 'PEKERJA_LGF' ? 'PT. LENTERA GLOBAL FORWARDING' : 'PT. LENTERA GLOBAL MARITIM'}
+              onPreview={(request) => openLeaveLetter(request, profile || currentUser, currentUser.role === 'PEKERJA_LGF' ? 'PT. LENTERA GLOBAL FORWARDING' : 'PT. LENTERA GLOBAL MARITIM')}
+            />
           </section>
           }
           {panel === 'worker-download-payslip' && <section className={`${sectionClass} xl:col-span-2`}>
             <h2 className="text-lg font-bold text-slate-900">Slip Gaji</h2>
             <p className="mt-1 text-sm text-slate-600">Unduh slip gaji milik pekerja berdasarkan periode yang tersedia.</p>
+            <p className="mt-1 text-xs text-slate-500">PDF dilindungi password: Nomor Pekerja + 4 digit terakhir rekening payroll sesuai data HR.</p>
             <div className="mt-4 grid gap-3 rounded-xl bg-slate-50 p-4 sm:grid-cols-3">
               <label className="text-sm font-medium text-slate-700">Pilih bulan<select className={fieldClass} value={workerDownloadFilters.month} onChange={(event) => { setWorkerDownloadFilters({ ...workerDownloadFilters, month: Number(event.target.value) }); setWorkerPayslipShown(false); }}>{Array.from({ length: 12 }, (_, index) => index + 1).map((month) => <option key={month} value={month}>{new Intl.DateTimeFormat('id-ID', { month: 'long' }).format(new Date(2026, month - 1, 1))}</option>)}</select></label>
               <label className="text-sm font-medium text-slate-700">Pilih tahun<select className={fieldClass} value={workerDownloadFilters.year} onChange={(event) => { setWorkerDownloadFilters({ ...workerDownloadFilters, year: Number(event.target.value) }); setWorkerPayslipShown(false); }}>{workerDownloadYears.map((year) => <option key={year} value={year}>{year}</option>)}</select></label>
@@ -2195,15 +2256,15 @@ const leaveStatusLabel = (status: HrLeaveRequest['status']) => ({
 
 const LeaveTable: React.FC<{
   rows: HrLeaveRequest[];
+  companyName: string;
   employee?: {
     name: string;
     position?: string | null;
     employeeNumber?: string | null;
-    nik?: string | null;
     department?: string | null;
   };
   onPreview?: (request: HrLeaveRequest) => void;
-}> = ({ rows, employee, onPreview }) => (
+}> = ({ rows, employee, companyName, onPreview }) => (
   <div className="mt-5 max-h-[60vh] space-y-2 overflow-y-auto overscroll-contain pr-2">
     {rows.map((request) => <div key={request.id} className="rounded-lg border border-slate-200 p-3 text-sm">
       <div className="flex flex-wrap justify-between gap-2"><b>{leaveTypeLabel(request.type)} · {leaveStatusLabel(request.status)}</b><span className="text-xs text-slate-500">{formatDateDisplay(request.startDate)} – {formatDateDisplay(request.endDate)}</span></div>
@@ -2218,7 +2279,7 @@ const LeaveTable: React.FC<{
       {request.reviewNote && <p className="mt-1 text-xs text-slate-500">Catatan HR: {request.reviewNote}</p>}
       {onPreview && <div className="mt-3 flex gap-2">
         <button type="button" className={secondaryButtonClass} onClick={() => onPreview(request)}>Lihat surat</button>
-        <button type="button" className={buttonClass} onClick={() => downloadLeaveLetter(request, employee)}>Download PDF</button>
+        <button type="button" className={buttonClass} onClick={() => downloadLeaveLetter(request, employee, companyName)}>Download PDF</button>
       </div>}
     </div>)}
     {!rows.length && <p className="text-sm text-slate-500">Belum ada pengajuan cuti/izin.</p>}
@@ -2258,9 +2319,8 @@ const createLeaveLetterPdf = async (request: HrLeaveRequest, employee?: {
   name: string;
   position?: string | null;
   employeeNumber?: string | null;
-  nik?: string | null;
   department?: string | null;
-}) => {
+}, companyName = 'PT. LENTERA GLOBAL MARITIM') => {
   const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
   const pageWidth = 210;
   const logoDataUrl = await imageUrlToDataUrl(getPublicLogoUrl());
@@ -2275,7 +2335,7 @@ const createLeaveLetterPdf = async (request: HrLeaveRequest, employee?: {
   if (logoDataUrl) pdf.addImage(logoDataUrl, 'JPEG', 24, 10, 27, 20);
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(17);
-  pdf.text('PT. LENTERA GLOBAL MARITIM', 165, 17, { align: 'right' });
+  pdf.text(companyName, 165, 17, { align: 'right' });
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(9);
   pdf.text('Seamless Agent, Global Reach', 165, 23, { align: 'right' });
@@ -2334,18 +2394,20 @@ const createLeaveLetterPdf = async (request: HrLeaveRequest, employee?: {
   const duration = request.durationDays || calculateRequestDuration(request.type, request.startDate, request.endDate);
   const durationUnit = ['ANNUAL', 'PERSONAL', 'OTHER'].includes(request.type) ? 'Hari kerja' : 'Hari';
   const employeeNumber = employee?.employeeNumber;
-  const nik = employee?.nik;
   const department = employee?.department;
+  const addresseeCompanyName = companyName === 'PT. LENTERA GLOBAL FORWARDING'
+    ? companyName
+    : 'PT. Lentera Global Maritim';
   addText(`Perihal: Permohonan ${leaveTypeLabel(request.type)} - ${employee?.name || '-'}`, 0);
   addText('Kepada Yth.', 0);
   addText('Bagian HRD / Personalia', 0);
-  addText('PT. Lentera Global Maritim', 0);
+  addText(addresseeCompanyName, 0);
   addText('Di Tempat', 0);
   addSectionBreak(4);
   addText('Dengan hormat,');
   addText('Saya yang bertanda tangan di bawah ini:');
   addBulletField('Nama', employee?.name || '-');
-  addBulletField('NIK / No. Karyawan', nik || employeeNumber || '-');
+  addBulletField('Nomor Pekerja', employeeNumber || '-');
   addBulletField('Jabatan', employee?.position || '-');
   addBulletField('Departemen', department || '-');
   addSectionBreak(2);
@@ -2399,8 +2461,13 @@ const createLeaveLetterPdf = async (request: HrLeaveRequest, employee?: {
   return pdf;
 };
 
-const downloadLeaveLetter = async (request: HrLeaveRequest, employee?: { name: string; position?: string | null }) => {
-  const pdf = await createLeaveLetterPdf(request, employee);
+const downloadLeaveLetter = async (request: HrLeaveRequest, employee?: {
+  name: string;
+  position?: string | null;
+  employeeNumber?: string | null;
+  department?: string | null;
+}, companyName = 'PT. LENTERA GLOBAL MARITIM') => {
+  const pdf = await createLeaveLetterPdf(request, employee, companyName);
   const fileName = `surat-permohonan-${request.id}.pdf`;
   if (isAndroidApp()) {
     const contentBase64 = pdf.output('datauristring').split(',', 2)[1];
@@ -2411,10 +2478,15 @@ const downloadLeaveLetter = async (request: HrLeaveRequest, employee?: { name: s
   }
 };
 
-const openLeaveLetter = (request: HrLeaveRequest, employee?: { name: string; position?: string | null }) => {
+const openLeaveLetter = (request: HrLeaveRequest, employee?: {
+  name: string;
+  position?: string | null;
+  employeeNumber?: string | null;
+  department?: string | null;
+}, companyName = 'PT. LENTERA GLOBAL MARITIM') => {
   const fileName = `surat-permohonan-${request.id}.pdf`;
   if (isAndroidApp()) {
-    void createLeaveLetterPdf(request, employee)
+    void createLeaveLetterPdf(request, employee, companyName)
       .then(async (pdf) => {
         const contentBase64 = pdf.output('datauristring').split(',', 2)[1];
         if (!contentBase64) throw new Error('Isi PDF surat gagal dibuat.');
@@ -2431,7 +2503,7 @@ const openLeaveLetter = (request: HrLeaveRequest, employee?: { name: string; pos
     return;
   }
 
-  void createLeaveLetterPdf(request, employee).then((pdf) => {
+  void createLeaveLetterPdf(request, employee, companyName).then((pdf) => {
     const pdfData = pdf.output('datauristring');
     popup.document.title = `Surat Permohonan - ${employee?.name || '-'}`;
     popup.document.body.innerHTML = `

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChevronDown, ChevronRight, Eye, FileText, Printer, Search } from 'lucide-react';
+import { CalendarDays, ChevronDown, ChevronRight, Eye, FileText, Printer, Search, X } from 'lucide-react';
 import { BankAccount, JobCall, PaymentVoucher, User } from '../../types';
 import { db } from '../../db/storage';
 import { dataApi } from '../../lib/dataApi';
@@ -68,6 +68,9 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
   const paymentDraftSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const paymentDraftSaveTimeoutRef = useRef<number | null>(null);
   const [paymentFormVoucherId, setPaymentFormVoucherId] = useState<string | null>(null);
+  const [rejectingVoucherId, setRejectingVoucherId] = useState<string | null>(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [isSubmittingRejection, setIsSubmittingRejection] = useState(false);
   const [paymentDate, setPaymentDate] = useState<string>(todayIso());
   const paymentDatePickerRef = useRef<HTMLInputElement | null>(null);
   const [manualSurcharge, setManualSurcharge] = useState('');
@@ -237,6 +240,37 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
     }
   };
 
+  const submitVoucherRejection = async () => {
+    const voucher = paymentVouchers.find((item) => item.id === rejectingVoucherId);
+    const reason = rejectionReason.trim();
+    if (!voucher) {
+      setError('Payment Voucher tidak ditemukan. Muat ulang data sebelum mencoba kembali.');
+      return;
+    }
+    if (!reason) {
+      setError('Alasan penolakan wajib diisi.');
+      return;
+    }
+    if (reason.length > 1000) {
+      setError('Alasan penolakan maksimal 1000 karakter.');
+      return;
+    }
+
+    setError('');
+    setIsSubmittingRejection(true);
+    try {
+      await db.refreshRemote();
+      await db.rejectApprovedPaymentVoucher(voucher.id, payer, reason);
+      setRejectingVoucherId(null);
+      setRejectionReason('');
+      setMessage(`Request ${voucher.requestNumber} ditolak dan dikembalikan ke FDA untuk diperbaiki melalui Edit Payment.`);
+    } catch (rejectionError) {
+      setError(rejectionError instanceof Error ? rejectionError.message : 'Gagal mengembalikan payment request ke FDA.');
+    } finally {
+      setIsSubmittingRejection(false);
+    }
+  };
+
   const postPayment = async () => {
     if (!paymentFormVoucher || isUploadingPaymentProof) return;
     if (!selectedBank) {
@@ -323,6 +357,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
       checkerName: voucher.reviewedBy,
       signerName: voucher.status === 'PAID' ? voucher.accountingSignerName : voucher.reviewedBy,
       includeFinancePrintDetails: true,
+      omitCustomerColumn: true,
     });
     setError(printError || '');
   };
@@ -951,6 +986,62 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
 
       {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">{error}</div>}
       {message && <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-700">{message}</div>}
+      {rejectingVoucherId && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-4" role="dialog" aria-modal="true" aria-labelledby="payment-rejection-title">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 id="payment-rejection-title" className="text-base font-black text-slate-900">Tolak Request Payment</h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  Request {paymentVouchers.find((voucher) => voucher.id === rejectingVoucherId)?.requestNumber || '-'} akan dikembalikan ke FDA untuk diperbaiki di Request Payment → Edit Payment.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setRejectingVoucherId(null); setRejectionReason(''); setError(''); }}
+                disabled={isSubmittingRejection}
+                aria-label="Tutup dialog penolakan"
+                className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <label className="mt-4 block text-xs font-bold text-slate-700" htmlFor="payment-rejection-reason">
+              Alasan penolakan <span className="text-rose-600">(wajib)</span>
+            </label>
+            <textarea
+              id="payment-rejection-reason"
+              value={rejectionReason}
+              onChange={(event) => setRejectionReason(event.target.value)}
+              maxLength={1000}
+              rows={4}
+              autoFocus
+              placeholder="Jelaskan bagian yang perlu diperbaiki..."
+              className="mt-1 w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-800 outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-100"
+            />
+            <div className="mt-1 text-right text-[10px] text-slate-400">{rejectionReason.length}/1000</div>
+            {error && <p role="alert" className="mt-2 text-xs font-semibold text-rose-700">{error}</p>}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => { setRejectingVoucherId(null); setRejectionReason(''); setError(''); }}
+                disabled={isSubmittingRejection}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => { void submitVoucherRejection(); }}
+                disabled={isSubmittingRejection || !rejectionReason.trim()}
+                className="rounded-lg bg-rose-600 px-4 py-2 text-xs font-bold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isSubmittingRejection ? 'Mengirim...' : 'Kirim Penolakan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-end justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
         <div className="relative w-full max-w-md">
@@ -1058,9 +1149,18 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                       <td className="p-3.5 text-center" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-center gap-2">
                           {mode === 'INPUT' && voucher.status === 'APPROVED' && (
-                            <button type="button" onClick={() => { setPaymentFormProof(null); setPaymentFormVoucherId(voucher.id); }} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-emerald-700">
-                              Bayar
-                            </button>
+                            <>
+                              <button type="button" onClick={() => { setPaymentFormProof(null); setPaymentFormVoucherId(voucher.id); }} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-emerald-700">
+                                Bayar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => { setRejectingVoucherId(voucher.id); setRejectionReason(''); setError(''); }}
+                                className="inline-flex items-center gap-1 rounded-lg bg-rose-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-rose-700"
+                              >
+                                <X size={13} /> Tolak
+                              </button>
+                            </>
                           )}
                           {voucher.status === 'PAID' && (
                             <>

@@ -125,6 +125,29 @@ function validatePaymentVoucherApprovalChanges(array $newState, array $oldState,
         $oldStatus = (string) ($oldVoucher['status'] ?? 'PENDING_MANAGER');
         $newStatus = (string) ($voucher['status'] ?? 'PENDING_MANAGER');
         $isDecision = $oldStatus === 'PENDING_MANAGER' && in_array($newStatus, ['APPROVED', 'REJECTED'], true);
+        $isFinancePaymentRejection = $oldStatus === 'APPROVED' && $newStatus === 'REJECTED';
+
+        if ($isFinancePaymentRejection) {
+            $note = trim((string) ($voucher['managerNote'] ?? ''));
+            $noteLength = function_exists('mb_strlen') ? mb_strlen($note, 'UTF-8') : strlen($note);
+            $reviewedAt = trim((string) ($voucher['reviewedAt'] ?? ''));
+            if (($actor['role'] ?? '') !== 'FINANCE') {
+                return 'Hanya Finance yang dapat mengembalikan voucher yang menunggu pembayaran.';
+            }
+            if (!isPaymentVoucherApprovalOnlyChange($voucher, $oldVoucher)) {
+                return 'Penolakan pembayaran hanya boleh mengubah status dan catatan penolakan.';
+            }
+            if ($note === '' || $noteLength > 1000) {
+                return 'Alasan penolakan wajib diisi dan maksimal 1000 karakter.';
+            }
+            if (trim((string) ($voucher['reviewedBy'] ?? '')) !== trim((string) ($actor['name'] ?? ''))) {
+                return 'Nama Finance tidak sesuai dengan akun yang sedang login.';
+            }
+            if ($reviewedAt === '' || strtotime($reviewedAt) === false) {
+                return 'Waktu penolakan Finance wajib dicatat.';
+            }
+            continue;
+        }
 
         if ($isDecision) {
             $approvalChanged = true;
@@ -357,7 +380,7 @@ function validateUserBranches(array $newState, array $oldState): ?string
         $branchChanged = $oldUser === null
             || branchNameKey((string) ($oldUser['branch'] ?? '')) !== branchNameKey($branchCode)
             || branchIdKey((string) ($oldUser['branchId'] ?? '')) !== branchIdKey($branchId);
-        if ($branchCode === '' && in_array(($user['role'] ?? ''), ['ADMIN', 'ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'], true)) continue;
+        if ($branchCode === '' && in_array(($user['role'] ?? ''), ['ADMIN', 'ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI', 'HR_ADMINISTRASI_LGF'], true)) continue;
         if ($branchId === '') $branchId = branchIdFromValue($branchCode) ?? '';
         if ($branchId !== '' && !validBranchSelection($branchId, $branchCode)) {
             return 'Pilih branch aktif yang valid dari master branch untuk user.';
@@ -830,7 +853,7 @@ function applyNonAdminMasterData(array &$state, array $before, string $role): vo
 try {
     if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
         $actor = requireAuthenticatedUser();
-        if (in_array($actor['role'] ?? '', ['HR_ADMINISTRASI', 'PEKERJA'], true)) {
+        if (in_array($actor['role'] ?? '', ['HR_ADMINISTRASI', 'PEKERJA', 'HR_ADMINISTRASI_LGF', 'PEKERJA_LGF'], true)) {
             jsonResponse(['error' => 'Role HR dan Pekerja menggunakan workspace administrasi khusus.'], 403);
         }
         $state = loadAppState();
@@ -840,7 +863,7 @@ try {
 
     requireMethod('PUT');
     $actor = requireAuthenticatedUser();
-    if (in_array($actor['role'] ?? '', ['HR_ADMINISTRASI', 'PEKERJA'], true)) {
+    if (in_array($actor['role'] ?? '', ['HR_ADMINISTRASI', 'PEKERJA', 'HR_ADMINISTRASI_LGF', 'PEKERJA_LGF'], true)) {
         jsonResponse(['error' => 'Role HR dan Pekerja tidak dapat mengubah state operasional.'], 403);
     }
     requireCsrfToken();
@@ -897,11 +920,31 @@ try {
         $incomingUsersById[(string) ($incomingUser['id'] ?? '')] = $incomingUser;
     }
     $workersLosingRole = [];
+    $workersChangingCompany = [];
     foreach ($before['users'] ?? [] as $existingUser) {
-        if (($existingUser['role'] ?? '') !== 'PEKERJA') continue;
+        if (!in_array(($existingUser['role'] ?? ''), ['PEKERJA', 'PEKERJA_LGF'], true)) continue;
         $incomingUser = $incomingUsersById[(string) ($existingUser['id'] ?? '')] ?? null;
-        if ($incomingUser === null || ($incomingUser['role'] ?? '') !== 'PEKERJA') {
+        if ($incomingUser === null || !in_array(($incomingUser['role'] ?? ''), ['PEKERJA', 'PEKERJA_LGF'], true)) {
             $workersLosingRole[] = (string) $existingUser['id'];
+        } elseif (($existingUser['role'] ?? '') !== ($incomingUser['role'] ?? '')) {
+            $workersChangingCompany[] = (string) $existingUser['id'];
+        }
+    }
+    if ($workersChangingCompany) {
+        $hasHrHistory = false;
+        foreach (['hr_employee_records', 'hr_employee_documents', 'hr_attendance', 'hr_leave_requests', 'hr_profile_change_requests', 'hr_employee_history'] as $table) {
+            if (tableColumns($pdo, $table) === null) continue;
+            $marks = implode(', ', array_fill(0, count($workersChangingCompany), '?'));
+            $query = $pdo->prepare("SELECT 1 FROM `{$table}` WHERE user_id IN ({$marks}) LIMIT 1");
+            $query->execute($workersChangingCompany);
+            if ($query->fetchColumn()) {
+                $hasHrHistory = true;
+                break;
+            }
+        }
+        if ($hasHrHistory) {
+            $pdo->query("SELECT RELEASE_LOCK('maritimport_app_state')");
+            jsonResponse(['error' => 'Role PEKERJA dan PEKERJA LGF tidak dapat dipertukarkan setelah data HR dibuat agar data kedua perusahaan tetap terpisah.'], 409);
         }
     }
     if ($workersLosingRole) {
@@ -1465,6 +1508,33 @@ try {
                         ? describeJobUpdate($oldJobs[$jobId], $newJobs[$jobId] ?? [], (string) $actor['role'])
                         : 'Sales membuat inquiry dan vessel call baru.'),
             ]);
+        }
+        if ($actor['role'] === 'FINANCE') {
+            $oldVouchersById = [];
+            foreach ($before['paymentVouchers'] ?? [] as $voucher) {
+                if (isset($voucher['id'])) $oldVouchersById[(string) $voucher['id']] = $voucher;
+            }
+            foreach ($state['paymentVouchers'] ?? [] as $voucher) {
+                $id = (string) ($voucher['id'] ?? '');
+                $oldVoucher = $oldVouchersById[$id] ?? null;
+                if ($oldVoucher === null
+                    || ($oldVoucher['status'] ?? 'PENDING_MANAGER') !== 'APPROVED'
+                    || ($voucher['status'] ?? '') !== 'REJECTED') {
+                    continue;
+                }
+                array_unshift($state['auditLogs'], [
+                    'id' => 'AUD-' . bin2hex(random_bytes(12)),
+                    'timestamp' => gmdate('c'),
+                    'actorId' => $actor['id'] ?? null,
+                    'actorName' => $actor['name'],
+                    'role' => $actor['role'],
+                    'action' => 'REJECT',
+                    'entity' => 'PAYMENT_VOUCHER',
+                    'entityId' => $id,
+                    'description' => 'Finance mengembalikan payment voucher ' . (string) ($voucher['requestNumber'] ?? $id)
+                        . ' kepada pengaju. Alasan: ' . trim((string) ($voucher['managerNote'] ?? '')),
+                ]);
+            }
         }
         $state['auditLogs'] = array_slice($state['auditLogs'], 0, 1000);
     }

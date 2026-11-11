@@ -79,8 +79,10 @@ const getDefaultTabForRole = (role: UserRole): ActiveTab => {
     case 'DIRECTOR':
       return 'DIRECTOR_DASHBOARD';
     case 'HR_ADMINISTRASI':
+    case 'HR_ADMINISTRASI_LGF':
       return 'HR_WORKSPACE';
     case 'PEKERJA':
+    case 'PEKERJA_LGF':
       return 'WORKER_WORKSPACE';
     case 'ADMIN':
     case 'SALES':
@@ -321,7 +323,7 @@ export default function App() {
 
   useEffect(() => {
     if (!apiAuth.enabled || !currentUser) return;
-    if (currentUser.role === 'HR_ADMINISTRASI' || currentUser.role === 'PEKERJA') return;
+    if (['HR_ADMINISTRASI', 'PEKERJA', 'HR_ADMINISTRASI_LGF', 'PEKERJA_LGF'].includes(currentUser.role)) return;
     const refresh = () => {
       if (document.visibilityState !== 'visible') return;
       void db.refreshRemote().catch((error) => console.error('API refresh failed:', error));
@@ -350,7 +352,7 @@ export default function App() {
     setDatabaseError(null);
     if (currentUser) db.setActor({ id: currentUser.id, name: currentUser.name, role: currentUser.role, branch: currentUser.branch, branchId: currentUser.branchId });
     let unsubscribe = () => {};
-    if (currentUser?.role === 'HR_ADMINISTRASI' || currentUser?.role === 'PEKERJA') {
+    if (currentUser && ['HR_ADMINISTRASI', 'PEKERJA', 'HR_ADMINISTRASI_LGF', 'PEKERJA_LGF'].includes(currentUser.role)) {
       setSelectedJobId('');
       setData({
         branches: [],
@@ -528,15 +530,15 @@ export default function App() {
         {/* Content Area */}
         <main className="maritim-main">
           <div
-            className={`maritim-content${currentRole === 'MANAGER_OPS' || currentRole === 'DIRECTOR' ? ' manager-director-workspace' : ''}${currentRole === 'FINANCE' ? ' finance-workspace' : ''}${currentRole === 'FDA' ? ' fda-workspace' : ''}${currentRole === 'HR_ADMINISTRASI' ? ' hr-workspace' : ''}${currentRole === 'PEKERJA' ? ' worker-workspace' : ''}`}
+            className={`maritim-content${currentRole === 'MANAGER_OPS' || currentRole === 'DIRECTOR' ? ' manager-director-workspace' : ''}${currentRole === 'FINANCE' ? ' finance-workspace' : ''}${currentRole === 'FDA' ? ' fda-workspace' : ''}${['HR_ADMINISTRASI', 'HR_ADMINISTRASI_LGF'].includes(currentRole) ? ' hr-workspace' : ''}${['PEKERJA', 'PEKERJA_LGF'].includes(currentRole) ? ' worker-workspace' : ''}${currentRole === 'HR_ADMINISTRASI_LGF' || currentRole === 'PEKERJA_LGF' ? ' lgf-workspace' : ''}`}
             key={viewSessionKey}
           >
             {/* 1. ADMIN DASHBOARD */}
-            {(currentRole === 'HR_ADMINISTRASI' && ['HR_WORKSPACE', 'HR_ATTENDANCE', 'HR_LEAVE_APPROVAL'].includes(activeTab)
-              || currentRole === 'PEKERJA' && ['WORKER_WORKSPACE', 'WORKER_ATTENDANCE', 'WORKER_LEAVE_REQUEST', 'WORKER_DOWNLOAD_PAYSLIP', 'WORKER_DOWNLOAD_ATTENDANCE'].includes(activeTab)) && (
+            {(['HR_ADMINISTRASI', 'HR_ADMINISTRASI_LGF'].includes(currentRole) && ['HR_WORKSPACE', 'HR_ATTENDANCE', 'HR_LEAVE_APPROVAL'].includes(activeTab)
+              || ['PEKERJA', 'PEKERJA_LGF'].includes(currentRole) && ['WORKER_WORKSPACE', 'WORKER_ATTENDANCE', 'WORKER_LEAVE_REQUEST', 'WORKER_DOWNLOAD_PAYSLIP', 'WORKER_DOWNLOAD_ATTENDANCE'].includes(activeTab)) && (
               <HrWorkspaceView
                 currentUser={currentUser}
-                initialPanel={activeTab === 'HR_ATTENDANCE' ? 'attendance' : activeTab === 'HR_LEAVE_APPROVAL' ? 'leave-approval' : activeTab === 'WORKER_ATTENDANCE' ? 'worker-attendance' : activeTab === 'WORKER_LEAVE_REQUEST' ? 'worker-leave' : activeTab === 'WORKER_DOWNLOAD_PAYSLIP' ? 'worker-download-payslip' : activeTab === 'WORKER_DOWNLOAD_ATTENDANCE' ? 'worker-download-attendance' : currentRole === 'PEKERJA' ? 'worker-profile' : 'employees'}
+                initialPanel={activeTab === 'HR_ATTENDANCE' ? 'attendance' : activeTab === 'HR_LEAVE_APPROVAL' ? 'leave-approval' : activeTab === 'WORKER_ATTENDANCE' ? 'worker-attendance' : activeTab === 'WORKER_LEAVE_REQUEST' ? 'worker-leave' : activeTab === 'WORKER_DOWNLOAD_PAYSLIP' ? 'worker-download-payslip' : activeTab === 'WORKER_DOWNLOAD_ATTENDANCE' ? 'worker-download-attendance' : ['PEKERJA', 'PEKERJA_LGF'].includes(currentRole) ? 'worker-profile' : 'employees'}
               />
             )}
 
@@ -967,7 +969,7 @@ export default function App() {
               <AccountsReceivableView mode="HISTORY" />
             )}
 
-            {currentRole === 'HR_ADMINISTRASI' && activeTab === 'FINANCE_PAYROLL' && (
+            {['HR_ADMINISTRASI', 'HR_ADMINISTRASI_LGF'].includes(currentRole) && activeTab === 'FINANCE_PAYROLL' && (
               <FinancePayrollView />
             )}
 

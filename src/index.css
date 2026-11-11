@@ -1039,6 +1039,60 @@ button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid 
   border:1px solid rgba(125,211,252,.2);border-radius:12px;
 }
 
+/* LGF workspace theme */
+.maritim-header.lgf-theme{
+  background:linear-gradient(100deg,#7c2d12 0%,#c2410c 48%,#ea580c 100%);
+  box-shadow:0 1px 0 rgba(255,255,255,.12) inset,0 8px 26px rgba(124,45,18,.24);
+}
+.maritim-header.lgf-theme::after{
+  background:linear-gradient(90deg,transparent,#fdba74 28%,#fef3c7 72%,transparent);
+}
+.maritim-header.lgf-theme .maritim-logo{
+  background:linear-gradient(145deg,#fff,#ffedd5);
+}
+.maritim-header.lgf-theme .maritim-user-avatar{
+  background:linear-gradient(145deg,#ffedd5,#fed7aa);
+  color:#9a3412;
+}
+.maritim-header.lgf-theme .maritim-role-pill{
+  background:linear-gradient(135deg,#fed7aa,#ffedd5);
+  color:#9a3412;
+  box-shadow:0 2px 8px rgba(124,45,18,.25);
+}
+.maritim-sidebar.lgf-theme{
+  background:
+    radial-gradient(120% 55% at 0% 0%,rgba(249,115,22,.22),transparent 58%),
+    linear-gradient(180deg,#2b1a14 0%,#17100d 100%);
+}
+.maritim-sidebar.lgf-theme .maritim-workspace-label{color:#fdba74}
+.maritim-sidebar.lgf-theme .maritim-nav-item.active{
+  background:linear-gradient(90deg,rgba(234,88,12,.52),rgba(194,65,12,.16));
+  box-shadow:inset 3px 0 0 #fb923c,0 6px 18px rgba(124,45,18,.25);
+}
+.maritim-sidebar.lgf-theme .maritim-nav-item.active svg{
+  color:#fdba74;
+  filter:drop-shadow(0 0 6px rgba(251,146,60,.4));
+}
+.maritim-content.lgf-workspace{
+  background:radial-gradient(900px 420px at 85% -8%,rgba(249,115,22,.07),transparent 60%);
+}
+.lgf-workspace .text-blue-700,
+.lgf-workspace .text-blue-800,
+.lgf-workspace .text-blue-900{color:#c2410c!important}
+.lgf-workspace .bg-blue-50{background-color:#fff7ed!important}
+.lgf-workspace .border-blue-200,
+.lgf-workspace .border-blue-500,
+.lgf-workspace [data-employee-photo-frame],
+.lgf-workspace [data-worker-photo-frame]{border-color:#fdba74!important}
+.lgf-workspace button[class*="bg-blue-700"],
+.lgf-workspace button[class*="bg-blue-600"]{
+  background-color:#c2410c!important;
+}
+.lgf-workspace button[class*="bg-blue-700"]:hover:not(:disabled),
+.lgf-workspace button[class*="bg-blue-600"]:hover:not(:disabled){
+  background-color:#9a3412!important;
+}
+
 /* Cards, tables, forms, buttons */
 .maritim-page-card{border-radius:18px;border-color:var(--lgm-line);box-shadow:var(--lgm-shadow-sm);transition:box-shadow .2s var(--lgm-ease)}
 .maritim-page-card:hover{box-shadow:var(--lgm-shadow-md)}

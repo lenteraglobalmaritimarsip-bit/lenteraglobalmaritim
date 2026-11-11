@@ -15,6 +15,8 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   DIRECTOR: 'Direktur',
   HR_ADMINISTRASI: 'HR Administrasi',
   PEKERJA: 'Pekerja',
+  HR_ADMINISTRASI_LGF: 'HR Administrasi LGF',
+  PEKERJA_LGF: 'Pekerja LGF',
 };
 
 export function initials(name: string): string {

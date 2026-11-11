@@ -9,12 +9,13 @@ try {
     requireMethod('GET', 'POST');
     $user = requireAuthenticatedUser();
     $role = (string) ($user['role'] ?? '');
-    if (!in_array($role, ['FINANCE', 'HR_ADMINISTRASI', 'ADMIN', 'PEKERJA'], true)) {
+    if (!in_array($role, ['FINANCE', 'HR_ADMINISTRASI', 'HR_ADMINISTRASI_LGF', 'ADMIN', 'PEKERJA', 'PEKERJA_LGF'], true)) {
         jsonResponse(['error' => 'Payroll access required'], 403);
     }
+    $companyCode = in_array($role, ['HR_ADMINISTRASI_LGF', 'PEKERJA_LGF'], true) ? 'LGF' : 'LGM';
 
     if ($method === 'GET') {
-        if ($role === 'PEKERJA') {
+        if (in_array($role, ['PEKERJA', 'PEKERJA_LGF'], true)) {
             $period = trim((string) ($_GET['period'] ?? ''));
             $identityStatement = db()->prepare(
                 'SELECT employee_number FROM hr_employee_records WHERE user_id = :user_id LIMIT 1'
@@ -56,9 +57,10 @@ try {
                         s.`OFF` AS attendance_off
                  FROM payroll_batches b
                  JOIN payroll_slips s ON s.batch_id = b.id
+                 WHERE b.company_code = :company_code
                  ORDER BY b.period DESC'
             );
-            $statement->execute();
+            $statement->execute(['company_code' => $companyCode]);
             $rows = array_filter($statement->fetchAll(), static function (array $row) use ($employeeNumber): bool {
                 if ((string) $row['status'] !== 'FINAL') return false;
                 return $employeeNumber !== '' && trim((string) $row['employee_number']) === $employeeNumber;
@@ -118,14 +120,16 @@ try {
             jsonResponse(['slips' => $slips]);
         }
 
-        $statement = db()->query(
+        $statement = db()->prepare(
             'SELECT b.id, b.period, b.file_name, b.status, b.created_at,
                     COUNT(s.id) AS slip_count
              FROM payroll_batches b
              LEFT JOIN payroll_slips s ON s.batch_id = b.id
+             WHERE b.company_code = :company_code
              GROUP BY b.id, b.period, b.file_name, b.status, b.created_at
              ORDER BY b.period DESC, b.created_at DESC'
         );
+        $statement->execute(['company_code' => $companyCode]);
         $batches = array_map(static fn(array $row): array => [
             'id' => (string) $row['id'],
             'period' => (string) $row['period'],
@@ -137,7 +141,7 @@ try {
         jsonResponse(['batches' => $batches]);
     }
 
-    if (!in_array($role, ['FINANCE', 'HR_ADMINISTRASI', 'ADMIN'], true)) {
+    if (!in_array($role, ['FINANCE', 'HR_ADMINISTRASI', 'HR_ADMINISTRASI_LGF', 'ADMIN'], true)) {
         jsonResponse(['error' => 'Finance access required'], 403);
     }
     requireCsrfToken();
@@ -154,8 +158,11 @@ try {
 
         $database = db();
         $database->beginTransaction();
-        $findBatch = $database->prepare('SELECT id, period, file_name, status FROM payroll_batches WHERE period = :period FOR UPDATE');
-        $findBatch->execute(['period' => $periodToDelete]);
+        $findBatch = $database->prepare(
+            'SELECT id, period, file_name, status FROM payroll_batches
+             WHERE period = :period AND company_code = :company_code FOR UPDATE'
+        );
+        $findBatch->execute(['period' => $periodToDelete, 'company_code' => $companyCode]);
         $targetBatch = $findBatch->fetch();
         if ($targetBatch === null) {
             $database->rollBack();
@@ -219,9 +226,26 @@ try {
         }
         $employeeNumbers[$employeeNumber] = true;
     }
+    if (in_array($role, ['HR_ADMINISTRASI', 'HR_ADMINISTRASI_LGF'], true)) {
+        $workerRole = $companyCode === 'LGF' ? 'PEKERJA_LGF' : 'PEKERJA';
+        $workerNumbers = db()->prepare(
+            'SELECT employee_number FROM hr_employee_records er
+             JOIN users u ON u.id = er.user_id
+             WHERE u.role = :worker_role AND er.employee_number IS NOT NULL'
+        );
+        $workerNumbers->execute(['worker_role' => $workerRole]);
+        $knownWorkerNumbers = array_fill_keys(array_map('strval', $workerNumbers->fetchAll(PDO::FETCH_COLUMN)), true);
+        foreach (array_keys($employeeNumbers) as $employeeNumber) {
+            if (!isset($knownWorkerNumbers[$employeeNumber])) {
+                jsonResponse(['error' => "Nomor pekerja {$employeeNumber} tidak terdaftar pada data HR {$companyCode}."], 400);
+            }
+        }
+    }
 
     $database = db();
-    foreach ($database->query('SELECT period FROM payroll_batches')->fetchAll() as $existingBatch) {
+    $existingBatches = $database->prepare('SELECT period FROM payroll_batches WHERE company_code = :company_code');
+    $existingBatches->execute(['company_code' => $companyCode]);
+    foreach ($existingBatches->fetchAll() as $existingBatch) {
         if ((string) $existingBatch['period'] === $period) {
             jsonResponse(['error' => "Payroll periode {$period} sudah ada"], 409);
         }
@@ -230,11 +254,13 @@ try {
     $database->beginTransaction();
     $batchId = 'PAY-' . bin2hex(random_bytes(12));
     $insertBatch = $database->prepare(
-        'INSERT INTO payroll_batches (id, period, file_name, status, created_by) VALUES (:id, :period, :file_name, :status, :created_by)'
+        'INSERT INTO payroll_batches (id, period, company_code, file_name, status, created_by)
+         VALUES (:id, :period, :company_code, :file_name, :status, :created_by)'
     );
     $insertBatch->execute([
         'id' => $batchId,
         'period' => $period,
+        'company_code' => $companyCode,
         'file_name' => mb_substr($fileName, 0, 255),
         'status' => $status,
         'created_by' => $user['id'],

@@ -85,7 +85,7 @@ function requireAuthenticatedUser(): array
         jsonResponse(['error' => 'Akun tidak aktif. Hubungi administrator.'], 401);
     }
     $_SESSION['user']['role'] = $account['role'];
-    if ($account['role'] === 'PEKERJA') {
+    if (in_array($account['role'], ['PEKERJA', 'PEKERJA_LGF'], true)) {
         $employment = db()->prepare('SELECT employment_status FROM hr_employee_records WHERE user_id = :id LIMIT 1');
         $employment->execute(['id' => $_SESSION['user']['id']]);
         if ($employment->fetchColumn() === 'RESIGNED') {

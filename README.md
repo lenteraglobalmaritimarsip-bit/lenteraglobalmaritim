@@ -196,3 +196,29 @@ buat history pasyment pada fpda
 PERBAIKAN untuk aturan cetak/pdf 
 kotak nomor rekening EPDA, PDA, FDA, dan FPDA dibuat sejajar 2 mm dibawah garis akhir tabel; alamat kantor FDA/FPDA tetap berada di bagian bawah halaman, tepat di atas garis frame. Footer rekening tidak dipisah ke halaman berikutnya tanpa membawa baris tabel terakhir bersamanya
 Cetak / PDF EPDA, FDA, PDA, dan FPDA langsung membuka dialog cetak tanpa jendela pratinjau baru. Proses cetak mencegah klik ganda dan tetap berjalan jika logo pada dokumen gagal dimuat dalam 3 detik.
+
+## Catatan Perubahan
+
+Setiap perubahan fitur, tampilan, atau alur kerja dicatat di bagian ini dengan tanggal dan ringkasan dampaknya. Jika perubahan memerlukan migrasi atau langkah deployment, catat juga langkah tersebut.
+
+### 11/11/2026
+
+- **Navigasi semua role:** sidebar tetap pada posisinya saat konten halaman digulir; daftar menu dapat digulir sendiri jika melebihi tinggi layar.
+- **Finance → Request Payment:** kolom Customer disembunyikan pada hasil cetak voucher, tanpa mengubah tabel di layar.
+- **FDA → Request Payment:** pilihan nomor FDA dan FPDA tersedia untuk JOB aktif. Nomor FDA diambil dari data FDA pada JOB; nomor FPDA diambil dari `pda_documents` untuk branch FDA, termasuk dokumen yang belum memiliki baris item. JOB tertutup tetap tidak dapat dipilih. Pastikan pembaruan `api/pda.php` ikut di-deploy ke server.
+- **Reset nomor PDA/FPDA:** `database/reset_pda_fpda_data_and_numbers.sql` disiapkan untuk menghapus seluruh dokumen PDA Sales dan FPDA beserta itemnya, lalu mengosongkan sequence semua branch/tahun agar nomor berikutnya mulai `0001`. Skrip tidak menghapus job, FDA, atau catatan Finance; periksa hasil preflight untuk referensi Accounts Receivable dan Payment Voucher sebelum menjalankan. Wajib backup penuh dan tinjau dampak dokumen yang sudah disetujui sebelum eksekusi.
+- **Finance → Accounts Payable → Input Payable:** tombol Tolak meminta alasan wajib dan mengembalikan voucher yang sudah disetujui ke status Ditolak. Pengaju FDA melihat alasan di Request Payment → Edit Payment dan dapat memperbaiki serta mengirim ulang voucher untuk persetujuan Manager. Penolakan dibatasi ke Finance pada branch pemilik voucher dan dicatat di audit log. Deploy perubahan frontend dan `api/state.php` bersama-sama.
+- **HR Administrasi → Informasi Data Pekerja:** ekspor Excel sekarang mencakup seluruh field biodata dan pekerjaan yang tersedia di form, termasuk identitas, kontak darurat, status, kontrak, BPJS, dan rekening payroll. File ekspor berisi data pribadi; distribusikan hanya kepada pihak berwenang.
+- **HR → Foto pekerja:** batas ukuran foto pada unggah oleh HR maupun penggantian foto profil pekerja ditetapkan maksimal 500 KB. Validasi diterapkan di frontend dan `api/hr.php`.
+- **HR → Surat Permohonan pekerja:** pada PDF, identitas “NIK / No. Karyawan” diganti menjadi “Nomor Pekerja” dan nilainya diambil dari nomor pekerja pada profil HR, bukan dari NIK.
+- **Pekerja → Download Slip Gaji:** PDF hasil unduhan dilindungi password dengan format Nomor Pekerja + 4 digit terakhir nomor rekening payroll dari data HR. Jika salah satu data belum lengkap, unduhan ditolak dan pekerja diminta menghubungi HR.
+- **Role HR LGF:** ditambahkan role **HR ADMINISTRASI LGF** dan **PEKERJA LGF** dengan alur kerja yang sama seperti HR/Pekerja LGM. Admin membuat akun melalui menu Users. HR LGF hanya dapat melihat dan mengelola akun PEKERJA LGF; HR/Pekerja LGM tetap terpisah. Pemisahan ini ditegakkan pada API HR dan payroll, dan role pekerja tidak dapat dipindah antarperusahaan setelah data HR dibuat.
+- **Payroll LGM/LGF:** batch payroll memiliki cakupan perusahaan terpisah; batch lama ditandai LGM, sedangkan HR LGF hanya dapat mengelola payroll LGF dan hanya memuat nomor pekerja yang terdaftar pada HR LGF. Terapkan migrasi `database/migrations/20261108_add_lgf_hr_roles_and_isolated_payroll.sql` di MariaDB sebelum mengaktifkan role baru. Deploy frontend dan API (`auth.php`, `bootstrap.php`, `hr.php`, `payroll.php`, `state.php`) bersama migrasi.
+- **Admin → Users:** role HR ADMINISTRASI LGF kini dikenali sebagai role kantor pusat oleh service penyimpanan, sehingga pembuatan/perubahan akun tidak lagi mewajibkan branch.
+- **Admin → Users:** kolom **Role User** ditampilkan di sebelah kanan kolom Branch pada daftar pengguna.
+- **Tampilan role LGF:** identitas perusahaan pada header untuk HR ADMINISTRASI LGF dan PEKERJA LGF menampilkan “LENTERA GLOBAL FORWARDING”; role lain tetap menampilkan “LENTERA GLOBAL MARITIM”.
+- **Pemulihan role akun HR:** `database/restore_hris001_hr_role.sql` disiapkan untuk mengembalikan hanya akun `HRIS001` dari `HR_ADMINISTRASI_LGF` ke `HR_ADMINISTRASI` jika role akun masih LGF. Jalankan pada database server yang benar dan verifikasi hasil sebelum dan sesudah update; file belum dijalankan karena database lokal yang dikonfigurasi tidak tersedia.
+- **Tampilan role LGF:** header, navigasi, tombol utama, dan aksen HR/Pekerja untuk HR ADMINISTRASI LGF dan PEKERJA LGF menggunakan tema orange rust; tema role lainnya tidak berubah.
+- **Pekerja LGF → Surat Permohonan:** nama perusahaan pada header dan alamat tujuan PDF ditampilkan sebagai “PT. LENTERA GLOBAL FORWARDING”; surat pekerja LGM tetap menggunakan nama perusahaan sebelumnya.
+- **HR Administrasi LGM/LGF → Data administrasi pekerja:** field yang sebelumnya bertanda * kini opsional dan tanda * dihapus. Data inti akun (nama/email) dipertahankan saat input dikosongkan, sedangkan branch mengikuti branch akun pekerja; field lainnya dapat disimpan kosong.
+- **HR Administrasi → Validasi data pekerja:** pesan validasi kini menyebut nama kolom yang formatnya bermasalah. Email akun lama yang tidak valid tetapi tidak diubah tetap dipertahankan agar tidak menghalangi penyimpanan field administrasi opsional.

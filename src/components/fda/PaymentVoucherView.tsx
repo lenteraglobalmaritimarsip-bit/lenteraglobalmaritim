@@ -159,8 +159,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
   const getDocumentOptions = (jobNumber: string) => {
     if (jobInfo !== 'JOB_VESSEL') return [];
     const job = activeJobs.find((item) => item.jobId === jobNumber);
-    const hasItems = !!job?.fdaItems?.length || !!job?.quotation?.epda?.items?.length;
-    if (!job || !hasItems) return [];
+    if (!job) return [];
     const numbers: { type: 'FDA' | 'FPDA'; number: string }[] = [];
     if (job.fda?.fdaNo?.trim()) numbers.push({ type: 'FDA', number: job.fda.fdaNo.trim() });
     const fpdaNo = fpdaNumbers[job.jobId];

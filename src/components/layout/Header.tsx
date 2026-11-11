@@ -104,7 +104,7 @@ export const Header: React.FC<HeaderProps> = ({
   }, [currentRole]);
 
   useEffect(() => {
-    if (currentRole !== 'HR_ADMINISTRASI') {
+    if (currentRole !== 'HR_ADMINISTRASI' && currentRole !== 'HR_ADMINISTRASI_LGF') {
       setPendingHrLeaveNotifications([]);
       return;
     }
@@ -168,6 +168,8 @@ export const Header: React.FC<HeaderProps> = ({
     DIRECTOR: { label:'DIREKTUR', desc:'Executive Dashboard & Monitoring', icon:BookOpen },
     HR_ADMINISTRASI: { label:'HR ADMINISTRASI', desc:'Administrasi pekerja seluruh cabang', icon:Briefcase },
     PEKERJA: { label:'PEKERJA', desc:'Profil dan administrasi pribadi', icon:UserCircle2 },
+    HR_ADMINISTRASI_LGF: { label:'HR ADMINISTRASI LGF', desc:'Administrasi pekerja LGF', icon:Briefcase },
+    PEKERJA_LGF: { label:'PEKERJA LGF', desc:'Profil dan administrasi pribadi', icon:UserCircle2 },
   };
   const RoleIcon = roleMeta[currentRole].icon;
 
@@ -225,7 +227,7 @@ export const Header: React.FC<HeaderProps> = ({
       });
     }
 
-    if (currentRole === 'HR_ADMINISTRASI') {
+    if (currentRole === 'HR_ADMINISTRASI' || currentRole === 'HR_ADMINISTRASI_LGF') {
       const leaveTypeLabels: Record<HrPendingLeaveNotification['type'], string> = {
         ANNUAL: 'Cuti Tahunan',
         BUSINESS_TRAVEL: 'Perjalanan Dinas',
@@ -403,6 +405,9 @@ export const Header: React.FC<HeaderProps> = ({
 
   const visibleNotifications = notifications.filter(n => !readNotificationIds.includes(n.id));
   const unreadCount = visibleNotifications.length;
+  const companyName = currentRole === 'HR_ADMINISTRASI_LGF' || currentRole === 'PEKERJA_LGF'
+    ? 'LENTERA GLOBAL FORWARDING'
+    : 'LENTERA GLOBAL MARITIM';
   const persistReads = (ids: string[]) => {
     const next = Array.from(new Set(ids));
     setReadNotificationIds(next);
@@ -418,7 +423,7 @@ export const Header: React.FC<HeaderProps> = ({
   const markAllRead = () => persistReads(Array.from(new Set([...readNotificationIds, ...notifications.map(n => n.id)])));
 
   return (
-    <header className="maritim-header">
+    <header className={`maritim-header${currentRole === 'HR_ADMINISTRASI_LGF' || currentRole === 'PEKERJA_LGF' ? ' lgf-theme' : ''}`}>
       <div className="maritim-header-inner">
         <button
           type="button"
@@ -430,11 +435,11 @@ export const Header: React.FC<HeaderProps> = ({
           <Menu size={21} />
         </button>
         <div className="maritim-brand">
-          <div className="maritim-logo"><img src="/lgm-logo.png" alt="LGM" /></div>
+          <div className="maritim-logo"><img src="/lgm-logo.png" alt={companyName} /></div>
           <div>
             <div className="maritim-brand-name">
-              <span className="maritim-brand-name-desktop">LENTERA GLOBAL MARITIM</span>
-              <span className="maritim-brand-name-mobile">LENTERA GLOBAL</span>
+              <span className="maritim-brand-name-desktop">{companyName}</span>
+              <span className="maritim-brand-name-mobile">{companyName}</span>
             </div>
             <div className="maritim-brand-sub">SHIPPING AGENCY WORKSPACE</div>
           </div>

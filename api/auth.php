@@ -186,7 +186,7 @@ try {
             $pdo->commit();
             jsonResponse(['error' => 'Akun tidak aktif. Hubungi administrator.'], 401);
         }
-        if ($user['role'] === 'PEKERJA') {
+        if (in_array($user['role'], ['PEKERJA', 'PEKERJA_LGF'], true)) {
             $employment = $pdo->prepare('SELECT employment_status FROM hr_employee_records WHERE user_id = :id LIMIT 1');
             $employment->execute(['id' => $user['id']]);
             if ($employment->fetchColumn() === 'RESIGNED') {
@@ -233,7 +233,7 @@ try {
             $pdo->commit();
             jsonResponse(['error' => 'Akun tidak aktif. Hubungi administrator.'], 401);
         }
-        if ($user['role'] === 'PEKERJA') {
+        if (in_array($user['role'], ['PEKERJA', 'PEKERJA_LGF'], true)) {
             $employment = $pdo->prepare('SELECT employment_status FROM hr_employee_records WHERE user_id = :id LIMIT 1');
             $employment->execute(['id' => $user['id']]);
             if ($employment->fetchColumn() === 'RESIGNED') {

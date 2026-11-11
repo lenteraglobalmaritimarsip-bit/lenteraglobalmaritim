@@ -1,4 +1,4 @@
-export type UserRole = 'ADMIN' | 'SALES' | 'MANAGER_OPS' | 'FDA' | 'FINANCE' | 'ACCOUNTING' | 'DIRECTOR' | 'HR_ADMINISTRASI' | 'PEKERJA';
+export type UserRole = 'ADMIN' | 'SALES' | 'MANAGER_OPS' | 'FDA' | 'FINANCE' | 'ACCOUNTING' | 'DIRECTOR' | 'HR_ADMINISTRASI' | 'PEKERJA' | 'HR_ADMINISTRASI_LGF' | 'PEKERJA_LGF';
 
 export type Currency = 'USD' | 'IDR';
 

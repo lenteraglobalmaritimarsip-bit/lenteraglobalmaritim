@@ -489,7 +489,7 @@ class DatabaseService {
 
   // Users
   public async addUser(user: Omit<User, 'id'>): Promise<User> {
-    const isHeadOfficeRole = ['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'].includes(user.role);
+    const isHeadOfficeRole = ['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI', 'HR_ADMINISTRASI_LGF'].includes(user.role);
     const branch = isHeadOfficeRole
       ? undefined
       : getBranchByValue(user.branchId || user.branch, this.state.branches);
@@ -511,7 +511,7 @@ class DatabaseService {
   public async updateUser(id: string, updates: Partial<User>): Promise<void> {
     const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
     const currentUser = this.state.users.find((user) => user.id === id);
-    const headOfficeUser = ['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI'].includes(updates.role || currentUser?.role || '');
+    const headOfficeUser = ['ACCOUNTING', 'DIRECTOR', 'HR_ADMINISTRASI', 'HR_ADMINISTRASI_LGF'].includes(updates.role || currentUser?.role || '');
     const branch = headOfficeUser
       ? undefined
       : getBranchByValue(updates.branchId || updates.branch || currentUser?.branchId || currentUser?.branch, this.state.branches);
@@ -1017,6 +1017,26 @@ class DatabaseService {
       ? { ...v, status: decision, managerNote: note.trim(), reviewedBy: reviewer, reviewedAt: new Date().toISOString() }
       : v));
     this.audit(decision === 'APPROVED' ? 'APPROVE' : 'REJECT', 'PAYMENT_VOUCHER', `Payment voucher ${existing.requestNumber} ${decision}`, id);
+    await this.persistPaymentVoucherMutation(previousVouchers, previousAuditLogs);
+  }
+
+  public async rejectApprovedPaymentVoucher(id: string, reviewer: string, note: string): Promise<void> {
+    const existing = (this.state.paymentVouchers || []).find((voucher) => voucher.id === id);
+    if (!existing) throw new Error('Payment Voucher tidak ditemukan.');
+    if (this.actor.role !== 'FINANCE') throw new Error('Hanya Finance yang dapat menolak voucher yang menunggu pembayaran.');
+    if (existing.status !== 'APPROVED') throw new Error('Voucher tidak lagi menunggu pembayaran.');
+    const rejectionNote = note.trim();
+    if (!rejectionNote) throw new Error('Alasan penolakan wajib diisi.');
+    if (Array.from(rejectionNote).length > 1000) throw new Error('Alasan penolakan maksimal 1000 karakter.');
+    if (reviewer.trim() !== this.actor.name.trim()) throw new Error('Nama Finance tidak sesuai dengan akun yang sedang login.');
+
+    const previousVouchers = this.state.paymentVouchers;
+    const previousAuditLogs = this.state.auditLogs;
+    const reviewedAt = new Date().toISOString();
+    this.state.paymentVouchers = this.state.paymentVouchers.map((voucher) => (voucher.id === id
+      ? { ...voucher, status: 'REJECTED' as const, managerNote: rejectionNote, reviewedBy: reviewer, reviewedAt }
+      : voucher));
+    this.audit('REJECT', 'PAYMENT_VOUCHER', `Finance menolak payment voucher ${existing.requestNumber}: ${rejectionNote}`, id);
     await this.persistPaymentVoucherMutation(previousVouchers, previousAuditLogs);
   }
 

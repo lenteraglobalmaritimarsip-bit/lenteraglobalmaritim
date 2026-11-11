@@ -6,9 +6,26 @@ require __DIR__ . '/bootstrap.php';
 
 function hrRequireRole(array $user, string ...$roles): void
 {
-    if (!in_array($user['role'] ?? '', $roles, true)) {
+    $role = (string) ($user['role'] ?? '');
+    $roleFamily = [
+        'HR_ADMINISTRASI' => ['HR_ADMINISTRASI', 'HR_ADMINISTRASI_LGF'],
+        'HR_ADMINISTRASI_LGF' => ['HR_ADMINISTRASI', 'HR_ADMINISTRASI_LGF'],
+        'PEKERJA' => ['PEKERJA', 'PEKERJA_LGF'],
+        'PEKERJA_LGF' => ['PEKERJA', 'PEKERJA_LGF'],
+    ];
+    if (!in_array($role, $roles, true) && !array_intersect($roleFamily[$role] ?? [], $roles)) {
         jsonResponse(['error' => 'Akses tidak diizinkan untuk role ini.'], 403);
     }
+}
+
+function hrIsAdministrator(array $user): bool
+{
+    return in_array($user['role'] ?? '', ['HR_ADMINISTRASI', 'HR_ADMINISTRASI_LGF'], true);
+}
+
+function hrWorkerRoleForManager(array $user): string
+{
+    return in_array($user['role'] ?? '', ['HR_ADMINISTRASI_LGF', 'PEKERJA_LGF'], true) ? 'PEKERJA_LGF' : 'PEKERJA';
 }
 
 function hrString(mixed $value, string $label): string
@@ -68,8 +85,11 @@ function hrRecordHistory(PDO $pdo, array $actor, string $userId, string $eventTy
     ]);
 }
 
-function hrEmployeeQuery(): string
+function hrEmployeeQuery(string $workerRole = 'PEKERJA'): string
 {
+    if (!in_array($workerRole, ['PEKERJA', 'PEKERJA_LGF'], true)) {
+        throw new InvalidArgumentException('Role pekerja tidak valid.');
+    }
     return 'SELECT u.id AS userId, u.name, u.email, u.phone,
                    COALESCE(er.position, u.position) AS position,
                    COALESCE(er.department, u.department) AS department,
@@ -95,19 +115,20 @@ function hrEmployeeQuery(): string
             FROM users u
             LEFT JOIN hr_employee_records er ON er.user_id = u.id
             LEFT JOIN branches b ON b.id = COALESCE(er.branch_id, u.branch_id)
-            WHERE u.role = \'PEKERJA\'';
+            WHERE u.role = \'' . $workerRole . '\'';
 }
 
 function hrLoadWorkspace(PDO $pdo, array $user): array
 {
-    $isHr = ($user['role'] ?? '') === 'HR_ADMINISTRASI';
+    $isHr = hrIsAdministrator($user);
     if ($isHr) {
-        $employees = $pdo->query(hrEmployeeQuery() . ' ORDER BY u.name, u.id')->fetchAll();
+        $workerRole = hrWorkerRoleForManager($user);
+        $employees = $pdo->query(hrEmployeeQuery($workerRole) . ' ORDER BY u.name, u.id')->fetchAll();
         $documents = $pdo->query(
             'SELECT d.id, d.user_id AS userId, u.name AS employeeName, d.title, d.category,
                     d.file_name AS fileName, d.mime_type AS mimeType, d.file_size AS fileSize,
                     d.uploaded_by_name AS uploadedByName, d.created_at AS uploadedAt
-             FROM hr_employee_documents d JOIN users u ON u.id = d.user_id
+             FROM hr_employee_documents d JOIN users u ON u.id = d.user_id AND u.role = \'' . $workerRole . '\'
              ORDER BY d.created_at DESC'
         )->fetchAll();
         $attendance = $pdo->query(
@@ -131,7 +152,7 @@ function hrLoadWorkspace(PDO $pdo, array $user): array
                     a.overtime_check_out_at AS overtimeCheckOutAt, a.overtime_check_out_latitude AS overtimeCheckOutLatitude,
                     a.overtime_check_out_longitude AS overtimeCheckOutLongitude, a.overtime_check_out_accuracy_meters AS overtimeCheckOutAccuracyMeters,
                     a.updated_by_name AS updatedByName, a.updated_at AS updatedAt
-             FROM hr_attendance a JOIN users u ON u.id = a.user_id
+             FROM hr_attendance a JOIN users u ON u.id = a.user_id AND u.role = \'' . $workerRole . '\'
              ORDER BY a.attendance_date DESC, u.name'
         )->fetchAll();
         $leaveRequests = $pdo->query(
@@ -141,14 +162,14 @@ function hrLoadWorkspace(PDO $pdo, array $user): array
                     l.reason, l.status,
                     l.review_note AS reviewNote, l.created_at AS createdAt,
                     l.reviewed_by_name AS reviewedByName, l.reviewed_at AS reviewedAt
-             FROM hr_leave_requests l JOIN users u ON u.id = l.user_id
+             FROM hr_leave_requests l JOIN users u ON u.id = l.user_id AND u.role = \'' . $workerRole . '\'
              ORDER BY FIELD(l.status, \'PENDING\', \'APPROVED\', \'REJECTED\'), l.created_at DESC'
         )->fetchAll();
         $profileRequests = $pdo->query(
             'SELECT r.id, r.user_id AS userId, u.name AS employeeName, r.proposed_data AS proposedData,
                     r.status, r.review_note AS reviewNote, r.created_at AS createdAt,
                     r.reviewed_by_name AS reviewedByName, r.reviewed_at AS reviewedAt
-             FROM hr_profile_change_requests r JOIN users u ON u.id = r.user_id
+             FROM hr_profile_change_requests r JOIN users u ON u.id = r.user_id AND u.role = \'' . $workerRole . '\'
              ORDER BY FIELD(r.status, \'PENDING\', \'APPROVED\', \'REJECTED\'), r.created_at DESC'
         )->fetchAll();
         foreach ($profileRequests as &$request) $request['proposedData'] = json_decode((string) $request['proposedData'], true) ?: [];
@@ -158,7 +179,7 @@ function hrLoadWorkspace(PDO $pdo, array $user): array
                     h.summary, h.before_data AS beforeData, h.after_data AS afterData,
                     h.actor_name AS actorName, h.created_at AS createdAt,
                     DATE_FORMAT(DATE_ADD(h.created_at, INTERVAL 7 HOUR), "%Y-%m-%dT%H:%i:%s+07:00") AS createdAtWib
-             FROM hr_employee_history h LEFT JOIN users u ON u.id = h.user_id
+             FROM hr_employee_history h JOIN users u ON u.id = h.user_id AND u.role = \'' . $workerRole . '\'
              WHERE h.event_type NOT IN ("ATTENDANCE_UPDATED", "ABSEN_DATANG", "ABSEN_PULANG", "ABSEN_LEMBUR_DATANG", "ABSEN_LEMBUR_PULANG", "CHECK_IN", "CHECK_OUT", "OVERTIME_CHECK_IN", "OVERTIME_CHECK_OUT")
              ORDER BY h.created_at DESC LIMIT 300'
         )->fetchAll();
@@ -171,7 +192,8 @@ function hrLoadWorkspace(PDO $pdo, array $user): array
         return compact('employees', 'documents', 'attendance', 'leaveRequests', 'profileRequests', 'history', 'branches');
     }
 
-    $profileQuery = $pdo->prepare(hrEmployeeQuery() . ' AND u.id = :user_id LIMIT 1');
+    $workerRole = in_array($user['role'] ?? '', ['PEKERJA', 'PEKERJA_LGF'], true) ? (string) $user['role'] : 'PEKERJA';
+    $profileQuery = $pdo->prepare(hrEmployeeQuery($workerRole) . ' AND u.id = :user_id LIMIT 1');
     $profileQuery->execute(['user_id' => $user['id']]);
     $profile = $profileQuery->fetch() ?: null;
     $documentsQuery = $pdo->prepare(
@@ -282,16 +304,17 @@ function hrLoadWorkspace(PDO $pdo, array $user): array
     ];
 }
 
-function hrWorkerExists(PDO $pdo, string $userId): bool
+function hrWorkerExists(PDO $pdo, string $userId, string $workerRole = 'PEKERJA'): bool
 {
-    $query = $pdo->prepare('SELECT 1 FROM users WHERE id = :id AND role = \'PEKERJA\' LIMIT 1');
-    $query->execute(['id' => $userId]);
+    if (!in_array($workerRole, ['PEKERJA', 'PEKERJA_LGF'], true)) return false;
+    $query = $pdo->prepare('SELECT 1 FROM users WHERE id = :id AND role = :role LIMIT 1');
+    $query->execute(['id' => $userId, 'role' => $workerRole]);
     return (bool) $query->fetchColumn();
 }
 
-function hrAuditEmployeeSnapshot(PDO $pdo, string $userId): ?array
+function hrAuditEmployeeSnapshot(PDO $pdo, string $userId, string $workerRole = 'PEKERJA'): ?array
 {
-    $query = $pdo->prepare(hrEmployeeQuery() . ' AND u.id = :user_id LIMIT 1');
+    $query = $pdo->prepare(hrEmployeeQuery($workerRole) . ' AND u.id = :user_id LIMIT 1');
     $query->execute(['user_id' => $userId]);
     $employee = $query->fetch();
     return $employee ?: null;
@@ -323,6 +346,7 @@ try {
 
     $user = requireAuthenticatedUser();
     $pdo = db();
+    $workerRole = hrWorkerRoleForManager($user);
 
     if ($action === 'workspace') {
         requireMethod('GET');
@@ -336,7 +360,8 @@ try {
         $query = $pdo->query(
             'SELECT l.id, u.name AS employeeName, l.leave_type AS type,
                     l.starts_on AS startDate, l.ends_on AS endDate
-             FROM hr_leave_requests l JOIN users u ON u.id = l.user_id
+             FROM hr_leave_requests l
+             JOIN users u ON u.id = l.user_id AND u.role = \'' . $workerRole . '\'
              WHERE l.status = \'PENDING\'
              ORDER BY l.created_at DESC'
         );
@@ -391,7 +416,8 @@ try {
             $where[] = 'u.name LIKE :employee_name';
             $params['employee_name'] = '%' . addcslashes($name, '\\%_') . '%';
         }
-        $userWhere = ['u.role = \'PEKERJA\''];
+        $workerRole = hrWorkerRoleForManager($user);
+        $userWhere = ['u.role = \'' . $workerRole . '\''];
         $userParams = [];
         if ($category === 'BRANCH') {
             $userWhere[] = 'COALESCE(er.branch_id, u.branch_id) = :branch_id';
@@ -437,7 +463,7 @@ try {
                     COALESCE(a.overtime_check_out_accuracy_meters,
                         CASE WHEN DAYOFWEEK(a.attendance_date) IN (1, 7) THEN a.check_out_accuracy_meters END) AS overtimeCheckOutAccuracyMeters
              FROM hr_attendance a
-             JOIN users u ON u.id = a.user_id AND u.role = \'PEKERJA\'
+             JOIN users u ON u.id = a.user_id AND u.role = \'' . $workerRole . '\'
              LEFT JOIN hr_employee_records er ON er.user_id = u.id
              LEFT JOIN branches b ON b.id = COALESCE(er.branch_id, u.branch_id)
              WHERE ' . implode(' AND ', $where) . '
@@ -450,11 +476,12 @@ try {
         }
 
         $leaveQuery = $pdo->prepare(
-            "SELECT user_id AS userId, leave_type AS leaveType, starts_on AS startDate, ends_on AS endDate
-             FROM hr_leave_requests
-             WHERE status = 'APPROVED'
-               AND starts_on < :end_date
-               AND ends_on >= :start_date"
+            'SELECT l.user_id AS userId, l.leave_type AS leaveType, l.starts_on AS startDate, l.ends_on AS endDate
+             FROM hr_leave_requests l
+             JOIN users u ON u.id = l.user_id AND u.role = \'' . $workerRole . '\'
+             WHERE l.status = \'APPROVED\'
+               AND l.starts_on < :end_date
+               AND l.ends_on >= :start_date'
         );
         $leaveQuery->execute(['start_date' => $startDate, 'end_date' => $endDate]);
         $approvedLeaves = [];
@@ -507,12 +534,16 @@ try {
         $documentId = hrString($_GET['id'] ?? null, 'ID dokumen');
         if ($documentId === '') jsonResponse(['error' => 'Dokumen tidak ditemukan.'], 404);
         $query = $pdo->prepare(
-            'SELECT id, user_id AS userId, file_name AS fileName, mime_type AS mimeType, content
-             FROM hr_employee_documents WHERE id = :id LIMIT 1'
+            'SELECT d.id, d.user_id AS userId, d.file_name AS fileName, d.mime_type AS mimeType, d.content,
+                    u.role AS workerRole
+             FROM hr_employee_documents d JOIN users u ON u.id = d.user_id
+             WHERE d.id = :id LIMIT 1'
         );
         $query->execute(['id' => $documentId]);
         $document = $query->fetch();
-        if (!$document || (($user['role'] ?? '') === 'PEKERJA' && $document['userId'] !== $user['id'])) {
+        if (!$document
+            || (hrIsAdministrator($user) && $document['workerRole'] !== $workerRole)
+            || (!hrIsAdministrator($user) && $document['userId'] !== $user['id'])) {
             jsonResponse(['error' => 'Dokumen tidak ditemukan atau Anda tidak memiliki akses.'], 404);
         }
         jsonResponse([
@@ -528,31 +559,51 @@ try {
         requireCsrfToken();
         $body = requestJson();
         $workerId = hrString($body['userId'] ?? null, 'Akun pekerja');
-        if ($workerId === '' || !hrWorkerExists($pdo, $workerId)) jsonResponse(['error' => 'Akun pekerja tidak valid.'], 400);
+        if ($workerId === '' || !hrWorkerExists($pdo, $workerId, $workerRole)) jsonResponse(['error' => 'Akun pekerja tidak valid.'], 400);
+        $workerQuery = $pdo->prepare(
+            'SELECT u.name, u.email, u.phone, u.position, u.department,
+                    COALESCE(er.branch_id, u.branch_id) AS branchId,
+                    er.employment_status AS employmentStatus
+             FROM users u LEFT JOIN hr_employee_records er ON er.user_id = u.id
+             WHERE u.id = :id AND u.role = :role LIMIT 1'
+        );
+        $workerQuery->execute(['id' => $workerId, 'role' => $workerRole]);
+        $workerAccount = $workerQuery->fetch();
+        if (!$workerAccount) jsonResponse(['error' => 'Akun pekerja tidak valid.'], 400);
 
         $employeeNumber = hrString($body['employeeNumber'] ?? null, 'Nomor pekerja');
         $name = hrString($body['name'] ?? null, 'Nama');
-        $email = hrString($body['email'] ?? null, 'Email');
+        $name = $name !== '' ? $name : (string) $workerAccount['name'];
+        $submittedEmail = hrString($body['email'] ?? null, 'Email');
+        $storedEmail = (string) $workerAccount['email'];
+        $email = $submittedEmail !== '' ? $submittedEmail : $storedEmail;
         $phone = hrString($body['phone'] ?? null, 'Telepon');
         $position = hrString($body['position'] ?? null, 'Jabatan');
         $department = hrString($body['department'] ?? null, 'Departemen');
         $branchIdRaw = hrString($body['branchId'] ?? null, 'Branch');
-        $branchId = ctype_digit($branchIdRaw) ? (int) $branchIdRaw : 0;
-        $dateOfBirth = hrDateValue($body['dateOfBirth'] ?? null, 'Tanggal lahir', false);
+        $branchId = $branchIdRaw === ''
+            ? (int) ($workerAccount['branchId'] ?? 0)
+            : (ctype_digit($branchIdRaw) ? (int) $branchIdRaw : 0);
+        $dateOfBirth = hrDateValue($body['dateOfBirth'] ?? null, 'Tanggal lahir');
         $birthCity = hrString($body['birthCity'] ?? null, 'Kota kelahiran');
-        $contractStart = hrDateValue($body['contractStart'] ?? null, 'Tanggal mulai kontrak', false);
+        $contractStart = hrDateValue($body['contractStart'] ?? null, 'Tanggal mulai kontrak');
         $contractEnd = hrDateValue($body['contractEnd'] ?? null, 'Tanggal akhir kontrak');
         $gender = hrString($body['gender'] ?? null, 'Jenis kelamin');
         $employmentStatus = hrString($body['employmentStatus'] ?? null, 'Status kerja');
+        $employmentStatus = $employmentStatus !== ''
+            ? $employmentStatus
+            : (string) ($workerAccount['employmentStatus'] ?: 'ACTIVE');
         $religion = hrString($body['religion'] ?? null, 'Agama');
         $contractType = hrString($body['contractType'] ?? null, 'Jenis kontrak');
         $address = hrString($body['address'] ?? null, 'Alamat');
         $emergencyName = hrString($body['emergencyContactName'] ?? null, 'Nama kontak darurat');
         $emergencyPhone = hrString($body['emergencyContactPhone'] ?? null, 'Telepon kontak darurat');
         $contractDuration = hrString($body['contractDurationYears'] ?? null, 'Lama kontrak');
-        $contractDurationYears = $contractDuration !== '' && is_numeric(str_replace(',', '.', $contractDuration))
-            ? (float) str_replace(',', '.', $contractDuration)
-            : null;
+        $contractDurationYears = $contractDuration === '' ? null : (
+            is_numeric(str_replace(',', '.', $contractDuration))
+                ? (float) str_replace(',', '.', $contractDuration)
+                : null
+        );
         $nik = hrString($body['nik'] ?? null, 'NIK');
         $npwp = hrString($body['npwp'] ?? null, 'NPWP');
         $bpjsKetenagakerjaan = hrString($body['bpjsKetenagakerjaan'] ?? null, 'BPJS Tenaga Kerja');
@@ -565,31 +616,45 @@ try {
             jsonResponse(['error' => 'Format foto pekerja harus JPG atau PNG.'], 400);
         }
         $photoContent = $photoDataBase64 !== '' ? base64_decode(str_replace(["\r", "\n", ' '], '', $photoDataBase64), true) : null;
-        if ($photoDataBase64 !== '' && ($photoContent === false || strlen($photoContent) > 2 * 1024 * 1024)) {
-            jsonResponse(['error' => 'Foto pekerja tidak valid atau melebihi 2 MB.'], 400);
+        if ($photoDataBase64 !== '' && ($photoContent === false || strlen($photoContent) > 500 * 1024)) {
+            jsonResponse(['error' => 'Foto pekerja tidak valid atau melebihi 500 KB.'], 400);
         }
         if ($photoContent !== null && (@getimagesizefromstring($photoContent) === false)) {
             jsonResponse(['error' => 'Isi berkas foto pekerja tidak valid.'], 400);
         }
 
-        if ($employeeNumber === '' || strlen($employeeNumber) > 50 || $name === '' || strlen($name) > 150
-            || !filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 255
-            || $phone === '' || strlen($phone) > 50 || $position === '' || strlen($position) > 120
-            || $department === '' || strlen($department) > 120
-            || !in_array($gender, ['MALE', 'FEMALE', 'OTHER'], true)
-            || !in_array($employmentStatus, ['ACTIVE', 'ON_LEAVE', 'RESIGNED'], true)
-            || !in_array($religion, ['Islam', 'Kristen Protestan', 'Katolik', 'Hindu', 'Buddha', 'Konghucu'], true)
-            || !in_array($contractType, ['PERMANENT', 'CONTRACT', 'PROBATION', 'INTERNSHIP', 'OTHER'], true)
-            || $address === '' || strlen($address) > 10000
-            || strlen($emergencyName) > 150 || strlen($emergencyPhone) > 50
-            || $birthCity === '' || strlen($birthCity) > 120
-            || $contractDurationYears === null || $contractDurationYears < 0 || $contractDurationYears > 99.9
-            || $nik === '' || strlen($nik) > 20 || $npwp === '' || strlen($npwp) > 30
-            || $bpjsKetenagakerjaan === '' || strlen($bpjsKetenagakerjaan) > 30
-            || $bpjsKesehatan === '' || strlen($bpjsKesehatan) > 30
-            || $payrollAccountNumber === '' || strlen($payrollAccountNumber) > 50
-            || $payrollBankName === '' || strlen($payrollBankName) > 100) {
-            jsonResponse(['error' => 'Semua kolom data identitas dan pekerjaan wajib diisi dengan format yang valid.'], 400);
+        $invalidFields = [];
+        if (strlen($employeeNumber) > 50) $invalidFields[] = 'Nomor pekerja';
+        if ($name === '' || strlen($name) > 150) $invalidFields[] = 'Nama lengkap';
+        if (strlen($email) > 255 || ($submittedEmail !== '' && $submittedEmail !== $storedEmail && !filter_var($submittedEmail, FILTER_VALIDATE_EMAIL))) {
+            $invalidFields[] = 'Email';
+        }
+        if (strlen($phone) > 50) $invalidFields[] = 'Telepon';
+        if (strlen($position) > 120) $invalidFields[] = 'Jabatan';
+        if (strlen($department) > 120) $invalidFields[] = 'Departemen';
+        if ($gender !== '' && !in_array($gender, ['MALE', 'FEMALE', 'OTHER'], true)) $invalidFields[] = 'Jenis kelamin';
+        if (!in_array($employmentStatus, ['ACTIVE', 'ON_LEAVE', 'RESIGNED'], true)) $invalidFields[] = 'Status kerja';
+        if ($religion !== '' && !in_array($religion, ['Islam', 'Kristen Protestan', 'Katolik', 'Hindu', 'Buddha', 'Konghucu'], true)) {
+            $invalidFields[] = 'Agama';
+        }
+        if ($contractType !== '' && !in_array($contractType, ['PERMANENT', 'CONTRACT', 'PROBATION', 'INTERNSHIP', 'OTHER'], true)) {
+            $invalidFields[] = 'Jenis kontrak';
+        }
+        if (strlen($address) > 10000) $invalidFields[] = 'Alamat';
+        if (strlen($emergencyName) > 150) $invalidFields[] = 'Kontak darurat';
+        if (strlen($emergencyPhone) > 50) $invalidFields[] = 'Telepon darurat';
+        if (strlen($birthCity) > 120) $invalidFields[] = 'Kota kelahiran';
+        if ($contractDuration !== '' && ($contractDurationYears === null || $contractDurationYears < 0 || $contractDurationYears > 99.9)) {
+            $invalidFields[] = 'Lama kontrak';
+        }
+        if (strlen($nik) > 20) $invalidFields[] = 'NIK';
+        if (strlen($npwp) > 30) $invalidFields[] = 'NPWP';
+        if (strlen($bpjsKetenagakerjaan) > 30) $invalidFields[] = 'BPJS Tenaga Kerja';
+        if (strlen($bpjsKesehatan) > 30) $invalidFields[] = 'BPJS Kesehatan';
+        if (strlen($payrollAccountNumber) > 50) $invalidFields[] = 'No. Rekening Payroll';
+        if (strlen($payrollBankName) > 100) $invalidFields[] = 'Bank Payroll';
+        if ($invalidFields) {
+            jsonResponse(['error' => 'Periksa format kolom berikut: ' . implode(', ', $invalidFields) . '.'], 400);
         }
         if ($contractStart !== null && $contractEnd !== null && $contractEnd < $contractStart) {
             jsonResponse(['error' => 'Tanggal akhir kontrak tidak boleh sebelum tanggal mulai.'], 400);
@@ -597,23 +662,23 @@ try {
         $branchQuery = $pdo->prepare('SELECT code FROM branches WHERE id = :id AND is_active = 1 LIMIT 1');
         $branchQuery->execute(['id' => $branchId]);
         $branchCode = $branchQuery->fetchColumn();
-        if (!is_string($branchCode)) jsonResponse(['error' => 'Pilih branch aktif yang valid.'], 400);
+        if (!is_string($branchCode)) jsonResponse(['error' => 'Akun pekerja harus memiliki branch aktif yang valid.'], 400);
 
         $pdo->beginTransaction();
         $duplicate = $pdo->prepare('SELECT user_id FROM hr_employee_records WHERE employee_number = :number AND user_id <> :user_id LIMIT 1');
         $duplicate->execute(['number' => $employeeNumber, 'user_id' => $workerId]);
-        if ($duplicate->fetchColumn()) {
+        if ($employeeNumber !== '' && $duplicate->fetchColumn()) {
             $pdo->rollBack();
             jsonResponse(['error' => 'Nomor pekerja sudah digunakan.'], 409);
         }
-        $before = hrAuditEmployeeSnapshot($pdo, $workerId);
+        $before = hrAuditEmployeeSnapshot($pdo, $workerId, $workerRole);
         $after = [
-            'employeeNumber' => $employeeNumber,
+            'employeeNumber' => $employeeNumber !== '' ? $employeeNumber : null,
             'name' => $name,
             'email' => $email,
             'phone' => $phone,
-            'position' => $position,
-            'department' => $department,
+            'position' => $position !== '' ? $position : null,
+            'department' => $department !== '' ? $department : null,
             'branchId' => (string) $branchId,
             'dateOfBirth' => $dateOfBirth,
             'birthCity' => $birthCity !== '' ? $birthCity : null,
@@ -635,7 +700,7 @@ try {
             'payrollBankName' => $payrollBankName !== '' ? $payrollBankName : null,
         ];
         $recordValues = [
-            'employee_number' => $employeeNumber, 'date_of_birth' => $dateOfBirth,
+            'employee_number' => $employeeNumber !== '' ? $employeeNumber : null, 'date_of_birth' => $dateOfBirth,
             'birth_city' => $birthCity !== '' ? $birthCity : null,
             'gender' => $gender !== '' ? $gender : null, 'address' => $address !== '' ? $address : null,
             'emergency_contact_name' => $emergencyName !== '' ? $emergencyName : null,
@@ -649,7 +714,8 @@ try {
             'bpjs_kesehatan' => $bpjsKesehatan !== '' ? $bpjsKesehatan : null,
             'payroll_account_number' => $payrollAccountNumber !== '' ? $payrollAccountNumber : null,
             'payroll_bank_name' => $payrollBankName !== '' ? $payrollBankName : null,
-            'position' => $position, 'department' => $department, 'branch_id' => $branchId,
+            'position' => $position !== '' ? $position : null,
+            'department' => $department !== '' ? $department : null, 'branch_id' => $branchId,
         ];
         if ($photoContent !== null) {
             $recordValues['photo_content'] = $photoContent;
@@ -684,11 +750,13 @@ try {
         }
         $updateUser = $pdo->prepare(
             'UPDATE users SET name = :name, email = :email, phone = :phone, position = :position,
-             department = :department, branch_name = :branch_name, branch_id = :branch_id WHERE id = :id AND role = \'PEKERJA\''
+             department = :department, branch_name = :branch_name, branch_id = :branch_id WHERE id = :id AND role = :role'
         );
         $updateUser->execute([
             'name' => $name, 'email' => $email, 'phone' => $phone !== '' ? $phone : null,
-            'position' => $position, 'department' => $department, 'branch_name' => $branchCode,
+            'position' => $position !== '' ? $position : null,
+            'department' => $department !== '' ? $department : (string) $workerAccount['department'],
+            'branch_name' => $branchCode, 'role' => $workerRole,
             'branch_id' => $branchId, 'id' => $workerId,
         ]);
         hrRecordHistory($pdo, $user, $workerId, $before === null ? 'EMPLOYEE_CREATED' : 'EMPLOYEE_UPDATED',
@@ -705,7 +773,7 @@ try {
         $title = hrString($_POST['title'] ?? null, 'Judul dokumen');
         $category = hrString($_POST['category'] ?? null, 'Kategori dokumen');
         $file = $_FILES['document'] ?? null;
-        if ($workerId === '' || !hrWorkerExists($pdo, $workerId)) jsonResponse(['error' => 'Akun pekerja tidak valid.'], 400);
+        if ($workerId === '' || !hrWorkerExists($pdo, $workerId, $workerRole)) jsonResponse(['error' => 'Akun pekerja tidak valid.'], 400);
         if ($title === '' || strlen($title) > 180 || $category === '' || strlen($category) > 60) {
             jsonResponse(['error' => 'Judul dan kategori dokumen wajib diisi.'], 400);
         }
@@ -767,7 +835,7 @@ try {
         $checkIn = hrString($body['checkIn'] ?? null, 'Jam check-in');
         $checkOut = hrString($body['checkOut'] ?? null, 'Jam check-out');
         $note = hrString($body['note'] ?? null, 'Catatan kehadiran');
-        if ($workerId === '' || !hrWorkerExists($pdo, $workerId)
+        if ($workerId === '' || !hrWorkerExists($pdo, $workerId, $workerRole)
             || !in_array($status, ['PRESENT', 'ABSENT', 'REMOTE', 'LEAVE'], true)
             || ($checkIn !== '' && !preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $checkIn))
             || ($checkOut !== '' && !preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $checkOut))
@@ -822,7 +890,7 @@ try {
                 jsonResponse(['error' => 'Format waktu absensi tidak valid.'], 400);
             }
         }
-        if ($workerId === '' || !hrWorkerExists($pdo, $workerId)) {
+        if ($workerId === '' || !hrWorkerExists($pdo, $workerId, $workerRole)) {
             jsonResponse(['error' => 'Pekerja tidak valid.'], 400);
         }
         $attendanceId = hrNewId('HRA');
@@ -1026,7 +1094,7 @@ try {
         $query = $pdo->prepare('SELECT user_id, status FROM hr_leave_requests WHERE id = :id LIMIT 1 FOR UPDATE');
         $query->execute(['id' => $id]);
         $request = $query->fetch();
-        if (!$request || $request['status'] !== 'PENDING') {
+        if (!$request || $request['status'] !== 'PENDING' || !hrWorkerExists($pdo, (string) $request['user_id'], $workerRole)) {
             $pdo->rollBack();
             jsonResponse(['error' => 'Pengajuan tidak ditemukan atau sudah diproses.'], 409);
         }
@@ -1077,8 +1145,8 @@ try {
             }
         }
         $pdo->beginTransaction();
-        $lockWorker = $pdo->prepare('SELECT id FROM users WHERE id = :user_id AND role = \'PEKERJA\' LIMIT 1 FOR UPDATE');
-        $lockWorker->execute(['user_id' => $user['id']]);
+        $lockWorker = $pdo->prepare('SELECT id FROM users WHERE id = :user_id AND role = :role LIMIT 1 FOR UPDATE');
+        $lockWorker->execute(['user_id' => $user['id'], 'role' => $workerRole]);
         if (!$lockWorker->fetchColumn()) {
             $pdo->rollBack();
             jsonResponse(['error' => 'Akun pekerja tidak valid.'], 409);
@@ -1112,8 +1180,8 @@ try {
             jsonResponse(['error' => 'Foto pekerja harus berformat JPG atau PNG.'], 400);
         }
         $photoContent = base64_decode(str_replace(["\r", "\n", ' '], '', $photoDataBase64), true);
-        if ($photoContent === false || strlen($photoContent) > 2 * 1024 * 1024 || @getimagesizefromstring($photoContent) === false) {
-            jsonResponse(['error' => 'Foto pekerja tidak valid atau melebihi 2 MB.'], 400);
+        if ($photoContent === false || strlen($photoContent) > 500 * 1024 || @getimagesizefromstring($photoContent) === false) {
+            jsonResponse(['error' => 'Foto pekerja tidak valid atau melebihi 500 KB.'], 400);
         }
         $update = $pdo->prepare('UPDATE hr_employee_records SET photo_content = :photo, photo_mime_type = :mime WHERE user_id = :user_id');
         $update->execute(['photo' => $photoContent, 'mime' => $photoMimeType, 'user_id' => $user['id']]);
@@ -1138,7 +1206,7 @@ try {
         $query = $pdo->prepare('SELECT user_id, proposed_data, status FROM hr_profile_change_requests WHERE id = :id LIMIT 1 FOR UPDATE');
         $query->execute(['id' => $id]);
         $request = $query->fetch();
-        if (!$request || $request['status'] !== 'PENDING' || !hrWorkerExists($pdo, (string) ($request['user_id'] ?? ''))) {
+        if (!$request || $request['status'] !== 'PENDING' || !hrWorkerExists($pdo, (string) ($request['user_id'] ?? ''), $workerRole)) {
             $pdo->rollBack();
             jsonResponse(['error' => 'Pengajuan tidak ditemukan, pekerja tidak aktif, atau sudah diproses.'], 409);
         }
@@ -1149,7 +1217,7 @@ try {
         }
         $workerId = (string) $request['user_id'];
         if ($decision === 'APPROVED') {
-            $before = hrAuditEmployeeSnapshot($pdo, $workerId);
+            $before = hrAuditEmployeeSnapshot($pdo, $workerId, $workerRole);
             $userFields = [];
             $recordFields = [];
             foreach ($changes as $field => $value) {
@@ -1168,12 +1236,12 @@ try {
             if ($userFields) {
                 $sets = [];
                 foreach ($userFields as $field => $_) $sets[] = '`' . $field . '` = :' . $field;
-                $updateUser = $pdo->prepare('UPDATE users SET ' . implode(', ', $sets) . ' WHERE id = :id AND role = \'PEKERJA\'');
-                $updateUser->execute([...$userFields, 'id' => $workerId]);
+                $updateUser = $pdo->prepare('UPDATE users SET ' . implode(', ', $sets) . ' WHERE id = :id AND role = :role');
+                $updateUser->execute([...$userFields, 'id' => $workerId, 'role' => $workerRole]);
             }
             if ($recordFields) {
-                $branchQuery = $pdo->prepare('SELECT branch_id FROM users WHERE id = :id AND role = \'PEKERJA\' LIMIT 1');
-                $branchQuery->execute(['id' => $workerId]);
+                $branchQuery = $pdo->prepare('SELECT branch_id FROM users WHERE id = :id AND role = :role LIMIT 1');
+                $branchQuery->execute(['id' => $workerId, 'role' => $workerRole]);
                 $branchId = $branchQuery->fetchColumn();
                 if (!$branchId) {
                     $pdo->rollBack();

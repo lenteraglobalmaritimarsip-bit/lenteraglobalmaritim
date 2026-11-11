@@ -1,0 +1,16 @@
+ALTER TABLE users
+  MODIFY COLUMN role ENUM(
+    'ADMIN', 'SALES', 'MANAGER_OPS', 'FDA', 'FINANCE', 'ACCOUNTING', 'DIRECTOR',
+    'HR_ADMINISTRASI', 'PEKERJA', 'HR_ADMINISTRASI_LGF', 'PEKERJA_LGF'
+  ) NOT NULL;
+
+ALTER TABLE audit_logs
+  MODIFY COLUMN actor_role ENUM(
+    'ADMIN', 'SALES', 'MANAGER_OPS', 'FDA', 'FINANCE', 'ACCOUNTING', 'DIRECTOR',
+    'HR_ADMINISTRASI', 'PEKERJA', 'HR_ADMINISTRASI_LGF', 'PEKERJA_LGF'
+  ) NULL;
+
+ALTER TABLE payroll_batches
+  ADD COLUMN company_code VARCHAR(10) NOT NULL DEFAULT 'LGM' AFTER period,
+  DROP INDEX uq_payroll_period,
+  ADD UNIQUE KEY uq_payroll_company_period (company_code, period);
