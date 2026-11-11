@@ -401,6 +401,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
     setExchangeRateInput(savedRate ? String(savedRate) : '');
   }, [activeJob.jobId]);
 
+  const hasValidExchangeRate = Number.isFinite(Number(exchangeRateInput)) && Number(exchangeRateInput) > 0;
   const effectiveExchangeRate = Number(exchangeRateInput) > 0
     ? Number(exchangeRateInput)
     : activeJob.fda?.exchangeRateUSDToIDR || activeJob.exchangeRateUSDToIDR || 15800;
@@ -901,6 +902,11 @@ export const FDAView: React.FC<FDAViewProps> = ({
   const handleAddActualCost = (e?: React.FormEvent) => {
     e?.preventDefault();
     if (isFDAReadOnly) return;
+    if (viewCurrency === 'USD' && !hasValidExchangeRate) {
+      setMsg('Masukkan Kurs USD sebelum menambahkan item biaya dalam USD.');
+      setTimeout(() => setMsg(null), 4000);
+      return;
+    }
     if (actualEntryMode === 'AUTO' && !autoSelectedItemKey) {
       setMsg('Pilih item master yang sesuai, atau gunakan mode Manual.');
       setTimeout(() => setMsg(null), 4000);
@@ -1449,6 +1455,11 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
 
   const handleFinalizeFDA = () => {
+    if (viewCurrency === 'USD' && !hasValidExchangeRate) {
+      setMsg('Masukkan Kurs USD sebelum mengirim FDA dalam USD.');
+      setTimeout(() => setMsg(null), 4000);
+      return;
+    }
     const guard = db.canFinalizeFDA(activeJob.jobId);
     if (!guard.ok) {
       setMsg(guard.message || 'FDA belum dapat difinalisasi.');
@@ -1888,17 +1899,19 @@ export const FDAView: React.FC<FDAViewProps> = ({
                 </button>
               </div>
               <label className="account-toolbar-panel account-rate-control flex h-16 items-center gap-2 rounded-xl border px-5 text-base">
-                Kurs USD
+                <span>Kurs USD{viewCurrency === 'USD' && <span className="ml-1 text-rose-500">*</span>}</span>
                 <FormattedNumberInput
                   min={1}
                   maximumFractionDigits={4}
                   value={exchangeRateInput}
+                  placeholder="Masukkan kurs"
                   readOnly={isFDAReadOnly}
                   onValueChange={handleExchangeRateChange}
                   onBlur={() => handleExchangeRateChange(exchangeRateInput)}
                   className="account-rate-input h-9 w-28 rounded-lg border px-3 text-right text-base"
                 />
               </label>
+              {viewCurrency === 'USD' && !hasValidExchangeRate && !isFDAReadOnly && <span role="status" className="basis-full text-right text-xs font-semibold text-rose-500">Kurs USD wajib diisi sebelum menambah item atau mengirim FDA.</span>}
               {isFDAApproved ? (
                 <span className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-100 px-3.5 py-2 text-xs font-bold text-blue-700">
                   <CheckCircle2 className="h-4 w-4" />
@@ -1912,8 +1925,10 @@ export const FDAView: React.FC<FDAViewProps> = ({
               ) : (
                 <button
                   type="button"
+                  disabled={viewCurrency === 'USD' && !hasValidExchangeRate}
+                  title={viewCurrency === 'USD' && !hasValidExchangeRate ? 'Masukkan Kurs USD terlebih dahulu.' : undefined}
                   onClick={handleFinalizeFDA}
-                  className="account-submit-button h-[54px] px-6 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-base font-bold flex items-center gap-2"
+                  className="account-submit-button h-[54px] px-6 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-base font-bold flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Send className="w-6 h-6" />
                   Kirim ke Manager untuk Approval
@@ -2236,7 +2251,7 @@ export const FDAView: React.FC<FDAViewProps> = ({
                     TAMBAH DATA MASTER
                   </button>
                 )}
-                <button type="button" onClick={handleAddActualCost} className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-emerald-500 shadow-sm">
+                <button type="button" disabled={viewCurrency === 'USD' && !hasValidExchangeRate} title={viewCurrency === 'USD' && !hasValidExchangeRate ? 'Masukkan Kurs USD terlebih dahulu.' : undefined} onClick={handleAddActualCost} className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-emerald-500 shadow-sm disabled:cursor-not-allowed disabled:opacity-50">
                   <Plus className="h-4 w-4" />
                   TAMBAH ITEM
                 </button>
@@ -2562,8 +2577,11 @@ export const FDAView: React.FC<FDAViewProps> = ({
 
               <div className="pt-4 flex justify-end">
                 {!isFDAReadOnly && !isCrewOnlyFpdaReady && <button
+                  type="button"
+                  disabled={viewCurrency === 'USD' && !hasValidExchangeRate}
+                  title={viewCurrency === 'USD' && !hasValidExchangeRate ? 'Masukkan Kurs USD terlebih dahulu.' : undefined}
                   onClick={handleFinalizeFDA}
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-bold shadow-lg shadow-cyan-900/30 transition flex items-center gap-2"
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-bold shadow-lg shadow-cyan-900/30 transition flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <FileCheck2 className="w-4 h-4" />
                   <span>Kirim FDA ke Manager untuk Approval</span>

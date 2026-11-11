@@ -79,6 +79,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   const [exchangeRate, setExchangeRate] = useState(() =>
     savedExchangeRate ? String(savedExchangeRate) : ''
   );
+  const hasValidExchangeRate = Number.isFinite(Number(exchangeRate)) && Number(exchangeRate) > 0;
   useEffect(() => {
     setExchangeRate(savedExchangeRate ? String(savedExchangeRate) : '');
   }, [job.jobId, savedExchangeRate]);
@@ -742,6 +743,10 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   const handleAddItem = (e: React.FormEvent) => {
     e.preventDefault();
     if (isReviewOnly) return;
+    if (viewCurrency === 'USD' && !hasValidExchangeRate) {
+      window.alert('Masukkan Kurs USD sebelum menambahkan item biaya dalam USD.');
+      return;
+    }
     if (itemEntryMode === 'AUTO' && !autoSelectedItemKey) return;
     if (!newItem.name.trim()) return;
 
@@ -813,6 +818,10 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
   };
 
   const handleSubmit = () => {
+    if (viewCurrency === 'USD' && !hasValidExchangeRate) {
+      window.alert('Masukkan Kurs USD sebelum mengirim EPDA dalam USD.');
+      return;
+    }
     if (!persist()) return;
     onDataSaved?.();
     setIsSaved(true);
@@ -1172,10 +1181,11 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
           <button type="button" onClick={() => handleViewCurrencyChange('USD')} className={`account-currency-button h-12 px-5 rounded-lg text-base font-bold ${viewCurrency === 'USD' ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}>USD ($)</button>
         </div>
         <label className="account-toolbar-panel account-rate-control flex h-16 items-center gap-2 rounded-xl border px-5 text-base">
-          Kurs USD
-          <FormattedNumberInput min={1} maximumFractionDigits={4} value={exchangeRate} readOnly={isReviewOnly} onValueChange={setExchangeRate} onBlur={() => saveExchangeRate(exchangeRate)} className="account-rate-input h-9 w-28 rounded-lg border px-3 text-right text-base"/>
+          <span>Kurs USD{viewCurrency === 'USD' && <span className="ml-1 text-rose-500">*</span>}</span>
+          <FormattedNumberInput min={1} maximumFractionDigits={4} value={exchangeRate} placeholder="Masukkan kurs" readOnly={isReviewOnly} onValueChange={setExchangeRate} onBlur={() => saveExchangeRate(exchangeRate)} className="account-rate-input h-9 w-28 rounded-lg border px-3 text-right text-base"/>
         </label>
-        {!isReviewOnly && <button onClick={handleSubmit} className="account-submit-button h-[54px] px-6 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-base font-bold flex items-center gap-2"><Send className="w-6 h-6"/>Kirim ke Manager OPS</button>}
+        {viewCurrency === 'USD' && !hasValidExchangeRate && !isReviewOnly && <span role="status" className="basis-full text-right text-xs font-semibold text-rose-500">Kurs USD wajib diisi sebelum menambah item atau mengirim EPDA.</span>}
+        {!isReviewOnly && <button disabled={viewCurrency === 'USD' && !hasValidExchangeRate} title={viewCurrency === 'USD' && !hasValidExchangeRate ? 'Masukkan Kurs USD terlebih dahulu.' : undefined} onClick={handleSubmit} className="account-submit-button h-[54px] px-6 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-base font-bold flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"><Send className="w-6 h-6"/>Kirim ke Manager OPS</button>}
         {isReviewOnly && (
           <span className={`inline-flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-bold ${
             isManagerApproved
@@ -1453,7 +1463,7 @@ export const QuotesEPDAView: React.FC<QuotesEPDAViewProps> = ({ job, vessels, us
                 TAMBAH DATA MASTER
               </button>
             )}
-            <button type="submit" form={itemEntryMode === 'AUTO' ? 'epda-auto-entry-form' : 'epda-entry-form'} className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-emerald-500 shadow-sm">
+            <button type="submit" disabled={viewCurrency === 'USD' && !hasValidExchangeRate} title={viewCurrency === 'USD' && !hasValidExchangeRate ? 'Masukkan Kurs USD terlebih dahulu.' : undefined} form={itemEntryMode === 'AUTO' ? 'epda-auto-entry-form' : 'epda-entry-form'} className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-emerald-500 shadow-sm disabled:cursor-not-allowed disabled:opacity-50">
               <Plus className="h-4 w-4" />
               TAMBAH ITEM
             </button>

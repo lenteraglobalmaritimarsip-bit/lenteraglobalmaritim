@@ -198,14 +198,14 @@ button{ cursor:pointer; }
   background:linear-gradient(180deg,#101a31 0%,#0c1426 100%);
   color:#dbe4f5;
   display:flex;flex-direction:column;
-  min-height:calc(100vh - 64px);
+  position:fixed;top:64px;bottom:0;left:0;z-index:30;
   box-shadow:2px 0 12px rgba(16,30,60,.08);
 }
 .maritim-sidebar-top{padding:20px 16px 15px;border-bottom:1px solid rgba(255,255,255,.07)}
 .maritim-workspace-label{font-size:9px;font-weight:900;letter-spacing:.15em;color:#55b9ff;text-transform:uppercase}
 .maritim-workspace-title{font-size:15px;font-weight:850;color:#fff;margin-top:5px}
 .maritim-workspace-desc{font-size:10px;line-height:1.45;color:#8492ab;margin-top:3px}
-.maritim-nav{padding:12px 10px;overflow:auto;flex:1}
+.maritim-nav{padding:12px 10px;overflow:auto;flex:1;min-height:0;overscroll-behavior:contain}
 .maritim-nav-section{font-size:9px;color:#66748e;font-weight:850;letter-spacing:.12em;text-transform:uppercase;padding:10px 10px 7px}
 .maritim-nav-item{
   width:100%;display:flex;align-items:center;gap:11px;
@@ -231,7 +231,7 @@ button{ cursor:pointer; }
 .maritim-job-card-id{font-family:ui-monospace,monospace;font-size:11px;color:#fff;font-weight:800;margin-top:4px}
 .maritim-job-card-stage{font-size:9px;color:#7d8ba3;margin-top:2px}
 
-.maritim-main{flex:1;min-width:0;overflow:visible;padding:22px;background:#eef4fb}
+.maritim-main{flex:1;min-width:0;margin-left:250px;overflow:visible;padding:22px;background:#eef4fb}
 .maritim-content{max-width:1260px;margin:0 auto}
 .finance-workspace :where(div, p, span, label, th, td, li, a, small, strong, b, em):not(button *):not(h1 *):not(h2 *):not(h3 *):not(h4 *):not(h5 *):not(h6 *):not([role="status"] *):not([role="alert"] *){
   font-size:11px !important;
@@ -262,6 +262,7 @@ button{ cursor:pointer; }
 @media(max-width:900px){
   .maritim-header-center{display:none}
   .maritim-sidebar{width:220px;flex-basis:220px}
+  .maritim-main{margin-left:0}
 }
 @media(max-width:680px){
   .maritim-sidebar{width:64px;flex-basis:64px}

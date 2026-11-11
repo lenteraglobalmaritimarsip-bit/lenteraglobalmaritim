@@ -276,7 +276,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, users = 
   const documentLabel = documentPdaType === 'FDA' ? 'FPDA' : 'PDA Crew';
   const [items, setItems] = useState<PdaEntryItem[]>([]);
   const [currency, setCurrency] = useState(job?.quotation?.epda?.currency || job?.currency || 'USD');
-  const [exchangeRate, setExchangeRate] = useState(job?.exchangeRateUSDToIDR || 0);
+  const [exchangeRate, setExchangeRate] = useState(0);
   const [eta, setEta] = useState(job?.eta || '');
   const [etd, setEtd] = useState(job?.etd || '');
   const [etaRemarks, setEtaRemarks] = useState(job?.inquiry?.etaRemarks || '');
@@ -330,6 +330,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, users = 
     }
     if (isSubmittingPda) return 'Pengiriman PDA sedang diproses.';
     if (editingItemId) return 'Simpan atau batalkan perubahan item sebelum mengirim PDA.';
+    if (currency === 'USD' && exchangeRate <= 0) return 'Masukkan Kurs USD sebelum menambahkan item atau mengirim dokumen.';
     if (items.length === 0) return 'Tambahkan minimal satu item PDA sebelum mengirim ke Manager OPS.';
     return '';
   })();
@@ -380,7 +381,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, users = 
     setDraftStatus('loading');
     const defaults = {
       currency: job.quotation?.epda?.currency || job.currency || 'USD',
-      exchangeRate: job.exchangeRateUSDToIDR || 0,
+      exchangeRate: 0,
       eta: job.eta || '',
       etd: job.etd || '',
       etaRemarks: job.inquiry.etaRemarks || '',
@@ -494,6 +495,10 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, users = 
     event.preventDefault();
     const description = newItem.name.trim();
     if (!description || isPdaLocked) return;
+    if (currency === 'USD' && exchangeRate <= 0) {
+      window.alert('Masukkan Kurs USD sebelum menambahkan item biaya.');
+      return;
+    }
     setItems((current) => [
       ...current,
       {
@@ -514,6 +519,10 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, users = 
   };
   const continueFromSalesPda = () => {
     if (documentPdaType !== 'FDA' || !canEditPda) return;
+    if (currency === 'USD' && exchangeRate <= 0) {
+      setContinuePdaMessage('Masukkan Kurs USD sebelum melanjutkan item ke FPDA.');
+      return;
+    }
     if (salesPdaCurrency && salesPdaCurrency !== currency) {
       setContinuePdaMessage(`Mata uang PDA sumber ${salesPdaCurrency} berbeda dari mata uang FPDA ${currency}. Samakan mata uang sebelum melanjutkan.`);
       return;
@@ -549,6 +558,10 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, users = 
   };
   const handleSubmitPda = async () => {
     if (!job || !draftLoaded || isPdaLocked || isSubmittingPda || editingItemId || items.length === 0) return;
+    if (currency === 'USD' && exchangeRate <= 0) {
+      window.alert('Masukkan Kurs USD sebelum mengirim dokumen dalam USD.');
+      return;
+    }
     setIsSubmittingPda(true);
     setDraftError('');
     if (draftSaveTimer.current !== null) {
@@ -642,9 +655,10 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, users = 
             <button type="button" disabled={!canEditPda} onClick={() => setCurrency('USD')} className={`account-currency-button h-10 rounded-lg px-4 text-sm font-bold disabled:cursor-wait disabled:opacity-50 ${currency === 'USD' ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}>USD ($)</button>
           </div>
           <label className="account-toolbar-panel account-rate-control flex h-12 items-center gap-2 rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm text-slate-300">
-            Kurs USD
-            <FormattedNumberInput min={0} maximumFractionDigits={4} disabled={!canEditPda} value={exchangeRate} onValueChange={(value) => setExchangeRate(Number(value) || 0)} className="account-rate-input h-8 w-24 rounded-lg border border-slate-700 bg-slate-900 px-2 text-right text-sm text-white disabled:opacity-50" />
+            <span>Kurs USD{currency === 'USD' && <span className="ml-1 text-rose-500">*</span>}</span>
+            <FormattedNumberInput min={1} maximumFractionDigits={4} disabled={!canEditPda} value={exchangeRate || ''} placeholder="Masukkan kurs" onValueChange={(value) => setExchangeRate(Number(value) || 0)} className="account-rate-input h-8 w-24 rounded-lg border border-slate-700 bg-slate-900 px-2 text-right text-sm text-white disabled:opacity-50" />
           </label>
+          {currency === 'USD' && exchangeRate <= 0 && canEditPda && <span className="w-full text-right text-[10px] font-semibold text-rose-400">Kurs USD wajib diisi sebelum tambah item.</span>}
           {job?.voidedAt ? (
             <span className="inline-flex items-center gap-1.5 rounded-xl border border-rose-300 bg-rose-50 px-3.5 py-2 text-xs font-bold text-rose-800"><X className="h-4 w-4" />JOB Call Dibatalkan</span>
           ) : approvalStatus === 'SUBMITTED' ? (
@@ -652,7 +666,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, users = 
           ) : approvalStatus === 'APPROVED' ? (
             <span className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-100 px-3.5 py-2 text-xs font-bold text-blue-700"><CheckCircle2 className="h-4 w-4" />DISETUJUI MANAGER OPS</span>
           ) : (
-            <button type="button" title={submitButtonTitle || undefined} disabled={!canEditPda || draftStatus === 'saving' || !!editingItemId || items.length === 0} onClick={() => void handleSubmitPda()} className="account-submit-button flex h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="button" title={submitButtonTitle || undefined} disabled={!canEditPda || draftStatus === 'saving' || !!editingItemId || items.length === 0 || (currency === 'USD' && exchangeRate <= 0)} onClick={() => void handleSubmitPda()} className="account-submit-button flex h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
               <Send className="h-5 w-5" /> {isSubmittingPda ? 'Mengirim...' : approvalStatus === 'REVISION_REQUIRED' ? 'Kirim Ulang ke Manager OPS' : 'Kirim ke Manager OPS'}
             </button>
           )}
@@ -716,9 +730,9 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, users = 
             {documentPdaType === 'FDA' && (
               <button
                 type="button"
-                disabled={!canEditPda || draftStatus === 'saving' || salesPdaItems.length === 0}
+                disabled={!canEditPda || draftStatus === 'saving' || salesPdaItems.length === 0 || (currency === 'USD' && exchangeRate <= 0)}
                 onClick={continueFromSalesPda}
-                title={salesPdaItems.length === 0 ? 'Belum ada item dari PDA Sales untuk dilanjutkan.' : undefined}
+                title={salesPdaItems.length === 0 ? 'Belum ada item dari PDA Sales untuk dilanjutkan.' : currency === 'USD' && exchangeRate <= 0 ? 'Masukkan Kurs USD terlebih dahulu.' : undefined}
                 className="flex h-11 items-center gap-2 rounded-lg bg-blue-50 px-4 text-base font-medium text-blue-600 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Plus className="h-4 w-4" /> Lanjutkan dari PDA
@@ -848,7 +862,7 @@ export const CrewPDAView: React.FC<CrewPDAViewProps> = ({ job, vessels, users = 
                 <h3 className="text-[15px] font-bold uppercase tracking-wide text-slate-700">Tambah Item PDA</h3>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <button type="submit" disabled={!canEditPda || draftStatus === 'error'} className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-500 disabled:cursor-wait disabled:opacity-50">
+                <button type="submit" disabled={!canEditPda || draftStatus === 'error' || (currency === 'USD' && exchangeRate <= 0)} title={currency === 'USD' && exchangeRate <= 0 ? 'Masukkan Kurs USD terlebih dahulu.' : undefined} className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-500 disabled:cursor-wait disabled:opacity-50">
                   <Plus className="h-4 w-4" /> TAMBAH ITEM
                 </button>
               </div>
