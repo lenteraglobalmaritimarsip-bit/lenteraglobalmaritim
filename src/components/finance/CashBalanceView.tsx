@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowDownToLine, ArrowUpFromLine, Wallet } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, Eye, EyeOff, Wallet } from 'lucide-react';
 import { AccountsReceivableEntry, BankAccount, CashBalanceAdjustment, Currency, PaymentVoucher } from '../../types';
 import { loadAccountsReceivableHistory } from '../../lib/api';
 import { todayISO } from '../../utils/date';
@@ -87,6 +87,7 @@ const formatNumber = (amount: number, currency: Currency) => new Intl.NumberForm
 
 export const CashBalanceView: React.FC<CashBalanceViewProps> = ({ bankAccounts, paymentVouchers, cashBalanceAdjustments, branchName }) => {
   const [date, setDate] = useState(todayISO());
+  const [showBalances, setShowBalances] = useState(false);
   const [receivableEntries, setReceivableEntries] = useState<AccountsReceivableEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -181,6 +182,16 @@ export const CashBalanceView: React.FC<CashBalanceViewProps> = ({ bankAccounts, 
           Tanggal
           <DateInput value={date} onChange={(value) => setDate(value || todayISO())} inputClassName={inputClass} ariaLabel="Tanggal saldo kas" />
         </label>
+        <button
+          type="button"
+          onClick={() => setShowBalances((visible) => !visible)}
+          aria-label={showBalances ? 'Sembunyikan saldo' : 'Tampilkan saldo'}
+          aria-pressed={showBalances}
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+        >
+          {showBalances ? <EyeOff size={15} /> : <Eye size={15} />}
+          Visibility
+        </button>
       </div>
 
       {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-xs font-semibold text-red-700">{error}</div>}
@@ -202,21 +213,21 @@ export const CashBalanceView: React.FC<CashBalanceViewProps> = ({ bankAccounts, 
                 <div className="rounded-md bg-slate-50 p-3">
                   <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Saldo Awal Hari · {currency}</div>
                   <div className="mt-2 whitespace-nowrap font-mono text-sm font-bold text-slate-700">
-                    {opening === null ? 'Belum berlaku' : formatAmount(opening, currency)}
+                    {opening === null ? 'Belum berlaku' : showBalances ? formatAmount(opening, currency) : '*********'}
                   </div>
                 </div>
                 <div className="rounded-md bg-emerald-50 p-3">
                   <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700"><ArrowDownToLine size={12} /> Pemasukan</div>
-                  <div className="mt-2 whitespace-nowrap font-mono text-sm font-bold text-emerald-800">{formatAmount(income, currency)}</div>
+                  <div className="mt-2 whitespace-nowrap font-mono text-sm font-bold text-emerald-800">{showBalances ? formatAmount(income, currency) : '*********'}</div>
                 </div>
                 <div className="rounded-md bg-rose-50 p-3">
                   <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-rose-700"><ArrowUpFromLine size={12} /> Pengeluaran</div>
-                  <div className="mt-2 whitespace-nowrap font-mono text-sm font-bold text-rose-800">{formatAmount(expense, currency)}</div>
+                  <div className="mt-2 whitespace-nowrap font-mono text-sm font-bold text-rose-800">{showBalances ? formatAmount(expense, currency) : '*********'}</div>
                 </div>
                 <div className="rounded-md bg-slate-50 p-3">
                   <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Saldo Akhir Hari</div>
                   <div className="mt-2 whitespace-nowrap font-mono text-sm font-bold text-slate-700">
-                    {closing === null ? 'Belum berlaku' : formatAmount(closing, currency)}
+                    {closing === null ? 'Belum berlaku' : showBalances ? formatAmount(closing, currency) : '*********'}
                   </div>
                 </div>
               </div>

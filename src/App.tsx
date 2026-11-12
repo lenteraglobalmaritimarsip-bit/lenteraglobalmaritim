@@ -496,7 +496,7 @@ export default function App() {
         selectedJobId={currentRole === 'FDA' ? currentJob.jobId || '' : selectedJobId}
         onJobSelect={setSelectedJobId}
         jobCalls={roleVisibleJobCalls}
-        paymentVouchers={data.paymentVouchers || []}
+        paymentVouchers={branchPaymentVouchers}
         currentUser={currentUser}
         onLogout={handleLogout}
         onProfile={handleProfile}

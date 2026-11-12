@@ -649,13 +649,12 @@ function validReceiptBankAccountSnapshot(array $receipt, string $prefix, array $
 function validPaymentProofDataUrl(?string $dataUrl): bool
 {
     if ($dataUrl === null || $dataUrl === '') return true;
-    if (!preg_match('/^data:image\/(jpeg|png);base64,([A-Za-z0-9+\/]+={0,2})$/', $dataUrl, $matches)) return false;
-    $imageBytes = base64_decode($matches[2], true);
-    if ($imageBytes === false || strlen($imageBytes) > 1024 * 1024) return false;
+    if (!preg_match('/^data:(image\/(?:jpeg|png)|application\/pdf);base64,([A-Za-z0-9+\/]+={0,2})$/', $dataUrl, $matches)) return false;
+    $fileBytes = base64_decode($matches[2], true);
+    if ($fileBytes === false || strlen($fileBytes) > 1024 * 1024) return false;
     $fileInfo = new finfo(FILEINFO_MIME_TYPE);
-    $actualMime = $fileInfo->buffer($imageBytes);
-    $expectedMime = $matches[1] === 'jpeg' ? 'image/jpeg' : 'image/png';
-    return $actualMime === $expectedMime;
+    if ($fileInfo->buffer($fileBytes) !== $matches[1]) return false;
+    return $matches[1] !== 'application/pdf' || substr($fileBytes, 0, 5) === '%PDF-';
 }
 
 function immutableReceiptFields(array $receipt): array
@@ -886,7 +885,7 @@ try {
     }
     foreach ($state['paymentVouchers'] ?? [] as $voucher) {
         if (!validPaymentProofDataUrl($voucher['paymentProofDataUrl'] ?? null)) {
-            jsonResponse(['error' => 'Payment proof must be a valid JPG or PNG image no larger than 1 MB'], 400);
+            jsonResponse(['error' => 'Payment proof must be a valid JPG, PNG, or PDF file no larger than 1 MB'], 400);
         }
     }
 

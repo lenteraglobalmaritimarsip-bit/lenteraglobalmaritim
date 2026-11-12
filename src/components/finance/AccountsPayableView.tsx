@@ -317,9 +317,9 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
     const input = event.currentTarget;
     const file = input.files?.[0];
     if (!file) return;
-    if (!['image/jpeg', 'image/png'].includes(file.type)) {
+    if (!['image/jpeg', 'image/png', 'application/pdf'].includes(file.type)) {
       setPaymentFormProof(null);
-      setError('Bukti pembayaran harus berupa file JPG atau PNG.');
+      setError('Bukti pembayaran harus berupa file JPG, PNG, atau PDF.');
       input.value = '';
       return;
     }
@@ -369,14 +369,15 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
       return;
     }
     if (isAndroidApp()) {
-      const match = /^data:(image\/(?:png|jpeg|webp));base64,(.+)$/i.exec(dataUrl);
+      const match = /^data:(application\/pdf|image\/(?:png|jpeg|webp));base64,(.+)$/i.exec(dataUrl);
       if (!match) {
         setError('Format bukti pembayaran tidak didukung untuk dibuka di Android.');
         return;
       }
-      const fileExtension = match[1].toLowerCase() === 'image/png' ? 'png' : match[1].toLowerCase() === 'image/webp' ? 'webp' : 'jpg';
+      const mimeType = match[1].toLowerCase();
+      const fileExtension = mimeType === 'application/pdf' ? 'pdf' : mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
       const fileName = `bukti-pembayaran-${voucher.requestNumber.replace(/[^a-zA-Z0-9_-]/g, '-')}.${fileExtension}`;
-      void androidNative.openFile(fileName, match[1].toLowerCase(), match[2]).catch((openError) => {
+      void androidNative.openFile(fileName, mimeType, match[2]).catch((openError) => {
         console.error('Android payment proof open failed:', openError);
         setError(openError instanceof Error ? openError.message : 'Bukti pembayaran gagal dibuka.');
       });
@@ -394,7 +395,8 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
-    const fileExtension = dataUrl.startsWith('data:image/png;') ? 'png' : 'jpg';
+    const mimeType = dataUrl.slice(5, dataUrl.indexOf(';')).toLowerCase();
+    const fileExtension = mimeType === 'application/pdf' ? 'pdf' : mimeType === 'image/png' ? 'png' : 'jpg';
     const fileName = `bukti-pembayaran-${voucher.requestNumber.replace(/[^a-zA-Z0-9_-]/g, '-')}.${fileExtension}`;
     const safeDataUrl = escapeHtml(dataUrl);
     const safeFileName = escapeHtml(fileName);
@@ -410,7 +412,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
             header{position:sticky;top:0;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 20px;background:#fff;color:#0f172a;box-shadow:0 2px 12px #0003}
             h1{margin:0;font-size:16px}p{margin:5px 0 0;color:#64748b;font-size:12px}
             a{display:inline-block;padding:10px 15px;border-radius:8px;background:#059669;color:#fff;font-size:13px;font-weight:700;text-decoration:none}
-            main{display:flex;justify-content:center;padding:24px}img{display:block;max-width:100%;max-height:calc(100vh - 110px);object-fit:contain}
+            main{display:flex;justify-content:center;padding:24px}img{display:block;max-width:100%;max-height:calc(100vh - 110px);object-fit:contain}iframe{display:block;width:min(100%,1000px);height:calc(100vh - 110px);border:0;background:#fff}
           </style>
         </head>
         <body>
@@ -418,7 +420,9 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
             <div><h1>Bukti Pembayaran</h1><p>${escapeHtml(voucher.requestNumber)}</p></div>
             <a href="${safeDataUrl}" download="${safeFileName}">Download</a>
           </header>
-          <main><img src="${safeDataUrl}" alt="Bukti pembayaran ${escapeHtml(voucher.requestNumber)}"></main>
+          <main>${mimeType === 'application/pdf'
+            ? `<iframe src="${safeDataUrl}" title="Bukti pembayaran ${escapeHtml(voucher.requestNumber)}"></iframe>`
+            : `<img src="${safeDataUrl}" alt="Bukti pembayaran ${escapeHtml(voucher.requestNumber)}">`}</main>
         </body>
       </html>`);
     proofWindow.document.close();
@@ -862,10 +866,10 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
                 </label>
 
                 <label className="block text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-                  Bukti Pembayaran (JPG/PNG, maks. 1 MB)
+                  Bukti Pembayaran (JPG/PNG/PDF, maks. 1 MB)
                   <input
                     type="file"
-                    accept="image/jpeg,image/png"
+                    accept="image/jpeg,image/png,application/pdf"
                     onChange={(event) => { void handlePaymentFormProofChange(event); }}
                     className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 file:mr-3 file:rounded-md file:border file:border-slate-300 file:bg-slate-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold"
                   />
