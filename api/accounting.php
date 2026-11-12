@@ -76,7 +76,8 @@ function accountingSources(PDO $pdo): array
         . 'pv.payment_total_amount, pv.payment_history, ba.bank_name AS remittance_bank_name, ba.coa_id AS bank_coa_id, '
         . 'ba.account_name AS remittance_account_name, ba.account_number AS remittance_account_number '
         . 'FROM payment_vouchers pv LEFT JOIN bank_accounts ba ON ba.id = pv.paid_from_bank_account_id '
-        . "WHERE pv.status = 'PAID' OR pv.payment_history IS NOT NULL ORDER BY pv.paid_at, pv.request_date, pv.request_number"
+        . "WHERE pv.status <> 'REJECTED' AND (pv.status = 'PAID' OR pv.payment_history IS NOT NULL) "
+        . 'ORDER BY pv.paid_at, pv.request_date, pv.request_number'
     )->fetchAll();
     $bankCoaById = [];
     foreach ($pdo->query('SELECT id, coa_id FROM bank_accounts')->fetchAll() as $bankAccount) {
@@ -95,9 +96,19 @@ function accountingSources(PDO $pdo): array
         $currency = (string) ($voucher['currency'] ?: 'IDR');
         $rate = $currency === 'USD' ? (float) ($voucher['exchange_rate_usd_to_idr'] ?? 0) : 1.0;
         $voucherItems = $paymentItemsByVoucher[(string) $voucher['id']] ?? [];
+        $currentPaidAt = ($voucher['status'] ?? '') === 'PAID' && !empty($voucher['paid_at'])
+            ? strtotime((string) $voucher['paid_at'] . ' UTC')
+            : false;
+        $currentVoucherNumber = (string) ($voucher['voucher_number'] ?? '');
         $history = json_decode((string) ($voucher['payment_history'] ?? ''), true);
         foreach (is_array($history) ? $history : [] as $index => $payment) {
             if (!is_array($payment) || empty($payment['paidAt'])) continue;
+            if ($currentPaidAt !== false
+                && $currentVoucherNumber !== ''
+                && (string) ($payment['voucherNumber'] ?? '') === $currentVoucherNumber
+                && strtotime((string) $payment['paidAt']) === $currentPaidAt) {
+                continue;
+            }
             $amount = (float) ($payment['paymentTotalAmount'] ?? (
                 (float) ($voucher['total_paid_amount'] ?? 0)
                 + (float) ($payment['paymentSurcharge'] ?? 0)

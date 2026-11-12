@@ -644,9 +644,9 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
       ? paymentVouchers
         .filter((voucher) => voucher.status === 'APPROVED')
         .map((voucher) => ({ ...voucher }))
-      : (invalidDateRange ? [] : paymentVouchers.flatMap((voucher) =>
-          getPaymentVoucherPaymentEvents(voucher),
-        ));
+      : (invalidDateRange ? [] : paymentVouchers
+          .filter((voucher) => voucher.status !== 'REJECTED')
+          .flatMap((voucher) => getPaymentVoucherPaymentEvents(voucher)));
     return rows
       .filter((voucher) => {
         if (mode !== 'HISTORY' || (!startDate && !endDate)) return true;

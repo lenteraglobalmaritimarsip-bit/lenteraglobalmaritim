@@ -238,6 +238,12 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
   }, [initialPanel]);
   const employees = workspace?.employees || [];
   const leaveRequests = workspace?.leaveRequests || [];
+  const workerAttendanceRows = workspace?.attendance || [];
+  const workerAttendanceOptions = workerAttendanceActions(workerAttendanceRows);
+  const selectedWorkerAttendance = workerAttendanceOptions.find((action) => action.event === selectedPunchEvent);
+  const workerAttendanceHint = selectedWorkerAttendance?.disabled && !selectedWorkerAttendance.completed
+    ? workerAttendanceActionHint(workerAttendanceRows, selectedPunchEvent)
+    : null;
   const filteredLeaveRequests = leaveRequestMonth
     ? leaveRequests.filter((request) => request.createdAt.slice(0, 7) === leaveRequestMonth)
     : leaveRequests;
@@ -1693,12 +1699,22 @@ export const HrWorkspaceView: React.FC<Props> = ({ currentUser, initialPanel }) 
             <div className="mt-4 grid gap-4 rounded-xl bg-slate-50 p-4">
               <label className="text-sm font-medium text-slate-700">Jenis absensi
                 <select className={fieldClass} value={selectedPunchEvent} onChange={(event) => setSelectedPunchEvent(event.target.value as HrAttendanceEvent)}>
-                  {workerAttendanceActions(workspace?.attendance || []).map((action) => (
+                  {workerAttendanceOptions.map((action) => (
                     <option key={action.event} value={action.event}>{action.label}</option>
                   ))}
                 </select>
               </label>
-              {workerAttendanceActions(workspace?.attendance || []).map((action) => action.event === selectedPunchEvent && (
+              {workerAttendanceHint && (
+                <p role="status" className="mx-auto max-w-xl rounded-lg border border-amber-200 bg-amber-50 p-3 text-center text-sm font-semibold text-amber-800">
+                  {workerAttendanceHint}
+                </p>
+              )}
+              {punchLoading && (
+                <p role="status" className="mx-auto text-center text-sm font-semibold text-slate-600">
+                  Meminta lokasi dan mencatat absensi. Mohon tunggu.
+                </p>
+              )}
+              {workerAttendanceOptions.map((action) => action.event === selectedPunchEvent && (
                 <div key={action.event} className="mt-[38px] flex w-full justify-center sm:mt-[38px]">
                   <HoldAttendanceButton
                     event={action.event}
@@ -2095,6 +2111,27 @@ const workerAttendanceRecordedTime = (rows: HrAttendance[], event: HrAttendanceE
   return formatAttendanceTime(value);
 };
 
+const workerAttendanceActionHint = (rows: HrAttendance[], event: HrAttendanceEvent): string => {
+  const record = rows.find((row) => row.date === todayISO());
+  if (record?.status === 'LEAVE') {
+    return record.note
+      ? `Tombol absensi dinonaktifkan: ${record.note}. Hubungi HR bila status ini keliru.`
+      : 'Tombol absensi dinonaktifkan karena hari ini berstatus cuti/izin. Hubungi HR bila status ini keliru.';
+  }
+
+  const checkedIn = !!(record?.checkInAt || record?.checkIn);
+  const checkedOut = !!(record?.checkOutAt || record?.checkOut);
+  const overtimeCheckedIn = !!record?.overtimeCheckInAt;
+  const overtimeCheckedOut = !!record?.overtimeCheckOutAt;
+  if (event === 'CHECK_OUT' && !checkedIn) return 'Absen pulang hanya tersedia setelah Absen Datang tercatat.';
+  if (event === 'OVERTIME_CHECK_IN' && (!checkedIn || !checkedOut)) return 'Absen Lembur Datang tersedia setelah Absen Datang dan Absen Pulang tercatat.';
+  if (event === 'OVERTIME_CHECK_OUT' && !overtimeCheckedIn) return 'Absen Lembur Pulang hanya tersedia setelah Absen Lembur Datang tercatat.';
+  if ((event === 'CHECK_OUT' && checkedOut) || (event === 'OVERTIME_CHECK_IN' && overtimeCheckedIn) || (event === 'OVERTIME_CHECK_OUT' && overtimeCheckedOut)) {
+    return `Absen ${attendanceEventLabel(event)} sudah tercatat hari ini.`;
+  }
+  return 'Tombol absensi belum tersedia. Muat ulang halaman atau hubungi HR.';
+};
+
 const AttendanceReportTable: React.FC<{ rows: HrAttendanceReportRow[]; onEdit: (row: HrAttendanceReportRow) => void }> = ({ rows, onEdit }) => (
   <div className="mt-5 rounded-xl border border-slate-200">
     <table className="w-full table-fixed text-left text-[11px]">
@@ -2174,6 +2211,13 @@ const HoldAttendanceButton: React.FC<HoldAttendanceButtonProps> = ({ event, labe
     setProgress(0);
   };
 
+  const finish = () => {
+    if (!isHolding.current) return;
+    const heldLongEnough = performance.now() - startedAt.current >= holdDuration;
+    stop();
+    if (heldLongEnough) onConfirm(event);
+  };
+
   const begin = () => {
     if (disabled || busy || isHolding.current) return;
     isHolding.current = true;
@@ -2181,10 +2225,6 @@ const HoldAttendanceButton: React.FC<HoldAttendanceButtonProps> = ({ event, labe
     timer.current = window.setInterval(() => {
       const percent = Math.min(100, ((performance.now() - startedAt.current) / holdDuration) * 100);
       setProgress(percent);
-      if (percent >= 100) {
-        stop();
-        onConfirm(event);
-      }
     }, 40);
   };
 
@@ -2203,7 +2243,7 @@ const HoldAttendanceButton: React.FC<HoldAttendanceButtonProps> = ({ event, labe
           begin();
           try { pointerEvent.currentTarget.setPointerCapture(pointerEvent.pointerId); } catch { /* Pointer capture is optional on older mobile browsers. */ }
         }}
-        onPointerUp={stop}
+        onPointerUp={finish}
         onPointerCancel={stop}
         onPointerLeave={stop}
         onKeyDown={(keyEvent) => {
@@ -2213,7 +2253,7 @@ const HoldAttendanceButton: React.FC<HoldAttendanceButtonProps> = ({ event, labe
           }
         }}
         onKeyUp={(keyEvent) => {
-          if (keyEvent.key === ' ' || keyEvent.key === 'Enter') stop();
+          if (keyEvent.key === ' ' || keyEvent.key === 'Enter') finish();
         }}
         onContextMenu={(eventContext) => eventContext.preventDefault()}
         className="relative mx-auto h-36 w-36 touch-none rounded-full transition-transform duration-150 active:scale-105 disabled:cursor-not-allowed disabled:opacity-60 sm:h-40 sm:w-40"
@@ -2232,7 +2272,7 @@ const HoldAttendanceButton: React.FC<HoldAttendanceButtonProps> = ({ event, labe
           )}
         </span>
       </button>
-      <span className="text-sm font-bold tracking-wide text-blue-800">Hold Me</span>
+      <span className="text-center text-sm font-bold tracking-wide text-blue-800">Tahan 2,5 detik, lalu lepaskan</span>
     </div>
   );
 };
