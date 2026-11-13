@@ -349,7 +349,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
           },
         });
         if (!result.saved) {
-          throw new Error(result.error || 'Koreksi tidak dapat disimpan. Pastikan Job belum masuk approval.');
+          throw new Error(result.error || 'Koreksi tidak dapat disimpan. Pastikan Job belum ditutup atau dibatalkan.');
         }
         setEditingJobId('');
         setShowNewForm(false);
@@ -614,18 +614,19 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
               const imoNumber = vessel?.imoNumber || '-';
               const jobStatus = getJobStatus(job);
               const isFinalApproved = job.managerApproval.status === 'APPROVED';
-              const canEditOrDeleteJob = currentUser.role === 'SALES'
+              const canEditInquiry = currentUser.role === 'SALES'
                 && (job.inquiry.createdByBranch || '').trim().toLowerCase() === (currentUser.branch || '').trim().toLowerCase()
                 && !job.voidedAt
+                && !job.closing?.isClosed
+                && job.currentStage !== 'CLOSED'
+                && job.status !== 'CLOSED';
+              const canDeleteJob = canEditInquiry
                 && !isFinalApproved
                 && job.quotation.epda.status !== 'SUBMITTED'
                 && job.quotation.epda.status !== 'APPROVED'
                 && !job.fda?.fdaApproved
                 && job.fda?.approvalStatus !== 'SUBMITTED'
-                && job.fda?.approvalStatus !== 'APPROVED'
-                && !job.closing?.isClosed
-                && job.currentStage !== 'CLOSED'
-                && job.status !== 'CLOSED';
+                && job.fda?.approvalStatus !== 'APPROVED';
               return (
                 <tr key={job.jobId} className="hover:bg-slate-800/60 transition-colors">
                   <td className="break-words p-2 font-mono font-bold text-slate-400">{(currentInquiryPage - 1) * inquiryPageSize + index + 1}</td>
@@ -692,10 +693,10 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                             <Eye className="h-4 w-4" />
                           </button>
                         )}
-                      {canEditOrDeleteJob && (
+                      {canEditInquiry && (
                         <button
                           type="button"
-                          title="Koreksi Inquiry sebelum approval"
+                          title="Edit Inquiry"
                           aria-label={`Edit Inquiry ${job.jobId}`}
                           onClick={() => startEditingInquiry(job)}
                           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 transition hover:bg-amber-500/25"
@@ -703,7 +704,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
                           <Pencil className="h-4 w-4" />
                         </button>
                       )}
-                      {canEditOrDeleteJob && (
+                      {canDeleteJob && (
                         <button
                           type="button"
                           title="Hapus inquiry dan Job secara permanen"
@@ -797,7 +798,7 @@ export const InquiriesView: React.FC<InquiriesViewProps> = ({
             )}
             {editingJobId && (
               <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-slate-700">
-                Nomor Job tidak berubah. Koreksi hanya dapat dilakukan sebelum approval.
+                Nomor Job dan status approval tidak berubah. Perubahan Inquiry tidak otomatis memperbarui dokumen yang sudah disetujui.
               </div>
             )}
             <form onSubmit={handleSaveInquiry} autoComplete="off" className="inquiry-entry-modal space-y-2 text-[13px] text-slate-700 overflow-hidden w-full max-w-full bg-slate-100 rounded-xl p-4">

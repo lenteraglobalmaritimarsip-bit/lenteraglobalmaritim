@@ -36,8 +36,9 @@ export const getPaymentVoucherPaymentEvents = (voucher: PaymentVoucher): Payment
     }));
   const currentPayment = currentPaymentRecord(voucher);
   if (!currentPayment) return history;
+  const currentPaidAt = Date.parse(currentPayment.paidAt);
   if (history.some((payment) =>
-    payment.voucherNumber === currentPayment.voucherNumber && payment.paidAt === currentPayment.paidAt
+    payment.voucherNumber === currentPayment.voucherNumber && Date.parse(payment.paidAt) === currentPaidAt
   )) return history;
   return [
     ...history,

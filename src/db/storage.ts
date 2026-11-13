@@ -540,7 +540,16 @@ class DatabaseService {
   // Customers
   public async addCustomer(customer: Omit<Customer, 'id'>): Promise<Customer> {
     const previousState = JSON.parse(JSON.stringify(this.state)) as DatabaseState;
-    const id = `CUST-${String(nextMasterSequence(this.state.customers, 'CUST')).padStart(3, '0')}`;
+    const usedCustomerIds = new Set([
+      ...this.state.customers.map((item) => item.id),
+      ...this.state.jobCalls.map((job) => job.customerId).filter(Boolean),
+    ]);
+    let sequence = nextMasterSequence(this.state.customers, 'CUST');
+    let id = `CUST-${String(sequence).padStart(3, '0')}`;
+    while (usedCustomerIds.has(id)) {
+      sequence += 1;
+      id = `CUST-${String(sequence).padStart(3, '0')}`;
+    }
     const newCust: Customer = { ...customer, id };
     this.state.customers = [...this.state.customers, newCust];
     this.audit('CREATE', 'CUSTOMER', `Created customer ${newCust.companyName}`, newCust.id);
@@ -1229,21 +1238,18 @@ class DatabaseService {
     updates: Pick<JobCall, 'vesselId' | 'vesselName' | 'portId' | 'portName' | 'customerId' | 'customerName' | 'eta' | 'etd' | 'purposeOfCall' | 'inquiry'>,
   ): Promise<{ saved: boolean; error?: string }> {
     const job = this.getJob(jobId);
-    if (!job || this.actor.role !== 'SALES' || !sameBranch(job.inquiry?.createdByBranch, this.actor.branch)) {
-      return { saved: false };
+    if (!job) {
+      return { saved: false, error: 'Job yang akan dikoreksi tidak ditemukan.' };
+    }
+    if (this.actor.role !== 'SALES' || !sameBranch(job.inquiry?.createdByBranch, this.actor.branch)) {
+      return { saved: false, error: 'Inquiry hanya dapat diedit oleh Sales dari branch pemilik Job.' };
     }
     if (
-      job.managerApproval?.status === 'APPROVED' ||
-      job.quotation?.epda?.status === 'SUBMITTED' ||
-      job.quotation?.epda?.status === 'APPROVED' ||
-      job.fda?.fdaApproved ||
-      job.fda?.approvalStatus === 'SUBMITTED' ||
-      job.fda?.approvalStatus === 'APPROVED' ||
       job.closing?.isClosed ||
       job.currentStage === 'CLOSED' ||
       job.status === 'CLOSED' ||
       job.voidedAt
-    ) return { saved: false };
+    ) return { saved: false, error: 'Inquiry tidak dapat diedit karena Job sudah ditutup atau dibatalkan.' };
 
     const before = {
       vesselId: job.vesselId,

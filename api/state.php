@@ -732,6 +732,11 @@ function applyNonAdminMasterData(array &$state, array $before, string $role): vo
         foreach ($before['customers'] ?? [] as $customer) {
             $existingCustomers[(string) ($customer['id'] ?? '')] = $customer;
         }
+        $jobCustomerIds = [];
+        foreach ($before['jobCalls'] ?? [] as $job) {
+            $jobCustomerId = trim((string) ($job['customerId'] ?? ''));
+            if ($jobCustomerId !== '') $jobCustomerIds[$jobCustomerId] = true;
+        }
         $incomingCustomers = is_array($state['customers'] ?? null) ? $state['customers'] : [];
         $incomingCustomerIds = [];
         $newCustomers = [];
@@ -746,6 +751,9 @@ function applyNonAdminMasterData(array &$state, array $before, string $role): vo
                     jsonResponse(['error' => 'Hanya Admin yang dapat mengubah atau menghapus master Customer'], 403);
                 }
                 continue;
+            }
+            if (isset($jobCustomerIds[$id])) {
+                jsonResponse(['error' => 'ID customer tidak dapat dipakai ulang karena masih dirujuk oleh Job lama'], 409);
             }
 
             $code = trim((string) ($customer['code'] ?? ''));

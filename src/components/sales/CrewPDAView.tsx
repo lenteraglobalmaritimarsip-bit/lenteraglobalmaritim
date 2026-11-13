@@ -41,6 +41,7 @@ const PDA_COST_CATEGORIES = [
   ['CREW_MUTATION', 'Crew Mutation'],
   ['MEDICAL_TREATMENT', 'Medical Treatment'],
   ['CREW_BRIEFING', 'Crew Briefing'],
+  ['DOCUMENTS_CERTIFICATE_RENEWAL', 'Renewal Certificate'],
   ['AGENCY_FEE', 'Agency Fee'],
 ] as const;
 
