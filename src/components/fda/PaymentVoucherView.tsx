@@ -188,6 +188,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
     bankName: vendor?.bankName || manualVendor.bankName.trim(),
     accountNumber: vendor?.accountNumber || manualVendor.accountNumber.trim(),
   };
+  const entryJob = jobCalls.find((job) => job.jobId === entryRow.jobNumber);
 
   const updateEntryRow = (patch: Partial<VoucherRow>) =>
     setEntryRow((current) => {
@@ -623,11 +624,11 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
         </div>
 
         <div className="overflow-x-auto">
-          <table className={`w-full ${operationalOnly ? 'min-w-[820px]' : 'min-w-[1050px]'} text-left text-[11px]`}>
+          <table className={`w-full ${operationalOnly ? 'min-w-[820px]' : 'min-w-[1150px]'} text-left text-[11px]`}>
             <thead className="border-b border-slate-200 bg-slate-50 text-[9px] uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="p-2.5">No</th><th className="p-2.5">JOB Number</th>
-                {!operationalOnly && <><th className="p-2.5">NO FDA</th><th className="p-2.5">Vessel Name</th></>}
+                {!operationalOnly && <><th className="p-2.5">NO FDA</th><th className="p-2.5">Vessel Name</th>{jobInfo === 'JOB_VESSEL' && <th className="p-2.5">Port</th>}</>}
                 <th className="p-2.5">Description</th><th className="p-2.5 text-right">Amount ({currency})</th>
                 <th className="p-2.5 text-right">VAT</th><th className="p-2.5 text-right">TOTAL</th>
                 <th className="p-2.5 text-right">PPH</th><th className="p-2.5 text-right">Paid Amount</th><th className="p-2.5" />
@@ -644,6 +645,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
                     {!operationalOnly && <>
                       <td className="p-2.5">{row.documentNumber || job?.fda?.fdaNo || '-'}</td>
                       <td className="p-2.5">{job?.vesselName || row.customerName || '-'}</td>
+                      {jobInfo === 'JOB_VESSEL' && <td className="p-2.5">{job?.portName || '-'}</td>}
                     </>}
                     <td className="p-2.5 font-semibold">{row.itemService}</td>
                     <td className="p-2.5 text-right font-mono font-semibold">{money(row.amount, currency)}</td>
@@ -665,7 +667,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
                   </tr>
                 );
               })}
-              {rows.length === 0 && <tr><td colSpan={operationalOnly ? 9 : 11} className="p-6 text-center text-xs text-slate-400">Belum ada item. Isi form di bawah lalu pilih Tambah Item.</td></tr>}
+              {rows.length === 0 && <tr><td colSpan={operationalOnly ? 9 : jobInfo === 'JOB_VESSEL' ? 12 : 11} className="p-6 text-center text-xs text-slate-400">Belum ada item. Isi form di bawah lalu pilih Tambah Item.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -679,7 +681,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
             <h3 className="text-xs font-black uppercase tracking-wide text-slate-700">{editingRowId ? 'Edit Detail Item' : 'Tambah Item Detail Voucher'}</h3>
             {editingRowId && <button type="button" onClick={clearEntryRow} className="text-[11px] font-semibold text-slate-500 hover:text-slate-800">Batal edit</button>}
           </div>
-          <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+          <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
             <label className="block">
               <span className="mb-1 block font-semibold text-slate-500">JOB Number</span>
               {jobInfo === 'JOB_VESSEL' ? <select value={entryRow.jobNumber} onChange={(event) => selectJob(event.target.value)} className={inputClass}><option value="">Pilih JOB</option>{activeJobs.map((job) => <option key={job.jobId} value={job.jobId}>{job.jobId}</option>)}</select> : <input readOnly value={operationalJobNumber} className={readonlyClass} />}
@@ -697,6 +699,12 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
               <span className="mb-1 block font-semibold text-slate-500">{jobInfo === 'JOB_VESSEL' ? 'Vessel name' : 'Customer'}</span>
               {jobInfo === 'JOB_VESSEL' ? <input readOnly value={entryRow.customerName} className={readonlyClass} placeholder="Pilih JOB" /> : <input value={entryRow.customerName} onChange={(event) => updateEntryRow({ customerName: event.target.value })} className={inputClass} placeholder="Customer" />}
             </label>}
+            {!operationalOnly && jobInfo === 'JOB_VESSEL' && (
+              <label className="block">
+                <span className="mb-1 block font-semibold text-slate-500">Port</span>
+                <input readOnly value={entryJob?.portName || ''} className={readonlyClass} placeholder="Pilih JOB" />
+              </label>
+            )}
             <label className="block lg:col-span-2">
               <span className="mb-1 block font-semibold text-slate-500">Item Service</span>
               <input value={entryRow.itemService} onChange={(event) => updateEntryRow({ itemService: event.target.value })} className={inputClass} placeholder="Nama service / kebutuhan" />
@@ -710,7 +718,7 @@ export const PaymentVoucherView: React.FC<PaymentVoucherViewProps> = ({ jobCalls
               <span className="mb-1 block font-semibold text-slate-500">Tarif PPh</span>
               <select value={entryRow.pphRate} onChange={(event) => updateEntryRow({ pphRate: Number(event.target.value) })} className={inputClass}>{PPH_RATES.map((rate) => <option key={rate.value} value={rate.value}>{rate.label}</option>)}</select>
             </label>
-            <div className="rounded-lg border border-emerald-100 bg-emerald-50/70 p-3 sm:col-span-2 lg:col-span-4 xl:col-span-6">
+            <div className="rounded-lg border border-emerald-100 bg-emerald-50/70 p-3 sm:col-span-2 lg:col-span-4 xl:col-span-7">
               <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-emerald-800">Pratinjau Perhitungan</div>
               <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[11px] sm:grid-cols-3 xl:grid-cols-6">
                 <div><span className="block text-slate-500">Amount</span><span className="font-mono font-semibold text-slate-800">{money(entryRow.amount, currency)}</span></div>

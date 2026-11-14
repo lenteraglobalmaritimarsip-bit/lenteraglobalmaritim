@@ -71,6 +71,19 @@ try {
         jsonResponse(['items' => array_map('newsItemPayload', $query->fetchAll())]);
     }
 
+    if ($method === 'DELETE') {
+        requireMethod('DELETE');
+        newsAdmin();
+        requireCsrfToken();
+        $id = trim((string) ($_GET['id'] ?? ''));
+        if ($id === '' || strlen($id) > 100) jsonResponse(['error' => 'ID News tidak valid'], 400);
+
+        $delete = db()->prepare('DELETE FROM news_items WHERE id = :id');
+        $delete->execute(['id' => $id]);
+        if ($delete->rowCount() === 0) jsonResponse(['error' => 'Info News tidak ditemukan'], 404);
+        jsonResponse(['ok' => true, 'id' => $id]);
+    }
+
     if ($method === 'POST') {
         requireMethod('POST');
         $user = newsAdmin();
@@ -156,7 +169,7 @@ try {
         jsonResponse(['ok' => true, 'id' => $id]);
     }
 
-    requireMethod('GET', 'POST');
+    requireMethod('GET', 'POST', 'DELETE');
 } catch (PDOException $error) {
     error_log('MaritimPort news database error: ' . $error->getMessage());
     jsonResponse(['error' => 'Operasi News gagal'], 500);

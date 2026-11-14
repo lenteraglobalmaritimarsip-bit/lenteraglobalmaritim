@@ -27,6 +27,15 @@ export const dataApi = {
     const payload = await response.json().catch(() => ({})) as { error?: string };
     if (!response.ok) throw new Error(payload.error || `News save failed (${response.status})`);
   },
+  async deleteNews(id: string): Promise<void> {
+    const response = await fetch(`/api/news.php?id=${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: { 'X-CSRF-Token': apiAuth.getCsrfToken() },
+    });
+    const payload = await response.json().catch(() => ({})) as { error?: string };
+    if (!response.ok) throw new Error(payload.error || `News deletion failed (${response.status})`);
+  },
   async load(): Promise<{ state: DatabaseState; initialized: boolean; revision: string }> {
     const response = await fetch('/api/state.php', { credentials: 'include' });
     const payload = await response.json();

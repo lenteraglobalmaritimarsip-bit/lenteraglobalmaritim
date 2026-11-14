@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { ImagePlus, Link2, Newspaper, Plus, Save, SquarePen } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { ImagePlus, Link2, Newspaper, Plus, Save, SquarePen, Trash2 } from 'lucide-react';
 import { NewsContentType, NewsItem } from '../../types';
 import { dataApi } from '../../lib/dataApi';
 
@@ -45,8 +45,10 @@ export const AdminNewsView: React.FC<Props> = ({ onSaved }) => {
   const [form, setForm] = useState<NewsItem>(emptyNews);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const formSectionRef = useRef<HTMLElement>(null);
 
   const reload = async () => {
     setLoading(true);
@@ -94,6 +96,32 @@ export const AdminNewsView: React.FC<Props> = ({ onSaved }) => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const startNew = () => {
+    setForm(emptyNews());
+    setError('');
+    setNotice('');
+    formSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const remove = async (item: NewsItem) => {
+    if (deletingId || !window.confirm(`Hapus Info News "${item.title}"? Data yang dihapus tidak dapat dikembalikan.`)) return;
+    setDeletingId(item.id);
+    setError('');
+    setNotice('');
+    try {
+      await dataApi.deleteNews(item.id);
+      setItems((current) => current.filter((currentItem) => currentItem.id !== item.id));
+      if (form.id === item.id) setForm(emptyNews());
+      setNotice('Info News berhasil dihapus.');
+      onSaved();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'Info News gagal dihapus.');
+      formSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } finally {
+      setDeletingId('');
+    }
+  };
+
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (saving) return;
@@ -135,7 +163,7 @@ export const AdminNewsView: React.FC<Props> = ({ onSaved }) => {
 
   return (
     <div className="space-y-5">
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <section ref={formSectionRef} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <div className="mb-5 flex items-start gap-3">
           <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-blue-50 text-blue-600"><Newspaper size={21} /></span>
           <div>
@@ -214,7 +242,7 @@ export const AdminNewsView: React.FC<Props> = ({ onSaved }) => {
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <div className="mb-4 flex items-center justify-between">
           <div><h2 className="font-black text-slate-900">Daftar Info News</h2><p className="mt-1 text-xs text-slate-500">{items.length} informasi tersimpan</p></div>
-          <button type="button" onClick={() => { setForm(emptyNews()); setError(''); setNotice(''); }} className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50"><Plus size={15} /> Baru</button>
+          <button type="button" onClick={startNew} className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50"><Plus size={15} /> Baru</button>
         </div>
         {loading ? <p className="py-6 text-center text-sm text-slate-500">Memuat Info News...</p> : items.length === 0 ? <p className="py-6 text-center text-sm text-slate-500">Belum ada Info News.</p> : (
           <div className="space-y-3">
@@ -231,7 +259,12 @@ export const AdminNewsView: React.FC<Props> = ({ onSaved }) => {
                   <p className="mt-1 line-clamp-2 text-xs text-slate-500">{item.body || item.targetUrl || 'Gambar Info News'}</p>
                   <small className="mt-1 block text-[10px] text-slate-400">{item.contentType}{item.startsAt ? ` · Mulai ${item.startsAt.replace('T', ' ')}` : ''}{item.endsAt ? ` · Berakhir ${item.endsAt.replace('T', ' ')}` : ''}</small>
                 </div>
-                <button type="button" onClick={() => edit(item)} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:border-blue-300 hover:bg-blue-50"><SquarePen size={14} /> Edit</button>
+                <div className="flex shrink-0 gap-2">
+                  <button type="button" onClick={() => edit(item)} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:border-blue-300 hover:bg-blue-50"><SquarePen size={14} /> Edit</button>
+                  <button type="button" onClick={() => void remove(item)} disabled={!!deletingId} aria-label={`Hapus Info News ${item.title}`} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-red-200 px-3 py-2 text-xs font-bold text-red-700 hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">
+                    <Trash2 size={14} /> {deletingId === item.id ? 'Menghapus...' : 'Hapus'}
+                  </button>
+                </div>
               </article>
             ))}
           </div>
