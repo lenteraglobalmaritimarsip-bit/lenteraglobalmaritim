@@ -42,6 +42,14 @@ const PDA_COST_CATEGORIES = [
   ['MEDICAL_TREATMENT', 'Medical Treatment'],
   ['CREW_BRIEFING', 'Crew Briefing'],
   ['DOCUMENTS_CERTIFICATE_RENEWAL', 'Renewal Certificate'],
+  ['ATTENDING_SURVEYOR', 'Attending Surveyor'],
+  ['ATTENDING_SUPERINTENDENT', 'Attending Superintendent'],
+  ['ATTENDING_TECHNICIAN', 'Attending Technician'],
+  ['BA_CHART', 'BA Chart'],
+  ['CASH_TO_MASTER', 'Cash To Master'],
+  ['SUPPLY_PROVISION', 'Supply Provision'],
+  ['DELIVERY_SPAREPART', 'Delivery Sparepart'],
+  ['DELIVERY_LIFERAFT_SUPPLY', 'Delivery Lifearft Supply'],
   ['AGENCY_FEE', 'Agency Fee'],
 ] as const;
 
