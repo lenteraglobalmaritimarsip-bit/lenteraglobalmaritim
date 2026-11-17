@@ -247,13 +247,13 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
     const file = event.target.files?.[0];
     setAttachment(null);
     if (!file) return;
-    if (!['image/jpeg', 'image/png'].includes(file.type)) {
-      setError('Photo bukti kas harus berupa file JPG atau PNG.');
+    if (!['image/jpeg', 'image/png', 'application/pdf'].includes(file.type)) {
+      setError('Bukti kas harus berupa file JPG, PNG, atau PDF.');
       event.target.value = '';
       return;
     }
     if (file.size > MAX_RECEIVABLE_ATTACHMENT_SIZE) {
-      setError('Ukuran photo bukti kas maksimal 1 MB.');
+      setError('Ukuran file bukti kas maksimal 1 MB.');
       event.target.value = '';
       return;
     }
@@ -443,7 +443,8 @@ export const AccountsReceivableView: React.FC<AccountsReceivableViewProps> = ({ 
             {Number(usdAmount.replace(/,/g, '')) > 0 && effectiveUsdIdrRate > 0 && <span className="mt-1 block text-[10px] font-bold text-emerald-700">USD {new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(usdAmount.replace(/,/g, '')))} ≈ IDR {new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(usdEquivalentIDR)}</span>}
           </div>
           <label className="text-xs font-semibold text-slate-600">Photo Bukti Kas *
-            <input ref={attachmentInputRef} type="file" required accept="image/jpeg,image/png" onChange={(event) => void handleAttachmentChange(event)} className="mt-1 block w-full text-sm text-slate-700 file:mr-3 file:rounded-md file:border file:border-slate-300 file:bg-white file:px-3 file:py-2 file:text-xs file:font-semibold" />
+            <input ref={attachmentInputRef} type="file" required accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf" onChange={(event) => void handleAttachmentChange(event)} className="mt-1 block w-full text-sm text-slate-700 file:mr-3 file:rounded-md file:border file:border-slate-300 file:bg-white file:px-3 file:py-2 file:text-xs file:font-semibold" />
+            <span className="mt-1 block text-[11px] font-normal text-slate-500">Format JPG, PNG, atau PDF · Maksimal 1 MB</span>
             {attachment && <span className="mt-1 block truncate text-[11px] text-slate-500">{attachment.name}</span>}
           </label>
           <label className="text-xs font-semibold text-slate-600 md:col-span-2 xl:col-span-3">Remark *

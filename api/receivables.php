@@ -41,6 +41,16 @@ function allocateReceivableVoucherNumber(PDO $pdo, int $branchId, string $income
     return sprintf('RV%s-%04d-%s', $branchCode, $nextNumber, $monthYear);
 }
 
+function isJktFinanceUser(PDO $pdo, array $user): bool
+{
+    if (($user['role'] ?? '') !== 'FINANCE') return false;
+    $branchId = trim((string) ($user['branch_id'] ?? ''));
+    if ($branchId === '' || !ctype_digit($branchId)) return false;
+    $query = $pdo->prepare('SELECT code FROM branches WHERE id = :id AND is_active = 1 LIMIT 1');
+    $query->execute(['id' => $branchId]);
+    return strtoupper(trim((string) $query->fetchColumn())) === 'JKT';
+}
+
 try {
     $user = requireAuthenticatedUser();
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -112,6 +122,7 @@ try {
         }
         $financeColumns = array_column($pdo->query('SHOW COLUMNS FROM accounts_receivable_entries')->fetchAll(), 'Field');
         $bankColumns = array_column($pdo->query('SHOW COLUMNS FROM bank_accounts')->fetchAll(), 'Field');
+        $isJktFinanceBypass = isJktFinanceUser($pdo, $user);
         if (!in_array('branch_id', $financeColumns, true) || !in_array('branch_id', $bankColumns, true)) {
             jsonResponse(['error' => 'Terapkan migrasi branch finance dan branch master terlebih dahulu'], 503);
         }
@@ -129,19 +140,24 @@ try {
             $attachmentQuery->execute(['id' => $attachmentId, 'branch_id' => $branchId]);
             $attachment = $attachmentQuery->fetch();
             if (!$attachment) jsonResponse(['error' => 'Attachment not found'], 404);
-            if (!preg_match('/^data:image\/(jpeg|png);base64,([A-Za-z0-9+\/]+={0,2})$/D', (string) $attachment['attachment_data_url'], $attachmentMatch)) {
+            if (!preg_match('/^data:(image\/(?:jpeg|png)|application\/pdf);base64,([A-Za-z0-9+\/]+={0,2})$/D', (string) $attachment['attachment_data_url'], $attachmentMatch)) {
                 jsonResponse(['error' => 'Stored attachment is invalid'], 500);
             }
             $attachmentBytes = base64_decode($attachmentMatch[2], true);
-            $attachmentInfo = $attachmentBytes === false ? false : @getimagesizefromstring($attachmentBytes);
-            $contentType = 'image/' . $attachmentMatch[1];
-            if ($attachmentBytes === false || $attachmentInfo === false || ($attachmentInfo['mime'] ?? '') !== $contentType) {
+            $contentType = $attachmentMatch[1];
+            $isValidImage = $attachmentBytes !== false && str_starts_with($contentType, 'image/')
+                && (($attachmentInfo = @getimagesizefromstring($attachmentBytes)) !== false)
+                && ($attachmentInfo['mime'] ?? '') === $contentType;
+            $isValidPdf = $attachmentBytes !== false && $contentType === 'application/pdf'
+                && str_starts_with($attachmentBytes, '%PDF-');
+            if ($attachmentBytes === false || (!$isValidImage && !$isValidPdf)) {
                 jsonResponse(['error' => 'Stored attachment is invalid'], 500);
             }
             $filename = basename((string) $attachment['attachment_name']);
             header('Content-Type: ' . $contentType);
             header('Content-Length: ' . strlen($attachmentBytes));
-            header('Content-Disposition: attachment; filename="receivable-proof.' . ($attachmentMatch[1] === 'jpeg' ? 'jpg' : 'png') . '"; filename*=UTF-8\'\'' . rawurlencode($filename));
+            $extension = $contentType === 'application/pdf' ? 'pdf' : ($contentType === 'image/jpeg' ? 'jpg' : 'png');
+            header('Content-Disposition: attachment; filename="receivable-proof.' . $extension . '"; filename*=UTF-8\'\'' . rawurlencode($filename));
             header('Cache-Control: private, no-store');
             header('X-Content-Type-Options: nosniff');
             echo $attachmentBytes;
@@ -221,7 +237,8 @@ try {
             . 'INNER JOIN vessels v ON v.id = vc.vessel_id '
             . 'INNER JOIN fda_records f ON f.job_id = vc.job_id '
             . 'LEFT JOIN closing_records cr ON cr.job_id = vc.job_id '
-            . "WHERE f.fda_no <> '' AND i.created_by_branch_id = :sales_branch_id AND vc.status <> 'CLOSED' AND vc.current_stage <> 'CLOSED' AND COALESCE(cr.is_closed, 0) = 0 "
+            . "WHERE f.fda_no <> ''" . ($isJktFinanceBypass ? '' : ' AND i.created_by_branch_id = :sales_branch_id')
+            . " AND vc.status <> 'CLOSED' AND vc.current_stage <> 'CLOSED' AND COALESCE(cr.is_closed, 0) = 0 "
             . 'UNION ALL '
             . "SELECT vc.job_id AS job_id, 'FPDA' AS invoice_type, pd.pda_no AS invoice_no, "
             . 'c.company_name AS principal_name, v.name AS vessel_name, pd.currency, pd.exchange_rate, 0 AS fda_approved '
@@ -231,10 +248,11 @@ try {
             . 'INNER JOIN vessels v ON v.id = vc.vessel_id '
             . "INNER JOIN pda_documents pd ON pd.job_id = vc.job_id AND pd.pda_type = 'FDA' "
             . 'LEFT JOIN closing_records cr ON cr.job_id = vc.job_id '
-            . "WHERE pd.pda_no <> '' AND i.created_by_branch_id = :fda_branch_id AND vc.status <> 'CLOSED' AND vc.current_stage <> 'CLOSED' AND COALESCE(cr.is_closed, 0) = 0 "
+            . "WHERE pd.pda_no <> ''" . ($isJktFinanceBypass ? '' : ' AND i.created_by_branch_id = :fda_branch_id')
+            . " AND vc.status <> 'CLOSED' AND vc.current_stage <> 'CLOSED' AND COALESCE(cr.is_closed, 0) = 0 "
             . 'ORDER BY principal_name, vessel_name, job_id, invoice_type, invoice_no'
         );
-        $invoiceQuery->execute(['sales_branch_id' => $branchId, 'fda_branch_id' => $branchId]);
+        $invoiceQuery->execute($isJktFinanceBypass ? [] : ['sales_branch_id' => $branchId, 'fda_branch_id' => $branchId]);
         $invoiceOptions = $invoiceQuery->fetchAll();
         $bankQuery = $pdo->prepare('SELECT id, bank_name, branch, branch_name, branch_id, account_name, account_number, currency FROM bank_accounts WHERE branch_id = :branch_id ORDER BY bank_name, account_name');
         $bankQuery->execute(['branch_id' => $branchId]);
@@ -268,6 +286,7 @@ try {
     $branchName = trim((string) ($user['branch_name'] ?? ''));
     $branchId = trim((string) ($user['branch_id'] ?? ''));
     if ($branchId === '') jsonResponse(['error' => 'Branch aktif Finance belum valid'], 422);
+    $isJktFinanceBypass = isJktFinanceUser($pdo, $user);
     $financeColumns = array_column($pdo->query('SHOW COLUMNS FROM accounts_receivable_entries')->fetchAll(), 'Field');
     $bankColumns = array_column($pdo->query('SHOW COLUMNS FROM bank_accounts')->fetchAll(), 'Field');
     if (!in_array('branch_id', $financeColumns, true) || !in_array('branch_id', $bankColumns, true)) {
@@ -294,7 +313,7 @@ try {
         || !checkdate((int) substr($incomeDate, 5, 2), (int) substr($incomeDate, 8, 2), (int) substr($incomeDate, 0, 4))
         || $bankAccountId === '' || $remark === '' || strlen($remark) > 5000
         || $attachmentName === '' || strlen($attachmentName) > 255
-        || !preg_match('/^data:image\/(jpeg|png);base64,([A-Za-z0-9+\/]+={0,2})$/D', $attachmentDataUrl, $attachmentMatch)) {
+        || !preg_match('/^data:(image\/(?:jpeg|png)|application\/pdf);base64,([A-Za-z0-9+\/]+={0,2})$/D', $attachmentDataUrl, $attachmentMatch)) {
         jsonResponse(['error' => 'Data Accounts Receivable belum lengkap atau tidak valid'], 400);
     }
     if ($subjectData === 'PRINCIPAL' && ($jobId === '' || strlen($jobId) > 50
@@ -306,11 +325,16 @@ try {
             : 'Principal, Vessel, dan Invoice wajib dipilih untuk Subject Data Principal'], 400);
     }
     $attachmentBytes = base64_decode($attachmentMatch[2], true);
-    $attachmentInfo = $attachmentBytes === false ? false : getimagesizefromstring($attachmentBytes);
-    $expectedMime = 'image/' . $attachmentMatch[1];
+    $attachmentMime = $attachmentMatch[1];
+    $attachmentInfo = $attachmentBytes === false || !str_starts_with($attachmentMime, 'image/')
+        ? false
+        : getimagesizefromstring($attachmentBytes);
+    $isValidImage = $attachmentInfo !== false && ($attachmentInfo['mime'] ?? '') === $attachmentMime;
+    $isValidPdf = $attachmentBytes !== false && $attachmentMime === 'application/pdf'
+        && str_starts_with($attachmentBytes, '%PDF-');
     if ($attachmentBytes === false || strlen($attachmentBytes) > 1024 * 1024
-        || $attachmentInfo === false || ($attachmentInfo['mime'] ?? '') !== $expectedMime) {
-        jsonResponse(['error' => 'Photo bukti kas harus berupa JPG atau PNG maksimal 1 MB'], 400);
+        || (!$isValidImage && !$isValidPdf)) {
+        jsonResponse(['error' => 'Bukti kas harus berupa JPG, PNG, atau PDF maksimal 1 MB'], 400);
     }
     foreach ([$idrAmount, $usdAmount] as $amount) {
         if (!is_numeric($amount) || !is_finite((float) $amount) || (float) $amount < 0) {
@@ -334,7 +358,9 @@ try {
                 . 'FROM vessel_calls vc INNER JOIN inquiries i ON i.job_id = vc.job_id INNER JOIN fda_records f ON f.job_id = vc.job_id '
                 . 'INNER JOIN customers c ON c.id = vc.customer_id INNER JOIN vessels v ON v.id = vc.vessel_id '
                 . 'LEFT JOIN closing_records cr ON cr.job_id = vc.job_id '
-                . "WHERE vc.job_id = :job_id AND f.fda_no = :invoice_no AND i.created_by_branch_id = :branch_id AND vc.status <> 'CLOSED' AND vc.current_stage <> 'CLOSED' AND COALESCE(cr.is_closed, 0) = 0 LIMIT 1"
+                . "WHERE vc.job_id = :job_id AND f.fda_no = :invoice_no"
+                . ($isJktFinanceBypass ? '' : ' AND i.created_by_branch_id = :branch_id')
+                . " AND vc.status <> 'CLOSED' AND vc.current_stage <> 'CLOSED' AND COALESCE(cr.is_closed, 0) = 0 LIMIT 1"
             );
         } else {
             $invoiceQuery = $pdo->prepare(
@@ -342,10 +368,14 @@ try {
                 . 'FROM vessel_calls vc INNER JOIN inquiries i ON i.job_id = vc.job_id INNER JOIN pda_documents pd ON pd.job_id = vc.job_id AND pd.pda_type = \'FDA\' '
                 . 'INNER JOIN customers c ON c.id = vc.customer_id INNER JOIN vessels v ON v.id = vc.vessel_id '
                 . 'LEFT JOIN closing_records cr ON cr.job_id = vc.job_id '
-                . "WHERE vc.job_id = :job_id AND pd.pda_no = :invoice_no AND i.created_by_branch_id = :branch_id AND vc.status <> 'CLOSED' AND vc.current_stage <> 'CLOSED' AND COALESCE(cr.is_closed, 0) = 0 LIMIT 1"
+                . "WHERE vc.job_id = :job_id AND pd.pda_no = :invoice_no"
+                . ($isJktFinanceBypass ? '' : ' AND i.created_by_branch_id = :branch_id')
+                . " AND vc.status <> 'CLOSED' AND vc.current_stage <> 'CLOSED' AND COALESCE(cr.is_closed, 0) = 0 LIMIT 1"
             );
         }
-        $invoiceQuery->execute(['job_id' => $jobId, 'invoice_no' => $invoiceNo, 'branch_id' => $branchId]);
+        $invoiceQuery->execute($isJktFinanceBypass
+            ? ['job_id' => $jobId, 'invoice_no' => $invoiceNo]
+            : ['job_id' => $jobId, 'invoice_no' => $invoiceNo, 'branch_id' => $branchId]);
         $invoice = $invoiceQuery->fetch();
         if (!$invoice) jsonResponse(['error' => 'Invoice FDA/FPDA tidak ditemukan atau Job sudah ditutup'], 409);
         $exchangeRate = (float) ($invoice['exchange_rate'] ?? 0);

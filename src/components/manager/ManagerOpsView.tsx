@@ -131,6 +131,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
       draft.itemDraft.pph23Applied,
       draft.itemDraft.globalVatApplied,
       { createdAt: draft.createdAt, eta: draft.eta, etd: draft.etd, etaRemarks: draft.etaRemarks, etdRemarks: draft.etdRemarks },
+      draft.itemDraft.discountAmount,
     );
     return (
       <div className="space-y-3">
@@ -929,7 +930,7 @@ export const ManagerOpsView: React.FC<ManagerOpsViewProps> = ({
                       {expandedPdaApprovalJobId === draft.jobId && (
                         <iframe
                           title={`Pratinjau PDA ${draft.pdaNo}`}
-                          srcDoc={createPdaPreviewHtml(job, draft.items, draft.currency, draft.pdaNo, draft.pdaType, draft.itemDraft.pph23Applied, draft.itemDraft.globalVatApplied, { createdAt: draft.createdAt, eta: draft.eta, etd: draft.etd, etaRemarks: draft.etaRemarks, etdRemarks: draft.etdRemarks })}
+                          srcDoc={createPdaPreviewHtml(job, draft.items, draft.currency, draft.pdaNo, draft.pdaType, draft.itemDraft.pph23Applied, draft.itemDraft.globalVatApplied, { createdAt: draft.createdAt, eta: draft.eta, etd: draft.etd, etaRemarks: draft.etaRemarks, etdRemarks: draft.etdRemarks }, draft.itemDraft.discountAmount)}
                           className="h-[72vh] min-h-[520px] w-full rounded border border-slate-700 bg-white"
                         />
                       )}

@@ -24,6 +24,12 @@ function validBranchSelection(?string $branchId, ?string $branchCode): bool
     return is_string($code) && branchNameKey($code) === branchNameKey($branchCode);
 }
 
+function isJktFinanceActor(array $actor): bool
+{
+    return ($actor['role'] ?? '') === 'FINANCE'
+        && validBranchSelection((string) ($actor['branch_id'] ?? ''), 'JKT');
+}
+
 function normalizedManagerApproval(array $approval): array
 {
     $normalized = [
@@ -402,6 +408,10 @@ function validatePaymentVoucherBranches(array $newState, array $oldState, array 
     foreach ($newState['bankAccounts'] ?? [] as $account) {
         if (isset($account['id'])) $accounts[(string) $account['id']] = $account;
     }
+    $jobs = [];
+    foreach ($newState['jobCalls'] ?? [] as $job) {
+        if (isset($job['jobId'])) $jobs[(string) $job['jobId']] = $job;
+    }
     $actorBranch = branchNameKey((string) ($actor['branch_name'] ?? $actor['branch'] ?? ''));
     $actorBranchId = branchIdKey((string) ($actor['branch_id'] ?? ''));
     foreach ($newState['paymentVouchers'] ?? [] as $voucher) {
@@ -422,6 +432,22 @@ function validatePaymentVoucherBranches(array $newState, array $oldState, array 
             }
         } elseif ($branch !== $oldBranch || ($oldBranchId !== '' && branchIdKey($branchId) !== branchIdKey($oldBranchId))) {
             return 'Branch payment request tidak dapat diubah setelah dibuat.';
+        }
+
+        $itemsChanged = $oldVoucher === null
+            || json_encode($voucher['items'] ?? []) !== json_encode($oldVoucher['items'] ?? []);
+        if (($voucher['jobInfo'] ?? '') === 'JOB_VESSEL' && $itemsChanged) {
+            foreach ($voucher['items'] ?? [] as $item) {
+                $jobNumber = trim((string) ($item['jobNumber'] ?? ''));
+                $job = $jobs[$jobNumber] ?? null;
+                if ($job === null) return 'Job vendor pada payment request tidak ditemukan.';
+                $jobBranch = branchNameKey((string) ($job['inquiry']['createdByBranch'] ?? ''));
+                $jobBranchId = branchIdKey((string) ($job['inquiry']['createdByBranchId'] ?? ''));
+                $sameBranch = $branchId !== '' && $jobBranchId !== ''
+                    ? branchIdKey($branchId) === $jobBranchId
+                    : $branch !== '' && $jobBranch !== '' && branchNameKey($branch) === $jobBranch;
+                if (!$sameBranch) return 'Pembayaran vendor harus menggunakan Job dari branch pemilik payment request.';
+            }
         }
 
         if ($oldVoucher !== null && ($actor['role'] ?? '') !== 'ADMIN'
@@ -870,6 +896,7 @@ try {
 
     requireMethod('PUT');
     $actor = requireAuthenticatedUser();
+    $isJktFinanceBypass = isJktFinanceActor($actor);
     if (in_array($actor['role'] ?? '', ['HR_ADMINISTRASI', 'PEKERJA', 'HR_ADMINISTRASI_LGF', 'PEKERJA_LGF'], true)) {
         jsonResponse(['error' => 'Role HR dan Pekerja tidak dapat mengubah state operasional.'], 403);
     }
@@ -1284,15 +1311,18 @@ try {
             $actorBranch = branchNameKey((string) ($actor['branch_name'] ?? $actor['branch'] ?? ''));
             $jobBranchId = branchIdKey((string) ($oldJob['inquiry']['createdByBranchId'] ?? ''));
             $actorBranchId = branchIdKey((string) ($actor['branch_id'] ?? ''));
-            if ($actorBranch !== '' && $jobBranch !== '' && $jobBranch !== $actorBranch
+            $jobBranchMismatch = ($actorBranch !== '' && $jobBranch !== '' && $jobBranch !== $actorBranch)
+                || ($actorBranchId !== '' && $jobBranchId !== '' && $jobBranchId !== $actorBranchId);
+            $jobChanged = json_encode($oldJob) !== json_encode($newJob);
+            $isJktFinanceCrossBranchJob = $jobBranchMismatch && $isJktFinanceBypass;
+            if ($jobChanged && $jobBranchMismatch
                 && in_array($actor['role'], ['SALES', 'MANAGER_OPS', 'FDA', 'FINANCE'], true)
-                && json_encode($oldJob) !== json_encode($newJob)) {
+                && !$isJktFinanceCrossBranchJob) {
                 jsonResponse(['error' => 'Job hanya dapat diproses oleh user pada branch pemiliknya'], 403);
             }
-            if ($actorBranchId !== '' && $jobBranchId !== '' && $jobBranchId !== $actorBranchId
-                && in_array($actor['role'], ['SALES', 'MANAGER_OPS', 'FDA', 'FINANCE'], true)
-                && json_encode($oldJob) !== json_encode($newJob)) {
-                jsonResponse(['error' => 'Job hanya dapat diproses oleh user pada branch pemiliknya'], 403);
+            if ($jobChanged && $isJktFinanceCrossBranchJob
+                && json_encode($oldJob['ap'] ?? []) !== json_encode($newJob['ap'] ?? [])) {
+                jsonResponse(['error' => 'Pembayaran vendor tetap harus diproses oleh branch pemilik Job'], 403);
             }
             $voidFields = ['voidedAt', 'voidedBy', 'voidReason'];
             $voidFieldsChanged = false;

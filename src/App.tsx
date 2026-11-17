@@ -422,10 +422,14 @@ export default function App() {
   };
 
   const currentBranchKey = branchKey(currentUser?.branch);
+  const currentBranchId = currentUser?.branchId || data.branches.find((branch) => branchKey(branch.code) === currentBranchKey)?.id;
+  const isJktFinanceBypass = currentUser?.role === 'FINANCE' && (
+    currentBranchKey === 'jkt'
+    || branchKey(data.branches.find((branch) => branch.id === currentBranchId)?.code) === 'jkt'
+  );
   const jobBranch = (job: JobCall) => job.inquiry?.createdByBranch
     || data.users.find((user) => user.id === job.inquiry?.createdByUserId)?.branch
     || '';
-  const currentBranchId = currentUser?.branchId || data.branches.find((branch) => branchKey(branch.code) === currentBranchKey)?.id;
   const branchJobCalls = data.jobCalls.filter((job) =>
     currentBranchId && job.inquiry?.createdByBranchId
       ? job.inquiry.createdByBranchId === currentBranchId
@@ -435,9 +439,12 @@ export default function App() {
     ? branchJobCalls
     : currentUser?.role === 'FDA'
       ? branchJobCalls.filter((job) => job.managerApproval?.status === 'APPROVED')
-      : currentUser?.role === 'MANAGER_OPS' || currentUser?.role === 'FINANCE'
+      : currentUser?.role === 'MANAGER_OPS'
         ? branchJobCalls
-        : data.jobCalls;
+        : currentUser?.role === 'FINANCE'
+          ? (isJktFinanceBypass ? data.jobCalls : branchJobCalls)
+          : data.jobCalls;
+  const vendorPaymentJobCalls = currentUser?.role === 'FINANCE' ? branchJobCalls : roleVisibleJobCalls;
   const branchPaymentVouchers = (data.paymentVouchers || []).filter((voucher) => {
     const voucherBranch = voucher.branchName || data.users.find((user) => user.id === voucher.requestByUserId)?.branch;
     return currentBranchId && voucher.branchId
@@ -455,11 +462,11 @@ export default function App() {
     ),
   );
   const activeDirectorUsers = data.users.filter((user) => user.role === 'DIRECTOR' && user.status === 'ACTIVE');
-  const branchBankAccounts = (data.bankAccounts || []).filter((account) =>
-    currentBranchId && account.branchId
+  const branchBankAccounts = (data.bankAccounts || []).filter((account) => {
+    return currentBranchId && account.branchId
       ? account.branchId === currentBranchId
-      : branchKey(account.branchName) === currentBranchKey,
-  );
+      : branchKey(account.branchName) === currentBranchKey;
+  });
 
   const currentJob: JobCall =
     roleVisibleJobCalls.find((j) => j.jobId === selectedJobId) ||
@@ -898,7 +905,7 @@ export default function App() {
                 paymentVouchers={branchPaymentVouchers}
                 payer={currentUser?.name || ''}
                 bankAccounts={branchBankAccounts}
-                jobCalls={roleVisibleJobCalls}
+                jobCalls={vendorPaymentJobCalls}
                 directorUsers={activeDirectorUsers}
               />
             )}
@@ -909,14 +916,14 @@ export default function App() {
                 paymentVouchers={branchPaymentVouchers}
                 payer={currentUser?.name || ''}
                 bankAccounts={branchBankAccounts}
-                jobCalls={roleVisibleJobCalls}
+                jobCalls={vendorPaymentJobCalls}
                 directorUsers={activeDirectorUsers}
               />
             )}
 
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_CREATE_VOUCHER' && (
               <PaymentVoucherView
-                jobCalls={roleVisibleJobCalls}
+                jobCalls={vendorPaymentJobCalls}
                 vendorPartners={data.vendorPartners || []}
                 requestBy={currentUser?.name || ''}
                 requestByUserId={currentUser?.id}
@@ -928,7 +935,7 @@ export default function App() {
 
             {currentRole === 'FINANCE' && activeTab === 'FINANCE_EDIT_VOUCHER' && (
               <EditVoucherView
-                jobCalls={roleVisibleJobCalls}
+                jobCalls={vendorPaymentJobCalls}
                 vendorPartners={data.vendorPartners || []}
                 paymentVouchers={currentUserPaymentVouchers}
                 requestBy={currentUser?.name || ''}
