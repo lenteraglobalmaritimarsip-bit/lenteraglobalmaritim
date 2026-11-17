@@ -83,6 +83,12 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const invalidDateRange = Boolean(startDate && endDate && startDate > endDate);
+  const [requestedPaymentDateFrom, setRequestedPaymentDateFrom] = useState('');
+  const [requestedPaymentDateTo, setRequestedPaymentDateTo] = useState('');
+  const [requestedPaymentDateFilter, setRequestedPaymentDateFilter] = useState({ from: '', to: '' });
+  const invalidRequestedPaymentDateRange = Boolean(
+    requestedPaymentDateFrom && requestedPaymentDateTo && requestedPaymentDateFrom > requestedPaymentDateTo,
+  );
 
   const paymentFormVoucher = useMemo(
     () => paymentVouchers.find((voucher) => voucher.id === paymentFormVoucherId) || null,
@@ -649,6 +655,12 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
           .flatMap((voucher) => getPaymentVoucherPaymentEvents(voucher)));
     return rows
       .filter((voucher) => {
+        if (mode === 'INPUT' && (requestedPaymentDateFilter.from || requestedPaymentDateFilter.to)) {
+          const requestedPaymentDate = String(voucher.requestedPaymentDate || '').slice(0, 10);
+          return Boolean(requestedPaymentDate)
+            && (!requestedPaymentDateFilter.from || requestedPaymentDate >= requestedPaymentDateFilter.from)
+            && (!requestedPaymentDateFilter.to || requestedPaymentDate <= requestedPaymentDateFilter.to);
+        }
         if (mode !== 'HISTORY' || (!startDate && !endDate)) return true;
         const paidDate = String(voucher.paidAt || '').slice(0, 10);
         return Boolean(paidDate) && (!startDate || paidDate >= startDate) && (!endDate || paidDate <= endDate);
@@ -663,7 +675,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
         voucher.accountNumber,
         ...voucher.items.flatMap((item) => [item.jobNumber, item.customerName, item.itemService]),
       ].join(' ').toLowerCase().includes(query));
-  }, [paymentVouchers, searchQuery, mode, startDate, endDate, invalidDateRange]);
+  }, [paymentVouchers, searchQuery, mode, startDate, endDate, invalidDateRange, requestedPaymentDateFilter]);
   const pageSize = 10;
   const pageCount = Math.max(1, Math.ceil(vouchers.length / pageSize));
   const currentPage = Math.min(page, pageCount);
@@ -1062,6 +1074,55 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
             className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-9 pr-3 text-xs text-slate-700 placeholder-slate-400 focus:border-slate-400 focus:outline-none"
           />
         </div>
+        {mode === 'INPUT' && (
+          <div className="ml-auto flex flex-wrap items-end gap-3">
+            <div className="grid gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              <span>Requested Payment Date · Dari</span>
+              <DateInput
+                value={requestedPaymentDateFrom}
+                max={requestedPaymentDateTo || undefined}
+                onChange={setRequestedPaymentDateFrom}
+                ariaLabel="tanggal awal requested payment date"
+                inputClassName="h-10 w-full rounded-lg border border-slate-200 px-3 text-xs font-semibold normal-case text-slate-700"
+              />
+            </div>
+            <div className="grid gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              <span>Requested Payment Date · Sampai</span>
+              <DateInput
+                value={requestedPaymentDateTo}
+                min={requestedPaymentDateFrom || undefined}
+                onChange={setRequestedPaymentDateTo}
+                ariaLabel="tanggal akhir requested payment date"
+                inputClassName="h-10 w-full rounded-lg border border-slate-200 px-3 text-xs font-semibold normal-case text-slate-700"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setRequestedPaymentDateFilter({ from: requestedPaymentDateFrom, to: requestedPaymentDateTo });
+                setPage(1);
+                setExpandedId(null);
+              }}
+              disabled={invalidRequestedPaymentDateRange}
+              className="h-10 rounded-lg bg-blue-600 px-4 text-xs font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Filter Tanggal
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setRequestedPaymentDateFrom('');
+                setRequestedPaymentDateTo('');
+                setRequestedPaymentDateFilter({ from: '', to: '' });
+                setPage(1);
+                setExpandedId(null);
+              }}
+              className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-xs font-bold text-slate-600 hover:bg-slate-50"
+            >
+              Reset
+            </button>
+          </div>
+        )}
         {mode === 'HISTORY' && (
           <div className="ml-auto flex flex-wrap items-end gap-3">
             <label className="grid gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">START
@@ -1072,6 +1133,7 @@ export const AccountsPayableView: React.FC<AccountsPayableViewProps> = ({ mode =
             </label>
           </div>
         )}
+        {mode === 'INPUT' && invalidRequestedPaymentDateRange && <p role="alert" className="w-full text-xs font-semibold text-rose-600">Tanggal awal harus sebelum atau sama dengan tanggal akhir.</p>}
         {mode === 'HISTORY' && invalidDateRange && <p role="alert" className="w-full text-xs font-semibold text-rose-600">START harus sebelum atau sama dengan END.</p>}
       </div>
 
